@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{DeclaredStorageShape, SymbolOrdinal, TypeData, TypeId};
 
-use super::cleanup::CleanupShapeResolver;
+use super::cleanup::{CleanupShape, CleanupShapeResolver};
 use crate::{CheckerQueryError, CheckerRequestContext};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -133,18 +133,14 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 substitution,
             } => {
                 if expansion == CleanupExpansion::FullDisposal
-                    && self
-                        .request
-                        .context()
-                        .raw_buffer_element(*definition, *substitution)?
-                        .is_some()
+                    && self.owns_hidden_cleanup(ty, *definition, *substitution)?
                 {
                     let phases = match cleanup {
                         AsyncStorageCleanupRequirement::Cleanup(phases) => phases,
                         AsyncStorageCleanupRequirement::Recovered(_) => return Ok(false),
-                        AsyncStorageCleanupRequirement::None => unreachable!(
-                            "compiler-owned buffer disposal retains its cleanup requirement"
-                        ),
+                        AsyncStorageCleanupRequirement::None => {
+                            unreachable!("compiler-owned disposal retains its cleanup requirement")
+                        }
                     };
 
                     parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
@@ -279,6 +275,22 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         }
 
         Ok(true)
+    }
+
+    fn owns_hidden_cleanup(
+        &self,
+        ty: TypeId,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        Ok(crate::representation::type_representation(self.request, ty)
+            .and_then(CleanupShape::opaque)
+            .is_some()
+            || self
+                .request
+                .context()
+                .raw_buffer_element(definition, substitution)?
+                .is_some())
     }
 
     fn named_cleanup_children(

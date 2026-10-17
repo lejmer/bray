@@ -6,7 +6,8 @@ use bray_ir::{
 use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole};
 use bray_symbols::TypeId;
 
-/// Composes a child into its existing run and moves its result after resumption.
+/// Composes a child into its existing run and consumes its outcome after resumption.
+/// A missing completion type abandons inactive captures without producing a result.
 /// The caller supplies established retention and cancellation state, and transfers
 /// any source initialization guard before handing over the future operand.
 #[expect(
@@ -19,13 +20,14 @@ pub(crate) fn await_frame(
     source: &MirSourceAnchor,
     parent: ProtectedAsyncFrameId,
     frame: MirOperand,
-    completion: TypeId,
+    completion: Option<TypeId>,
     state: &MirFrameState,
     cancellation: MirCleanupEdge,
-) -> Result<MirValueId, MirCapacityError> {
+) -> Result<Option<MirValueId>, MirCapacityError> {
     // Emitted nodes independently retain the same immutable source provenance.
-    let destination =
-        builder.push_storage(source.clone(), MirStorageKind::Temporary, completion)?;
+    let destination = completion
+        .map(|ty| builder.push_storage(source.clone(), MirStorageKind::Temporary, ty))
+        .transpose()?;
 
     let child = MirFrameReference::Erased;
     let abi = builder.target().runtime_abi();
@@ -39,7 +41,6 @@ pub(crate) fn await_frame(
             resume_state: state.state(),
             frame,
             completion: destination,
-            abandoning: false,
         }),
         None,
     )?;
@@ -65,10 +66,8 @@ pub(crate) fn await_frame(
             child,
             completion: destination,
         }),
-        Some(completion),
+        completion,
     )?;
 
-    Ok(value
-        .result()
-        .expect("awaited completion publishes its checked result"))
+    Ok(value.result())
 }

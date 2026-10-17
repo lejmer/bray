@@ -17,8 +17,9 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
-    pub(crate) input_finalizers:
+    pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<CallableInstanceData>>,
+    inactive: BTreeSet<StorageAccessId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -97,7 +98,7 @@ impl Plan {
                 let scope = requirement.owner()?;
                 let access = storage.root_access(requirement.identity())?;
 
-                self.asynchronous_finalizers(access).next().map(|_| scope)
+                self.requires_suspension(access).then_some(scope)
             })
             .collect()
     }
@@ -111,10 +112,14 @@ impl Plan {
             .iter()
             .filter(|plan| {
                 plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
-                    && self.asynchronous_finalizers(plan.access()).next().is_some()
+                    && self.requires_suspension(plan.access())
             })
             .map(|plan| plan.expression())
             .collect()
+    }
+
+    pub(crate) fn requires_suspension(&self, access: StorageAccessId) -> bool {
+        self.inactive.contains(&access) || self.asynchronous_finalizers(access).next().is_some()
     }
 
     pub(crate) fn asynchronous_finalizers(
@@ -139,16 +144,18 @@ impl Plan {
             })
     }
 
-    pub(in crate::analysis) fn select_input_finalizers(
+    pub(in crate::analysis) fn select_input_cleanup(
         &mut self,
         unit: &bray_bound_tree::BoundUnit,
         storage: &StoragePlan,
         graph: &crate::analysis::ControlFlowGraph,
     ) {
-        if !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
-            *slot == TypeAssociatedLifecycleSlot::Finalizer
-                && lifecycle.call.execution == bray_symbols::CallableExecution::Asynchronous
-        }) {
+        if self.inactive.is_empty()
+            && !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
+                *slot == TypeAssociatedLifecycleSlot::Finalizer
+                    && lifecycle.call.execution == bray_symbols::CallableExecution::Asynchronous
+            })
+        {
             return;
         }
 
@@ -177,10 +184,11 @@ impl Plan {
             }
 
             let mut pending = BTreeSet::new();
+            let mut suspends = false;
 
             for input in node.child_expressions() {
                 // Earlier inputs remain owned while later inputs are evaluated.
-                if !pending.is_empty() {
+                if suspends {
                     let walked = bray_bound_tree::walk_bound_tree(unit.tree(), input, |event| {
                         if let bray_bound_tree::BoundWalkEvent::Enter(
                             bray_bound_tree::AnyBoundNodeId::Expression(input),
@@ -203,26 +211,24 @@ impl Plan {
                     );
                 }
 
-                pending.extend(
-                    storage
-                        .expression_plans(input)
-                        .filter(|plan| {
-                            matches!(
-                                storage.effective_purpose(*plan),
-                                bray_bound_tree::StorageAccessPurpose::Move
-                                    | bray_bound_tree::StorageAccessPurpose::ValueTransfer
-                            )
-                        })
-                        .flat_map(|plan| self.asynchronous_finalizers(plan.access())),
-                );
+                for plan in storage.expression_plans(input).filter(|plan| {
+                    matches!(
+                        storage.effective_purpose(*plan),
+                        bray_bound_tree::StorageAccessPurpose::Move
+                            | bray_bound_tree::StorageAccessPurpose::ValueTransfer
+                    )
+                }) {
+                    suspends |= self.requires_suspension(plan.access());
+                    pending.extend(self.asynchronous_finalizers(plan.access()));
+                }
             }
 
-            if !pending.is_empty() && exits.contains(&expression) {
+            if suspends && exits.contains(&expression) {
                 selected.entry(expression).or_default().extend(pending);
             }
         }
 
-        self.input_finalizers = selected;
+        self.input_cleanup_calls = selected;
     }
 
     pub(in crate::analysis) fn represented_paths(
@@ -389,6 +395,12 @@ impl Plan {
                 .into_iter()
                 .map(|(ty, part)| {
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
+
+                    if crate::representation::type_representation(request, ty)
+                        == Some(bray_compiler_known::RepresentationRole::Future)
+                    {
+                        prepared.inactive.insert(access);
+                    }
 
                     let source_lifecycle = match request.semantic_values().type_data(ty).as_ref() {
                         TypeData::Named { definition, substitution } => request.context()

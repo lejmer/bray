@@ -196,10 +196,27 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         )
         .unwrap();
 
+    let initialized_at_entry = mir
+        .block(mir.entry())
+        .unwrap()
+        .operations()
+        .iter()
+        .filter_map(|id| match mir.operation(*id).unwrap().kind() {
+            MirOperationKind::Store {
+                kind: bray_ir::MirStoreKind::Initialize,
+                destination,
+                ..
+            } => Some(destination.storage()),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
     let guards = mir
         .storages_with_ids()
         .filter_map(|(id, storage)| {
-            if storage.kind() != &bray_ir::MirStorageKind::Local {
+            if storage.kind() != &bray_ir::MirStorageKind::Local
+                || !initialized_at_entry.contains(&id)
+            {
                 return None;
             }
 
@@ -240,13 +257,16 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         );
     }
 
-    assert!(
-        mir.blocks()
-            .iter()
-            .filter(|block| block.kind() != bray_ir::MirBlockKind::Ordinary)
-            .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. })),
-        "cleanup array loops must not suspend with an unretained counter: {mir:?}"
-    );
+    for block in mir.blocks().iter().filter(|block| {
+        block.kind() != bray_ir::MirBlockKind::Ordinary
+            && matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. })
+    }) {
+        assert!(block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                frame: MirOperand::Move(place), completion: None, ..
+            }) if mir.storage(place.storage()).unwrap().kind() == &bray_ir::MirStorageKind::Parameter(2))),
+            "only pending-future disposal may suspend, not the array cleanup loop: {mir:?}");
+    }
 }
 
 #[test]

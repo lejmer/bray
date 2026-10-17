@@ -314,3 +314,42 @@ fn ordinary_async_finalizers_emit_admitted_frame_composition() {
 
     assert!(!generated_artifacts(&backend, &plan).is_empty());
 }
+
+#[test]
+fn inactive_future_cleanup_emits_without_entering_child_body() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        struct Large
+        {
+            values: [u64; 1024];
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+                await release();
+            }
+        }
+
+        async func release() {}
+
+        async func child(pos owner: Owner) -> Large
+        {
+            panic("inactive body entered");
+        }
+
+        async func main()
+        {
+            let mut pending = child(Owner { value = 1 });
+            pending = child(Owner { value = 2 });
+            child(Owner { value = 3 });
+        }
+    "#,
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}

@@ -33,13 +33,13 @@ internal callable ReportConsumer = @abi(c) trusted func(pos pointer: RawPointer<
         trusted native_report_slot_callbacks(pointer = pointer),
     );
 
-trusted internal func consume_pointer() -> RawPointer<u8>
+trusted internal func consume_address() -> usize
     executes(pure, total)
-    uses(layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
     let consumer: ReportConsumer = consume_report;
 
-    return trusted std.memory.reinterpret<u8, ReportConsumer>(
+    return trusted core.target.expose_address<ReportConsumer>(
         trusted std.memory.pointer_from_callable<ReportConsumer>(consumer)
     );
 }
@@ -105,7 +105,7 @@ trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessa
 {
     let mut callback: PanicMessageRelease? = none;
 
-    if !std.memory.is_null<u8>(primary.release_message)
+    if primary.release_message != 0
     {
         let pointer: RawPointer<PanicMessageRelease> = trusted native_release_address(primary);
 
@@ -122,7 +122,7 @@ trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageC
 {
     let mut callback: PanicMessageCopy? = none;
 
-    if !std.memory.is_null<u8>(primary.copy_message)
+    if primary.copy_message != 0
     {
         let pointer: RawPointer<PanicMessageCopy> = trusted native_copy_address(primary);
 
@@ -133,26 +133,22 @@ trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageC
 }
 
 trusted internal func native_copy_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageCopy>
-    requires(trusted native_primary_callbacks(primary = primary), !std.memory.is_null<u8>(primary.copy_message))
+    requires(trusted native_primary_callbacks(primary = primary), primary.copy_message != 0)
     ensures(trusted core.memory.callable_address_valid<PanicMessageCopy>(pointer = result))
     uses(intrinsic)
 {
-    return trusted core.target.from_exposed_address<PanicMessageCopy>(
-        address = trusted core.target.expose_address<u8>(primary.copy_message),
-    );
+    return trusted core.target.from_exposed_address<PanicMessageCopy>(address = primary.copy_message);
 }
 
 trusted internal func native_release_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageRelease>
-    requires(trusted native_primary_callbacks(primary = primary), !std.memory.is_null<u8>(primary.release_message))
+    requires(trusted native_primary_callbacks(primary = primary), primary.release_message != 0)
     ensures(trusted core.memory.callable_address_valid<PanicMessageRelease>(pointer = result))
     uses(intrinsic)
 {
     // The native protocol supplies exact callback identity and keeps its provider
     // alive through consumption. This projection copies code-address bits without
     // borrowing the C header that carries them.
-    return trusted core.target.from_exposed_address<PanicMessageRelease>(
-        address = trusted core.target.expose_address<u8>(primary.release_message),
-    );
+    return trusted core.target.from_exposed_address<PanicMessageRelease>(address = primary.release_message);
 }
 
 trusted internal func release_primary(

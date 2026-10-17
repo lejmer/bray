@@ -124,7 +124,7 @@ impl Lowerer<'_> {
                         let awaited = lowerer.lower_awaited_frame(
                             BoundExecutionSite::ScopedEnter(expression),
                             value,
-                            result,
+                            Some(result),
                             current,
                             Self::retained_source(&source),
                         )?;
@@ -321,7 +321,7 @@ impl Lowerer<'_> {
 
                 if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
                     let awaited = lowerer.lower_awaited_frame(
-                        BoundExecutionSite::ScopedExit(expression), completion, result, block,
+                        BoundExecutionSite::ScopedExit(expression), completion, Some(result), block,
                         Self::retained_source(source),
                     )?;
 

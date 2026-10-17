@@ -1657,3 +1657,84 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
         "ordinary local cleanup remains independent"
     );
 }
+
+#[test]
+fn inactive_future_cleanup_composes_without_result_storage() {
+    for body in [
+        "let pending = child();",
+        "child();",
+        "let mut pending = child(); pending = child();",
+        "let pending = child(); if choice { return; }",
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            module app;
+            struct Large
+            {{
+                values: [u64; 1024];
+            }}
+
+            extern async func child() -> Large;
+
+            async func caller(pos choice: bool)
+            {{
+                {body}
+            }}
+        "#
+        ));
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let checked = compilation.async_analysis(key.clone()).unwrap();
+
+        assert!(
+            checked
+                .value()
+                .suspensions()
+                .iter()
+                .any(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup),
+            "inactive ownership end: {body}"
+        );
+
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.is_valid(), "inactive ownership end: {body}");
+
+        let mut composed = 0;
+        let mut committed = 0;
+
+        for operation in mir.operations() {
+            match operation.kind() {
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                    completion,
+                    ..
+                }) => {
+                    assert!(
+                        completion.is_none(),
+                        "discarded future has no result destination"
+                    );
+
+                    composed += 1;
+                }
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion {
+                    completion,
+                    ..
+                }) => {
+                    assert!(completion.is_none());
+                    assert!(operation.result().is_none());
+                    committed += 1;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(composed > 0, "inactive ownership end: {body}");
+        assert_eq!(composed, committed);
+    }
+}

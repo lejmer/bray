@@ -1861,12 +1861,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 child: self.frame_reference()?,
                 resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                 frame: self.operand()?,
-                completion: self.storage_id()?,
-                abandoning: read_bool(&mut self.reader)?,
+                completion: read_optional(&mut self.reader, read_u32)?
+                    .map(|slot| MirStorageId::from_slot(self.unit, slot)),
             }),
             4 => Ok(Operation::CommitAwaitedCompletion {
                 child: self.frame_reference()?,
-                completion: self.storage_id()?,
+                completion: read_optional(&mut self.reader, read_u32)?
+                    .map(|slot| MirStorageId::from_slot(self.unit, slot)),
             }),
             5 => Ok(Operation::StartTask {
                 frame: self.frame_reference()?,

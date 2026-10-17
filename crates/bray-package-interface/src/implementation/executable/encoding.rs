@@ -2336,20 +2336,24 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 resume_state,
                 frame,
                 completion,
-                abandoning,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
                 self.frame_reference(*child);
                 self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
-                self.wire.write_u32(completion.slot());
-                write_bool(&mut self.wire, *abandoning);
+
+                write_optional(&mut self.wire, *completion, |wire, storage| {
+                    wire.write_u32(storage.slot())
+                });
             }
             Operation::CommitAwaitedCompletion { child, completion } => {
                 self.wire.write_u32(4);
                 self.frame_reference(*child);
-                self.wire.write_u32(completion.slot());
+
+                write_optional(&mut self.wire, *completion, |wire, storage| {
+                    wire.write_u32(storage.slot())
+                });
             }
             Operation::StartTask {
                 frame,

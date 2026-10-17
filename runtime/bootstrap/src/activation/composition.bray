@@ -5,17 +5,22 @@ using std.memory;
 
 // The current run exclusively dispatches this parent and retains this exact
 // inactive token slot. The admission callback checks the combined requirements
-// before either owner changes. No callback
-// can consume either owner before this call returns. Failure preserves both.
-// Destination is a distinct, uninitialized, correctly aligned parent-frame slot
-// large enough for this exact child result. The parent retains it until the
-// transferred outcome is consumed before its next cancellation checkpoint.
+// before either owner changes. No callback can consume either owner before this
+// call returns. Failure preserves both.
+//
+// Ordinary composition requires a distinct, uninitialized, correctly aligned
+// parent-frame destination large enough for this exact child result. The parent
+// retains it until the transferred outcome is consumed before cancellation.
+//
+// Abandonment instead requires destination zero. It enters capture cleanup
+// before body execution and cannot transfer a result into the parent.
 trusted internal predicate authorized(
     parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
     token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
     state: u32,
     origin: u64,
     destination: usize,
+    abandoning: u8,
 );
 
 @abi(c)
@@ -30,7 +35,14 @@ trusted internal func compose(
 ) -> usize
     requires(
         abandoning <= 1,
-        trusted authorized(parent = parent, token = token, state = state, origin = origin, destination = destination),
+        trusted authorized(
+            parent = parent,
+            token = token,
+            state = state,
+            origin = origin,
+            destination = destination,
+            abandoning = abandoning
+        ),
         trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -47,6 +59,7 @@ trusted internal func compose(
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
+        pos abandoning: u8,
     ) -> bray.runtime.bootstrap.activation.Inactive
         requires(
             trusted authorized(
@@ -54,7 +67,8 @@ trusted internal func compose(
                 token = token,
                 state = state,
                 origin = origin,
-                destination = destination
+                destination = destination,
+                abandoning = abandoning
             ),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
         )
@@ -84,6 +98,7 @@ trusted internal func compose(
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
+        pos abandoning: u8,
     ) -> bray.runtime.bootstrap.activation.requirements.Execution?
         requires(
             trusted authorized(
@@ -91,7 +106,8 @@ trusted internal func compose(
                 token = token,
                 state = state,
                 origin = origin,
-                destination = destination
+                destination = destination,
+                abandoning = abandoning
             ),
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -102,7 +118,8 @@ trusted internal func compose(
                 token = token,
                 state = state,
                 origin = origin,
-                destination = destination
+                destination = destination,
+                abandoning = abandoning
             ),
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -130,13 +147,13 @@ trusted internal func compose(
 
     // Query before consuming the child. The source callback has not published
     // suspension yet, so use its explicit continuation rather than header.state.
-    let execution = match consume trusted query(parent, token, state, origin, destination)
+    let execution = match consume trusted query(parent, token, state, origin, destination, abandoning)
     {
         case ?execution { yield execution; }
         case none { return 0; }
     };
 
-    let value = trusted inspect(parent, token, state, origin, destination);
+    let value = trusted inspect(parent, token, state, origin, destination, abandoning);
 
     // Inactive abandonment enters cleanup directly. It cannot acquire authority
     // from the source body's requirements or execute that body to discover work.

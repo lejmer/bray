@@ -252,6 +252,38 @@ impl CleanupOutcome {
         Ok(continuation)
     }
 
+    /// Retains failures from inactive capture cleanup without propagating its expected cancellation.
+    pub(crate) fn check_abandonment(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<MirBlockId, MirCapacityError> {
+        let kind = builder.block_kind(block);
+        let panicked = builder.push_block(source.clone(), kind)?;
+        let continuation = builder.push_block(source.clone(), kind)?;
+
+        let (completed, _) = check_call_outcome(
+            builder,
+            block,
+            source,
+            panicked,
+            continuation,
+            self.incoming_report.clone(),
+            None,
+        )?;
+
+        builder.set_terminator(
+            completed,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+        );
+
+        self.retain_panic(builder, panicked, source, continuation)?;
+
+        Ok(continuation)
+    }
+
     /// Returns the successful result path and the continuation shared with retained incidents.
     pub(crate) fn check_completion(
         &self,

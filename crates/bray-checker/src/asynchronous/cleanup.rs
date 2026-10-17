@@ -152,6 +152,14 @@ impl CleanupShape {
         recovered: false,
     };
 
+    pub(super) fn opaque(role: RepresentationRole) -> Option<Self> {
+        match role {
+            RepresentationRole::Future | RepresentationRole::Task => Some(Self::BOTH),
+            RepresentationRole::String | RepresentationRole::PanicReport => Some(Self::LIFECYCLE),
+            _ => None,
+        }
+    }
+
     fn merge(&mut self, other: Self) {
         self.cancellation |= other.cancellation;
         self.lifecycle |= other.lifecycle;
@@ -302,11 +310,11 @@ where
                 .symbol_representation(definition),
         };
 
+        if let Some(shape) = role.and_then(CleanupShape::opaque) {
+            return Ok(shape);
+        }
+
         match role {
-            Some(RepresentationRole::Future | RepresentationRole::Task) => Ok(CleanupShape::BOTH),
-            Some(RepresentationRole::String | RepresentationRole::PanicReport) => {
-                Ok(CleanupShape::LIFECYCLE)
-            }
             Some(
                 RepresentationRole::Result
                 | RepresentationRole::RunResult

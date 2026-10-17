@@ -20,8 +20,8 @@ internal struct ReportPrimary
     mut primary_present: u32;
     mut message: usize;
     mut message_length: usize;
-    mut copy_message: RawPointer<u8>;
-    mut release_message: RawPointer<u8>;
+    mut copy_message: usize;
+    mut release_message: usize;
 }
 
 @copy
@@ -119,28 +119,28 @@ internal func empty_records() -> ReportRecords
 
 trusted internal func serialized_primary(pos primary: StoredReportPrimary) -> ReportPrimary
     ensures(trusted native_primary_callbacks(primary = &result))
-    uses(layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
-    let copy: RawPointer<u8> = match primary.copy_message
+    let copy: usize = match primary.copy_message
     {
         case ?callback
         {
-            yield trusted std.memory.reinterpret<u8, PanicMessageCopy>(
+            yield trusted core.target.expose_address<PanicMessageCopy>(
                 trusted std.memory.pointer_from_callable<PanicMessageCopy>(callback)
             );
         }
-        case none { yield std.memory.null<u8>(); }
+        case none { yield 0; }
     };
 
-    let release: RawPointer<u8> = match primary.release_message
+    let release: usize = match primary.release_message
     {
         case ?callback
         {
-            yield trusted std.memory.reinterpret<u8, PanicMessageRelease>(
+            yield trusted core.target.expose_address<PanicMessageRelease>(
                 trusted std.memory.pointer_from_callable<PanicMessageRelease>(callback)
             );
         }
-        case none { yield std.memory.null<u8>(); }
+        case none { yield 0; }
     };
 
     return

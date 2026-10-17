@@ -70,7 +70,7 @@ impl Lowerer<'_> {
         let awaited = self.lower_awaited_frame(
             id.into(),
             frame,
-            completion,
+            Some(completion),
             current,
             Self::retained_source(&source),
         )?;
@@ -112,7 +112,7 @@ impl Lowerer<'_> {
         &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         frame_value: MirOperand,
-        completion: bray_symbols::TypeId,
+        completion: Option<bray_symbols::TypeId>,
         current: MirBlockId,
         source: MirSourceAnchor,
     ) -> Result<LoweredExpression, LoweringError> {
@@ -200,7 +200,7 @@ impl Lowerer<'_> {
 
         Ok(LoweredExpression::continuing(
             resume,
-            Some(MirOperand::Value(value)),
+            value.map(MirOperand::Value),
             source,
         ))
     }

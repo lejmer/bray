@@ -244,7 +244,10 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
             | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(
                 MirAsyncOperation::CreateFrame { .. }
-                    | MirAsyncOperation::CommitAwaitedCompletion { .. }
+                    | MirAsyncOperation::CommitAwaitedCompletion {
+                        completion: Some(_),
+                        ..
+                    }
                     | MirAsyncOperation::StartTask { .. }
                     | MirAsyncOperation::ObserveFrameCancellation
                     | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
@@ -274,6 +277,10 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                 MirAsyncOperation::MoveInactiveFrame { .. }
                     | MirAsyncOperation::ResumeFrame { .. }
                     | MirAsyncOperation::ComposeAwaitedFrame { .. }
+                    | MirAsyncOperation::CommitAwaitedCompletion {
+                        completion: None,
+                        ..
+                    }
                     | MirAsyncOperation::RequestTaskCancellation { .. }
                     | MirAsyncOperation::PublishTerminalState { .. }
                     | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
@@ -853,18 +860,23 @@ fn validate_async_operation(
             completion,
             ..
         } => {
-            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+            if let Some(completion) = completion {
+                validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+            }
+
             validate_current_frame(unit, *parent)?;
             validate_frame_state(unit, *resume_state)?;
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
         MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
-            validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+            if let Some(completion) = completion {
+                validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
 
-            let result = unit.operation(operation_id)?.result()?;
+                let result = unit.operation(operation_id)?.result()?;
 
-            if unit.value(result)?.ty() != unit.storage(*completion)?.ty() {
-                return None;
+                if unit.value(result)?.ty() != unit.storage(*completion)?.ty() {
+                    return None;
+                }
             }
         }
         MirAsyncOperation::StartTask {

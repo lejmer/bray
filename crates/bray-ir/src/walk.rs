@@ -386,7 +386,11 @@ pub(crate) fn for_each_operation_storage(
         MirOperationKind::Async(
             MirAsyncOperation::ComposeAwaitedFrame { completion, .. }
             | MirAsyncOperation::CommitAwaitedCompletion { completion, .. },
-        ) => visit(*completion),
+        ) => {
+            if let Some(completion) = completion {
+                visit(*completion);
+            }
+        }
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Convert { .. }

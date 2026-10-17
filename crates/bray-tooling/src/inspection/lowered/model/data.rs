@@ -1468,10 +1468,13 @@ fn async_operation(
             resume_state,
             frame,
             completion,
-            abandoning,
         } => {
-            parts.attribute("abandoning", *abandoning);
-            parts.attribute("completion_storage", completion.slot());
+            parts.attribute("abandoning", completion.is_none());
+
+            if let Some(completion) = completion {
+                parts.attribute("completion_storage", completion.slot());
+            }
+
             parts.attribute("parent_frame", digest_text(parent.digest()));
             parts.attribute("resume_state", resume_state.raw());
             frame_reference("child_frame", *child, parts);
@@ -1480,7 +1483,10 @@ fn async_operation(
             "compose_awaited_frame"
         }
         MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
-            parts.attribute("completion_storage", completion.slot());
+            if let Some(completion) = completion {
+                parts.attribute("completion_storage", completion.slot());
+            }
+
             frame_reference("child_frame", *child, parts);
 
             "commit_awaited_completion"

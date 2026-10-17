@@ -519,16 +519,16 @@ pub enum MirAsyncOperation {
         /// Inactive child frame value.
         frame: MirOperand,
         /// Admitted parent storage receiving the child result before resumption.
-        completion: MirStorageId,
-        /// Enter inactive capture cleanup without executing the child body.
-        abandoning: bool,
+        /// Absence abandons the inactive child and resolves only its captures.
+        completion: Option<MirStorageId>,
     },
     /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
         /// Static or existential child frame representation.
         child: MirFrameReference,
         /// The same destination supplied when composing this child.
-        completion: MirStorageId,
+        /// Absence consumes only the abandoned child's cleanup outcome.
+        completion: Option<MirStorageId>,
     },
     /// Transfer an inactive frame into a newly started task.
     StartTask {

@@ -572,3 +572,73 @@ counts and denied-allocation acceptance remain pending the incident-transfer int
 
 Rustfmt, mutating `cargo xtask style`, explicit `cargo xtask format` and whitespace checks pass
 for this checkpoint (`bra-505-final-destruction-format.log`). Independent PR review remains next.
+
+
+Destruction checkpoint `37ac358a` is pushed to PR #612. Independent review
+[5560298009](https://github.com/lejmer/bray/pull/612#pullrequestreview-5560298009)
+found no actionable defects. Its commit and posted review were verified.
+
+The next coherent batch connects inactive capture cleanup to the existing parent
+continuation. MIR absence of completion storage represents abandonment, replacing
+its redundant mode flag and avoiding a result-sized parent slot. Checked cleanup
+selection must include inactive Future ownership ends even when no declared
+finalizer contributes a callee. The native path already selects cleanup admission,
+marks the child abandoned before dispatch, and never invokes its result mover.
+A suspended lifecycle callback changes CLEANUP to RESOLVING before the next dispatch,
+so its new cleanup child is resumed normally. Expected child cancellation is consumed
+as abandonment completion, while cleanup panics retain the enclosing outcome.
+Remaining synchronous/generated helper integration and retained incidents stay open.
+
+The first async-disposal batch exposed full cleanup expansion inspecting the source
+fields of protected Future/Task/report/string representations. Full expansion now
+retains their compiler-owned cleanup operation, as it already does for RawBuffer.
+The next batch passes 30 of 32 lifecycle/source/LLVM tests. The failures are the
+known CleanupIncidentTransfer acceptance and synchronous disposal incorrectly
+entering the protected-frame-only path. Source composition is now selected only
+for protected callers. Synchronous callers retain the selected lifecycle operation,
+whose native inactive disposal remains unfinished as recorded above. This fixes the
+lowering regression without claiming synchronous disposal acceptance. The new async
+cases pass for locals, discarded expressions, replacement and early returns.
+
+The final focused batch passes 55 compiler, source/imported analysis and native-emission
+tests (`bra-505-inactive-final-tests.log`). IR, lowering and interface suites pass 44,
+39 and 191 tests. The pending CleanupIncidentTransfer case was already observed failing
+and excluded from this bounded rerun, not from final acceptance. The array-retention
+regression now identifies actual entry-initialized flags rather than every Boolean local,
+and permits only pending-future disposal to suspend outside the ordinary body. Frame
+layout already retains outcome locals and temporaries, independent of the descriptor's
+initialized-source-storage list. Protected opaque cleanup classification is shared with
+shape selection. No runtime owner history or result-sized abandonment slot is introduced.
+
+
+The executable import test now decodes every exported template through the actual
+implementation artifact and verifies abandonment survives serialization and remapping.
+The bootstrap contract suite passed 55 tests and found one failure in report callback
+witness preservation. Tracing identified raw byte pointers used for native code addresses:
+ordinary data writes conservatively invalidated their possible referents. Report transport
+now stores those code addresses as usize, as other native address protocols already do.
+Reconstruction still requires the exact native producer predicate and nonzero address;
+field mutation and reconstruction from another report do not preserve that authority.
+The native pointer-sized transport is unchanged. No new compiler preservation rule,
+language feature, runtime allocation, or ownership metadata was introduced.
+
+The focused correction passes the full production storage-effects audit, positive and
+negative callback-authority cases, callback field-type rejection, and executable MIR
+round-trip (four tests, `bra-505-callback-address-tests.log`). Temporary trace instrumentation
+was removed. Native execution and complete stack acceptance remain pending.
+
+Checkpoint audit matrix: cleanup shape and suspension selection share the existing
+selected plan; source disposal reuses awaited composition and outcome handling; MIR
+visitation, remapping, validation, serialization and tooling handle absent result storage;
+LLVM emits a zero abandonment destination and no result load; native composition contracts
+include the mode; native report transport keeps code-address authority at reconstruction.
+Repo-wide operation-name, representation-role and callback-field searches covered sibling
+consumers. No old abandonment Boolean remains alongside optional completion storage.
+Synchronous Future disposal, generated async helper integration and retained typed incidents
+remain explicit issue work, not claims of this checkpoint.
+
+The checkpoint delta is 162 net lines in production files (including inline test edits),
+346 in dedicated tests and 64 in this temporary record before this note. Growth
+buys checked inactive-disposal suspension and portable optional result storage; it removes
+the redundant mode representation and does not create a second execution path. Rustfmt,
+mutating style, Bray format and whitespace checks pass.

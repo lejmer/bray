@@ -2073,12 +2073,7 @@ mod tests {
 
                 let denial = crate::outgoing::tests::reject_admission();
 
-                super::bray_runtime_awaited_frame_composition(
-                    child,
-                    1,
-                    super::super::fixtures::destination(),
-                    1,
-                );
+                super::bray_runtime_awaited_frame_composition(child, 1, 0, 1);
 
                 drop(denial);
                 *progress = bray_runtime_suspension_registration(1);

@@ -289,10 +289,10 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
             frame, completion, ..
         } => {
             frame.remap_local_ids(mappings);
-            *completion = mappings.storage(*completion);
+            *completion = completion.map(|storage| mappings.storage(storage));
         }
         MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
-            *completion = mappings.storage(*completion);
+            *completion = completion.map(|storage| mappings.storage(storage));
         }
         MirAsyncOperation::StartTask { value, .. } => value.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }

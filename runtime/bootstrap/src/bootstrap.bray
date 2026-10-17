@@ -38,13 +38,15 @@ internal struct PanicReportData
     mut primary_present: u32;
     mut message: usize;
     mut message_length: usize;
-    mut copy_message: RawPointer<u8>;
-    mut release_message: RawPointer<u8>;
+    // Native callback addresses identify retained code, not writable byte storage.
+    // Reconstructing a callable still requires the native producer witness.
+    mut copy_message: usize;
+    mut release_message: usize;
     mut outgoing_head: usize;
     mut outgoing_tail: usize;
     mut outgoing_count: usize;
     mut reserved: usize;
-    mut consumer: RawPointer<u8>;
+    mut consumer: usize;
 }
 
 internal static CONSTRUCTED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);

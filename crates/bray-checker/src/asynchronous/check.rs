@@ -321,7 +321,7 @@ fn cleanup_deferred_calls(
     cleanup: &crate::analysis::guarantee::CleanupPlan,
 ) -> BTreeMap<bray_bound_tree::AnyBoundNodeId, BTreeSet<BodyBehaviorCall>> {
     let mut calls = cleanup
-        .input_finalizers
+        .input_cleanup_calls
         .iter()
         .map(|(expression, callees)| {
             (
@@ -355,8 +355,14 @@ fn cleanup_deferred_calls(
         .map(|plan| (plan.expression().into(), plan.access()));
 
     for (exit, access) in scope_accesses.chain(replacement_accesses) {
+        if !cleanup.requires_suspension(access) {
+            continue;
+        }
+
+        let selected = calls.entry(exit).or_default();
+
         for callable in cleanup.asynchronous_finalizers(access) {
-            calls.entry(exit).or_default().insert(BodyBehaviorCall::new(
+            selected.insert(BodyBehaviorCall::new(
                 BoundCallableTarget::Declaration(callable),
                 BodyBehaviorPhase::DeferredExecution,
             ));

@@ -1372,3 +1372,147 @@ fn imported_async_finalizers_compose_in_the_consuming_frame() {
         );
     }
 }
+
+#[test]
+fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value
+        {
+            count: u32;
+        }
+
+        async func make() -> Value
+        {
+            return Value { count = 3 };
+        }
+
+        async func discard()
+        {
+            let pending = make();
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        async func root()
+        {
+            let pending = example.package.api.make();
+            await example.package.api.discard();
+        }
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let lowered = consumer
+        .lowered_unit(source_function_body_key(&consumer, "root"))
+        .unwrap();
+
+    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+    assert!(mir.is_valid());
+
+    assert!(mir.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+            completion: None,
+            ..
+        })
+    )));
+
+    assert!(mir.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+            completion: Some(_),
+            ..
+        })
+    )));
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+    let mut abandoned = 0;
+
+    for template in bundle.executable_templates() {
+        let function = skeleton
+            .functions()
+            .iter()
+            .find(|function| {
+                function
+                    .imported_semantic_key()
+                    .is_some_and(|key| key.symbol() == template.owner())
+            })
+            .unwrap();
+
+        let symbol = skeleton
+            .imported_semantic_address(function.id().into())
+            .unwrap();
+
+        let address =
+            crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
+
+        let decoded = consumer
+            .imported_executable_template_with_cancellation(
+                address,
+                &crate::CancellationToken::new(),
+            )
+            .unwrap();
+
+        assert!(
+            !decoded.diagnostics().has_errors(),
+            "{:?}",
+            decoded.diagnostics()
+        );
+
+        let mir = decoded.value().as_deref().unwrap();
+
+        assert!(mir.is_valid());
+
+        abandoned += mir
+            .operations()
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                        completion: None,
+                        ..
+                    })
+                )
+            })
+            .count();
+    }
+
+    assert!(
+        abandoned > 0,
+        "imported executable templates retain inactive disposal"
+    );
+}

@@ -507,7 +507,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 resume_state,
                 frame,
                 completion,
-                abandoning,
                 ..
             } => {
                 let frame = self.native_inactive_frame(frame)?;
@@ -523,19 +522,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .i32_type()
                     .const_int(u64::from(resume_state.raw()), false);
 
-                let destination = self.storage(*completion)?;
+                let address = match completion {
+                    Some(completion) => {
+                        let destination = self.storage(*completion)?;
 
-                let address = llvm(self.builder.build_ptr_to_int(
-                    destination,
-                    self.pointer_integer_type(),
-                    "awaited.destination",
-                ))?;
+                        llvm(self.builder.build_ptr_to_int(
+                            destination,
+                            self.pointer_integer_type(),
+                            "awaited.destination",
+                        ))?
+                    }
+                    None => self.pointer_integer_type().const_zero(),
+                };
 
                 let abandoning = self
                     .types
                     .context()
                     .i8_type()
-                    .const_int(u64::from(*abandoning), false);
+                    .const_int(u64::from(completion.is_none()), false);
 
                 self.invoke_native_runtime(
                     runtime,
@@ -562,6 +566,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_native_runtime(runtime, &[header.into(), outcome.into()])?;
 
                 self.set_pending_call_context(outcome)?;
+
+                let Some(completion) = completion else {
+                    return Ok(None);
+                };
 
                 let outcome_type =
                     crate::native::run_outcome_type(self.types.context(), self.request.target());

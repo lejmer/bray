@@ -8,7 +8,15 @@ use crate::{Compilation, CompilationRequest};
 fn production_report_consumers_check_their_callback_protocol() {
     let compilation = production_host_compilation("module app;");
 
-    let sources = ["dispose", "begin", "number", "consume_segment", "install"].map(|name| {
+    let sources = [
+        "dispose",
+        "begin",
+        "number",
+        "consume_segment",
+        "install",
+        "compose",
+    ]
+    .map(|name| {
         source_function_body_key(&compilation, name)
             .source()
             .syntax()
@@ -27,6 +35,60 @@ fn production_report_consumers_check_their_callback_protocol() {
         .collect::<Vec<_>>();
 
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
+    for (body, valid) in [
+        (
+            "let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            true,
+        ),
+        (
+            "other.message_length = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            true,
+        ),
+        (
+            "primary.release_message = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            false,
+        ),
+        (
+            "let mut forged = trusted bray.runtime.bootstrap.empty_primary(); forged.release_message = primary.release_message; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&forged);",
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+                pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+            )
+                requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+            {{
+                {body}
+            }}
+        "#,
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }
 
 #[test]
@@ -2762,7 +2824,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted bray.runtime.bootstrap.activation.composition.authorized(
-                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}
+                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}, abandoning = {abandoning}
                     ),
                 )
             {{

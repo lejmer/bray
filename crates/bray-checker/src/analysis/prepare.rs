@@ -122,12 +122,12 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             }
         };
 
-    cleanup.select_input_finalizers(request.unit(), storage, &graph);
+    cleanup.select_input_cleanup(request.unit(), storage, &graph);
 
     graph.select_cleanup_suspensions(
         &cleanup.asynchronous_scopes(storage),
         &cleanup.asynchronous_replacements(storage),
-        &cleanup.input_finalizers,
+        &cleanup.input_cleanup_calls,
     );
 
     let Some(values) =

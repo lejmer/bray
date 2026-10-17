@@ -106,6 +106,15 @@ impl Lowerer<'_> {
         let completed = completed || self.input.type_finalizer_is_complete(owner);
 
         if release.is_none()
+            && phase == MirCleanupPhase::LifecycleResolution
+            && self.input.unit_kind().protected_frame().is_some()
+            && self.type_representation(owner)
+                == Some(bray_compiler_known::RepresentationRole::Future)
+        {
+            return self.push_inactive_cleanup(block, source, place);
+        }
+
+        if release.is_none()
             && !completed
             && phase == MirCleanupPhase::LifecycleResolution
             && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
@@ -139,6 +148,45 @@ impl Lowerer<'_> {
             Ok(self
                 .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
                 .0)
+        }
+    }
+
+    fn push_inactive_cleanup(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+    ) -> Result<MirBlockId, LoweringError> {
+        let occurrence = self
+            .cleanup_occurrence
+            .expect("inactive capture cleanup retains its ownership-end occurrence");
+
+        let local = self.cleanup_outcome.is_none();
+
+        let outcome = match &self.cleanup_outcome {
+            // Nested resolution shares the enclosing outcome's immutable storage paths.
+            Some(outcome) => outcome.clone(),
+            None => self.create_cleanup_outcome(block, source)?,
+        };
+
+        let awaited = self.lower_awaited_frame(
+            occurrence,
+            MirOperand::Move(place),
+            None,
+            block,
+            Self::retained_source(source),
+        )?;
+
+        let block = awaited
+            .block
+            .expect("inactive capture cleanup resumes its enclosing owner");
+
+        let block = outcome.check_abandonment(&mut self.builder, block, source)?;
+
+        if local {
+            self.finish_finalizer_outcome(block, source, &outcome)
+        } else {
+            Ok(block)
         }
     }
 
@@ -189,7 +237,7 @@ impl Lowerer<'_> {
         let awaited = self.lower_awaited_frame(
             occurrence,
             MirOperand::Value(value),
-            callable.result,
+            Some(callable.result),
             block,
             Self::retained_source(source),
         )?;
