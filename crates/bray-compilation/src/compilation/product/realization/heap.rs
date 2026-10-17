@@ -17,7 +17,7 @@ impl Compilation {
     pub(in crate::compilation::product) fn compiler_provided_heap_method(
         &self,
         definition: CallableDefinitionId,
-    ) -> Result<Option<HeapStorageMethod>, CodegenPreparationError> {
+    ) -> Option<HeapStorageMethod> {
         for (name, method) in [
             ("HeapStorageCreate", HeapStorageMethod::Create),
             ("HeapStorageBorrow", HeapStorageMethod::Borrow),
@@ -25,22 +25,19 @@ impl Compilation {
             ("HeapStorageDestroy", HeapStorageMethod::Destroy),
             ("HeapStorageRelease", HeapStorageMethod::Release),
         ] {
-            let key = CompilerKnownDeclarationKey::try_new(name).ok_or_else(|| {
-                ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                    key: name.to_owned(),
-                }
-            })?;
+            let key = CompilerKnownDeclarationKey::try_new(name)
+                .expect("heap storage operation has a valid compiler-known identity");
 
             if self
                 .available_compiler_known_symbols()
                 .declaration_symbol::<TraitCallableFulfillmentSymbolId>(&key)
                 .is_some_and(|symbol| definition.callable_symbol() == symbol.into())
             {
-                return Ok(Some(method));
+                return Some(method);
             }
         }
 
-        Ok(None)
+        None
     }
 
     pub(in crate::compilation::product) fn codegen_heap_method_mir(
@@ -56,7 +53,7 @@ impl Compilation {
         };
 
         let method = self
-            .compiler_provided_heap_method(definition)?
+            .compiler_provided_heap_method(definition)
             .ok_or_else(|| missing(ProductDataKind::CallableFulfillment))?;
 
         let callable = instance
@@ -69,11 +66,8 @@ impl Compilation {
 
         let binding = self.binding_context(cancellation)?;
 
-        let storage_key = CompilerKnownDeclarationKey::try_new("Storage").ok_or_else(|| {
-            ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                key: "Storage".to_owned(),
-            }
-        })?;
+        let storage_key = CompilerKnownDeclarationKey::try_new("Storage")
+            .expect("Storage has a valid compiler-known identity");
 
         let storage_definition = self
             .available_compiler_known_symbols()

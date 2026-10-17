@@ -17,7 +17,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         result_type: bray_symbols::TypeId,
     ) -> Result<Option<bray_ir::MirFrameStateId>, LoweringError> {
-        let Some(phases) = self.input_cleanup_phases(result_type) else {
+        let Some(_) = self.input_cleanup_phases(result_type) else {
             return Ok(None);
         };
 
@@ -26,8 +26,6 @@ impl Lowerer<'_> {
             "completed source frame has no outstanding input temporaries"
         );
 
-        self.completion_cleanup = Some(result_type);
-
         let storage = self.builder.push_storage(
             Self::retained_source(source),
             bray_ir::MirStorageKind::FrameCompletion,
@@ -35,6 +33,11 @@ impl Lowerer<'_> {
         )?;
 
         let place = bray_ir::MirPlace::new(storage, [], result_type);
+
+        self.completion_cleanup = Some(Self::retained_place(&place));
+
+        let occurrence = BoundExecutionSite::Cleanup(self.input.unit().root().into());
+        let previous_occurrence = self.cleanup_occurrence.replace(occurrence);
 
         let entry = self.builder.push_block(
             Self::retained_source(source),
@@ -54,45 +57,7 @@ impl Lowerer<'_> {
             Some(&place),
         )?;
 
-        let broadcast = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::CleanupBroadcast,
-        )?;
-
-        if phases.includes_cancellation() {
-            let (outcome, finish) = self.frame_broadcast_outcome(source)?;
-
-            outcome.begin(&mut self.builder, broadcast, source)?;
-
-            let previous = self.cleanup_outcome.replace(outcome);
-            let failures = self.cleanup_failure_targets.take();
-
-            let (end, _) = self.push_guarded_cleanup(
-                broadcast,
-                source,
-                MirCleanupPhase::TaskCancellation,
-                place,
-                None,
-                None,
-                false,
-                None,
-            )?;
-
-            self.set_terminator(
-                end,
-                Self::retained_source(source),
-                MirTerminatorKind::Goto(MirEdge::new(finish, [])),
-            )?;
-
-            self.cleanup_outcome = previous;
-            self.cleanup_failure_targets = failures;
-        } else {
-            self.set_terminator(
-                broadcast,
-                Self::retained_source(source),
-                MirTerminatorKind::Return(None),
-            )?;
-        }
+        let broadcast = self.frame_broadcast(source, occurrence, false)?;
 
         let state = self.next_frame_state()?;
 
@@ -109,6 +74,7 @@ impl Lowerer<'_> {
         );
 
         self.completion_cleanup = None;
+        self.cleanup_occurrence = previous_occurrence;
 
         Ok(Some(state))
     }
@@ -130,7 +96,7 @@ impl Lowerer<'_> {
             Vec::new()
         };
 
-        let accesses = if initial {
+        let accesses = if initial || self.completion_cleanup.is_some() {
             &[][..]
         } else {
             self.input
@@ -158,7 +124,16 @@ impl Lowerer<'_> {
             .filter(|temporary| temporary.requires_cleanup(MirCleanupPhase::TaskCancellation))
             .peekable();
 
-        if owners.peek().is_none() && temporaries.peek().is_none() {
+        let completion = self
+            .completion_cleanup
+            .as_ref()
+            .filter(|place| {
+                self.input_cleanup_phases(place.ty())
+                    .is_some_and(|phases| phases.includes_cancellation())
+            })
+            .map(Self::retained_place);
+
+        if owners.peek().is_none() && temporaries.peek().is_none() && completion.is_none() {
             self.set_terminator(
                 entry,
                 Self::retained_source(source),
@@ -177,6 +152,21 @@ impl Lowerer<'_> {
         let previous = self.cleanup_outcome.replace(outcome);
         let failures = self.cleanup_failure_targets.take();
         let mut block = entry;
+
+        if let Some(place) = completion {
+            block = self
+                .push_guarded_cleanup(
+                    block,
+                    source,
+                    MirCleanupPhase::TaskCancellation,
+                    place,
+                    None,
+                    None,
+                    false,
+                    None,
+                )?
+                .0;
+        }
 
         for temporary in temporaries {
             block = self.push_input_cleanup_temporary(

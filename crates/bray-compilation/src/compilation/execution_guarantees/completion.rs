@@ -1,4 +1,5 @@
 use bray_binder::SymbolQueryProvider;
+use bray_bound_tree::CompletedFinalizer;
 use bray_checker::{
     ExecutionCallEvidence, ExecutionObligation, ExecutionProperty, FinalizerCompletion,
 };
@@ -9,10 +10,7 @@ use super::imported::ExecutionProofGraph;
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
-pub(in crate::compilation) type CompletedCleanup = std::collections::BTreeSet<(
-    bray_bound_tree::AnyBoundNodeId,
-    bray_bound_tree::StorageAccessId,
-)>;
+pub(in crate::compilation) type CompletedCleanup = std::collections::BTreeSet<CompletedFinalizer>;
 
 impl Compilation {
     pub(in crate::compilation) fn completed_unit_cleanup(
@@ -45,11 +43,22 @@ impl Compilation {
         let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
         let mut diagnostics = prepared.result().diagnostics().clone();
 
-        if !prepared.result().value().has_finalizers() || diagnostics.has_errors() {
+        if prepared.result().value().finalizers().next().is_none() || diagnostics.has_errors() {
             return Ok(bray_diagnostics::DiagnosticResult::new(
                 completed,
                 diagnostics,
             ));
+        }
+
+        for (ty, finalizer) in prepared.result().value().finalizers() {
+            if self.finalizer_is_complete(
+                finalizer.callable,
+                finalizer.result,
+                None,
+                cancellation,
+            )? {
+                completed.insert(CompletedFinalizer::Type(ty));
+            }
         }
 
         // The query publication owns the immutable unit identity independently of its caller.
@@ -151,16 +160,14 @@ impl Compilation {
             }
         }
 
-        completed.extend(
-            whole
-                .into_iter()
-                .filter_map(|(site, complete)| complete.then_some(site)),
-        );
+        completed.extend(whole.into_iter().filter_map(|((exit, access), complete)| {
+            complete.then_some(CompletedFinalizer::Storage { exit, access })
+        }));
 
         for (node, access, normal, cleanup, completion) in outcomes {
             let completion = if completion == FinalizerCompletion::Completed
                 && cleanup.whole
-                && !completed.contains(&(node, access))
+                && !completed.contains(&CompletedFinalizer::Storage { exit: node, access })
             {
                 FinalizerCompletion::Infallible
             } else {
@@ -814,13 +821,39 @@ mod tests {
             let mir = assert_cleanup_selection(&source, completed);
 
             if completed {
-                assert!(
-                    mir.operations().iter().all(|operation| !matches!(
-                        operation.kind(),
-                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
-                    )),
-                    "discharged finalizer must not construct a future: {mir:?}"
-                );
+                let entry = mir.block(mir.entry()).unwrap();
+
+                let bray_ir::MirTerminatorKind::Branch { else_edge, .. } =
+                    entry.terminator().kind()
+                else {
+                    panic!("async body entry checks cancellation before executing");
+                };
+
+                // Deferred entry requirements hold on the executing path. Abandonment
+                // before entry must still resolve captures without those assumptions.
+                let mut pending = vec![else_edge.target()];
+                let mut visited = std::collections::BTreeSet::new();
+
+                while let Some(id) = pending.pop() {
+                    if !visited.insert(id) {
+                        continue;
+                    }
+
+                    let block = mir.block(id).unwrap();
+
+                    assert!(
+                        block.operations().iter().all(|id| !matches!(
+                            mir.operation(*id).unwrap().kind(),
+                            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+                        )),
+                        "discharged finalizer must not construct a future on the executing path: {source}"
+                    );
+
+                    block
+                        .terminator()
+                        .kind()
+                        .for_each_successor(|target| pending.push(target));
+                }
             }
         }
     }
@@ -1328,13 +1361,8 @@ mod tests {
         assert_eq!(
             !selected.result().value().is_empty(),
             completed,
-            "{source}: {selected:?}; replacements: {:?}; candidates: {:?}",
-            body.result().value().asynchronous().replacements(),
-            compilation
-                .execution_candidates_with_cancellation(key.clone(), &cancellation)
-                .unwrap()
-                .result()
-                .value()
+            "{source}: {selected:?}; invalidations: {:?}",
+            body.result().value().refinements().invalidations(),
         );
 
         let symbols = compilation.symbol_graph().unwrap();
@@ -1354,7 +1382,18 @@ mod tests {
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
-        assert_eq!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == ty)), completed, "{source}");
+        let destroys_owner = mir.operations().iter().any(|operation| {
+            matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == ty)
+        });
+
+        let awaits_finalizer = mir.operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )
+        });
+
+        assert_eq!(destroys_owner, completed || awaits_finalizer, "{source}");
 
         mir.clone()
     }

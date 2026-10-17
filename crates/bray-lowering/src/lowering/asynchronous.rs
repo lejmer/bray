@@ -36,6 +36,22 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
+        if !self
+            .input
+            .storage_flow()
+            .suspension(id)
+            .expect("await retains its checked reachability")
+            .is_reachable()
+        {
+            self.set_terminator(
+                current,
+                Self::retained_source(&source),
+                MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(LoweredExpression::terminated(source));
+        }
+
         let suspension = self
             .input
             .suspension(id)
@@ -107,11 +123,10 @@ impl Lowerer<'_> {
             );
         };
 
-        let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
-            panic!(
-                "lowering contract violation: MissingSuspensionPoint {value:?}",
-                value = occurrence
-            )
+        let suspension = self.completion_cleanup.is_none().then(|| {
+            self.input.suspension(occurrence).unwrap_or_else(|| {
+                panic!("lowering contract violation: MissingSuspensionPoint {occurrence:?}")
+            })
         });
 
         let child = MirFrameReference::Erased;
@@ -184,7 +199,14 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let initialized_storages = self.retained_storages(suspension.retained_subjects())?;
+        let initialized_storages = match &self.completion_cleanup {
+            Some(place) => vec![place.storage()],
+            None => self.retained_storages(
+                suspension
+                    .expect("body await retains its checked suspension")
+                    .retained_subjects(),
+            )?,
+        };
 
         self.frame_states.push(
             MirFrameState::new(

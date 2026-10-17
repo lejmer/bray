@@ -95,9 +95,10 @@ impl StorageOperationDecision {
     }
 }
 
-/// Storage and borrow state immediately before one direct-await suspension.
+/// Reachability, storage and borrow state immediately before a suspension.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
+    reachable: bool,
     occurrence: crate::BoundExecutionSite,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
@@ -117,6 +118,7 @@ impl StorageSuspensionState {
         cleanup_retention: impl IntoIterator<Item = crate::BoundDependencySubject>,
     ) -> Self {
         Self {
+            reachable: true,
             occurrence: occurrence.into(),
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
@@ -124,6 +126,19 @@ impl StorageSuspensionState {
             active_borrows: sorted_unique_shared_slice(active_borrows),
             cleanup_retention: sorted_unique_shared_slice(cleanup_retention),
         }
+    }
+
+    /// Records that correlated control flow cannot reach this suspension.
+    pub fn unreachable(occurrence: impl Into<crate::BoundExecutionSite>) -> Self {
+        Self {
+            reachable: false,
+            ..Self::new(occurrence, [], [], [], [], [])
+        }
+    }
+
+    /// Whether correlated control flow can reach this suspension.
+    pub const fn is_reachable(&self) -> bool {
+        self.reachable
     }
 
     /// Returns the exact suspension phase.
@@ -746,6 +761,29 @@ mod tests {
 
         assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
+    }
+
+    #[test]
+    fn unreachable_suspensions_remain_distinct_from_missing_results() {
+        let unit = BoundUnitId::new(4);
+        let unreachable = BoundExpressionId::from_slot(unit, 0);
+        let missing = BoundExpressionId::from_slot(unit, 1);
+
+        let flow = StorageFlow::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [StorageSuspensionState::unreachable(unreachable)],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap();
+
+        assert!(!flow.suspension(unreachable).unwrap().is_reachable());
+        assert!(flow.suspension(missing).is_none());
+        assert!(!flow.is_recovered());
     }
 
     #[test]

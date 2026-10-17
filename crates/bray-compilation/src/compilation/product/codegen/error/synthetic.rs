@@ -1,6 +1,6 @@
 use bray_lowering::SyntheticLoweringError;
 
-use crate::compilation::{CodegenPreparationError, ProductQueryFailure, ProductValueKind};
+use crate::compilation::CodegenPreparationError;
 use crate::fact::FactQueryError;
 
 impl From<SyntheticLoweringError> for CodegenPreparationError {
@@ -11,26 +11,6 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             }
             SyntheticLoweringError::Capacity(cause) => Self::MirCapacity(cause),
             SyntheticLoweringError::LayoutOverflow(ty) => Self::LayoutOverflow(ty),
-        }
-    }
-}
-
-impl From<bray_checker::LifecycleSelectionError> for CodegenPreparationError {
-    fn from(error: bray_checker::LifecycleSelectionError) -> Self {
-        match error {
-            bray_checker::LifecycleSelectionError::InvalidStorageMemberKey(key) => {
-                ProductQueryFailure::InvalidCompilerKnownDeclarationKey { key }.into()
-            }
-            bray_checker::LifecycleSelectionError::UnsupportedType(ty) => Self::UnsupportedType(ty),
-            bray_checker::LifecycleSelectionError::UnresolvedType(ty) => Self::UnresolvedType(ty),
-            bray_checker::LifecycleSelectionError::UnexpectedType { ty, actual } => {
-                ProductQueryFailure::UnexpectedSemanticType {
-                    ty,
-                    expected: ProductValueKind::LifecycleRepresentableType,
-                    actual,
-                }
-                .into()
-            }
         }
     }
 }

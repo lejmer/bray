@@ -20,6 +20,20 @@ pub enum LifecyclePhase {
     Resolve,
 }
 
+/// The receiver identity for which pure, total, successful finalization was proved.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompletedFinalizer {
+    /// Every valid value of this type completes without running its finalizer.
+    Type(TypeId),
+    /// This stored value completes at the specified ownership end.
+    Storage {
+        /// Ownership-end occurrence carrying the proof.
+        exit: crate::AnyBoundNodeId,
+        /// Receiver storage whose current state satisfies the proof.
+        access: crate::StorageAccessId,
+    },
+}
+
 /// One selected lifecycle invocation with its substituted signature.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct LifecycleCallable {

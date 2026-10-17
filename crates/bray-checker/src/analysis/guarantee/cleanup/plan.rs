@@ -17,6 +17,8 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
+    pub(crate) input_finalizers:
+        BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<CallableInstanceData>>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -135,6 +137,92 @@ impl Plan {
                 (lifecycle.call.execution != bray_symbols::CallableExecution::Synchronous)
                     .then_some(lifecycle.call.callable)
             })
+    }
+
+    pub(in crate::analysis) fn select_input_finalizers(
+        &mut self,
+        unit: &bray_bound_tree::BoundUnit,
+        storage: &StoragePlan,
+        graph: &crate::analysis::ControlFlowGraph,
+    ) {
+        if !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
+            *slot == TypeAssociatedLifecycleSlot::Finalizer
+                && lifecycle.call.execution == bray_symbols::CallableExecution::Asynchronous
+        }) {
+            return;
+        }
+
+        let exits = graph
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                crate::analysis::AnalysisOperationKind::ScopeExit {
+                    exit: bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                    ..
+                } => Some(expression),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        let mut selected = BTreeMap::<_, BTreeSet<_>>::new();
+
+        for (expression, node) in unit.tree().expressions() {
+            if !matches!(
+                node,
+                bray_bound_tree::BoundExpression::Call(_)
+                    | bray_bound_tree::BoundExpression::StructConstruction(_)
+                    | bray_bound_tree::BoundExpression::BoxConstruction(_)
+            ) {
+                continue;
+            }
+
+            let mut pending = BTreeSet::new();
+
+            for input in node.child_expressions() {
+                // Earlier inputs remain owned while later inputs are evaluated.
+                if !pending.is_empty() {
+                    let walked = bray_bound_tree::walk_bound_tree(unit.tree(), input, |event| {
+                        if let bray_bound_tree::BoundWalkEvent::Enter(
+                            bray_bound_tree::AnyBoundNodeId::Expression(input),
+                        ) = event
+                            && exits.contains(&input)
+                        {
+                            selected
+                                .entry(input)
+                                .or_default()
+                                .extend(pending.iter().copied());
+                        }
+
+                        bray_bound_tree::BoundWalkControl::Continue
+                    });
+
+                    assert_eq!(
+                        walked,
+                        bray_bound_tree::BoundWalkOutcome::Completed,
+                        "pending input cleanup retains its complete bound subtree"
+                    );
+                }
+
+                pending.extend(
+                    storage
+                        .expression_plans(input)
+                        .filter(|plan| {
+                            matches!(
+                                storage.effective_purpose(*plan),
+                                bray_bound_tree::StorageAccessPurpose::Move
+                                    | bray_bound_tree::StorageAccessPurpose::ValueTransfer
+                            )
+                        })
+                        .flat_map(|plan| self.asynchronous_finalizers(plan.access())),
+                );
+            }
+
+            if !pending.is_empty() && exits.contains(&expression) {
+                selected.entry(expression).or_default().extend(pending);
+            }
+        }
+
+        self.input_finalizers = selected;
     }
 
     pub(in crate::analysis) fn has_opaque_effects(&self) -> bool {

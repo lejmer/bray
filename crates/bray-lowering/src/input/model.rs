@@ -51,7 +51,7 @@ pub struct LoweringInput<'unit> {
     suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, usize>,
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
-    completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
+    completed: BTreeSet<bray_bound_tree::CompletedFinalizer>,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
     constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
@@ -97,7 +97,7 @@ impl<'unit> LoweringInput<'unit> {
         selections: &'unit CheckedSemanticSelections,
         symbols: &'unit AvailableCompilerKnownSymbols,
         async_analysis: &'unit CheckedAsync,
-        completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
+        completed: BTreeSet<bray_bound_tree::CompletedFinalizer>,
         body_behavior: &'unit CheckedBodyBehavior,
         semantic_values: &'unit SemanticValueStore,
         constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
@@ -324,7 +324,13 @@ impl<'unit> LoweringInput<'unit> {
         node: AnyBoundNodeId,
         access: StorageAccessId,
     ) -> bool {
-        self.completed.contains(&(node, access))
+        self.completed
+            .contains(&bray_bound_tree::CompletedFinalizer::Storage { exit: node, access })
+    }
+
+    pub(crate) fn type_finalizer_is_complete(&self, ty: bray_symbols::TypeId) -> bool {
+        self.completed
+            .contains(&bray_bound_tree::CompletedFinalizer::Type(ty))
     }
 
     /// Returns the checked old-value cleanup for one evaluated assignment.

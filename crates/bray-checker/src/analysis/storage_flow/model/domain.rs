@@ -98,9 +98,10 @@ where
         );
 
         for operation in block.operations() {
-            let Some(operation) = self.graph.operation(*operation) else {
-                continue;
-            };
+            let operation = self
+                .graph
+                .operation(*operation)
+                .expect("storage-flow block retains its operation");
 
             collector.apply_operation(&mut state, operation);
         }

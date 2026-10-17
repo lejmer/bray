@@ -73,7 +73,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
-    pub(super) completion_cleanup: Option<bray_symbols::TypeId>,
+    pub(super) completion_cleanup: Option<bray_ir::MirPlace>,
     pub(super) initial_broadcast: Option<MirBlockId>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,

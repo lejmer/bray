@@ -72,8 +72,8 @@ pub use execution_guarantees::{
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{
-    FinalizerCompletion, LifecycleSelectionContext, LifecycleSelectionError,
-    check_implicit_finalization, invocation_execution_requirements, select_lifecycle_action,
+    FinalizerCompletion, LifecycleSelectionContext, check_implicit_finalization,
+    invocation_execution_requirements, select_lifecycle_action,
 };
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{

@@ -9,8 +9,8 @@ use bray_symbols::{
 
 /// Semantic queries required to select a local lifecycle action.
 pub trait LifecycleSelectionContext {
-    /// Retains query failures and invalid semantic inputs.
-    type Error: From<LifecycleSelectionError>;
+    /// Retains failures from the owning semantic queries.
+    type Error;
 
     /// Returns interned semantic values.
     fn semantic_values(&self) -> &SemanticValueStore;
@@ -46,24 +46,6 @@ pub trait LifecycleSelectionContext {
     ) -> Result<Option<TypeId>, Self::Error>;
     /// Returns a declaration's compiler-known representation role.
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole>;
-}
-
-/// A semantic input that cannot select a lifecycle action.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LifecycleSelectionError {
-    /// An internal storage protocol identity is malformed.
-    InvalidStorageMemberKey(String),
-    /// The type has no supported represented cleanup.
-    UnsupportedType(TypeId),
-    /// The declared representation remains unresolved.
-    UnresolvedType(TypeId),
-    /// A borrowed or callable value incorrectly requires destruction.
-    UnexpectedType {
-        /// Requested type.
-        ty: TypeId,
-        /// Exact semantic input.
-        actual: TypeData,
-    },
 }
 
 /// Selects only this owner's action, leaving child owners demand-driven.
@@ -151,9 +133,8 @@ fn select_represented_action<C: LifecycleSelectionContext + ?Sized>(
         TypeData::Nullable(target) => Ok(LifecycleAction::Nullable(*target)),
         TypeData::OwnedIndirection { storage, target } => {
             let select = |name: &str| {
-                let member = CompilerKnownDeclarationKey::try_new(name).ok_or_else(|| {
-                    LifecycleSelectionError::InvalidStorageMemberKey(name.to_owned())
-                })?;
+                let member = CompilerKnownDeclarationKey::try_new(name)
+                    .expect("selected storage operation uses a valid compiler-known identity");
 
                 context.storage_callable(*storage, *target, &member)
             };
@@ -181,7 +162,7 @@ fn select_represented_action<C: LifecycleSelectionContext + ?Sized>(
             if matches!(definition, NamedTypeSymbolId::Struct(_))
                 && context.representation_role(*definition).is_some()
             {
-                return Err(LifecycleSelectionError::UnsupportedType(ty).into());
+                panic!("lifecycle selection is missing represented cleanup for {ty:?}: {data:?}");
             }
 
             let representation = context.declared_representation(*definition)?;
@@ -211,18 +192,17 @@ fn select_represented_action<C: LifecycleSelectionContext + ?Sized>(
 
                     Ok(LifecycleAction::Alternatives(alternatives))
                 }
-                _ => Err(LifecycleSelectionError::UnresolvedType(ty).into()),
+                _ => panic!(
+                    "lifecycle selection requires a resolved representation for {ty:?}: {representation:?}"
+                ),
             }
         }
         TypeData::Borrow { .. } | TypeData::Callable(_) => {
-            Err(LifecycleSelectionError::UnexpectedType {
-                ty,
-                // The failure owns the exact semantic input beyond this query borrow.
-                actual: data.clone(),
-            }
-            .into())
+            panic!(
+                "borrowed or callable value cannot require owned lifecycle cleanup: {ty:?}: {data:?}"
+            )
         }
-        _ => Err(LifecycleSelectionError::UnsupportedType(ty).into()),
+        _ => panic!("lifecycle selection is missing represented cleanup for {ty:?}: {data:?}"),
     }
 }
 
@@ -375,7 +355,7 @@ pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use super::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};
+    use super::{LifecycleSelectionContext, select_lifecycle_action};
     use bray_bound_tree::{LifecycleAction, LifecycleCallable, LifecyclePhase};
     use bray_compiler_known::RepresentationRole;
     use bray_symbols::{
@@ -387,7 +367,7 @@ mod tests {
     struct Context(SemanticValueStore);
 
     impl LifecycleSelectionContext for Context {
-        type Error = LifecycleSelectionError;
+        type Error = std::convert::Infallible;
         fn semantic_values(&self) -> &SemanticValueStore {
             &self.0
         }
@@ -429,6 +409,23 @@ mod tests {
         fn representation_role(&self, _: NamedTypeSymbolId) -> Option<RepresentationRole> {
             panic!("no named type in this fixture")
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "borrowed or callable value cannot require owned lifecycle cleanup")]
+    fn owned_cleanup_of_borrow_exposes_the_selection_bug() {
+        let context = Context(SemanticValueStore::try_new().unwrap());
+        let target = context.0.intern_type(TypeData::tuple([])).unwrap();
+
+        let ty = context
+            .0
+            .intern_type(TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                target,
+            })
+            .unwrap();
+
+        let _ = select_lifecycle_action(&context, ty, LifecyclePhase::Destroy);
     }
 
     #[test]

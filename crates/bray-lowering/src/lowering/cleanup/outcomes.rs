@@ -67,7 +67,10 @@ enum AbnormalCleanupStep {
         completed: bool,
         exit: AnyBoundNodeId,
     },
-    Temporary(InputTemporary),
+    Temporary {
+        temporary: InputTemporary,
+        exit: Option<AnyBoundNodeId>,
+    },
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -457,7 +460,13 @@ impl Lowerer<'_> {
                 })
                 + 1;
 
-            Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, depth);
+            Self::push_abnormal_temporary_steps(
+                &mut steps,
+                &mut temporaries,
+                phase,
+                depth,
+                Some(plan.exit()),
+            );
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
@@ -472,7 +481,13 @@ impl Lowerer<'_> {
             }
         }
 
-        Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, 0);
+        Self::push_abnormal_temporary_steps(
+            &mut steps,
+            &mut temporaries,
+            phase,
+            0,
+            plans.last().map(AsyncScopeExitPlan::exit),
+        );
 
         Ok(steps)
     }
@@ -482,6 +497,7 @@ impl Lowerer<'_> {
         temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
         phase: MirCleanupPhase,
         scope_depth: usize,
+        exit: Option<AnyBoundNodeId>,
     ) {
         loop {
             let Some(temporary) =
@@ -491,7 +507,10 @@ impl Lowerer<'_> {
             };
 
             if temporary.requires_cleanup(phase) {
-                steps.push(AbnormalCleanupStep::Temporary(temporary.clone()));
+                steps.push(AbnormalCleanupStep::Temporary {
+                    temporary: temporary.clone(),
+                    exit,
+                });
             }
         }
     }
@@ -570,8 +589,18 @@ impl Lowerer<'_> {
 
                     result.0
                 }
-                AbnormalCleanupStep::Temporary(temporary) => {
-                    self.push_input_cleanup_temporary(entry, phase, temporary)?
+                AbnormalCleanupStep::Temporary { temporary, exit } => {
+                    let previous = self.cleanup_occurrence;
+
+                    self.cleanup_occurrence = exit
+                        .map(bray_bound_tree::BoundExecutionSite::Cleanup)
+                        .or(previous);
+
+                    let end = self.push_input_cleanup_temporary(entry, phase, temporary)?;
+
+                    self.cleanup_occurrence = previous;
+
+                    end
                 }
             };
 

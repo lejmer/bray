@@ -16,7 +16,7 @@ impl Compilation {
             return Ok(MirUnitKey::Bound(body));
         }
 
-        if self.compiler_provided_heap_method(definition)?.is_some() {
+        if self.compiler_provided_heap_method(definition).is_some() {
             return Ok(MirUnitKey::CompilerProvidedCallable(definition));
         }
 
@@ -215,12 +215,7 @@ extern func invalid_read(pos value: i32) -> i32;
             let definition =
                 CallableDefinitionId::try_new(source_function(&compilation, name).into()).unwrap();
 
-            assert_eq!(
-                compilation
-                    .compiler_provided_heap_method(definition)
-                    .unwrap(),
-                None
-            );
+            assert_eq!(compilation.compiler_provided_heap_method(definition), None);
 
             assert!(matches!(
                 compilation

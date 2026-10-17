@@ -37,12 +37,17 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
-    /// Whether the selected cleanup includes any whole-value or represented-part finalizer.
-    pub fn has_finalizers(&self) -> bool {
+    /// Returns whole-value and represented-part finalizers selected for this body.
+    pub fn finalizers(
+        &self,
+    ) -> impl Iterator<Item = (TypeId, bray_bound_tree::LifecycleCallable)> + '_ {
         self.cleanup
             .lifecycles
-            .keys()
-            .any(|(_, slot)| *slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+            .iter()
+            .filter_map(|((ty, slot), lifecycle)| {
+                (*slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+                    .then_some((*ty, lifecycle.call))
+            })
     }
 
     /// Returns selected implicit lifecycle callees required by this body's summary component.
@@ -102,7 +107,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let cleanup =
+    let mut cleanup =
         match super::guarantee::CleanupPlan::prepare(&mut cleanup_shapes, request, storage) {
             Ok(result) => {
                 let (cleanup, diagnostics) = result.into_parts();
@@ -117,9 +122,12 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             }
         };
 
+    cleanup.select_input_finalizers(request.unit(), storage, &graph);
+
     graph.select_cleanup_suspensions(
         &cleanup.asynchronous_scopes(storage),
         &cleanup.asynchronous_replacements(storage),
+        &cleanup.input_finalizers,
     );
 
     let Some(values) =

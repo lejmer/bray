@@ -137,6 +137,13 @@ impl AnalysisOperation {
         })
     }
 
+    pub(crate) fn suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
+        match self.kind {
+            AnalysisOperationKind::Suspension { occurrence, .. } => Some(occurrence),
+            _ => self.cleanup_suspension(),
+        }
+    }
+
     pub(crate) const fn id(self) -> AnalysisOperationId {
         self.id
     }
@@ -359,6 +366,10 @@ impl ControlFlowGraph {
         &mut self,
         scopes: &std::collections::BTreeSet<bray_bound_tree::BoundBlockId>,
         replacements: &std::collections::BTreeSet<BoundExpressionId>,
+        inputs: &std::collections::BTreeMap<
+            BoundExpressionId,
+            std::collections::BTreeSet<bray_symbols::CallableInstanceData>,
+        >,
     ) {
         for operation in &mut self.operations {
             operation.cleanup_suspension = match operation.kind {
@@ -368,8 +379,14 @@ impl ControlFlowGraph {
                     ..
                 } => scopes.contains(&block),
                 AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
-                    replacements.contains(&expression)
+                    replacements.contains(&expression) || inputs.contains_key(&expression)
                 }
+                AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Attempt,
+                } => invocation
+                    .expression()
+                    .is_some_and(|expression| inputs.contains_key(&expression)),
                 _ => false,
             };
         }

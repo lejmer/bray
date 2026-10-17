@@ -13,48 +13,39 @@ use super::dependency::{UnsatisfiedDependency, unsatisfied_dependency_subjects};
 use crate::diagnostic::{bound_node_origin, diagnostic_id, expression_span};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-pub(super) enum AwaitDependencyFailure {
-    MissingSuspensionState,
-    Unsatisfied(Vec<UnsatisfiedDependency>),
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "await dependency validation consumes the exact independently checked inputs"
 )]
-pub(super) fn await_dependency_failure<C>(
+pub(super) fn check_await_dependencies<C>(
     request: CheckerUnitView<'_, C>,
     dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
     refinements: &CheckedRefinements,
     expression: BoundExpressionId,
     dependency_contract: Option<BoundDependencyContractId>,
-    suspension_state: Option<&bray_bound_tree::StorageSuspensionState>,
+    suspension_state: &bray_bound_tree::StorageSuspensionState,
     syntax_recovered: bool,
-) -> Option<AwaitDependencyFailure>
-where
+    diagnostics: &mut DiagnosticBag,
+) where
     C: CheckerRequestContext + ?Sized,
 {
     if syntax_recovered {
-        return None;
+        return;
     }
 
     let Some(dependency_contract) = dependency_contract else {
         panic!(
-            "A non-recovered await expression has no selected dependency contract. in await_dependency_failure, expression: {:?}",
+            "A non-recovered await expression has no selected dependency contract. in check_await_dependencies, expression: {:?}",
             expression
         );
     };
 
     let Some(contract) = dependencies.contract(dependency_contract) else {
         panic!(
-            "An await expression names a dependency contract absent from its source body. in await_dependency_failure, expression: {:?}, contract: {:?}",
+            "An await expression names a dependency contract absent from its source body. in check_await_dependencies, expression: {:?}, contract: {:?}",
             expression, dependency_contract
         );
-    };
-
-    let Some(suspension_state) = suspension_state else {
-        return Some(AwaitDependencyFailure::MissingSuspensionState);
     };
 
     let unsatisfied = unsatisfied_dependency_subjects(
@@ -64,16 +55,24 @@ where
         expression,
         suspension_state,
         contract,
-    ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in await_dependency_failure: {error:?}"));
+    ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in check_await_dependencies: {error:?}"));
 
-    (!unsatisfied.is_empty()).then_some(AwaitDependencyFailure::Unsatisfied(unsatisfied))
+    if !unsatisfied.is_empty() {
+        add_unavailable_await_dependency_diagnostic(
+            request,
+            storage,
+            expression,
+            &unsatisfied,
+            diagnostics,
+        );
+    }
 }
 
-pub(super) fn add_unavailable_await_dependency_diagnostic<C>(
+fn add_unavailable_await_dependency_diagnostic<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,
-    failure: &AwaitDependencyFailure,
+    dependencies: &[UnsatisfiedDependency],
     diagnostics: &mut DiagnosticBag,
 ) where
     C: CheckerRequestContext + ?Sized,
@@ -90,19 +89,6 @@ pub(super) fn add_unavailable_await_dependency_diagnostic<C>(
         DiagnosticLabelKind::UnavailableAwaitDependency,
         span,
     ));
-
-    let dependencies = match failure {
-        AwaitDependencyFailure::MissingSuspensionState => {
-            diagnostic = with_missing_await_dependency(
-                diagnostic,
-                bray_diagnostics::DiagnosticDependencySubjectKind::SuspensionState,
-                bray_diagnostics::DiagnosticDependencyRequirementKind::SuspensionStateAvailable,
-            );
-
-            &[][..]
-        }
-        AwaitDependencyFailure::Unsatisfied(dependencies) => dependencies.as_slice(),
-    };
 
     for (index, dependency) in dependencies.iter().enumerate() {
         let subject = DiagnosticArg::dependency_subject_kind(diagnostic_dependency_subject(
@@ -138,24 +124,6 @@ pub(super) fn add_unavailable_await_dependency_diagnostic<C>(
     }
 
     diagnostics.add(diagnostic);
-}
-
-fn with_missing_await_dependency(
-    diagnostic: Diagnostic,
-    subject: bray_diagnostics::DiagnosticDependencySubjectKind,
-    requirement: bray_diagnostics::DiagnosticDependencyRequirementKind,
-) -> Diagnostic {
-    let subject = DiagnosticArg::dependency_subject_kind(subject);
-    let requirement = DiagnosticArg::dependency_requirement_kind(requirement);
-
-    diagnostic
-        .with_arg(subject.clone())
-        .with_arg(requirement.clone())
-        .with_note(
-            DiagnosticNote::new(DiagnosticNoteKind::AwaitDependencyUnavailable)
-                .with_arg(subject)
-                .with_arg(requirement),
-        )
 }
 
 fn await_dependency_origin<C>(

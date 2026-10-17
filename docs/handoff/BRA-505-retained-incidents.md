@@ -90,15 +90,54 @@ retains pending exits and evaluated assignment inputs. Direct async finalization
 uses the existing enclosing frame and keeps its owner guard live through awaited
 mutation. Protected frames retain all ordinary MIR storage.
 
-Next: complete temporary/pending-value cleanup occurrence propagation, including
-failed later/default inputs and an unconsumed frame completion. The direct finalizer
-path is not proof of these cases. Synthetic helpers still assume immediate ordinary
-lifecycle calls. Reuse their selected expansion for retained-error quiescence and
-abandoned destruction without a second walker. BRA-506 remains the owner of broader
-represented-owner families; do not silently expand that downstream issue here.
-Arbitrary retained error ownership and inactive captures remain required in BRA-505.
+Temporary and pending-result cleanup now carry their cleanup occurrence through the shared
+abnormal suffix. Completion cleanup reuses the same broadcast implementation, including
+while its finalizer is suspended. The owning storage analysis publishes unreachable
+suspensions explicitly. Missing snapshots assert instead of becoming source diagnostics.
+Selected input finalizers cover failed defaults and failures in later evaluated inputs,
+with retained borrowed dependencies. Bodies without asynchronous finalizers skip this
+selection. The diagnostic's retired failure category and duplicate completion broadcast
+have been removed.
+
+Unconditional pure/total successful finalizer proofs now share the existing completion
+publication with occurrence-specific storage proofs. Temporary inputs and unconsumed
+results consume the type-wide proof directly. Conditional completion still requires the
+exact storage/exit proof. Input retention uses checked result dependencies, while implicit
+receiver loans remain live through invocation and expire before assignment cleanup.
+Nested argument blocks use the existing bound-tree walker.
+
+The audit removes missing-suspension diagnostics, lifecycle-selection error wrappers and
+invalid compiler-owned key diagnostics. Missing internal semantics panic with context.
+Heap operation recognition is now infallible. No recoverable internal failure was added.
+
+Next: complete retained-error quiescence and abandoned destruction through the shared
+selected expansion. Synthetic helpers still assume immediate
+ordinary lifecycle calls. BRA-506 owns broader represented-owner families. Arbitrary
+retained error ownership and inactive captures remain required in BRA-505. No implementation
+choice for that remaining expansion has been committed.
 
 ## Verification and review
+
+The initial broad pending-input run passed 1,067 of 1,071 tests. Its four failures exposed
+receiver-loan over-retention, missing invocation loan retention, and assertions that did
+not distinguish entry abandonment or explicit post-finalizer destruction. Those are fixed.
+All 488 affected checker, lowering, source/imported completion and native artifact tests
+pass (`target/bra-505-completion-audit.log`). All 703 expanded unit-query and lifecycle tests
+pass after the fail-loud selection correction (`target/bra-505-pending-final.log`). The final
+216 storage, source/imported lifecycle, heap realization and production bootstrap checks
+pass (`target/bra-505-final-audit.log`). Rustfmt, mutating `cargo xtask style`, explicit
+`cargo xtask format` and whitespace checks pass (`target/bra-505-final-format.log`). No native
+runtime execution is claimed by artifact-emission tests. This checkpoint adds
+163 net production lines and 297 net test lines. It removes the second suspension-publication
+traversal and unreachable set. The nested message rules now match the root fail-loud
+contract and no longer instruct agents to render compiler invariants as diagnostics.
+Commit and push this checkpoint before starting the remaining expansion work.
+
+Regression cases cover failed defaults, direct and block-valued later inputs, retained
+borrowed inputs, pending result cancellation broadcast, unconditional versus conditional,
+effectful and error-returning finalizers, receiver mutation, missing-state assertions and
+impossible lifecycle selection. The audit reuses selected operation suspension identities,
+checked value dependency propagation, the bound-tree walker and existing completion proof.
 
 The implicit-cleanup batch passes all 540 affected bound-tree, checker, lowering,
 source/imported lifecycle, realization and native artifact tests. Evidence:

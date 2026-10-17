@@ -152,18 +152,18 @@ where
         collector.on_normal_path = normal_paths.contains(&block.id());
 
         // Publication evaluates operations against an independent final block-entry state.
-        let Some(mut state) = result.state(block.id()).cloned() else {
+        let state = result.state(block.id()).filter(|state| state.reachable);
+
+        let Some(mut state) = state.cloned() else {
+            collector.collect_unreachable_suspensions(graph, block);
+
             continue;
         };
 
-        if !state.reachable {
-            continue;
-        }
-
         for operation in block.operations() {
-            let Some(operation) = graph.operation(*operation) else {
-                continue;
-            };
+            let operation = graph
+                .operation(*operation)
+                .expect("storage-flow block retains its operation");
 
             if let AnalysisOperationKind::Bound(AnyBoundNodeId::Block(block)) = operation.kind() {
                 reachable_blocks.insert(block);
@@ -1489,6 +1489,24 @@ where
         self.exits.push((block, exit, ExitState::new(state)));
     }
 
+    fn collect_unreachable_suspensions(
+        &mut self,
+        graph: &crate::analysis::model::ControlFlowGraph,
+        block: &crate::analysis::model::AnalysisBlock,
+    ) {
+        for operation in block.operations() {
+            if let Some(occurrence) = graph
+                .operation(*operation)
+                .expect("storage-flow block retains its operation")
+                .suspension()
+            {
+                self.suspensions
+                    .entry(occurrence)
+                    .or_insert_with(|| StorageSuspensionState::unreachable(occurrence));
+            }
+        }
+    }
+
     fn take_assignment_targets(
         &mut self,
     ) -> BTreeMap<BoundExpressionId, bray_bound_tree::StoragePath> {
@@ -1550,9 +1568,18 @@ where
             state.retained_cleanup_dependencies(self.input),
         );
 
-        self.suspensions
-            .entry(occurrence)
-            .and_modify(|previous| {
+        match self.suspensions.entry(occurrence) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(snapshot);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let previous = entry.get_mut();
+
+                if !previous.is_reachable() {
+                    *previous = snapshot;
+                    return;
+                }
+
                 // An implicit exit has multiple incoming transfers. Retain every possible owner,
                 // but promise initialization and active loans only when every path establishes them.
                 *previous =
@@ -1572,8 +1599,8 @@ where
                             .chain(snapshot.cleanup_retention())
                             .copied(),
                     );
-            })
-            .or_insert(snapshot);
+            }
+        }
     }
 
     fn add_diagnostic(

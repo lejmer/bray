@@ -206,13 +206,9 @@ fn collect_liveness(
                 }
             }
 
-            let suspension = match operation.kind() {
-                AnalysisOperationKind::Suspension { occurrence, .. } => Some(occurrence),
-                AnalysisOperationKind::ScopeExit { .. } => None,
-                _ => operation.cleanup_suspension(),
-            };
-
-            if let Some(occurrence) = suspension {
+            if !matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. })
+                && let Some(occurrence) = operation.suspension()
+            {
                 live_across_suspensions.extend(
                     state
                         .iter()

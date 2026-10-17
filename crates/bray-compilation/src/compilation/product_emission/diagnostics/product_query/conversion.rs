@@ -180,10 +180,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             ("product_query_external_symbol_identity", fields)
         }
-        Failure::InvalidCompilerKnownDeclarationKey { key } => (
-            "product_query_invalid_compiler_known_declaration_key",
-            vec![text_field("declaration_key", key)],
-        ),
         Failure::UnexpectedEntryResult { actual } => (
             "product_query_unexpected_entry_result",
             vec![text_field(
@@ -580,7 +576,6 @@ const fn product_value_kind(kind: ProductValueKind) -> &'static str {
         ProductValueKind::GenericTypeArgument => "generic_type_argument",
         ProductValueKind::NamedType => "named_type",
         ProductValueKind::CallableType => "callable_type",
-        ProductValueKind::LifecycleRepresentableType => "lifecycle_representable_type",
     }
 }
 

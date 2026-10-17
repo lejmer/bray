@@ -1299,10 +1299,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
 
 fn selected_cleanup(
     consumer: &Compilation,
-) -> std::collections::BTreeSet<(
-    bray_bound_tree::AnyBoundNodeId,
-    bray_bound_tree::StorageAccessId,
-)> {
+) -> std::collections::BTreeSet<bray_bound_tree::CompletedFinalizer> {
     let key = source_function_body_key(consumer, "root");
     let cancellation = crate::CancellationToken::new();
 

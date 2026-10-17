@@ -592,6 +592,7 @@ impl Lowerer<'_> {
         completed: bool,
     ) -> Result<MirBlockId, LoweringError> {
         let owner = place.ty();
+        let completed = completed || self.input.type_finalizer_is_complete(owner);
 
         if release.is_none()
             && !completed

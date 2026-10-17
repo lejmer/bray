@@ -266,8 +266,6 @@ pub(crate) enum ProductValueKind {
     NamedType,
     /// A callable semantic type.
     CallableType,
-    /// A semantic type with represented lifecycle work.
-    LifecycleRepresentableType,
 }
 
 /// One typed product-specialization or realization contract failure.
@@ -401,11 +399,6 @@ pub(crate) enum ProductQueryFailure {
         symbol: AnySymbolId,
         /// The exact package-interface export failure.
         cause: Box<crate::compilation::PackageInterfaceExportError>,
-    },
-    /// A compiler-known declaration key literal is invalid.
-    InvalidCompilerKnownDeclarationKey {
-        /// The rejected declaration key.
-        key: String,
     },
     /// An executable entry produced a result shape unsupported by the selected host contract.
     UnexpectedEntryResult {
@@ -591,8 +584,7 @@ impl ProductQueryFailure {
             Self::UnsupportedConstantValue { .. }
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }
-            | Self::ExternalSymbolIdentity { .. }
-            | Self::InvalidCompilerKnownDeclarationKey { .. } => ProductQueryErrorKind::Identity,
+            | Self::ExternalSymbolIdentity { .. } => ProductQueryErrorKind::Identity,
             Self::UnexpectedKind { .. }
             | Self::CountMismatch { .. }
             | Self::Conflict { .. }

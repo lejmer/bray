@@ -181,10 +181,15 @@ fn ordinary_async_finalizers_emit_admitted_frame_composition() {
                 await record();
             }
         }
+        func rejected() -> usize { panic("later input"); }
+        async func accept(pos owner: Owner, number: usize = rejected()) {}
+        async func completed() -> Owner { return Owner { value = 3 }; }
         async func main()
         {
             let mut owner = Owner { value = 1 };
             owner = Owner { value = 2 };
+            let result = await completed();
+            let failure = catch { await accept(Owner { value = 4 }); yield unit; };
         }
     "#,
     );

@@ -630,3 +630,48 @@ fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
             .all(|subject| point.retained_subjects().contains(subject))
     );
 }
+
+#[test]
+fn input_cleanup_retains_borrowed_dependencies_before_acceptance() {
+    for invocation in [
+        "await accept(Owner { value = &value });",
+        "await accept(Owner { value = &value }, number = rejected());",
+        "await accept(Owner { value = &value }, number = { let input = rejected(); yield input; });",
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            extern async func pause();
+            func rejected() -> u32 {{ panic("input"); }}
+            struct Owner {{ value: &u32; async finalize() {{ await pause(); }} }}
+            async func accept(pos owner: Owner, number: u32 = rejected()) {{}}
+            async func main() {{ let value: u32 = 1; {invocation} }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert!(
+            !application.check_diagnostics().has_errors(),
+            "{:?}",
+            application.check_diagnostics()
+        );
+
+        let key = crate::test_support::source_function_body_key(&application, "main");
+        let analysis = application.async_analysis(key).unwrap();
+
+        assert!(
+            analysis.value().suspensions().iter().any(|point| {
+                point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup
+                    && point.retained_subjects().iter().any(|subject| {
+                        matches!(
+                            subject,
+                            bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+                        )
+                    })
+            }),
+            "pending input cleanup must retain its borrowed provider: {:?}",
+            analysis.value()
+        );
+    }
+}

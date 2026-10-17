@@ -15,7 +15,7 @@ use bray_diagnostics::{
 use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, TypeData};
 
 use super::cleanup::scope_exit_plans;
-use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
+use super::diagnostic::check_await_dependencies;
 
 use crate::analysis::{AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind};
 use crate::diagnostic::{diagnostic_id, expression_span};
@@ -105,6 +105,14 @@ where
                     &mut diagnostics,
                 );
 
+                let suspension_state = flow
+                    .suspension(occurrence)
+                    .expect("checked suspension retains its correlated storage state");
+
+                if !suspension_state.is_reachable() {
+                    continue;
+                }
+
                 let (kind, dependency_contract, calls, syntax_recovered) = match kind {
                     AnalysisSuspensionKind::Await => {
                         let Some(BoundExpression::Await(await_expression)) =
@@ -149,47 +157,34 @@ where
                     }
                 };
 
-                let suspension_state = flow.suspension(occurrence);
-
                 let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
                     occurrence,
                     dependency_contract,
-                    suspension_state,
+                    Some(suspension_state),
                 );
 
                 frame_dependencies.extend(retained.iter().copied());
 
-                let dependency_failure = match &kind {
-                    AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall => {
-                        await_dependency_failure(
-                            request,
-                            dependencies,
-                            storage,
-                            refinements,
-                            expression,
-                            dependency_contract,
-                            suspension_state,
-                            syntax_recovered,
-                        )
-                    }
-                    AsyncSuspensionKind::Yield | AsyncSuspensionKind::Cleanup => None,
-                };
-
-                if let Some(failure) = dependency_failure.as_ref() {
-                    add_unavailable_await_dependency_diagnostic(
+                if matches!(
+                    kind,
+                    AsyncSuspensionKind::Await { .. } | AsyncSuspensionKind::ScopedCall
+                ) {
+                    check_await_dependencies(
                         request,
+                        dependencies,
                         storage,
+                        refinements,
                         expression,
-                        failure,
+                        dependency_contract,
+                        suspension_state,
+                        syntax_recovered,
                         &mut diagnostics,
                     );
                 }
 
-                let suspension_recovered = syntax_recovered || suspension_state.is_none();
-
-                is_recovered |= suspension_recovered;
+                is_recovered |= syntax_recovered;
 
                 let suspension = AsyncSuspensionPoint::new(
                     occurrence,
@@ -198,10 +193,10 @@ where
                     calls,
                     retained,
                     suspension_state
-                        .into_iter()
-                        .flat_map(|state| state.live())
+                        .live()
+                        .iter()
                         .filter_map(|identity| broadcast_owners.get(identity).copied()),
-                    suspension_recovered,
+                    syntax_recovered,
                 );
 
                 // Deferred calls share immutable checked contracts across the exit paths.
@@ -286,12 +281,16 @@ fn cleanup_suspensions<'a>(
         bray_bound_tree::StorageAccessId,
     >,
 ) -> impl Iterator<Item = AsyncSuspensionPoint> + 'a {
-    calls.into_iter().map(|(exit, calls)| {
+    calls.into_iter().filter_map(|(exit, calls)| {
         let occurrence = bray_bound_tree::BoundExecutionSite::Cleanup(exit);
 
         let state = flow
             .suspension(occurrence)
-            .expect("reachable cleanup retains its pre-resolution storage state");
+            .expect("selected cleanup retains its pre-resolution storage state");
+
+        if !state.is_reachable() {
+            return None;
+        }
 
         let retained = liveness.retained_suspension_subjects(
             dependencies,
@@ -301,7 +300,7 @@ fn cleanup_suspensions<'a>(
             Some(state),
         );
 
-        AsyncSuspensionPoint::new(
+        Some(AsyncSuspensionPoint::new(
             occurrence,
             AsyncSuspensionKind::Cleanup,
             None,
@@ -312,7 +311,7 @@ fn cleanup_suspensions<'a>(
                 .iter()
                 .filter_map(|identity| broadcast_owners.get(identity).copied()),
             false,
-        )
+        ))
     })
 }
 
@@ -321,7 +320,24 @@ fn cleanup_deferred_calls(
     replacements: &[bray_bound_tree::StorageReplacementPlan],
     cleanup: &crate::analysis::guarantee::CleanupPlan,
 ) -> BTreeMap<bray_bound_tree::AnyBoundNodeId, BTreeSet<BodyBehaviorCall>> {
-    let mut calls = BTreeMap::<_, BTreeSet<_>>::new();
+    let mut calls = cleanup
+        .input_finalizers
+        .iter()
+        .map(|(expression, callees)| {
+            (
+                (*expression).into(),
+                callees
+                    .iter()
+                    .map(|callable| {
+                        BodyBehaviorCall::new(
+                            BoundCallableTarget::Declaration(*callable),
+                            BodyBehaviorPhase::DeferredExecution,
+                        )
+                    })
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
 
     let scope_accesses = plans.iter().flat_map(|plan| {
         plan.lifecycle_resolution()
@@ -676,10 +692,7 @@ mod tests {
         PlannedBorrowCapability, SelectedCall, SemanticSelection, StorageAccess, StorageAccessRoot,
         StorageFlow, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
     };
-    use bray_diagnostics::{
-        DiagnosticArgValue, DiagnosticBag, DiagnosticDependencyRequirementKind,
-        DiagnosticDependencySubjectKind, DiagnosticKind,
-    };
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticBag, DiagnosticKind};
     use bray_symbols::{
         BorrowKind, CallableAbi, CallableExecution, LifecycleObligationKind,
         TypeCallableMemberSymbolId, testing::implementation_instance,
@@ -781,19 +794,9 @@ mod tests {
     }
 
     #[test]
-    fn await_without_flow_state_reports_the_missing_semantic_input() {
-        let diagnostics = await_diagnostics(true, false);
-
-        assert_goal_state_diagnostic_kind(
-            &diagnostics,
-            DiagnosticKind::CheckingUnavailableAwaitDependency,
-        );
-
-        assert_dependency_problem(
-            &diagnostics,
-            DiagnosticDependencySubjectKind::SuspensionState,
-            DiagnosticDependencyRequirementKind::SuspensionStateAvailable,
-        );
+    #[should_panic(expected = "checked suspension retains its correlated storage state")]
+    fn await_without_flow_state_exposes_the_missing_semantic_input() {
+        await_outcome(true, false);
     }
 
     #[test]
@@ -891,19 +894,6 @@ mod tests {
                 DiagnosticArgValue::DependencyRequirementKind(_)
             ));
         }
-    }
-
-    fn await_diagnostics(
-        include_dependency_contract: bool,
-        include_suspension_state: bool,
-    ) -> DiagnosticBag {
-        let CheckerOutcome::Complete(result) =
-            await_outcome(include_dependency_contract, include_suspension_state)
-        else {
-            panic!("test async checking must complete");
-        };
-
-        result.into_parts().1
     }
 
     fn await_outcome(
@@ -1043,27 +1033,6 @@ mod tests {
             &graph,
             &crate::analysis::guarantee::CleanupPlan::default(),
         )
-    }
-
-    fn assert_dependency_problem(
-        diagnostics: &DiagnosticBag,
-        expected_subject: DiagnosticDependencySubjectKind,
-        expected_requirement: DiagnosticDependencyRequirementKind,
-    ) {
-        let diagnostic = diagnostics
-            .iter()
-            .find(|diagnostic| {
-                diagnostic.kind() == DiagnosticKind::CheckingUnavailableAwaitDependency
-            })
-            .unwrap_or_else(|| panic!("await dependency diagnostic must be produced"));
-
-        assert!(diagnostic.args().iter().any(|argument| {
-            argument.value() == &DiagnosticArgValue::DependencySubjectKind(expected_subject)
-        }));
-
-        assert!(diagnostic.args().iter().any(|argument| {
-            argument.value() == &DiagnosticArgValue::DependencyRequirementKind(expected_requirement)
-        }));
     }
 }
 
