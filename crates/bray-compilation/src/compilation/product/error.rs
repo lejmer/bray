@@ -115,8 +115,6 @@ pub(crate) enum ProductQueryContext {
     ImplementationRequirement(ImplementationRequirementKey),
     /// Product construction for one MIR unit.
     MirUnit(MirUnitKey),
-    /// Product construction for one generated MIR helper.
-    MirHelper(MirHelperReference),
     /// Product construction for one operation in a concrete code generation instance.
     Operation {
         /// The instance containing the operation.
@@ -195,10 +193,6 @@ pub(crate) enum ProductDataKind {
     ConversionPlan,
     /// A compiler-known representation declaration.
     CompilerKnownRepresentation,
-    /// A generated lifecycle role.
-    LifecycleRole,
-    /// The semantic type owned by a lifecycle helper.
-    LifecycleType,
     /// A static declaration's initializer.
     StaticInitializer,
     /// An implementation's checked header.

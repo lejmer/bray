@@ -85,6 +85,28 @@ obligations. Do not repeat lifecycle operations already resolved.
 Implement abandoned disposal through the shared selected expansion. Do not introduce
 an ambient call mode or runtime owner-state propagation to suppress explicit operations.
 
+Independent semantic review rejected the experimental global represented graceful phase.
+Children can share an external synchronized resource. A later child's finalizer may
+invalidate an earlier child's completion before destruction. The experiment was removed
+without changing committed checkpoints. Preserve each owner's ordered lifecycle traversal.
+The shared awaited-frame emitter and internal-invariant fixes remain, with 87 focused
+compilation/lowering tests already passed before the removed experiment.
+
+Source destructor checking must distinguish inherited obligations from obligations newly
+created by executed mutations or replacement. No source rule requires manufacturing an
+early represented finalization traversal. Preserve the ordered receiver tail and enforce
+actual completion of newly created obligations at semantic return. The independent review
+supports this normal-return reading. It does not prove abnormal exits: replacement can
+install a new owner before propagating an old cleanup panic, and its cleanup stays ordinary.
+A scalar abandoned mode is insufficient if that new ownership reaches nested receiver tails.
+Do not require total destructors merely from their infallible unit result contract.
+
+Keep receiver initialization guards with the body and tail. Moving the tail across an
+ordinary unit-result call loses conditional initialization state. Any remaining disposition
+must likewise follow exact part identity through nested cleanup. No hidden ambient mode may
+suppress explicit operations or new locals. Native acceptance remains blocked by unfinished
+CleanupIncidentTransfer and this ownership proof.
+
 Inactive abandonment never enters the body. Normal cancellation from abandoning a child
 must not cancel its parent, but cleanup panics and incidents must survive. Consuming
 inactive disposal differs from retained-error quiescence. The latter leaves a terminal
@@ -146,6 +168,13 @@ All logs below are under the shared target directory
   known missing compiler-owned CleanupIncidentTransfer while planning the bootstrap
   standard library. No runtime test executes, and the chained resource API run does
   not start. Do not repeat this build before the production transfer path is ready.
+- `bra-505-shared-continuation-tests.log`: 83 compilation and 4 lowering lifecycle tests
+  pass after removing the unaccepted phase split. The known native-role blocker remains
+  explicitly excluded from this focused batch, not counted as accepted.
+- `bra-505-shared-continuation-format.log`: Rustfmt, mutating style and Bray formatting
+  pass. The audit removed obsolete lifecycle error variants and diagnostic projections.
+  The shared await emitter replaces the source emitter while retaining source guards,
+  established suspension states, lanes, affinity and cancellation edges.
 - Native resource retry tests and inactive composition execution remain pending.
   Source and bundle verification do not establish retained-incident acceptance.
 

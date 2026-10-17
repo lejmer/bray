@@ -6,7 +6,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirEdge,
     MirFrameInitializer, MirFrameReference, MirFrameState, MirFrameStateId, MirOperand,
-    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirSuspensionKind, MirTerminatorKind,
+    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
 use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiRole};
 
@@ -129,8 +129,6 @@ impl Lowerer<'_> {
             })
         });
 
-        let child = MirFrameReference::Erased;
-
         let resume = self.builder.push_block(
             Self::retained_source(&source),
             self.builder.block_kind(current),
@@ -159,46 +157,8 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
-        // Ordinary await observes cancellation after taking the terminal outcome.
-        // Selected asynchronous exits already execute under their cleanup shield.
-        let dispatch = resume;
-
         let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;
-
-        let destination = self.builder.push_storage(
-            Self::retained_source(&source),
-            bray_ir::MirStorageKind::Temporary,
-            completion,
-        )?;
-
-        self.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
-                parent,
-                child,
-                resume_state: state,
-                frame: frame_value,
-                completion: destination,
-                abandoning: false,
-            }),
-            None,
-        )?;
-
-        self.set_terminator(
-            current,
-            Self::retained_source(&source),
-            MirTerminatorKind::Suspend {
-                kind: MirSuspensionKind::Awaited,
-                payload: None,
-                resume_state: state,
-                resume: MirEdge::new(dispatch, []),
-                cancellation,
-                registration: self.runtime_reference(RuntimeAbiRole::SuspensionRegistration),
-                wake: self.runtime_reference(RuntimeAbiRole::Wake),
-            },
-        )?;
 
         let initialized_storages = match &self.completion_cleanup {
             Some(place) => vec![place.storage()],
@@ -209,30 +169,34 @@ impl Lowerer<'_> {
             )?,
         };
 
-        self.frame_states.push(
-            MirFrameState::new(
-                state,
-                dispatch,
-                broadcast,
-                self.execution_lane_requirements(),
-                initialized_storages,
-            )
-            .with_affinity(self.frame_affinity())
-            .with_completion_cleanup(self.completion_cleanup.is_some()),
-        );
+        let state = MirFrameState::new(
+            state,
+            resume,
+            broadcast,
+            self.execution_lane_requirements(),
+            initialized_storages,
+        )
+        .with_affinity(self.frame_affinity())
+        .with_completion_cleanup(self.completion_cleanup.is_some());
 
-        let value = self
-            .push_operation(
-                resume,
-                Self::retained_source(&source),
-                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion {
-                    child,
-                    completion: destination,
-                }),
-                Some(completion),
-            )?
-            .result()
-            .expect("awaited completion publishes its checked result");
+        // Composition consumes the future. Keep source initialization guards in the
+        // owning lowerer before shared emission transfers it to the parent frame.
+        if let MirOperand::Move(place) = &frame_value {
+            self.set_storage_initialized(current, &source, place, false)?;
+        }
+
+        let value = crate::continuation::await_frame(
+            &mut self.builder,
+            current,
+            &source,
+            parent,
+            frame_value,
+            completion,
+            &state,
+            cancellation,
+        )?;
+
+        self.frame_states.push(state);
 
         Ok(LoweredExpression::continuing(
             resume,

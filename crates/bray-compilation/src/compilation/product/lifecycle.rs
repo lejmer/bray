@@ -8,9 +8,7 @@ use bray_symbols::{
 };
 
 use super::super::{CodegenPreparationError, Compilation};
-use super::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
-};
+use super::{ProductQueryFailure, ProductSynchronizationComponent};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,19 +98,13 @@ impl Compilation {
         reference: &MirHelperReference,
         cancellation: &CancellationToken,
     ) -> Result<bool, CodegenPreparationError> {
-        let role = MirGeneratedLifecycleRole::from_reference(reference).ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirHelper(reference.clone()),
-                ProductDataKind::LifecycleRole,
-            )
-        })?;
+        let role = MirGeneratedLifecycleRole::from_reference(reference).unwrap_or_else(|| {
+            panic!("lifecycle query requires a lifecycle helper, got {reference:?}")
+        });
 
-        let ty = reference.lifecycle_type().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirHelper(reference.clone()),
-                ProductDataKind::LifecycleType,
-            )
-        })?;
+        let ty = reference
+            .lifecycle_type()
+            .expect("selected lifecycle helper retains its owner type");
 
         Ok(!self
             .codegen_lifecycle_needs(ty, cancellation)?
@@ -611,6 +603,16 @@ mod tests {
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("resource destruction must resolve: {error:?}"))
+        );
+    }
+    #[test]
+    #[should_panic(expected = "lifecycle query requires a lifecycle helper, got PanicReport")]
+    fn lifecycle_query_rejects_an_internal_non_lifecycle_reference() {
+        let compilation = compilation("module app;");
+
+        let _ = compilation.codegen_lifecycle_is_trivial(
+            &MirHelperReference::PanicReport,
+            &CancellationToken::new(),
         );
     }
 }

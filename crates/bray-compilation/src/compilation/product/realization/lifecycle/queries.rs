@@ -3,9 +3,6 @@ use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use crate::compilation::CodegenPreparationError;
 use crate::compilation::Compilation;
-use crate::compilation::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
-};
 use crate::fact::CancellationToken;
 use bray_compiler_known::CompilerKnownDeclarationKey;
 
@@ -74,32 +71,28 @@ impl Compilation {
             ));
         }
 
-        let Some((_, _, callable, signature)) = selected.value() else {
-            return Err(CodegenPreparationError::UnsupportedType(storage));
-        };
+        let (_, _, callable, signature) = selected.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "checked storage {storage:?} for {target:?} retains selected operation {member:?}"
+            )
+        });
 
         let values = self.semantic_value_store()?;
 
         let callable_type = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
-                ty: signature.callable_type(),
-                expected: ProductValueKind::CallableType,
-                actual: callable_type.as_ref().clone(),
-            }
-            .into());
+            panic!(
+                "checked storage operation {member:?} retains callable type {:?}, got {callable_type:?}",
+                signature.callable_type()
+            );
         };
 
         let [parameter] = signature.parameters() else {
-            return Err(ProductQueryFailure::count_mismatch(
-                // The failure owns the protocol identity after this query returns.
-                ProductQueryContext::CompilerKnownDeclaration(member.clone()),
-                ProductDataKind::CallableParameters,
-                1,
-                signature.parameters().len(),
-            )
-            .into());
+            panic!(
+                "checked storage operation {member:?} retains one parameter, got {:?}",
+                signature.parameters()
+            );
         };
 
         Ok(LifecycleCallable {

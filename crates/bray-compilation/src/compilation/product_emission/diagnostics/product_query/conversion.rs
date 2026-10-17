@@ -604,8 +604,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::Intrinsic => "intrinsic",
         ProductDataKind::ConversionPlan => "conversion_plan",
         ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
-        ProductDataKind::LifecycleRole => "lifecycle_role",
-        ProductDataKind::LifecycleType => "lifecycle_type",
         ProductDataKind::StaticInitializer => "static_initializer",
         ProductDataKind::ImplementationHeader => "implementation_header",
         ProductDataKind::TestDiscovery => "test_discovery",

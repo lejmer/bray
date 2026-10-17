@@ -4,6 +4,7 @@
 
 mod cleanup_loop;
 mod cleanup_outcome;
+mod continuation;
 mod host;
 mod identity;
 mod input;
