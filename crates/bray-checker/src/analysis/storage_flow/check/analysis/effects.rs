@@ -153,13 +153,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(target) = assignment {
             self.record_target_effect(target, mutation.expect("assignment retains its transition"));
-        } else if let Some(effects) = call_effects {
+        }
+
+        if let Some(effects) = call_effects {
             self.record_resolved_effects(effects);
         } else if self.call_attempt(kind).is_some() {
             // Invalidation is not an ownership-effect summary. An unresolved call
             // may introduce ownership as well as retire storage, on any outcome.
             self.record_effect(DependencyStorageEffect::Unknown);
-        } else if let Some(effects) = self.refinements.invalidation_at(kind.occurrence()) {
+        } else if assignment.is_none()
+            && let Some(effects) = self.refinements.invalidation_at(kind.occurrence())
+        {
             let effect_kind = if self.storage.node_plans(kind.node()).any(|plan| {
                 matches!(
                     self.storage.effective_purpose(plan),
@@ -173,6 +177,47 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             self.record_effects(effects, effect_kind);
         }
+    }
+
+    pub(super) fn operation_observations(
+        &self,
+        state: &StorageFlowState,
+        kind: AnalysisOperationKind,
+        assignment: Option<&Target>,
+        effects: Option<&[Effect]>,
+        roots: Option<&[Target]>,
+    ) -> Option<StorageInvalidation> {
+        let mut observed = effects
+            .map(|effects| {
+                self.call_observations(state, kind.occurrence(), effects, roots.unwrap_or(&[]))
+            })
+            .or_else(|| {
+                roots.map(|roots| self.opaque_observations(&state.memory, roots.iter().cloned()))
+            })
+            .or_else(|| {
+                assignment
+                    .is_none()
+                    .then(|| {
+                        self.refinements
+                            .invalidation_at(kind.occurrence())
+                            .map(|planned| {
+                                self.planned_observations(state, planned, kind.occurrence())
+                            })
+                    })
+                    .flatten()
+            });
+
+        if let Some(target) = assignment {
+            let destination = self.target_observations(&state.memory, std::iter::once(target));
+
+            if let Some(observed) = &mut observed {
+                observed.merge(&destination);
+            } else {
+                observed = Some(destination);
+            }
+        }
+
+        observed
     }
 
     pub(super) fn apply_call_effects(

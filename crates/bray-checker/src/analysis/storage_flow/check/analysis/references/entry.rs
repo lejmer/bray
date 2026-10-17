@@ -69,7 +69,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
         Self::close_entry_demands(request, &mut demands, parents)?;
 
-        self.install_entry_references(request, storage, selections, &demands)
+        self.install_entry_references(request, storage, &demands)
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
@@ -142,12 +142,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(expression)
-                if matches!(selections.expression(expression), Some(bray_bound_tree::SemanticSelection::Call(_))));
+            let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(_));
 
             if !temporary
                 && !matches!(

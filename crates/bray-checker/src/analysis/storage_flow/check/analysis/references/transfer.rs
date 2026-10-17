@@ -129,9 +129,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload
                     && result.contains(path)
                 {
-                    state
-                        .memory
-                        .stage_null((*target).into(), Target::storage(path.clone()));
+                    self.stage_absent_references(&mut state.memory, (*target).into(), path);
                 }
             }
         }
@@ -244,9 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .clone();
 
         if let Some(pending) = pending {
-            state
-                .memory
-                .stage_null(pending.into(), Target::storage(absent));
+            self.stage_absent_references(&mut state.memory, pending.into(), &absent);
         } else {
             state.definitely_absent.insert(
                 absent,
@@ -313,6 +309,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } else {
                 state.memory.transfer_value(&source, destination);
             }
+        }
+    }
+
+    fn stage_absent_references(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        absent: &Place,
+    ) {
+        // Pending joins compare exact slots. An absent aggregate must carry emptiness
+        // for every prepared reference it contains, without making result storage live.
+        memory.stage_null(occurrence, Target::storage(absent.clone()));
+
+        for path in self
+            .input
+            .returned_references
+            .get(&absent.root)
+            .into_iter()
+            .flat_map(|paths| paths.keys())
+            .filter(|path| *path != absent && absent.contains(path))
+        {
+            memory.stage_null(occurrence, Target::storage(path.clone()));
         }
     }
 

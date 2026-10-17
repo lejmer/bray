@@ -594,29 +594,23 @@ where
                     crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind)
                 });
 
-        let invocation_roots = if completing {
-            None
-        } else if assignment_mutation.is_some() {
-            // Assignment stores only its right-hand value. The destination address
-            // is an access path, not a value published by the write.
-            Some(self.assignment_roots(state, kind))
-        } else {
-            self.call_attempt(kind)
-                .map(|_| self.invocation_roots(state, kind.occurrence()))
-        };
+        let invocation_roots = (!completing)
+            .then(|| self.call_attempt(kind))
+            .flatten()
+            .map(|_| self.invocation_roots(state, kind.occurrence()));
 
         let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
 
+        if let Some(effect) = &assignment_effect {
+            // The write publishes only its right-hand value. A selected operator
+            // separately observes and may retain both of its invocation inputs.
+            let roots = self.assignment_roots(state, kind);
+
+            self.record_address_escapes(state, kind, Some(std::slice::from_ref(effect)), &roots);
+        }
+
         if let Some(roots) = &invocation_roots {
-            self.record_address_escapes(
-                state,
-                kind,
-                assignment_effect
-                    .as_ref()
-                    .map(std::slice::from_ref)
-                    .or(call_effects.as_deref()),
-                roots,
-            );
+            self.record_address_escapes(state, kind, call_effects.as_deref(), roots);
         }
 
         if !completing {
@@ -635,46 +629,17 @@ where
             .and_then(|target| target.storage_path())
             .cloned();
 
-        let mut invalidation = if completing {
-            None
-        } else {
-            let call_effects = call_effects.as_ref().map(|effects| {
-                self.call_observations(
+        let mut invalidation = (!completing)
+            .then(|| {
+                self.operation_observations(
                     state,
-                    kind.occurrence(),
-                    effects,
-                    invocation_roots.as_deref().unwrap_or(&[]),
+                    kind,
+                    assignment.as_ref(),
+                    call_effects.as_deref(),
+                    invocation_roots.as_deref(),
                 )
-            });
-
-            call_effects
-                .or_else(|| {
-                    // Assignment publication and mutation share one resolved path.
-                    assignment.as_ref().map(|target| {
-                        self.target_observations(&state.memory, std::iter::once(target))
-                    })
-                })
-                .or_else(|| {
-                    self.refinements
-                        .invalidation_at(kind.occurrence())
-                        .map(|planned| self.planned_observations(state, planned, kind.occurrence()))
-                        .or_else(|| {
-                            matches!(
-                                kind,
-                                AnalysisOperationKind::Suspension {
-                                    kind: crate::analysis::model::AnalysisSuspensionKind::Await,
-                                    ..
-                                }
-                            )
-                            .then(|| {
-                                self.opaque_observations(
-                                    &state.memory,
-                                    self.invocation_roots(state, kind.occurrence()),
-                                )
-                            })
-                        })
-                })
-        };
+            })
+            .flatten();
 
         if let Some(invalidation) = &mut invalidation {
             self.preserve_borrowed_carriers(state, &state.memory, invalidation);

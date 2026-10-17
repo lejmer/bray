@@ -448,3 +448,26 @@ Compilation-cost acceptance remains required. Reference shape discovery is once 
 with bounded recursive paths and no execution-history enumeration. This checkpoint must not be
 represented as completion of ordinary asynchronous cleanup, retained quiescence, abandoned
 destruction, native incident ownership, or BRA-619.
+
+## Terminal checkpoint review fixes
+
+Checkpoint `9df53861` is published on PR #612. Independent review `5559944824` found
+compound assignments dropping operator effects and nested pending payloads losing reference
+origins. Inline comments `4304384191` and `4304384194` are verified.
+
+The owning transition now checks and publishes assignment and invocation effects independently.
+Invocation roots include the operator inputs. Assignment capture still considers only the stored
+value. Observation invalidation combines both effects without broadening an ordinary direct
+assignment. No downstream validation pass is added.
+
+Pending absence stages the already prepared reference slots beneath an aggregate payload.
+Preparation covers temporary results as well as calls. This uses the existing bounded type demands,
+without treating an empty aggregate root as evidence about arbitrary unknown descendants.
+
+The expanded source/imported operator matrix covers direct assignment and a called helper,
+including the operator's possible abnormal exit. Nullable and Result propagation cover nested
+aggregate references at callable and yield boundaries. The final batch passes 48 compiler tests,
+including production synchronization, channel and host destructors, and 331 checker tests.
+Logs: `bra-505-review-composition-final.log`, `bra-505-review-checker.log`.
+Required formatting, final source checks and independent re-review follow before this fix is
+considered reviewed. The remaining implementation matrix above is unchanged.

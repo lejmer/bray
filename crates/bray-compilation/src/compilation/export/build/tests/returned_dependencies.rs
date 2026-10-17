@@ -1744,6 +1744,10 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
 fn propagation_preserves_the_selected_payload_reference_relation() {
     for (ty, input, result, count) in [
         ("RawPointer<u32>?", "input?", "pointer", 1),
+        ("Wrapper?", "input?", "pointer", 1),
+        ("Outer?", "input?", "pointer", 1),
+        ("Result<Wrapper, bool>", "try input", "Ok(pointer)", 1),
+        ("Result<Outer, Wrapper>", "try input", "Ok(pointer)", 2),
         (
             "Result<RawPointer<u32>, bool>",
             "try input",
@@ -1787,6 +1791,16 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
             let provider = compilation(&format!(
                 r#"
                 module api;
+
+                struct Wrapper
+                {{
+                    pointer: RawPointer<u32>;
+                }}
+
+                struct Outer
+                {{
+                    inner: Wrapper;
+                }}
 
                 func forward(pos input: {ty}) -> {ty}
                 {{
@@ -1832,6 +1846,125 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
                     relation.exit().projections()
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_boundaries() {
+    let declarations = r#"
+        module api;
+
+        struct Child
+        {
+            finalize() {}
+        }
+
+        struct Value
+        {
+            child: RawPointer<Child>;
+            fail: bool;
+        }
+
+        extern func replace(pos child: RawPointer<Child>);
+
+        impl ValueAdd = Value(Add<Value>)
+        {
+            type Output = Value;
+
+            func add(pos rhs: &Value) -> Value
+            {
+                replace(self.child);
+
+                if rhs.fail
+                {
+                    assert(false);
+                }
+
+                return Value
+                {
+                    child = rhs.child,
+                    fail = false
+                };
+            }
+        }
+
+        struct Container
+        {
+            mut value: Value;
+        }
+
+        func update(pos container: &mut Container)
+        {
+            container.value += container.value;
+        }
+    "#;
+
+    let provider = compilation(declarations);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&provider, "update");
+
+    assert!(
+        dependencies
+            .effects()
+            .iter()
+            .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Unknown)),
+        "the operator's opaque effects must survive its scalar-only replacement: {dependencies:#?}"
+    );
+
+    for imported in [false, true] {
+        for operation in [
+            "self.container.value += self.container.value;",
+            "update(&mut self.container);",
+        ] {
+            let owner = format!(
+                r#"
+                struct Owner
+                {{
+                    mut container: Container;
+
+                    finalize() {{}}
+
+                    destruct()
+                    {{
+                        {operation}
+                    }}
+                }}
+            "#
+            );
+
+            let consumer = if imported {
+                let owner = owner
+                    .replace("Container", "example.package.api.Container")
+                    .replace("update(", "example.package.api.update(");
+
+                execution_consumer(
+                    &provider,
+                    &format!(
+                        r#"
+                    module app;
+                    using example.package.api.Container;
+                    using example.package.api.update;
+                    using example.package.api.ValueAdd;
+
+                    {owner}
+                "#
+                    ),
+                )
+            } else {
+                compilation(&format!("{declarations}\n{owner}"))
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingUnprovedDestructorEffects,
+            );
         }
     }
 }

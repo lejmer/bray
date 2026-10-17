@@ -136,7 +136,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // installation is disjoint from the terminal receiver.
                 self.report_terminal_operation(operation, None);
             }
-        } else if effects.is_some() || self.call_attempt(operation).is_some() {
+        }
+
+        if effects.is_some() || self.call_attempt(operation).is_some() {
             self.check_terminal_effects(
                 state,
                 &state.memory,
