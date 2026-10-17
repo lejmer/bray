@@ -29,7 +29,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
-        self.push_selected_call(
+        let value = self.push_selected_call(
             builder,
             block,
             source,
@@ -38,9 +38,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             bray_bound_tree::BoundCallResult::Immediate(callable.result),
         )?;
 
-        let completed = outcome
-            .check(builder, block, source)
-            .map_err(|cause| self.capacity_error(cause))?;
+        let completed = self.collect_lifecycle_completion(
+            builder,
+            block,
+            source,
+            value,
+            callable.result,
+            &outcome,
+        )?;
 
         self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }

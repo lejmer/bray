@@ -494,7 +494,9 @@ impl Lowerer<'_> {
                 let block = if let Some(outcome) = &lowerer.cleanup_outcome {
                     outcome.check(&mut lowerer.builder, block, source)?
                 } else {
-                    lowerer.check_ordinary_cleanup(block, source, release.map(|_| owner), false)?
+                    lowerer
+                        .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
+                        .0
                 };
 
                 if release.is_some() {

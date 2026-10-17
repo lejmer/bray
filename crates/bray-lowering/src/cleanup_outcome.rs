@@ -165,7 +165,7 @@ impl CleanupOutcome {
         block: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<MirBlockId, MirCapacityError> {
-        let (completed, continuation) = self.check_completion(builder, block, source)?;
+        let (completed, _, continuation) = self.check_completion(builder, block, source, None)?;
 
         builder.set_terminator(
             completed,
@@ -182,19 +182,21 @@ impl CleanupOutcome {
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
-    ) -> Result<(MirBlockId, MirBlockId), MirCapacityError> {
+        value: Option<MirOperand>,
+    ) -> Result<(MirBlockId, Option<MirOperand>, MirBlockId), MirCapacityError> {
         let kind = builder.block_kind(block);
         let panicked = builder.push_block(source.clone(), kind)?;
         let cancelled = builder.push_block(source.clone(), kind)?;
         let continuation = builder.push_block(source.clone(), kind)?;
 
-        let completed = check_call_outcome(
+        let (completed, value) = check_call_outcome(
             builder,
             block,
             source,
             panicked,
             cancelled,
             self.incoming_report.clone(),
+            value,
         )?;
 
         self.store(
@@ -213,7 +215,7 @@ impl CleanupOutcome {
 
         self.retain_panic(builder, panicked, source, continuation)?;
 
-        Ok((completed, continuation))
+        Ok((completed, value, continuation))
     }
 
     fn retain_panic(
@@ -396,10 +398,18 @@ pub(crate) fn check_call_outcome(
     panicked: MirBlockId,
     cancelled: MirBlockId,
     report: MirPlace,
-) -> Result<MirBlockId, MirCapacityError> {
+    value: Option<MirOperand>,
+) -> Result<(MirBlockId, Option<MirOperand>), MirCapacityError> {
     let kind = builder.block_kind(block);
 
     let completed = builder.push_block(source.clone(), kind)?;
+
+    let parameter = value
+        .as_ref()
+        .map(|value| {
+            builder.push_block_parameter(completed, source.clone(), builder.operand_type(value))
+        })
+        .transpose()?;
 
     let (panicked, cancelled) =
         if kind == MirBlockKind::CleanupBroadcast && builder.block_kind(panicked) != kind {
@@ -434,11 +444,11 @@ pub(crate) fn check_call_outcome(
         block,
         source.clone(),
         MirTerminatorKind::CheckCallOutcome {
-            completed: MirEdge::new(completed, []),
+            completed: MirEdge::new(completed, value),
             panicked: MirCallPanicEdge::new(panicked, report),
             cancelled: MirEdge::new(cancelled, []),
         },
     );
 
-    Ok(completed)
+    Ok((completed, parameter.map(MirOperand::Value)))
 }

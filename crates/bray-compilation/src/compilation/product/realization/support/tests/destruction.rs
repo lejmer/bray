@@ -565,6 +565,21 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
         assert_eq!(finalized.operations().iter().filter(|operation|
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), calls);
 
+        assert_eq!(
+            finalized
+                .operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
+                    )
+                ))
+                .count(),
+            usize::from(calls != 0 && !result.is_empty()),
+            "only retained fallible finalizer calls transfer an error payload",
+        );
+
         if calls == 0 {
             assert!(finalized.operations().iter().all(|operation| !matches!(
                 operation.kind(),
@@ -674,4 +689,146 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
     let later = query(&CancellationToken::new()).expect("later requests must reuse success");
 
     assert!(Arc::ptr_eq(&waiter, &later));
+}
+
+#[test]
+fn generated_finalizer_transfers_only_a_completed_error_payload() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Failure
+        {
+            destruct() {}
+        }
+
+        struct Value
+        {
+            finalize() -> Result<unit, Failure>
+            {
+                return Error(Failure {});
+            }
+        }
+    "#,
+    );
+
+    assert!(!compilation.check_diagnostics().has_errors());
+
+    let symbols = compilation.symbol_graph().unwrap();
+
+    let definition = symbols
+        .structures()
+        .iter()
+        .find(|value| value.origin() == SymbolOrigin::Source && !value.finalizers().is_empty())
+        .unwrap();
+
+    let ty = named_type(
+        compilation.semantic_value_store().unwrap(),
+        NamedTypeSymbolId::Struct(definition.id()),
+    )
+    .unwrap();
+
+    let target = codegen_target(&compilation);
+
+    let generated =
+        generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 192);
+
+    assert!(generated.is_valid());
+
+    let (call_block, call) = generated.blocks_with_ids().find_map(|(id, block)| {
+        block.operations().iter().find_map(|operation| {
+            let operation = generated.operation(*operation).unwrap();
+
+            matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))
+                .then(|| (id, operation.result().unwrap()))
+        })
+    }).unwrap();
+
+    let MirTerminatorKind::CheckCallOutcome {
+        completed,
+        panicked,
+        cancelled,
+    } = generated.block(call_block).unwrap().terminator().kind()
+    else {
+        panic!("the finalizer outcome must be checked before inspecting its Result");
+    };
+
+    assert_eq!(completed.arguments(), &[bray_ir::MirOperand::Value(call)]);
+
+    let completed = generated.block(completed.target()).unwrap();
+
+    let MirTerminatorKind::PatternBranch {
+        subject,
+        matched,
+        unmatched,
+        ..
+    } = completed.terminator().kind()
+    else {
+        panic!("only successful completion inspects the finalizer Result");
+    };
+
+    assert_eq!(
+        subject,
+        &bray_ir::MirOperand::Value(completed.parameters()[0])
+    );
+
+    let success = generated.block(matched.target()).unwrap();
+    let error = generated.block(unmatched.target()).unwrap();
+
+    let transfers = error
+        .operations()
+        .iter()
+        .filter_map(|id| match generated.operation(*id).unwrap().kind() {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                incident,
+                ..
+            }) => Some(incident),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(transfers.len(), 1);
+
+    let bray_ir::MirOperand::Value(payload) = transfers[0] else {
+        panic!("transfer consumes the projected payload");
+    };
+
+    let projection = error
+        .operations()
+        .iter()
+        .find_map(|id| {
+            let operation = generated.operation(*id).unwrap();
+
+            (operation.result() == Some(*payload)).then_some(operation.kind())
+        })
+        .unwrap();
+
+    assert!(matches!(
+        projection,
+        MirOperationKind::PatternProjection {
+            operation: bray_bound_tree::PatternOperation::Consume,
+            ..
+        }
+    ));
+
+    assert!(success.operations().iter().all(|id| !matches!(
+        generated.operation(*id).unwrap().kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { .. })
+    )));
+
+    assert_ne!(panicked.target(), unmatched.target());
+    assert_ne!(cancelled.target(), unmatched.target());
+
+    assert!(
+        matches!(error.terminator().kind(), MirTerminatorKind::Goto(_)),
+        "incident transfer retains ownership without replacing the pending cleanup outcome"
+    );
+
+    assert!(
+        generated.operations().iter().all(|operation| !matches!(
+            operation.kind(),
+            MirOperationKind::Destroy(_) | MirOperationKind::Finalize(_)
+        )),
+        "the transferred payload stays owned by the incident chain"
+    );
 }

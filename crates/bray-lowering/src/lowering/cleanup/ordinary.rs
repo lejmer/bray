@@ -222,10 +222,11 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         released_owner: Option<TypeId>,
         shielded: bool,
-    ) -> Result<MirBlockId, LoweringError> {
+        value: Option<MirOperand>,
+    ) -> Result<(MirBlockId, Option<MirOperand>), LoweringError> {
         let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
         else {
-            return Ok(block);
+            return Ok((block, value));
         };
 
         if released_owner.is_some() || shielded {
@@ -265,6 +266,7 @@ impl Lowerer<'_> {
             panicked,
             cancelled,
             report,
+            value,
         )
         .map_err(Into::into)
     }

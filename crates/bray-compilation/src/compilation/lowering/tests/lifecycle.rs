@@ -332,6 +332,11 @@ fn asynchronous_scoped_phases_drive_selected_frames_and_shield_exit() {
         let mir = lowered_mir(&result);
 
         assert!(
+            mir.is_valid(),
+            "scoped cleanup must forward its values through MIR edges"
+        );
+
+        assert!(
             mir.blocks().iter().any(|block| matches!(
                 block.terminator().kind(),
                 MirTerminatorKind::Suspend { .. }
@@ -404,7 +409,10 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
 
         let result = compilation.lowered_unit(key).unwrap();
 
-        lowered_mir(&result);
+        assert!(
+            lowered_mir(&result).is_valid(),
+            "fallible scoped cleanup retains valid value ownership"
+        );
     }
 }
 
@@ -436,6 +444,11 @@ fn fallible_scoped_exit_preserves_pending_control_outcomes() {
         let key = source_function_body_key(&compilation, "caller");
         let result = compilation.lowered_unit(key).unwrap();
         let mir = lowered_mir(&result);
+
+        assert!(
+            mir.is_valid(),
+            "scoped cleanup must forward its values through MIR edges"
+        );
 
         assert!(
             mir.blocks()

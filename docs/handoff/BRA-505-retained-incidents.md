@@ -38,10 +38,18 @@ Completed implementation detail and evidence belong in Git and PR history.
 - `d02f1b62`: admission and lane planning consume selected LifecycleAction calls
   without generating MIR. Remove LoweredLifecycle and duplicate call bookkeeping.
   Actual emission retains the generated-body cache and shared role-to-phase mapping.
-- Current buffer correction: cancellation and quiescence visit the recognized
+- `9c148384`: buffer correction: cancellation and quiescence visit the recognized
   RawBuffer initialized prefix with the existing reverse cleanup loop. Lifecycle
   needs and source cleanup phases include element obligations. Preserve count, allocation and elements for
   later destruction. Source and imported declarations exercise the same selection.
+
+- Current result correction: generated finalizers transfer a completed `Result` error
+  through the existing incident operation instead of discarding it. Source and
+  generated cleanup share payload branching. Cleanup outcome edges carry the value
+  only on successful completion, including scoped exits. Source lowering installs
+  the branch through its ownership-aware terminator sink, preserving move guards.
+  Incident transfer keeps its existing non-propagating contract. Quiescence and
+  retained destruction still belong to the unfinished production consumer below.
 
 ## Remaining implementation and acceptance
 
@@ -75,6 +83,14 @@ Synthetic helpers have no protected-frame continuation yet. No alternative
 continuation implementation has been committed.
 
 ## Verification and review
+
+The result correction passes all 72 focused lowering, lifecycle, propagation and
+realization tests. Its regression requires valid MIR, one consuming error projection,
+no payload destruction, no result inspection on panic/cancellation, and retained
+completion omissions. Existing scoped-call regressions now require valid MIR.
+The temporary validator probe was restored. Final evidence is in
+`target/bra-505-completion-values.log`. Rustfmt, mutating style, explicit Bray formatting and the maintainability audit pass. This correction adds 198 net production lines and 169 net test lines.
+
 
 The broad normal-legality run passed 1,732/1,734 tests. The static constructor
 mapping failure was fixed and its affected 18 tests pass. The other failure is the
