@@ -214,3 +214,61 @@ mechanism covering semantic queries, emission, linking and driver failures. That
 is tracked in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). No closed issue was reopened.
 It must fix each producer, remove superseded transport, and preserve real input and operational
 errors. BRA-505 retains all lifecycle invariants encountered by its implementation.
+
+## Pending abandonment interpretation
+
+Checkpoint `2f0aeeee` is committed and pushed to PR #612. Its evidence comment is
+https://github.com/lejmer/bray/pull/612#issuecomment-6229593906. The worktree was clean
+before this record update. No build or test process remains active.
+
+The user has been asked a required semantic clarification. Do not choose an answer
+because time passes. The two interpretations concern finalization triggered by operations
+inside a retained error's source destructor, rather than its final outer disposal.
+
+Concrete trace: error E owns resource R. E's destructor passes a mutable borrow of R
+to an ordinary helper. That helper replaces R with a new resource. Ordinary replacement
+finalizes the old R and resolves the new owner's later obligation. If abandonment is
+transitive through destructor operations, the helper must suppress old R's finalizer
+while preserving cleanup of the new resource. If destructor operations follow ordinary
+rules, the helper invokes the old finalizer. These have different observable behavior.
+A blanket destruction-mode flag cannot distinguish the original owner from new locals
+and replacement owners. A flag only on the destructor's final receiver cleanup cannot
+control replacement in the called helper. No proposed implementation of this distinction
+has been applied.
+
+Read `docs/language/lifecycle/destruction.md` and
+`docs/language/async-and-concurrency/cancellation.md`, plus the actual receiver move test
+`destructor_receiver_move_admits_before_transfer` in compilation lowering lifecycle tests.
+The spec allows receiver mutation and consuming represented parts, forbids unresolved
+new finalization obligations after destruction, and abandons the retained incident's
+finalization. It does not state whether operations invoked by its destructor re-enter
+ordinary finalization rules or must preserve abandonment transitively. Resolve this
+before connecting the retained incident producer or inventing owner-state propagation.
+
+Independent path mapping for the next implementation batch:
+
+- Source `push_cleanup_action` drives direct async finalizers through
+  `push_async_finalizer` and `lower_awaited_frame`. Generated `push_lifecycle_call`
+  still incorrectly assumes an immediate result. Keep this visible until resolved.
+- Checking classifies Future as cancellation plus lifecycle cleanup, while
+  `compiler_known_lifecycle_needs` publishes only QUIESCE. Ordinary erased future
+  disposal is therefore currently treated as trivial by code generation.
+- `CleanupPlan` selects suspension occurrences only from declared finalizers. Inactive
+  capture cleanup also needs a selected occurrence, retained inputs and outcomes.
+  Do not fabricate an empty storage snapshot downstream.
+- Native `activation.composition.compose` already accepts an abandoning argument,
+  but `NativeRun::compose` always supplies zero. The compiler composition operation
+  currently has no abandonment disposition. The existing admission contract requires
+  a destination sized/aligned for the exact child result, even on abandonment.
+- Abandoning an inactive future must never execute its body. A normal cancelled
+  terminal outcome of this cleanup must not cancel its parent. Captured cleanup panics
+  and incidents must still propagate through the existing cleanup outcome sequence.
+- Consuming ordinary inactive disposal differs from retained-error quiescence: the
+  latter must leave a terminal representation usable by the payload's later destructor
+  and must retain backing/provider dependencies. Do not reuse consuming abandonment
+  and leave a stale token in the retained payload.
+
+No new code for these remaining paths has been written in this checkpoint. The pending
+question concerns the shared destruction contract, so avoid building a second path
+around an assumed interpretation. Resume BRA-505 after the answer, then BRA-619, with
+full acceptance and independent PR review before marking either ready.
