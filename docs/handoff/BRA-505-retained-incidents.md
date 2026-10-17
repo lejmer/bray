@@ -159,4 +159,3 @@ is claimed while the issue's acceptance remains incomplete.
 The separate compiler-defect diagnostic mechanism outside this lifecycle work is tracked
 in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). BRA-505 still owns every lifecycle
 invariant encountered here. Do not turn impossible states into recoverable diagnostics.
-
