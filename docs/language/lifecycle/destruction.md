@@ -20,6 +20,11 @@ performed through its destruction authority may preserve or consume those obliga
 reactivate them in the receiver, its represented parts, or dependencies through which those obligations are maintained.
 This restriction applies on normal and abnormal exits, including operations through aliases and called helpers.
 
+Losing a completion condition does not itself introduce a new obligation or undo abandonment of an inherited owner.
+Reactivation means restoring ordinary graceful ownership or acquiring new obligated ownership. It does not mean merely
+changing a predicate used to omit a finalizer. Foreign resource acquisition and transfer still follow their declared
+ownership contracts, even when an ABI represents the resource by a scalar handle.
+
 Installing a new owner that requires graceful cleanup is forbidden even when that owner is currently complete.
 Completion can depend on state that later cleanup changes. A destructor may still release resources, consume parts,
 clear storage, and perform representational mutations that preserve this terminal boundary.

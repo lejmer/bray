@@ -110,15 +110,39 @@ Neither existing mechanism alone proves the terminal boundary.
 
 Independent read-only design review confirmed that completion-proof invalidation is not
 obligation introduction. An inherited abandoned duty stays abandoned when its omission
-certificate is lost. A teardown marker can change without introducing work, while acquiring
-a new descriptor or appending buffered output can introduce work without replacing the
-whole receiver. Do not silently equate these cases or make abandonment mutation-sensitive.
+certificate is lost. A teardown marker can change without introducing ownership. A newly
+acquired foreign descriptor can introduce resource ownership without replacing the whole
+Bray receiver. The reviewer corrected its earlier buffered-output example: the specification
+does not introduce a separate compiler-owned obligation for every buffered write. Do not
+silently equate completion invalidation with new ownership or make abandonment
+mutation-sensitive.
 A checked preservation inference must establish its claim from operations and contracts,
 including abnormal outcomes. An unknown or ordinary may-write effect cannot establish it.
 
 The existing `destructor_receiver_move_admits_before_transfer` test has only a destructor,
 not a finalizer. This boundary does not justify rejecting it or deleting its admission
 machinery. Nonescaping consuming helpers retain their ordinary checked contracts.
+
+The precise structural interpretation is now recorded in the language rule. Checked
+construction, installation and transfer must not add new obligated ownership to the dying
+graph. Consumption/removal and same-owner teardown preserve its terminal disposition.
+This gives an inductive tail proof: remaining owners are inherited, so the abandoned tail
+needs no inherited/new runtime discriminator. Existing initialization guards still exclude
+consumed parts. This proof is conditional on establishing the rule at every source/imported
+and foreign transition, not evidence that the current compiler already does so.
+
+The actual foreign-binding audit remains necessary. `std.os.unix.close` and Windows
+`close_handle` currently expose scalar/pointer parameters and `uses(foreign_call)`, while
+resource release is described in generated comments. Those comments are not checked effect
+metadata. Do not infer preservation from a function name, lack of `raw_memory`, normal
+initialization postconditions, or an assumption that all trusted functions preserve owners.
+The Unix generated close ownership comments incorrectly said failure retained descriptor
+ownership. The four target inputs now describe relinquishment of valid descriptors, with
+Darwin's close-guard exception. Generated comments and input digests are regenerated from
+those inputs. The evidence is the [Linux close documentation](https://man7.org/linux/man-pages/man2/close.2.html)
+and [Apple's close implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_descrip.c),
+where `close_nocancel` checks close guards and `fp_close_and_unlock` retires the descriptor
+before returning the result of `fg_drop`. This corrects documentation, not compiler effects.
 
 No source implementation of terminal preservation has been added. The next implementation
 decision is how existing operations and foreign contracts establish absence of new graceful
@@ -229,6 +253,11 @@ All logs below are under the shared target directory
 - `bra-505-static-outcome-format.log`: Rustfmt, mutating structural style and explicit Bray
   formatting pass. The callback audit covers both output producers, the source write-only
   contract, invocation behavior and backing-release status handling.
+- Terminal-boundary documentation audit: the completion/ownership distinction is recorded.
+  The four Unix close input comments are corrected and all six target outputs regenerated.
+  `cargo xtask standard-library os-bindings generate --check`, `cargo xtask format` and
+  `git diff --check` pass. Generated diffs contain only ownership comments and input digests.
+  No executable behavior changed, so native execution and unit tests were not repeated.
 - Native resource retry tests and inactive composition execution remain pending.
   Source and bundle verification do not establish retained-incident acceptance.
 
