@@ -1,5 +1,63 @@
 # BRA-505 ordinary finalization and retained incidents
 
+## Resume after every context compaction
+
+Read this section and the active agreement before resuming work after compaction or
+an application restart. These are explicit user requirements, reaffirmed 2026-10-18.
+
+- The project is moving the runtime entirely to Bray. Runtime ownership, activation,
+  waiting, retirement and lifecycle policy belong in Bray. Do not add or extend a Rust
+  runtime frame to complete BRA-505. Existing Rust runtime machinery is a migration
+  target, not a foundation for another adapter. Rust compiler code is a separate concern.
+  All project-owned linked support belongs in Bray, except the pinned temporal provider.
+  Native system ABIs do not justify permanent project-owned Rust or C runtime shims.
+- Types and invariants must hold across the entire pipeline. Do not compensate for a
+  lost checked contract with consumer-specific adapters, repeated inference or validation.
+  Preserve the established result at its owning boundary and remove competing meanings.
+- Correctness is necessary but insufficient. Assess compiler time, generated execution,
+  binary size and maintenance independently. Do not rely on LLVM to remove avoidable work.
+  A helper extraction or file move is not simplification if competing mechanisms remain.
+- The user has repeatedly rejected growth through local repairs followed by another
+  architectural document. Before further implementation, identify the mechanism replaced,
+  its existing consumers and the code to remove. Unexpected layers or scope growth require
+  reconsidering that design, not adding another exception. No new language features.
+
+Current correction: pause further implementation additions while examining the actual
+phase boundaries. The earlier proposed extra Rust owner-waiter slot was withdrawn. It is
+not an accepted solution. Do not revive it after compaction.
+
+Confirmed implementation conflicts, not new language requirements:
+
+- `LifecycleCallable` retains completion type and execution separately; generated
+  `push_lifecycle_call` constructs an Immediate result even for an async selection.
+  Source cleanup instead creates and awaits the checked Future.
+- `MirUnitKind::GeneratedLifecycle` mixes provenance with execution classification and
+  excludes a frame descriptor. `MirSourceOrigin` already retains generated provenance.
+  Merely changing the enum does not complete shared resumable cleanup.
+- Native `TaskObservation` owns a separate Rust frame, cleanup sequence and failure
+  collection. Generated task cleanup uses blocking `resolve_task`. Native `observe`
+  consumes the outcome, so it is not a non-consuming readiness check. Reusing these
+  interfaces unchanged cannot preserve all quiescence and retained-owner invariants.
+- Existing Bray `activation.run` already owns composed execution and retirement.
+  Complete the compiler/Bray connection and remove superseded policy. Do not introduce
+  a replacement Rust observation frame or another cleanup scheduler.
+
+The governing designs already state this boundary: `docs/design/composed-async-execution.md`
+and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
+alignment, not permission to invent another runtime architecture.
+
+Latest pushed checkpoint: `216886091c2734aa5cb835c468ab3e163193c776`, PR #612.
+Independent review 5560583230 found no actionable checkpoint findings. Native acceptance
+remains unfinished. Human architectural feedback is now the active review.
+The report-pool simplification removes the C pop wrapper and retains typed callbacks across
+pool detachment. Its three focused compiler checks, three ABI checks, all-target metadata
+check, and eight packaging/archive checks pass. The initial failures exposed a duplicate
+binding, an existing incorrect pure annotation on address exposure, and a stale literal
+role inventory. All three are corrected. Logs are in the shared target directory:
+`bra-505-report-boundary-tests.log` and `bra-505-report-inventory-tests.log`.
+Rust formatting, mutating structural style and Bray formatting completed successfully.
+Style reports existing module-size warnings. Native acceptance remains unfinished.
+
 ## Active agreement
 
 Complete BRA-505, then BRA-619, with one independently reviewed stacked PR per issue.

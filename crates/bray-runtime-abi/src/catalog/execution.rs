@@ -66,15 +66,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
-            ReportRecordPop {
-                "Detach a primary and recycle its record.", "report_records_pop",
-                native: (REPORT_RECORDS_POP_SYMBOL = "bray_runtime_report_records_pop", [Pointer, Pointer] -> Void),
-                call_hook: (),
-                compiler: C [Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: ("report_records_pop"), host_control: false,
-                capabilities: [],
-                effects: [TransferCleanupIncident]
-            }
             ReportSegmentMark {
                 "Attach cleanup context to an exclusively owned report segment.", "report_segment_mark",
                 native: (REPORT_SEGMENT_MARK_SYMBOL = "bray_runtime_report_segment_mark", [Pointer, Pointer] -> Void),

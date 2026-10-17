@@ -133,7 +133,6 @@ mod tests {
             RuntimeAbiRole::ReportRecordTake,
             RuntimeAbiRole::ReportRecordExchange,
             RuntimeAbiRole::ReportRecordAppend,
-            RuntimeAbiRole::ReportRecordPop,
             RuntimeAbiRole::ReportSegmentMark,
             RuntimeAbiRole::ReportSegmentTake,
             RuntimeAbiRole::ReportConsumer,

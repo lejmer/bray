@@ -284,61 +284,15 @@ trusted internal func admit_record_values(
     }
 }
 
-@abi(c)
-trusted internal func report_records_pop(
-    pos chain: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportPrimary>
-)
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.initialized_as<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination)
-    )
-    ensures(
-        trusted native_primary_slot_callbacks(pointer = destination),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.initialized_as<ReportPrimary>(pointer = destination),
-        trusted core.memory.valid_read<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
-    uses(raw_memory, unchecked_init)
-{
-    let value: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
-    let (remaining, primary) = trusted pop_record_value(value, chain, destination);
-
-    trusted std.memory.write<ReportPrimary>(destination, primary);
-    trusted std.memory.write<ReportRecords>(chain, remaining);
-}
-
-trusted internal func pop_record_value(
-    pos mut value: ReportRecords,
-    pos chain: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportPrimary>
-) -> (ReportRecords, ReportPrimary)
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
-    ensures(
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
+trusted internal func pop_record_value(pos mut value: ReportRecords) -> (ReportRecords, StoredReportPrimary)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let handle: usize = trusted detach_record(pool, &mut value);
     let head: usize = pool.free;
 
-    let primary: ReportPrimary =
+    let primary: StoredReportPrimary =
     {
         let entry: &mut ReportRecord = trusted record(pool, handle);
 
@@ -350,7 +304,7 @@ trusted internal func pop_record_value(
         entry.segment_count = 0;
         entry.segment_tail = 0;
         entry.next = head;
-        yield trusted serialized_primary(primary);
+        yield primary;
     };
 
     pool.free = handle;

@@ -745,7 +745,7 @@ fn production_report_pool_mutation_requires_protocol_authority() {
     for operation in [
         "let mut guard = trusted bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;",
         "let mut records: bray.runtime.bootstrap.ReportRecords = bray.runtime.bootstrap.empty_records(); let status = trusted bray.runtime.bootstrap.report_records_admit(1, std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records));",
-        "let mut records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let mut primary = trusted bray.runtime.bootstrap.empty_primary(); trusted bray.runtime.bootstrap.report_records_pop(std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records), std.memory.address_of_mut<bray.runtime.bootstrap.ReportPrimary>(&mut primary));",
+        "let records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let result = trusted bray.runtime.bootstrap.pop_record_value(records);",
     ] {
         let source = format!(
             r#"module app;

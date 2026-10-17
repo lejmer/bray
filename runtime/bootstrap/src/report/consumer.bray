@@ -34,7 +34,7 @@ internal callable ReportConsumer = @abi(c) trusted func(pos pointer: RawPointer<
     );
 
 trusted internal func consume_address() -> usize
-    executes(pure, total)
+    executes(total)
     uses(intrinsic, layout_reinterpret)
 {
     let consumer: ReportConsumer = consume_report;
@@ -187,21 +187,16 @@ trusted internal func recycle_reservation(pos handle: usize)
         return;
     }
 
-    let mut reserved: ReportRecords =
+    let reserved: ReportRecords =
     {
         head = handle,
         tail = handle,
         count = 1
     };
 
-    let mut primary: ReportPrimary = empty_primary();
-
-    let pointer: RawPointer<ReportPrimary> = std.memory.address_of_mut<ReportPrimary>(&mut primary);
-
-    trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut reserved), pointer);
-    primary = trusted read_primary(pointer);
-
-    let callback: PanicMessageRelease? = trusted primary_release(&primary);
+    let (_, stored) = trusted pop_record_value(reserved);
+    let callback = stored.release_message;
+    let primary = trusted serialized_primary(stored);
     let (state, _) = trusted release_primary(&primary, callback);
 
     if state != RUN_COMPLETED
@@ -236,7 +231,7 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
     return trusted consume_primary(primary, remaining, reserved, reporting);
 }
 
-trusted internal func consume_record_values(pos mut remaining: ReportRecords, pos reporting: u32) -> u32
+trusted internal func consume_record_values(pos remaining: ReportRecords, pos reporting: u32) -> u32
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     if remaining.count == 0
@@ -244,12 +239,9 @@ trusted internal func consume_record_values(pos mut remaining: ReportRecords, po
         return STATUS_SUCCESS;
     }
 
-    let mut primary: ReportPrimary = empty_primary();
-    let pointer = std.memory.address_of_mut<ReportPrimary>(&mut primary);
+    let (tail, primary) = trusted pop_record_value(remaining);
 
-    trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut remaining), pointer);
-    primary = trusted read_primary(pointer);
-    return trusted consume_primary(primary, remaining, 0, reporting);
+    return trusted consume_primary(trusted serialized_primary(primary), tail, 0, reporting);
 }
 
 trusted internal func consume_primary(
@@ -329,15 +321,12 @@ trusted internal func consume_primary(
                 return status;
             }
 
-            let next_primary: RawPointer<ReportPrimary> = std.memory.address_of_mut<ReportPrimary>(&mut primary);
+            let (tail, next) = trusted pop_record_value(remaining);
 
-            trusted report_records_pop(std.memory.address_of_mut<ReportRecords>(&mut remaining), next_primary);
-            primary = trusted read_primary(next_primary);
-
-            let (next_copy, next_release) = trusted primary_callbacks(&primary);
-
-            callback = next_release;
-            copy = next_copy;
+            remaining = tail;
+            callback = next.release_message;
+            copy = next.copy_message;
+            primary = trusted serialized_primary(next);
         }
     }
 }

@@ -471,7 +471,7 @@ mod tests {
             assert_eq!(
                 runtime_source_signature_matches(
                     &compilation,
-                    RuntimeAbiRole::ReportRecordPop,
+                    RuntimeAbiRole::ReportRecordAppend,
                     &signature,
                     &CancellationToken::new(),
                 )
