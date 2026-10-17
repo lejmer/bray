@@ -1968,3 +1968,81 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
         }
     }
 }
+
+#[test]
+fn unresolved_assignment_retains_stored_reference_capture() {
+    let declarations = r#"
+        module api;
+
+        struct Slot
+        {
+            mut pointer: RawPointer<bool>;
+        }
+
+        func choose(pos left: &mut Slot, pos right: &mut Slot, pos first: bool) -> &mut Slot
+        {
+            if first
+            {
+                return left;
+            }
+            return right;
+        }
+
+        func store(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+        {
+            let destination = choose(left, right, first);
+            destination.pointer = pointer;
+        }
+    "#;
+
+    let provider = compilation(declarations);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    for imported in [false, true] {
+        let body = r#"
+            extern func opaque();
+
+            func forward(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+            {
+                store(left, right, pointer, first);
+                opaque();
+            }
+        "#;
+
+        let consumer = if imported {
+            let body = body
+                .replace("Slot", "example.package.api.Slot")
+                .replace("store(", "example.package.api.store(");
+
+            execution_consumer(
+                &provider,
+                &format!(
+                    "module app; using example.package.api.Slot; using example.package.api.store; {body}"
+                ),
+            )
+        } else {
+            compilation(&format!("{declarations}\n{body}"))
+        };
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+            &consumer, "forward",
+        );
+
+        assert!(
+            dependencies.effects().iter().any(|effect| matches!(
+                effect,
+                bray_symbols::DependencyStorageEffect::Indirect {
+                    kind: bray_symbols::DependencyMutationKind::Escape,
+                    ..
+                }
+            )),
+            "stored references remain exposed across an opaque call; imported={imported}: {dependencies:#?}"
+        );
+    }
+}

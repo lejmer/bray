@@ -469,5 +469,45 @@ including the operator's possible abnormal exit. Nullable and Result propagation
 aggregate references at callable and yield boundaries. The final batch passes 48 compiler tests,
 including production synchronization, channel and host destructors, and 331 checker tests.
 Logs: `bra-505-review-composition-final.log`, `bra-505-review-checker.log`.
-Required formatting, final source checks and independent re-review follow before this fix is
-considered reviewed. The remaining implementation matrix above is unchanged.
+The review fixes were published as `0aa96f86`. Formatting, structural style, all six native-target
+source checks and bundle verification passed (`bra-505-review-format.log`,
+`bra-505-review-library.log`). Fresh review `5560018217` confirms both findings are addressed;
+threads `4304384191` and `4304384194` have replies and are resolved.
+
+That re-review found unresolved assignment destinations losing RHS capture (`4304443313`).
+The current uncommitted correction collects RHS origins before destination invalidation and
+retains capture without an exact target. Source and imported conditional-destination regressions
+pass, including a later opaque call. Publication and re-review of this correction remain pending.
+
+
+## Active destruction implementation checkpoint
+
+The current uncommitted work carries abandonment as an explicit internal destruction-call
+argument. It changes no Bray syntax or public ABI version. Source destructors apply the argument
+only to implicit receiver-tail cleanup at checked scope exits; ordinary locals and explicit
+operations keep normal cleanup. Existing initialization guards remain in force.
+
+Finalizer results carry one SSA disposition through existing outcome branches. Error, panic and
+cancellation abandon that owner's inherited graceful tail. Success uses the returned disposition.
+No per-part history or runtime owner metadata is added. MIR uses block-local values, so cleanup
+outcome dispatch forwards the disposition through block parameters. Whole-owner resolution,
+represented child cleanup, task-result disposal and native entry-error disposal reuse the selected
+cleanup helper instead of independent finalize/destroy sequences.
+
+The first focused batch passed 39 lowering and 191 interface tests. After correcting block-local
+SSA forwarding and old sequence assertions, 59 compiler tests pass
+(`bra-505-abandonment-compiler.log`). These include source/imported capture, source destructor
+local/tail separation and generated aggregate/nullable/union traversal. LLVM nested cleanup then
+exposed a branch-join error: each branch must collect its call outcome before joining. The owning
+lowering correction is applied. The combined 63-test compiler/LLVM batch passes in
+`bra-505-abandonment-compiler-final.log`, including native host error and nested cleanup emission.
+Rust formatting, structural style and maintained Bray formatting pass in
+`bra-505-abandonment-format.log` and `bra-505-abandonment-bray-format.log`.
+These are emission checks, not native retained-incident execution acceptance.
+
+Still required for this implementation: audit abandonment through RawBuffer release and storage
+policies, direct helper/callback consumers, finalizer error and panic/cancel outcomes, native order
+and no-double-destruction acceptance, final formatting/audit, push and independent review. The
+ordinary synthetic asynchronous call assumption, inactive Future quiescence, incident payload
+transfer and run/report ownership matrix above remain unfinished. General generator construction
+belongs to active BRA-484 through BRA-506; do not implement a second generator engine here.

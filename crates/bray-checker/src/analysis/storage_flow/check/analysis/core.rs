@@ -594,6 +594,8 @@ where
                     crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind)
                 });
 
+        let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
+
         let invocation_roots = (!completing)
             .then(|| self.call_attempt(kind))
             .flatten()
@@ -601,12 +603,15 @@ where
 
         let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
 
-        if let Some(effect) = &assignment_effect {
-            // The write publishes only its right-hand value. A selected operator
-            // separately observes and may retain both of its invocation inputs.
-            let roots = self.assignment_roots(state, kind);
-
-            self.record_address_escapes(state, kind, Some(std::slice::from_ref(effect)), &roots);
+        if let Some(roots) = &assignment_roots {
+            // Capture precedes destination invalidation and does not require an exact target.
+            // Operators separately observe and may retain both invocation inputs.
+            self.record_address_escapes(
+                state,
+                kind,
+                assignment_effect.as_ref().map(std::slice::from_ref),
+                roots,
+            );
         }
 
         if let Some(roots) = &invocation_roots {
