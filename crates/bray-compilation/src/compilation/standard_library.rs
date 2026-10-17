@@ -13,6 +13,35 @@ use super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(in crate::compilation) fn raw_buffer_element(
+        &self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_symbols::TypeId>, FactQueryError> {
+        let context = self.binding_context(cancellation)?;
+
+        if !recognized_declaration(&context, definition.into_any(), "StandardRawBuffer")? {
+            return Ok(None);
+        }
+
+        let arguments = self
+            .semantic_value_store()?
+            .generic_substitution_data(substitution);
+
+        let [binding] = arguments.bindings() else {
+            panic!(
+                "recognized RawBuffer {definition:?} requires exactly one type argument, got {arguments:?}"
+            );
+        };
+
+        let bray_symbols::GenericArgument::Type(element) = binding.argument() else {
+            panic!("recognized RawBuffer {definition:?} requires an element type, got {binding:?}");
+        };
+
+        Ok(Some(element))
+    }
+
     pub(super) fn trusted_storage_formation(
         &self,
         construction: &SelectedConstruction,

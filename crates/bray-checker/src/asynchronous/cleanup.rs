@@ -334,6 +334,18 @@ where
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        if let Some(element) = self
+            .request
+            .context()
+            .raw_buffer_element(definition, substitution)?
+        {
+            let mut shape = self.resolve(element)?;
+
+            shape.lifecycle = true;
+
+            return Ok(shape);
+        }
+
         let representation = self.request.declared_type_representation(definition)?;
         let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
 

@@ -55,6 +55,107 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         ))
     }
 
+    fn push_buffer_prefix_lifecycle(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: &MirPlace,
+        element: TypeId,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        use bray_bound_tree::CheckedMemoryOperationKind;
+
+        let values = self.context.semantic_values();
+
+        let slice = values
+            .intern_type(TypeData::Slice(element))
+            .map_err(SyntheticLoweringError::SemanticValue)?;
+
+        let borrowed = |target| {
+            values
+                .intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Mutable,
+                    target,
+                })
+                .map_err(SyntheticLoweringError::SemanticValue)
+        };
+
+        let buffer_type = borrowed(place.ty())?;
+        let prefix = borrowed(slice)?;
+
+        let integer = self
+            .context
+            .representation_type(RepresentationRole::ScalarUsize)?;
+
+        let mut emit = |operation, ty| {
+            builder
+                .push_operation(block, source.clone(), operation, Some(ty))
+                .map(|commit| {
+                    commit
+                        .result()
+                        .expect("prefix observation publishes its result")
+                })
+                .map_err(|cause| self.capacity_error(cause))
+        };
+
+        // The borrow observes the initialized range without transferring any element or backing.
+        let buffer = emit(
+            MirOperationKind::Borrow {
+                kind: BorrowKind::Mutable,
+                place: place.clone(),
+            },
+            buffer_type,
+        )?;
+
+        let prefix_value = emit(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
+                [MirOperand::Value(buffer)],
+                [buffer_type],
+                Some(prefix),
+            ))),
+            prefix,
+        )?;
+
+        let length = emit(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                CheckedMemoryOperationKind::SequenceLength,
+                [MirOperand::Value(prefix_value)],
+                [prefix],
+                Some(integer),
+            ))),
+            integer,
+        )?;
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, prefix)
+            .map_err(|cause| self.capacity_error(cause))?;
+
+        let prefix_place = MirPlace::new(storage, [], prefix);
+
+        self.push_lifecycle_operation(
+            builder,
+            block,
+            source,
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: prefix_place.clone(),
+                value: MirOperand::Value(prefix_value),
+            },
+        )?;
+
+        self.push_sequence_lifecycle(
+            builder,
+            block,
+            source,
+            role,
+            prefix_place.project(MirProjectionKind::Dereference, slice),
+            element,
+            MirOperand::Value(length),
+        )
+    }
+
     pub(super) fn push_selected_runtime_lifecycle(
         &mut self,
         builder: &mut MirUnitBuilder,
@@ -68,6 +169,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let ty = place.ty();
 
         match action {
+            bray_bound_tree::LifecycleAction::RawBuffer(element)
+                if matches!(
+                    role,
+                    bray_ir::MirGeneratedLifecycleRole::Quiesce
+                        | bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                            bray_ir::MirCleanupPhase::TaskCancellation
+                        )
+                ) =>
+            {
+                return self
+                    .push_buffer_prefix_lifecycle(builder, block, source, role, place, element);
+            }
             bray_bound_tree::LifecycleAction::RawBuffer(element) => {
                 let outcome = self.cleanup_outcome(builder, block, source)?;
                 let values = self.context.semantic_values();

@@ -671,3 +671,166 @@ fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
         );
     }
 }
+
+#[test]
+fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
+    use crate::test_support::{source_function_body_key, source_input};
+    use crate::{Compilation, CompilationRequest};
+    use bray_bound_tree::CheckedMemoryOperationKind;
+
+    let source = r"
+        module app;
+        using internal std.memory;
+
+        func inspect(pos buffer: std.memory.RawBuffer<Task<u8>>) -> std.memory.RawBuffer<Task<u8>> {
+            return buffer;
+        }
+
+        async func dispose(pos buffer: std.memory.RawBuffer<Task<u8>>) {}
+    ";
+
+    let imported = CompilationRequest::new(
+        crate::test_support::package_identity(),
+        vec![source_input(source, 0)],
+    )
+    .with_dependency_interfaces([super::lifecycle_fixtures::standard_memory_dependency()]);
+
+    let source_authority = CompilationRequest::new(
+        bray_symbols::PackageIdentity::try_new("std").unwrap(),
+        vec![
+            source_input(
+                include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+                0,
+            ),
+            source_input(
+                include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
+                1,
+            ),
+            source_input(source, 2),
+        ],
+    )
+    .with_standard_library_source_authority();
+
+    for request in [source_authority, imported] {
+        let compilation = Compilation::load(request).unwrap();
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "inspect"))
+            .unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        let parameter = mir
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+            .unwrap();
+
+        let buffer = parameter.ty();
+
+        let disposed = compilation
+            .lowered_unit(source_function_body_key(&compilation, "dispose"))
+            .unwrap();
+
+        assert!(
+            !disposed.diagnostics().has_errors(),
+            "{:?}",
+            disposed.diagnostics()
+        );
+
+        assert!(disposed.value().as_ref().unwrap().mir().unwrap().operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == buffer)),
+            "scope broadcast must include task obligations stored in the buffer");
+
+        let target = codegen_target(&compilation);
+        let cancellation = crate::CancellationToken::new();
+
+        for reference in [
+            MirHelperReference::Quiesce(buffer),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: buffer,
+            },
+        ] {
+            assert!(
+                !compilation
+                    .codegen_lifecycle_is_trivial(&reference, &cancellation)
+                    .unwrap(),
+                "{reference:?}"
+            );
+
+            let generated = generated_lifecycle(&compilation, &target, reference.clone(), 97);
+
+            assert!(generated.is_valid(), "{generated:?}");
+
+            let memory = generated
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Memory(memory) => Some(memory.kind()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                memory,
+                [
+                    CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
+                    CheckedMemoryOperationKind::SequenceLength
+                ]
+            );
+
+            let children = generated
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Quiesce(place) => {
+                        assert!(matches!(reference, MirHelperReference::Quiesce(_)));
+
+                        Some(place)
+                    }
+                    MirOperationKind::Cleanup { phase, place } => {
+                        assert_eq!(*phase, MirCleanupPhase::TaskCancellation);
+                        assert!(matches!(reference, MirHelperReference::Cleanup { .. }));
+
+                        Some(place)
+                    }
+                    MirOperationKind::Finalize(_)
+                    | MirOperationKind::Destroy(_)
+                    | MirOperationKind::DischargeOutgoing { .. } => {
+                        panic!("prefix traversal must retain its owner and elements")
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                children.len(),
+                1,
+                "one indexed body serves every initialized element"
+            );
+
+            assert!(matches!(
+                children[0].projections().last().unwrap().kind(),
+                MirProjectionKind::Index(_)
+            ));
+
+            assert!(
+                generated.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Binary {
+                        operator: bray_ir::MirBinaryOperator::Subtract,
+                        ..
+                    }
+                )),
+                "prefix traversal follows reverse destruction order"
+            );
+        }
+    }
+}

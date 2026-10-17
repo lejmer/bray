@@ -3,14 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole, MirHelperReference};
 use bray_symbols::{
-    DeclaredStorageShape, GenericArgument, GenericSubstitutionId, NamedTypeSymbolId,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    DeclaredStorageShape, GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot,
+    TypeData, TypeId,
 };
 
 use super::super::{CodegenPreparationError, Compilation};
 use super::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
-    ProductValueKind,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -251,9 +250,7 @@ impl Compilation {
             return Ok(needs);
         }
 
-        let raw_buffer = self
-            .raw_buffer_element(definition, substitution, cancellation)?
-            .is_some();
+        let raw_buffer = self.raw_buffer_element(definition, substitution, cancellation)?;
 
         let surface =
             self.type_associated_surface_result_with_cancellation(definition, cancellation)?;
@@ -308,8 +305,12 @@ impl Compilation {
 
         needs = needs.with(CodegenLifecycleNeeds::represented(children));
 
-        if raw_buffer {
+        if let Some(element) = raw_buffer {
+            let children =
+                self.compute_codegen_lifecycle_needs(element, cancellation, active, computed)?;
+
             needs = needs
+                .with(CodegenLifecycleNeeds::represented(children))
                 .with(CodegenLifecycleNeeds::DESTROY)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION);
         }
@@ -412,50 +413,6 @@ impl Compilation {
             .copied();
 
         Ok(needs)
-    }
-
-    pub(super) fn raw_buffer_element(
-        &self,
-        definition: NamedTypeSymbolId,
-        substitution: GenericSubstitutionId,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<TypeId>, CodegenPreparationError> {
-        let context = self.binding_context(cancellation)?;
-
-        if !crate::compilation::standard_library::recognized_declaration(
-            &context,
-            definition.into_any(),
-            "StandardRawBuffer",
-        )? {
-            return Ok(None);
-        }
-
-        let substitution_id = substitution;
-
-        let substitution = self
-            .semantic_value_store()?
-            .generic_substitution_data(substitution_id);
-
-        let [binding] = substitution.bindings() else {
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductDataKind::GenericSubstitution,
-                1,
-                substitution.bindings().len(),
-            )
-            .into());
-        };
-
-        let GenericArgument::Type(element) = binding.argument() else {
-            return Err(ProductQueryFailure::unexpected_kind(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductValueKind::GenericTypeArgument,
-                ProductValueKind::ConstantArgument,
-            )
-            .into());
-        };
-
-        Ok(Some(element))
     }
 }
 

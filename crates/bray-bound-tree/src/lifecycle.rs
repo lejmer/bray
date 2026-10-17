@@ -71,7 +71,7 @@ pub enum LifecycleAction {
     },
     /// Resolve the initialized prefix of a generator.
     Generator(TypeId),
-    /// Release an imported raw buffer through its recognized representation.
+    /// Visit a raw buffer's initialized prefix or release its recognized representation.
     RawBuffer(TypeId),
     /// Release retained string bytes.
     ReleaseString,

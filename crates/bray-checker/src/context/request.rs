@@ -312,6 +312,13 @@ pub trait CheckerRequestContext: Sync {
         subject: NamedTypeSymbolId,
     ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeRepresentation>, Self::UpstreamError>;
 
+    /// Returns the element of an authoritatively recognized raw-buffer declaration.
+    fn raw_buffer_element(
+        &self,
+        definition: NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>, Self::UpstreamError>;
+
     /// Returns the target atomic representation selected for one concrete plain-storage type.
     fn plain_storage_atomic_representation(
         &self,

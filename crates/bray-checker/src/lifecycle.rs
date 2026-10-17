@@ -80,8 +80,10 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
         substitution,
     } = data.as_ref()
     {
-        if phase == LifecyclePhase::Destroy
-            && let Some(element) = context.raw_buffer_element(*definition, *substitution)?
+        if matches!(
+            phase,
+            LifecyclePhase::Destroy | LifecyclePhase::Cancel | LifecyclePhase::Quiesce
+        ) && let Some(element) = context.raw_buffer_element(*definition, *substitution)?
         {
             return Ok(LifecycleAction::RawBuffer(element));
         }

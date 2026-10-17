@@ -248,6 +248,14 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn raw_buffer_element(
+        &self,
+        _definition: bray_symbols::NamedTypeSymbolId,
+        _substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>, Self::UpstreamError> {
+        Ok(None)
+    }
+
     fn lifecycle_callable(
         &self,
         _ty: TypeId,

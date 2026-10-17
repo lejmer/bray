@@ -138,6 +138,7 @@ impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringCon
     ) -> Result<Option<TypeId>, Self::Error> {
         self.compilation
             .raw_buffer_element(definition, substitution, self.cancellation)
+            .map_err(Into::into)
     }
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {

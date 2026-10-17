@@ -685,6 +685,21 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn raw_buffer_element(
+        &self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>> {
+        self.binding_context
+            .compilation()
+            .raw_buffer_element(
+                definition,
+                substitution,
+                self.binding_context.cancellation(),
+            )
+            .map_err(checker_query_error)
+    }
+
     fn plain_storage_atomic_representation(
         &self,
         ty: TypeId,
