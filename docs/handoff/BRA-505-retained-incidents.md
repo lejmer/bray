@@ -25,6 +25,8 @@ Delete this temporary record after BRA-505 acceptance and independent PR review.
 Carry only unfinished BRA-619 inputs into its record. No handoff survives the stack.
 Completed implementation detail and evidence belong in Git and PR history.
 
+The resource completion and predicate checkpoint is pushed as `93420da3`.
+
 ## Established implementation
 
 - Source and imported successful completion proofs share checked publication.
@@ -140,6 +142,10 @@ All logs below are under the shared target directory
 - `bra-505-resource-boundary-verified.log`: OS bindings, Unicode data, all six native
   target source checks and the native standard-library bundle pass after the latest
   predicate-boundary fix. Targets are x86_64/aarch64 Linux, Windows and Darwin.
+- `bra-505-inactive-native-verified.log`: the native runtime test build stops at the
+  known missing compiler-owned CleanupIncidentTransfer while planning the bootstrap
+  standard library. No runtime test executes, and the chained resource API run does
+  not start. Do not repeat this build before the production transfer path is ready.
 - Native resource retry tests and inactive composition execution remain pending.
   Source and bundle verification do not establish retained-incident acceptance.
 
@@ -153,3 +159,4 @@ is claimed while the issue's acceptance remains incomplete.
 The separate compiler-defect diagnostic mechanism outside this lifecycle work is tracked
 in [BRA-625](https://linear.app/bray-lang/issue/BRA-625). BRA-505 still owns every lifecycle
 invariant encountered here. Do not turn impossible states into recoverable diagnostics.
+
