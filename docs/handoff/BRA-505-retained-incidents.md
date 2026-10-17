@@ -105,12 +105,28 @@ Keep receiver initialization guards with the body and tail. Moving the tail acro
 ordinary unit-result call loses conditional initialization state. Any remaining disposition
 must likewise follow exact part identity through nested cleanup. No hidden ambient mode may
 suppress explicit operations or new locals. Native acceptance remains blocked by unfinished
-CleanupIncidentTransfer and this ownership proof.
+CleanupIncidentTransfer and this ownership proof. Further review ruled out rearming from
+may-write effects: a helper can leave an abandoned part untouched or panic before replacing
+it. Its old and newly installed owners can both be initialized at propagation. Cleanup needs
+the ownership transition that actually committed, which current call effects do not carry.
+Do not treat abandonment as an ordinary completion predicate that mutation invalidates.
 
 Inactive abandonment never enters the body. Normal cancellation from abandoning a child
 must not cancel its parent, but cleanup panics and incidents must survive. Consuming
 inactive disposal differs from retained-error quiescence. The latter leaves a terminal
 representation and retains backing/provider dependencies for later payload destruction.
+
+## Report-chain ownership checkpoint
+
+Reports now distinguish an absent inline panic from an explicit panic with an empty message.
+The presence field occupies existing padding, retaining the 96-byte primary and 136-byte
+report on all native targets. Rust transfers detached chains without popping a panic primary
+or consuming another admission record. Chain disposal uses the existing Bray consumer.
+Source report retirement, retention, reporting, native mirrors and field binding share this
+representation. Typed pool entries and compiler incident transfer remain unfinished.
+
+Review of `74f77b59` is verified at PR #612 review `5557613058`, with no findings.
+This new report checkpoint has not yet received independent PR review.
 
 ## Remaining implementation and acceptance
 
@@ -175,6 +191,16 @@ All logs below are under the shared target directory
   pass. The audit removed obsolete lifecycle error variants and diagnostic projections.
   The shared await emitter replaces the source emitter while retaining source guards,
   established suspension states, lanes, affinity and cancellation edges.
+- `bra-505-report-chain-tests.log`: 4 report ownership/ABI tests and 2 LLVM tests pass.
+  The layout test covers all six native targets without increasing report size.
+- `bra-505-report-binding-tests.log`: the report runtime-binding regression passes.
+- `bra-505-report-production-tests.log`: changed production report bodies check and lower
+  on all six native targets. Rust runtime sources and tests type-check without bundled
+  bootstrap. The new native exact-release/round-trip regression remains pending native
+  execution, which is still blocked by compiler-owned incident transfer.
+- `bra-505-report-chain-format.log`: Rustfmt, mutating structural style and explicit Bray
+  formatting pass. The audit covers report creation, chain transfer, reservation retirement,
+  consumer disposal, native field binding, C/Rust mirrors and exact-release regressions.
 - Native resource retry tests and inactive composition execution remain pending.
   Source and bundle verification do not establish retained-incident acceptance.
 

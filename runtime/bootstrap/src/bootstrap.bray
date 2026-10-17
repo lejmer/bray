@@ -35,6 +35,7 @@ internal struct PanicReportData
     mut source_namespace_word_2: u64;
     mut source_namespace_word_3: u64;
     mut cause: u32;
+    mut primary_present: u32;
     mut message: usize;
     mut message_length: usize;
     mut copy_message: RawPointer<u8>;

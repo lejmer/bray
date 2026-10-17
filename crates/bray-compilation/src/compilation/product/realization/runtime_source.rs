@@ -11,7 +11,7 @@ const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const PANIC_REPORT_FIELDS: [AbiField; 19] = {
+const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     let mut fields = [AbiField::RawPointer; NATIVE_PANIC_REPORT_FIELDS.len()];
     let mut index = 0;
 
@@ -498,6 +498,14 @@ mod tests {
                 "thread_storage_exit",
                 "attachment_destructor_address",
                 "finish_native_attachment",
+                "consume_report",
+                "consume_primary",
+                "retain_report",
+                "suppress_report",
+                "stored_primary",
+                "serialized_primary",
+                "panic_report_construction",
+                "allocation_failure",
             ] {
                 let checked = compilation
                     .lowered_unit(crate::test_support::source_function_body_key(

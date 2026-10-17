@@ -601,7 +601,7 @@ mod tests {
             assert_eq!(data.get_store_size(&report), 136);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
-            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 64), (18, 128)] {
+            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 60), (11, 64), (19, 128)] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
         }
