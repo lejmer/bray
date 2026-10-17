@@ -137,7 +137,6 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
@@ -165,8 +164,19 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
         MirOperationKind::Call(call) => collect_call_values(call, demands),
         MirOperationKind::Memory(memory) => {
+            if let Some(abandoned) = memory.abandoned_cleanup() {
+                collect_operand_value(abandoned, demands);
+            }
+
             demands.values.extend(memory.kind().contract_constants());
             collect_operands(memory.operands(), demands);
+        }
+        MirOperationKind::Destroy { place, abandoned } => {
+            collect_place_values(place, demands);
+
+            if let Some(abandoned) = abandoned {
+                collect_operand_value(abandoned, demands);
+            }
         }
         MirOperationKind::Text(text) => collect_operands(text.operands(), demands),
         MirOperationKind::PanicReport(cause) => collect_panic_values(cause, demands),
@@ -279,6 +289,10 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
 }
 
 fn collect_generator_values(operation: &MirGeneratorOperation, demands: &mut ConstantDemands) {
+    if let MirGeneratorOperation::Destroy { abandoned, .. } = operation {
+        collect_operand_value(abandoned, demands);
+    }
+
     match operation {
         MirGeneratorOperation::Begin { destination, .. }
         | MirGeneratorOperation::Finish { destination }

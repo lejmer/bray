@@ -6,6 +6,10 @@ internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initializ
 
 internal static CONSTRUCTION_OPTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+internal static FINALIZATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static FAIL_FINALIZATION: core.atomic.Atomic<i32> = core.atomic.initialize<i32>(0);
+
 struct Counter
 {
     mut value: i32;
@@ -41,46 +45,70 @@ struct Pair
     right: Guard;
 }
 
-struct PairStorage
+internal static DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct FinalizedChild
 {
-    mut value: Uninit<Pair>;
+    finalize()
+    {
+        let count = core.atomic.load<usize, 1>(&FINALIZATIONS);
+
+        core.atomic.store<usize, 4>(&FINALIZATIONS, count + 1);
+    }
+
+    destruct()
+    {
+        let count = core.atomic.load<usize, 1>(&DESTRUCTIONS);
+
+        core.atomic.store<usize, 4>(&DESTRUCTIONS, count + 1);
+    }
 }
 
-impl PairStorage(Storage<Pair>)
+struct FinalizingPair
 {
-    trusted static func create(pos value: Pair, options: usize = 7) -> Self
+    parts: (FinalizedChild, FinalizedChild);
+
+    finalize()
+    {
+        if core.atomic.load<i32, 1>(&FAIL_FINALIZATION) != 0
+        {
+            panic("stored target finalization");
+        }
+    }
+}
+
+struct InlineStorage<T>
+{
+    mut value: Uninit<T>;
+}
+
+impl InlineStorage<T>(Storage<T>)
+{
+    trusted static func create(pos value: T, options: usize = 7) -> Self
     {
         let previous = core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS);
 
         core.atomic.store<usize, 4>(&CONSTRUCTION_OPTIONS, previous + options);
 
-        let mut storage: Uninit<Pair> = core.memory.uninit<Pair>();
-        let _: &mut Pair = core.memory.uninit_write<Pair>(&mut storage, value);
+        let mut storage: Uninit<T> = core.memory.uninit<T>();
+        let _: &mut T = core.memory.uninit_write<T>(&mut storage, value);
 
-        return PairStorage
+        return
         {
             value = storage
         };
     }
 
-    static func borrow(pos storage: &Self) -> &Pair
+    static func borrow(pos storage: &Self) -> &T
         executes(pure, total)
     {
-        return borrow_pair(storage);
+        return borrow_stored<T>(storage);
     }
 
-    static func borrow_mut(pos storage: &mut Self) -> &mut Pair
+    static func borrow_mut(pos storage: &mut Self) -> &mut T
         executes(pure, total)
     {
-        return borrow_pair_mut(storage);
-    }
-
-    trusted static func destroy(pos storage: &mut Self)
-        uses(unchecked_init)
-    {
-        let initialized = initialized_pair(storage);
-
-        let _: Pair = trusted core.memory.move_initialized<Pair>(initialized);
+        return borrow_stored_mut<T>(storage);
     }
 
     trusted static func release(pos storage: Self)
@@ -98,63 +126,57 @@ impl PairStorage(Storage<Pair>)
     }
 }
 
-// These projections expose the invariant established by PairStorage.create. The storage protocol
-// supplies a live initialized Pair until destroy, and the borrow retains that storage's capability.
-trusted func initialized_pair(pos storage: &mut PairStorage) -> &mut Uninit<Pair>
-    executes(pure, total)
-    ensures(trusted core.memory.uninit_initialized<Pair>(storage = &result))
-{
-    return &mut storage.value;
-}
-
-trusted func pair_pointer(pos storage: &PairStorage) -> RawPointer<Pair>
+// These projections expose the invariant established by InlineStorage<T>.create. The storage protocol
+// supplies a live initialized target until compiler-owned destruction.
+// The borrow retains the storage capability.
+trusted func stored_pointer<T>(pos storage: &InlineStorage<T>) -> RawPointer<T>
     executes(pure, total)
     ensures(
-        trusted core.memory.valid_read<Pair>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<Pair>(pointer = result),
-        trusted core.memory.initialized_as<Pair>(pointer = result),
-        trusted core.memory.shared_alias_valid<Pair>(pointer = result),
-        trusted core.memory.epoch_current<Pair>(pointer = result),
-        trusted core.memory.synchronized_access<Pair>(pointer = result),
-        trusted core.memory.movement_stable<Pair>(pointer = result),
-        trusted core.memory.finalization_pending<Pair>(pointer = result),
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.shared_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
     )
 {
-    return core.memory.uninit_pointer<Pair>(&storage.value);
+    return core.memory.uninit_pointer<T>(&storage.value);
 }
 
-trusted func pair_pointer_mut(pos storage: &mut PairStorage) -> RawPointer<Pair>
+trusted func stored_pointer_mut<T>(pos storage: &mut InlineStorage<T>) -> RawPointer<T>
     executes(pure, total)
     ensures(
-        trusted core.memory.valid_write<Pair>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<Pair>(pointer = result),
-        trusted core.memory.initialized_as<Pair>(pointer = result),
-        trusted core.memory.exclusive_alias_valid<Pair>(pointer = result),
-        trusted core.memory.epoch_current<Pair>(pointer = result),
-        trusted core.memory.synchronized_access<Pair>(pointer = result),
-        trusted core.memory.movement_stable<Pair>(pointer = result),
-        trusted core.memory.finalization_pending<Pair>(pointer = result),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
     )
 {
-    return core.memory.uninit_pointer_mut<Pair>(&mut storage.value);
+    return core.memory.uninit_pointer_mut<T>(&mut storage.value);
 }
 
-trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
+trusted func borrow_stored<T>(pos storage: &InlineStorage<T>) -> &T
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer = pair_pointer(storage);
+    let pointer = stored_pointer<T>(storage);
 
-    return trusted core.memory.borrow_from<Pair, PairStorage>(storage, pointer);
+    return trusted core.memory.borrow_from<T, InlineStorage<T>>(storage, pointer);
 }
 
-trusted func borrow_pair_mut(pos storage: &mut PairStorage) -> &mut Pair
+trusted func borrow_stored_mut<T>(pos storage: &mut InlineStorage<T>) -> &mut T
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer = pair_pointer_mut(storage);
+    let pointer = stored_pointer_mut<T>(storage);
 
-    return trusted core.memory.borrow_mut_from<Pair, PairStorage>(storage, pointer);
+    return trusted core.memory.borrow_mut_from<T, InlineStorage<T>>(storage, pointer);
 }
 
 union Choice
@@ -182,7 +204,9 @@ struct ConsumingPair
 
 func destructed(pos pair: ConsumingPair) {}
 
-func boxed(pos pair: box[PairStorage] Pair)
+func dispose_box(pos pair: box[InlineStorage<FinalizingPair>] FinalizingPair) {}
+
+func boxed(pos pair: box[InlineStorage<Pair>] Pair)
 {
     let box(Pair
     {
@@ -194,7 +218,7 @@ func boxed(pos pair: box[PairStorage] Pair)
 
 func take(pos guard: Guard) {}
 
-func boxed_panic(pos pair: box[PairStorage] Pair)
+func boxed_panic(pos pair: box[InlineStorage<Pair>] Pair)
 {
     let box(Pair
     {
@@ -205,7 +229,7 @@ func boxed_panic(pos pair: box[PairStorage] Pair)
     panic("partial owned cleanup");
 }
 
-func observe_box(pos pair: box[PairStorage] Pair) -> i32
+func observe_box(pos pair: box[InlineStorage<Pair>] Pair) -> i32
 {
     match pair
     {
@@ -219,7 +243,7 @@ func observe_box(pos pair: box[PairStorage] Pair) -> i32
     }
 }
 
-func move_box_target(pos pair: box[PairStorage] Pair)
+func move_box_target(pos pair: box[InlineStorage<Pair>] Pair)
 {
     let box(value) = pair;
 
@@ -228,7 +252,7 @@ func move_box_target(pos pair: box[PairStorage] Pair)
 
 func consume_pair(pos pair: Pair) {}
 
-func observe_borrowed_box(pos pair: &box[PairStorage] Pair) -> i32
+func observe_borrowed_box(pos pair: &box[InlineStorage<Pair>] Pair) -> i32
 {
     match pair
     {
@@ -382,7 +406,7 @@ func replacement(pos fails: bool)
 
     let outcome = catch
     {
-        let mut value: box[PairStorage] Pair = box(
+        let mut value: box[InlineStorage<Pair>] Pair = box(
             Pair
             {
                 left = Guard
@@ -685,7 +709,7 @@ func main() -> i32
         return 14;
     }
 
-    let owned = box[PairStorage](
+    let owned = box[InlineStorage<Pair>](
         Pair
         {
             left = Guard
@@ -707,7 +731,7 @@ func main() -> i32
         return 15;
     }
 
-    let observed: box[PairStorage] Pair = box(
+    let observed: box[InlineStorage<Pair>] Pair = box(
         Pair
         {
             left = Guard
@@ -731,7 +755,7 @@ func main() -> i32
         return 16;
     }
 
-    let transferred: box[PairStorage] Pair = box(
+    let transferred: box[InlineStorage<Pair>] Pair = box(
         Pair
         {
             left = Guard
@@ -757,7 +781,7 @@ func main() -> i32
         return 19;
     }
 
-    let ordered: box[PairStorage] Pair = box(
+    let ordered: box[InlineStorage<Pair>] Pair = box(
         Pair
         {
             left = Guard
@@ -787,7 +811,7 @@ func main() -> i32
 
     let caught: Result<unit, PanicReport> = catch
     {
-        let partial: box[PairStorage] Pair = box(
+        let partial: box[InlineStorage<Pair>] Pair = box(
             Pair
             {
                 left = Guard
@@ -826,6 +850,77 @@ func main() -> i32
 
     replacement(false);
     replacement(true);
+
+    let ordinary = check_finalization(false);
+
+    if ordinary != 0
+    {
+        return ordinary;
+    }
+
+    return check_finalization(true);
+}
+
+func check_finalization(pos fails: bool) -> i32
+{
+    core.atomic.store<usize, 4>(&FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&DESTRUCTIONS, 0);
+
+    if fails
+    {
+        core.atomic.store<i32, 4>(&FAIL_FINALIZATION, 1);
+    }
+
+    let before = core.atomic.load<usize, 1>(&RELEASES);
+
+    let result: Result<unit, PanicReport> = catch
+    {
+        let finalizing: box[InlineStorage<FinalizingPair>] FinalizingPair = box(
+            FinalizingPair
+            {
+                parts = (
+                    FinalizedChild
+                    {
+                    },
+                    FinalizedChild
+                    {
+                    }
+                ),
+            }
+        );
+
+        dispose_box(finalizing);
+        yield unit;
+    };
+
+    let failed = match consume result
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    core.atomic.store<i32, 4>(&FAIL_FINALIZATION, 0);
+
+    if failed != fails || core.atomic.load<usize, 1>(&RELEASES) != before + 1 || core.atomic.load<usize, 1>(
+        &DESTRUCTIONS
+    ) != 2
+    {
+        return 23;
+    }
+
+    let expected: usize = if fails
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 2;
+    };
+
+    if core.atomic.load<usize, 1>(&FINALIZATIONS) != expected
+    {
+        return 24;
+    }
 
     return 0;
 }

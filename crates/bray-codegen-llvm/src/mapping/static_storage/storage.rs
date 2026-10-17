@@ -517,10 +517,13 @@ fn declare_static_lifecycle_phase<'context>(
         module,
         name,
         block_name,
-        types
-            .context()
-            .void_type()
-            .fn_type(&[pointer_type(types)?.into()], false),
+        types.context().void_type().fn_type(
+            &[
+                types.context().i32_type().into(),
+                pointer_type(types)?.into(),
+            ],
+            false,
+        ),
         types,
     );
 
@@ -532,6 +535,20 @@ fn declare_static_lifecycle_phase<'context>(
 
     builder.position_at_end(entry);
 
+    let abandoned = callback
+        .get_first_param()
+        .expect("static destruction receives its abandonment argument")
+        .into_int_value();
+
+    let abandoned = builder
+        .build_int_compare(
+            inkwell::IntPredicate::NE,
+            abandoned,
+            types.context().i32_type().const_zero(),
+            "static.abandoned",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
     if let Some(instance) = instance {
         let (function, signature) = mapped_instance_function(module, mappings, instance);
 
@@ -539,7 +556,7 @@ fn declare_static_lifecycle_phase<'context>(
             &builder,
             function,
             signature,
-            &[storage.into()],
+            &[storage.into(), abandoned.into()],
             static_outcome(callback),
             "",
             types,

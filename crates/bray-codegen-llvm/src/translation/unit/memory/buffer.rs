@@ -184,6 +184,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         buffer: &bray_ir::MirOperand,
         buffer_type: bray_symbols::TypeId,
         element: bray_symbols::TypeId,
+        abandoned: Option<&bray_ir::MirOperand>,
     ) -> Result<(), CodegenFailure> {
         assert!(
             self.checked_call_operations.contains(&operation),
@@ -246,11 +247,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             },
         );
 
-        // Deallocation can use the operation context directly when no element cleanup can fail first.
-        let has_destructor = cleanup.symbol().is_some();
+        let inherited = if let Some(abandoned) = abandoned {
+            let condition = super::super::support::int_value(self.operand(abandoned)?)
+                .expect("buffer destruction has a boolean abandonment argument");
+
+            Some((
+                next_helper(&mut helpers, &MirHelperReference::Destroy(element)),
+                condition,
+            ))
+        } else {
+            None
+        };
+
+        // Deallocation can share the outcome when neither element path can fail.
+        let has_destructor = cleanup.symbol().is_some()
+            || inherited.is_some_and(|(helper, _)| helper.symbol().is_some());
 
         self.destroy_raw_buffer_elements(
             cleanup,
+            inherited,
             buffer,
             llvm_type,
             &fields,
@@ -294,7 +309,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        self.translate_raw_buffer_release(operation, destination, *destination_type, element)?;
+        self.translate_raw_buffer_release(
+            operation,
+            destination,
+            *destination_type,
+            element,
+            None,
+        )?;
 
         let destination = self.memory_pointer(destination)?;
 
@@ -397,6 +418,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn destroy_raw_buffer_elements(
         &mut self,
         helper: &CodegenHelperMapping,
+        inherited: Option<(&CodegenHelperMapping, IntValue<'context>)>,
         buffer: PointerValue<'context>,
         llvm_type: BasicTypeEnum<'context>,
         fields: &[bray_codegen::CodegenFieldLayout],
@@ -405,7 +427,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         stride: u64,
         outcome: PointerValue<'context>,
     ) -> Result<(), CodegenFailure> {
-        if helper.symbol().is_none() {
+        if helper.symbol().is_none()
+            && inherited.is_none_or(|(destroy, _)| destroy.symbol().is_none())
+        {
             return Ok(());
         }
 
@@ -467,7 +491,44 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "memory.buffer.destroy.progress",
         )?;
 
-        self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
+        if let Some((destroy, abandoned)) = inherited {
+            let destruction = self
+                .types
+                .context()
+                .append_basic_block(self.function, "memory.buffer.abandoned");
+
+            let ordinary = self
+                .types
+                .context()
+                .append_basic_block(self.function, "memory.buffer.ordinary");
+
+            let completed = self
+                .types
+                .context()
+                .append_basic_block(self.function, "memory.buffer.element.done");
+
+            llvm(
+                self.builder
+                    .build_conditional_branch(abandoned, destruction, ordinary),
+            )?;
+
+            self.builder.position_at_end(destruction);
+
+            self.invoke_buffer_cleanup_helper(
+                destroy,
+                &[element.into(), abandoned.into()],
+                outcome,
+                true,
+            )?;
+
+            llvm(self.builder.build_unconditional_branch(completed))?;
+            self.builder.position_at_end(ordinary);
+            self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
+            llvm(self.builder.build_unconditional_branch(completed))?;
+            self.builder.position_at_end(completed);
+        } else {
+            self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
+        }
 
         let body_end = self
             .builder

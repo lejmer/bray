@@ -4,10 +4,10 @@ use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCallableReference,
     MirCapacityError, MirCleanupEdge, MirCleanupPhase, MirEdge, MirMemoryOperation, MirOperand,
     MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor,
-    MirStandardLibraryHelper, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit,
-    MirUnitBuilder, MirUnitId,
+    MirStandardLibraryHelper, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirUnitId,
 };
-use bray_symbols::{BorrowKind, CallableAbi, CallableDefinitionId, TypeData, TypeId};
+use bray_symbols::{CallableAbi, CallableDefinitionId, TypeData, TypeId};
 
 use super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
@@ -20,8 +20,6 @@ pub enum HeapStorageMethod {
     Borrow,
     /// Borrows an initialized target mutably.
     BorrowMut,
-    /// Destroys the target without releasing storage.
-    Destroy,
     /// Releases storage after the target has been consumed or destroyed.
     Release,
 }
@@ -65,7 +63,11 @@ pub fn lower_heap_storage<C: SyntheticLoweringContext + ?Sized>(
     context: &C,
     input: HeapStorageLoweringInput,
 ) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_heap_storage(input)
+    SyntheticLowerer {
+        context,
+        abandoned: None,
+    }
+    .lower_heap_storage(input)
 }
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
@@ -127,12 +129,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                 (entry, value)
             }
-            HeapStorageMethod::Destroy => {
-                let end =
-                    self.destroy_heap_target(&mut builder, entry, &source, parameter, element)?;
-
-                (end, None)
-            }
             HeapStorageMethod::Release => {
                 let layout = self.push_heap_layout(&mut builder, entry, &source, element)?;
 
@@ -157,75 +153,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder.set_terminator(end, source.clone(), MirTerminatorKind::Return(returned));
 
         Ok(builder.finish(entry))
-    }
-
-    fn destroy_heap_target(
-        &self,
-        builder: &mut MirUnitBuilder,
-        entry: MirBlockId,
-        source: &MirSourceAnchor,
-        parameter: MirPlace,
-        element: TypeId,
-    ) -> Result<MirBlockId, C::Error> {
-        let values = self.context.semantic_values();
-        let invalid = |cause| self.capacity_error(cause);
-        let missing = || panic!("synthetic heap operation for {element:?} must produce a value");
-        let pointer = self.heap_stored_pointer(parameter)?;
-
-        let borrow_type = values
-            .intern_type(TypeData::Borrow {
-                kind: BorrowKind::Mutable,
-                target: element,
-            })
-            .map_err(SyntheticLoweringError::SemanticValue)?;
-
-        let pointer = push_heap_memory(
-            builder,
-            entry,
-            source,
-            CheckedMemoryOperationKind::Reinterpret {
-                source: element,
-                target: element,
-            },
-            [pointer],
-            Some(borrow_type),
-        )
-        .map_err(invalid)?
-        .unwrap_or_else(missing);
-
-        let slot = builder
-            .push_storage(source.clone(), MirStorageKind::Temporary, borrow_type)
-            .map_err(invalid)?;
-
-        builder
-            .push_operation(
-                entry,
-                source.clone(),
-                MirOperationKind::Store {
-                    kind: MirStoreKind::Initialize,
-                    destination: MirPlace::new(slot, [], borrow_type),
-                    value: pointer,
-                },
-                None,
-            )
-            .map_err(invalid)?;
-
-        let pointee = MirPlace::new(
-            slot,
-            [MirProjection::new(
-                MirProjectionKind::Dereference,
-                borrow_type,
-                element,
-            )],
-            element,
-        );
-
-        self.resolve_lifecycle_sequence(
-            builder,
-            entry,
-            source,
-            [MirOperationKind::Destroy(pointee)],
-        )
     }
 
     fn heap_stored_pointer(&self, parameter: MirPlace) -> Result<MirOperand, C::Error> {
@@ -488,7 +415,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .check(builder, resolution, source)
             .map_err(invalid)?;
 
-        let completed = self.finish_cleanup_outcome(builder, resolution, source, &outcome)?;
+        let completed =
+            self.finish_cleanup_outcome(builder, resolution, source, &outcome, &mut None)?;
 
         builder.set_terminator(completed, source.clone(), MirTerminatorKind::Unreachable);
 

@@ -176,24 +176,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     id,
                     MirHelperReference::Quiesce(place.ty()),
                     place,
+                    None,
                 )?;
 
                 None
             }
             MirOperationKind::Finalize(place) => {
-                self.translate_lifecycle_helper(
+                let result = self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Finalize(place.ty()),
                     place,
+                    None,
                 )?;
 
-                None
+                operation.result().and(result)
             }
-            MirOperationKind::Destroy(place) => {
+            MirOperationKind::Destroy { place, abandoned } => {
                 self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Destroy(place.ty()),
                     place,
+                    abandoned.as_ref(),
                 )?;
 
                 None
@@ -206,6 +209,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         ty: place.ty(),
                     },
                     place,
+                    None,
                 )?;
 
                 None
@@ -424,7 +428,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: bray_ir::MirOperationId,
         expected: MirHelperReference,
         place: &MirPlace,
-    ) -> Result<(), CodegenFailure> {
+        abandoned: Option<&bray_ir::MirOperand>,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let helpers = self.operation_helpers(operation)?;
 
         let [helper] = helpers.as_slice() else {
@@ -436,13 +441,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let place = self.place(place)?.into();
-        let result = self.invoke_operation_helper(operation, helper, &[place])?;
 
-        if result.is_some() {
+        let result = if matches!(expected, MirHelperReference::Destroy(_)) {
+            let abandoned = match abandoned {
+                Some(value) => self.operand(value)?,
+                None => self.types.context().bool_type().const_zero().into(),
+            };
+
+            self.invoke_operation_helper(operation, helper, &[place, abandoned])?
+        } else {
+            self.invoke_operation_helper(operation, helper, &[place])?
+        };
+
+        if result.is_some() && !matches!(expected, MirHelperReference::Finalize(_)) {
             panic!("checked MIR effect translation violated an established compiler contract");
         }
 
-        Ok(())
+        Ok(
+            if matches!(expected, MirHelperReference::Finalize(_)) && helper.symbol().is_none() {
+                Some(self.types.context().bool_type().const_zero().into())
+            } else {
+                result
+            },
+        )
     }
 
     pub(super) fn translate_async_operation(

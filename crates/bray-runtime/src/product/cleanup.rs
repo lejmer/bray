@@ -94,6 +94,15 @@ pub(super) fn run_static_cleanup(
         _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
     };
 
+    let abandoned = [
+        first.as_ref(),
+        second.as_ref(),
+        third.as_ref(),
+        resolution.as_ref(),
+    ]
+    .into_iter()
+    .any(|incident| incident.is_some());
+
     // Finalizer errors may retain their receiver. Consume them before its destructor
     // or thread-static detachment can invalidate those dependencies.
     let mut count = consume_incidents([prepare, first, second, third, resolution]);
@@ -101,9 +110,11 @@ pub(super) fn run_static_cleanup(
     let mut published =
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    let destroy = catch_unwind(AssertUnwindSafe(|| destroy(&mut published)))
-        .err()
-        .map(CleanupIncident::panic);
+    let destroy = catch_unwind(AssertUnwindSafe(|| {
+        destroy(u32::from(abandoned), &mut published)
+    }))
+    .err()
+    .map(CleanupIncident::panic);
 
     count += consume_incidents([CleanupIncident::outcome(published), destroy]);
 
@@ -256,7 +267,8 @@ mod tests {
     ) -> NativeStaticFinalizerStatus {
         unreachable!("synchronous finalization has no separate resolution");
     }
-    extern "C-unwind" fn destroy(_: &mut NativeRunOutcome) {
+    extern "C-unwind" fn destroy(abandoned: u32, _: &mut NativeRunOutcome) {
+        assert_eq!(abandoned, 1);
         assert_eq!(OBSERVATIONS.get(), 1);
         RECEIVER.set(2);
         panic_any(Dependent(2));

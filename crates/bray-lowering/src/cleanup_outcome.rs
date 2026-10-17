@@ -166,11 +166,24 @@ impl CleanupOutcome {
         source: &MirSourceAnchor,
         value: MirOperand,
         payloads: Option<([TypeId; 2], bray_symbols::CompilerKnownResultRepresentation)>,
-    ) -> Result<MirBlockId, MirCapacityError> {
-        let (completed, value, continuation) =
+    ) -> Result<(MirBlockId, MirOperand), MirCapacityError> {
+        let (completed, value, failed) =
             self.check_completion(builder, block, source, Some(value))?;
 
         let value = value.expect("completed finalizer retains its result");
+        let continuation = builder.push_block(source.clone(), builder.block_kind(block))?;
+
+        let abandoned =
+            builder.push_block_parameter(continuation, source.clone(), self.panicked.ty())?;
+
+        builder.set_terminator(
+            failed,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(
+                continuation,
+                [Self::boolean(true, self.panicked.ty())],
+            )),
+        );
 
         if let Some((types, representation)) = payloads {
             let (branch, [(success, _), (error, incident)]) = crate::operand::branch_result(
@@ -201,18 +214,24 @@ impl CleanupOutcome {
                 builder.set_terminator(
                     branch,
                     source.clone(),
-                    MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+                    MirTerminatorKind::Goto(MirEdge::new(
+                        continuation,
+                        [Self::boolean(branch == error, self.panicked.ty())],
+                    )),
                 );
             }
         } else {
             builder.set_terminator(
                 completed,
                 source.clone(),
-                MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+                MirTerminatorKind::Goto(MirEdge::new(
+                    continuation,
+                    [Self::boolean(false, self.panicked.ty())],
+                )),
             );
         }
 
-        Ok(continuation)
+        Ok((continuation, MirOperand::Value(abandoned)))
     }
 
     /// Adds incident continuations after the block's last fallible cleanup operation.
@@ -365,12 +384,15 @@ impl CleanupOutcome {
         source: &MirSourceAnchor,
         panicked: MirBlockId,
         cancelled: MirBlockId,
+        value: &mut Option<MirOperand>,
     ) -> Result<MirBlockId, MirCapacityError> {
         self.end_shield(builder, block, source)?;
 
         let kind = builder.block_kind(block);
         let no_panic = builder.push_block(source.clone(), kind)?;
         let completed = builder.push_block(source.clone(), kind)?;
+        let to_no_panic = forward_cleanup_result(builder, source, no_panic, value)?;
+        let to_completed = forward_cleanup_result(builder, source, completed, value)?;
 
         builder.set_terminator(
             block,
@@ -378,7 +400,7 @@ impl CleanupOutcome {
             MirTerminatorKind::Branch {
                 condition: MirOperand::Copy(self.panicked.clone()),
                 then_edge: MirEdge::new(panicked, []),
-                else_edge: MirEdge::new(no_panic, []),
+                else_edge: to_no_panic,
             },
         );
 
@@ -388,7 +410,7 @@ impl CleanupOutcome {
             MirTerminatorKind::Branch {
                 condition: MirOperand::Copy(self.cancelled.clone()),
                 then_edge: MirEdge::new(cancelled, []),
-                else_edge: MirEdge::new(completed, []),
+                else_edge: to_completed,
             },
         );
 
@@ -508,4 +530,22 @@ pub(crate) fn check_call_outcome(
     );
 
     Ok((completed, parameter.map(MirOperand::Value)))
+}
+
+fn forward_cleanup_result(
+    builder: &mut MirUnitBuilder,
+    source: &MirSourceAnchor,
+    target: MirBlockId,
+    value: &mut Option<MirOperand>,
+) -> Result<MirEdge, MirCapacityError> {
+    let incoming = value.take();
+
+    if let Some(incoming) = &incoming {
+        let ty = builder.operand_type(incoming);
+        let parameter = builder.push_block_parameter(target, source.clone(), ty)?;
+
+        *value = Some(MirOperand::Value(parameter));
+    }
+
+    Ok(MirEdge::new(target, incoming))
 }

@@ -333,6 +333,7 @@ impl Lowerer<'_> {
             source,
             panicked,
             cancellation_dispatcher,
+            &mut None,
         )?;
 
         self.set_terminator(
@@ -831,8 +832,14 @@ impl Lowerer<'_> {
             MirBlockKind::LifecycleResolution,
         )?;
 
-        let completed =
-            outcome.dispatch(&mut self.builder, lifecycle, source, panicked, cancelled)?;
+        let completed = outcome.dispatch(
+            &mut self.builder,
+            lifecycle,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
+        )?;
 
         self.set_terminator(
             completed,

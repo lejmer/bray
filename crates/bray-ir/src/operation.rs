@@ -202,6 +202,7 @@ pub struct MirMemoryOperation {
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
     inline_assembly_symbols: Arc<[MirCallableReference]>,
+    pub(crate) abandoned_cleanup: Option<Box<MirOperand>>,
 }
 
 impl MirMemoryOperation {
@@ -218,7 +219,28 @@ impl MirMemoryOperation {
             operand_types: shared_slice(operand_types),
             result_type,
             inline_assembly_symbols: Arc::from([]),
+            abandoned_cleanup: None,
         }
+    }
+
+    /// Carries inherited abandonment through compiler-owned buffer release.
+    pub fn with_abandoned_cleanup(mut self, value: MirOperand) -> Self {
+        assert!(
+            matches!(
+                self.kind,
+                CheckedMemoryOperationKind::RawBufferRelease { .. }
+            ),
+            "only buffer release carries inherited destruction"
+        );
+
+        self.abandoned_cleanup = Some(Box::new(value));
+
+        self
+    }
+
+    /// Returns the inherited destruction argument for buffer release.
+    pub fn abandoned_cleanup(&self) -> Option<&MirOperand> {
+        self.abandoned_cleanup.as_deref()
     }
 
     /// Retains closed callable symbols referenced by assembly operands in descriptor order.
@@ -314,6 +336,8 @@ pub enum MirGeneratorOperation {
         destination: MirPlace,
         /// Checked yielded-element type whose lifecycle helpers are invoked.
         element: TypeId,
+        /// Whether inherited graceful cleanup has been abandoned.
+        abandoned: MirOperand,
         /// Runtime operation that visits elements in reverse and releases storage.
         runtime: MirRuntimeReference,
     },
@@ -757,7 +781,13 @@ pub enum MirOperationKind {
     /// Resolve child runs without finalizing or destroying the retained incident payload.
     Quiesce(MirPlace),
     /// Destroy a storage place after its value is no longer live.
-    Destroy(MirPlace),
+    Destroy {
+        /// Storage whose initialized remainder is destroyed.
+        place: MirPlace,
+        /// Whether inherited graceful cleanup has been abandoned. None selects ordinary cleanup.
+        /// This applies only to the implicit represented tail, not explicit operations or locals.
+        abandoned: Option<MirOperand>,
+    },
     /// Perform one checked cleanup phase for a storage place.
     Cleanup {
         /// Exact cleanup phase selected by checking.

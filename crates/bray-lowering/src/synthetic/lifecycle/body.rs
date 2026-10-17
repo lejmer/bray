@@ -16,7 +16,11 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
     unit: MirUnitId,
     target: &MirTargetContract,
 ) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_lifecycle(key, reference, unit, target)
+    SyntheticLowerer {
+        context,
+        abandoned: None,
+    }
+    .lower_lifecycle(key, reference, unit, target)
 }
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     fn lower_lifecycle(
@@ -65,6 +69,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ty,
         );
 
+        if matches!(reference, MirHelperReference::Destroy(_)) {
+            let boolean = self
+                .context
+                .representation_type(RepresentationRole::ScalarBool)?;
+
+            let argument = builder
+                .push_storage(source.clone(), MirStorageKind::Parameter(1), boolean)
+                .map_err(|cause| self.capacity_error(cause))?;
+
+            self.abandoned = Some(MirOperand::Copy(MirPlace::new(argument, [], boolean)));
+        }
+
         match reference {
             MirHelperReference::Cleanup { phase, .. } => {
                 self.lower_cleanup_body(
@@ -90,7 +106,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         == bray_symbols::CallableExecution::Synchronous
                         && self.is_void_result(callable.result);
 
-                    let (completed, value) = self.push_static_finalizer_call(
+                    let (completed, value) = self.push_checked_lifecycle_call(
                         &mut builder,
                         entry,
                         &source,
@@ -121,9 +137,45 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirTerminatorKind::Return(return_value),
                 );
             }
-            MirHelperReference::Finalize(_)
-            | MirHelperReference::Quiesce(_)
-            | MirHelperReference::Destroy(_) => {
+            MirHelperReference::Finalize(ty) => {
+                let boolean = self
+                    .context
+                    .representation_type(RepresentationRole::ScalarBool)?;
+
+                let action = self
+                    .context
+                    .lifecycle_action(*ty, bray_bound_tree::LifecyclePhase::Finalize)?;
+
+                let (end, abandoned) =
+                    if let bray_bound_tree::LifecycleAction::Call(callable) = action {
+                        self.push_lifecycle_call(&mut builder, entry, &source, place, callable)?
+                    } else {
+                        let end = self.expand_lifecycle_action(
+                            &mut builder,
+                            entry,
+                            &source,
+                            bray_ir::MirGeneratedLifecycleRole::Finalize,
+                            place,
+                            target.runtime_abi(),
+                            action,
+                        )?;
+
+                        (
+                            end,
+                            MirOperand::Immediate {
+                                ty: boolean,
+                                value: bray_ir::MirImmediateValue::Boolean(false),
+                            },
+                        )
+                    };
+
+                builder.set_terminator(
+                    end,
+                    source.clone(),
+                    MirTerminatorKind::Return(Some(abandoned)),
+                );
+            }
+            MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
                     entry,
@@ -398,7 +450,7 @@ mod tests {
                     .iter()
                     .filter(|operation| matches!(
                         operation.kind(),
-                        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                        MirOperationKind::Cleanup { .. } | MirOperationKind::Destroy { .. }
                     ))
                     .count(),
                 2
@@ -441,8 +493,8 @@ mod tests {
             .iter()
             .filter_map(|operation| {
                 let (finalize, place) = match operation.kind() {
-                    MirOperationKind::Finalize(place) => (true, place),
-                    MirOperationKind::Destroy(place) => (false, place),
+                    MirOperationKind::Cleanup { place, .. } => (true, place),
+                    MirOperationKind::Destroy { place, .. } => (false, place),
                     _ => return None,
                 };
 
@@ -456,7 +508,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(operations, [(true, 1), (false, 1), (true, 0), (false, 0)]);
+        assert_eq!(operations, [(false, 1), (true, 1), (false, 0), (true, 0)]);
     }
 
     #[test]
@@ -505,7 +557,7 @@ mod tests {
 
             match phase {
                 MirCleanupPhase::TaskCancellation => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == leaf))),
-                MirCleanupPhase::LifecycleResolution => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == nullable))),
+                MirCleanupPhase::LifecycleResolution => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == nullable))),
             }
         }
     }

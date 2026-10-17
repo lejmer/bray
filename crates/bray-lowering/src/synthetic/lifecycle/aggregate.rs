@@ -74,21 +74,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             element,
         );
 
-        let operations = super::representation::child_lifecycle_operations(role, child);
-
-        let completed = outcome
-            .resolve(
-                builder,
-                cleanup.body,
-                source,
-                operations.into_iter().flatten(),
-            )
-            .map_err(|cause| self.capacity_error(cause))?;
+        let completed = self.push_child_lifecycle_operation(
+            builder,
+            cleanup.body,
+            source,
+            role,
+            child,
+            &outcome,
+        )?;
 
         cleanup
             .close(builder, completed, source, None)
             .map_err(|cause| self.capacity_error(cause))?;
 
-        self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome)
+        self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome, &mut None)
     }
 }

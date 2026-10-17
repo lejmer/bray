@@ -70,8 +70,14 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
+        MirOperationKind::Destroy { place, abandoned } => {
+            collect_place_types(place, types);
+
+            if let Some(abandoned) = abandoned {
+                collect_operand_types(abandoned, types);
+            }
+        }
         MirOperationKind::Unary { operand, .. } => collect_operand_types(operand, types),
         MirOperationKind::Binary { left, right, .. } => {
             collect_operand_types(left, types);
@@ -110,6 +116,10 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Generator(operation) => collect_generator_types(operation, types),
         MirOperationKind::Call(call) => collect_call_types(call, types),
         MirOperationKind::Memory(memory) => {
+            if let Some(abandoned) = memory.abandoned_cleanup() {
+                collect_operand_types(abandoned, types);
+            }
+
             collect_operands_types(memory.operands(), types);
             collect_memory_types(memory.kind(), types);
         }
@@ -337,6 +347,10 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
 }
 
 fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeSet<TypeId>) {
+    if let MirGeneratorOperation::Destroy { abandoned, .. } = operation {
+        collect_operand_types(abandoned, types);
+    }
+
     match operation {
         MirGeneratorOperation::Begin {
             destination,

@@ -1115,7 +1115,10 @@ mod tests {
             let report = MirPlace::new(report_storage, [], ty);
 
             let operation = if fallible {
-                MirOperationKind::Destroy(place)
+                MirOperationKind::Destroy {
+                    place,
+                    abandoned: None,
+                }
             } else {
                 MirOperationKind::Store {
                     kind: crate::MirStoreKind::Initialize,

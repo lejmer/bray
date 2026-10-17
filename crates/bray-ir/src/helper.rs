@@ -171,7 +171,11 @@ impl MirOperationKind {
                     });
                 }
                 MirGeneratorOperation::Destroy { element, .. } => {
-                    helpers.push(MirHelperReference::Finalize(*element));
+                    helpers.push(MirHelperReference::Cleanup {
+                        phase: MirCleanupPhase::LifecycleResolution,
+                        ty: *element,
+                    });
+
                     helpers.push(MirHelperReference::Destroy(*element));
                 }
             },
@@ -185,7 +189,7 @@ impl MirOperationKind {
             }
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Quiesce(place) => helpers.push(MirHelperReference::Quiesce(place.ty())),
-            Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
+            Self::Destroy { place, .. } => helpers.push(MirHelperReference::Destroy(place.ty())),
             Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
                 phase: *phase,
                 ty: place.ty(),
@@ -218,8 +222,10 @@ impl MirOperationKind {
             Self::Host(crate::MirHostOperation::ResolveRootTerminal {
                 error: Some(error), ..
             }) => {
-                helpers.push(MirHelperReference::Finalize(*error));
-                helpers.push(MirHelperReference::Destroy(*error));
+                helpers.push(MirHelperReference::Cleanup {
+                    phase: MirCleanupPhase::LifecycleResolution,
+                    ty: *error,
+                });
             }
             Self::Store { .. }
             | Self::Borrow { .. }
@@ -267,6 +273,10 @@ fn collect_memory_helpers(
             phase: MirCleanupPhase::LifecycleResolution,
             ty: element,
         });
+
+        if memory.abandoned_cleanup().is_some() {
+            helpers.push(MirHelperReference::Destroy(element));
+        }
 
         helpers.push(MirHelperReference::StandardLibrary(
             MirStandardLibraryHelper::MemoryDeallocate,

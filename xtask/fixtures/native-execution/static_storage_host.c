@@ -13,7 +13,7 @@ typedef void* native_library;
 #endif
 
 typedef uintptr_t (*static_access)(void);
-typedef void (*static_cleanup)(void* outcome);
+typedef void (*static_cleanup)(uint32_t abandoned, void* outcome);
 typedef void (*static_transition)(void);
 typedef void (*static_admission)(uint32_t operation, void* outcome);
 typedef uint32_t (*static_finalizer_start)(uintptr_t destination, void* outcome);

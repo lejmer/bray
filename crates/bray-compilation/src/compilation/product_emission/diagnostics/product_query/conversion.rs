@@ -542,7 +542,7 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::PanicReport(_) => "panic_report",
         Operation::Finalize(_) => "finalize",
         Operation::Quiesce(_) => "quiesce",
-        Operation::Destroy(_) => "destroy",
+        Operation::Destroy { .. } => "destroy",
         Operation::Cleanup { .. } => "cleanup",
         Operation::Async(_) => "async",
         Operation::AdmitOutgoing { .. } => "outgoing_admission",

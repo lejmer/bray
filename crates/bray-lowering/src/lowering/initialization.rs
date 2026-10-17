@@ -196,7 +196,7 @@ impl Lowerer<'_> {
                 destination: place,
                 ..
             })
-            | MirOperationKind::Destroy(place)
+            | MirOperationKind::Destroy { place, .. }
             | MirOperationKind::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
                 place,

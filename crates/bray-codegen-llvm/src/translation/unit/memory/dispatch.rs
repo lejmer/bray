@@ -123,7 +123,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     );
                 };
 
-                self.translate_raw_buffer_release(id, buffer, *buffer_type, element)?;
+                self.translate_raw_buffer_release(
+                    id,
+                    buffer,
+                    *buffer_type,
+                    element,
+                    memory.abandoned_cleanup(),
+                )?;
 
                 Ok(None)
             }

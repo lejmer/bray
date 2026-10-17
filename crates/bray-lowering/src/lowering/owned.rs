@@ -145,6 +145,7 @@ impl Lowerer<'_> {
             borrow,
             BoundCallResult::Immediate(call.result()),
             cleanup,
+            None,
             |operation, result| {
                 self.push_operation(block, Self::retained_source(source), operation, result)
             },

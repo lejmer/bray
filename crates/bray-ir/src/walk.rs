@@ -133,8 +133,14 @@ impl MirOperationKind {
             Self::Borrow { place, .. }
             | Self::Quiesce(place)
             | Self::Finalize(place)
-            | Self::Destroy(place)
             | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
+            Self::Destroy { place, abandoned } => {
+                visit_place_operands(place, &mut visit);
+
+                if let Some(abandoned) = abandoned {
+                    visit_operand(abandoned, &mut visit);
+                }
+            }
             Self::Unary { operand, .. }
             | Self::Convert { operand, .. }
             | Self::NumericConversion { operand, .. } => visit_operand(operand, &mut visit),
@@ -155,19 +161,30 @@ impl MirOperationKind {
             Self::NullableQuery(query) => visit_operand(query.operand(), &mut visit),
             Self::PatternProjection { subject, .. } => visit_operand(subject, &mut visit),
             Self::Generator(operation) => match operation {
+                MirGeneratorOperation::Destroy {
+                    destination,
+                    abandoned,
+                    ..
+                } => {
+                    visit_place_operands(destination, &mut visit);
+                    visit_operand(abandoned, &mut visit);
+                }
                 MirGeneratorOperation::Push { destination, value } => {
                     visit_place_operands(destination, &mut visit);
                     visit_operand(value, &mut visit);
                 }
                 MirGeneratorOperation::Begin { destination, .. }
                 | MirGeneratorOperation::Finish { destination }
-                | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-                | MirGeneratorOperation::Destroy { destination, .. } => {
+                | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
                     visit_place_operands(destination, &mut visit);
                 }
             },
             Self::Call(call) => visit_call_operands(call, &mut visit),
             Self::Memory(operation) => {
+                if let Some(abandoned) = operation.abandoned_cleanup() {
+                    visit_operand(abandoned, &mut visit);
+                }
+
                 for operand in operation.operands() {
                     visit_operand(operand, &mut visit);
                 }
@@ -341,7 +358,9 @@ pub(crate) fn for_each_operation_storage(
         }
         | MirOperationKind::Quiesce(destination)
         | MirOperationKind::Finalize(destination)
-        | MirOperationKind::Destroy(destination)
+        | MirOperationKind::Destroy {
+            place: destination, ..
+        }
         | MirOperationKind::Cleanup {
             place: destination, ..
         }

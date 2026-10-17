@@ -132,8 +132,8 @@ pub enum LifecycleAction {
         target: TypeId,
         /// Selected mutable projection of the initialized target.
         borrow: LifecycleCallable,
-        /// Selected target destruction and storage release, in that order.
-        teardown: Option<[LifecycleCallable; 2]>,
+        /// Selected storage release after compiler-owned target destruction.
+        release: Option<LifecycleCallable>,
     },
     /// Resolve the initialized prefix of a generator.
     Generator(TypeId),
@@ -152,14 +152,10 @@ impl LifecycleAction {
     /// Structural children retain their own selected actions and cleanup allowances.
     pub fn local_calls(&self) -> impl Iterator<Item = LifecycleCallable> {
         let calls = match self {
-            Self::Call(callable) => [Some(*callable), None, None],
+            Self::Call(callable) => [Some(*callable), None],
             Self::Owned {
-                borrow, teardown, ..
-            } => [
-                Some(*borrow),
-                teardown.map(|calls| calls[0]),
-                teardown.map(|calls| calls[1]),
-            ],
+                borrow, release, ..
+            } => [Some(*borrow), *release],
             Self::None
             | Self::Resolve
             | Self::Members(_)
@@ -170,7 +166,7 @@ impl LifecycleAction {
             | Self::RawBuffer(_)
             | Self::ReleaseString
             | Self::DestroyReport
-            | Self::Task => [None; 3],
+            | Self::Task => [None; 2],
         };
 
         calls.into_iter().flatten()

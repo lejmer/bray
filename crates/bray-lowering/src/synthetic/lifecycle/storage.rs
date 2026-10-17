@@ -208,23 +208,30 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .result()
                     .expect("value-producing MIR operation must publish a result");
 
+                let release = MirMemoryOperation::new(
+                    bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element },
+                    [MirOperand::Value(buffer)],
+                    [borrowed],
+                    None,
+                )
+                .with_abandoned_cleanup(
+                    self.abandoned
+                        .clone()
+                        .expect("buffer destruction retains its invocation argument"),
+                );
+
                 self.push_lifecycle_operation(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
-                        bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element },
-                        [MirOperand::Value(buffer)],
-                        [borrowed],
-                        None,
-                    ))),
+                    MirOperationKind::Memory(Box::new(release)),
                 )?;
 
                 let block = outcome
                     .check(builder, block, source)
                     .map_err(|cause| self.capacity_error(cause))?;
 
-                return self.finish_cleanup_outcome(builder, block, source, &outcome);
+                return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
             }
             bray_bound_tree::LifecycleAction::ReleaseString => {
                 self.push_lifecycle_operation(
@@ -292,7 +299,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         )?;
                     }
 
-                    return self.finish_cleanup_outcome(builder, block, source, &outcome);
+                    return self
+                        .finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
                 }
                 bray_ir::MirGeneratedLifecycleRole::Destroy => {
                     self.push_lifecycle_operation(
@@ -337,7 +345,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         storage: TypeId,
         target: TypeId,
         borrow: bray_bound_tree::LifecycleCallable,
-        teardown: Option<[bray_bound_tree::LifecycleCallable; 2]>,
+        release: Option<bray_bound_tree::LifecycleCallable>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let storage_place = place.project(MirProjectionKind::OwnedStorage, storage);
 
@@ -350,45 +358,40 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             borrow,
         )?;
 
-        let Some(teardown) = teardown else {
-            return self.resolve_lifecycle_sequence(
+        let Some(release) = release else {
+            return self.push_child_lifecycle_operations(
                 builder,
                 block,
                 source,
-                super::representation::child_lifecycle_operations(role, target_place)
-                    .into_iter()
-                    .flatten(),
+                role,
+                [Ok(target_place)],
             );
         };
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
-        self.push_lifecycle_operation(
+        let block = self.push_child_lifecycle_operation(
             builder,
             block,
             source,
-            MirOperationKind::Finalize(target_place),
+            role,
+            target_place,
+            &outcome,
         )?;
 
-        let mut block = outcome
+        self.push_selected_call(
+            builder,
+            block,
+            source,
+            storage_place,
+            release,
+            BoundCallResult::Immediate(release.result),
+        )?;
+
+        let block = outcome
             .check(builder, block, source)
             .map_err(|cause| self.capacity_error(cause))?;
 
-        for callable in teardown {
-            self.push_selected_call(
-                builder,
-                block,
-                source,
-                storage_place.clone(),
-                callable,
-                BoundCallResult::Immediate(callable.result),
-            )?;
-
-            block = outcome
-                .check(builder, block, source)
-                .map_err(|cause| self.capacity_error(cause))?;
-        }
-
-        self.finish_cleanup_outcome(builder, block, source, &outcome)
+        self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)
     }
 }

@@ -43,4 +43,6 @@ pub trait SyntheticLoweringContext {
 
 pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Sized> {
     pub(crate) context: &'context C,
+    // The current generated destructor's explicit invocation argument.
+    pub(crate) abandoned: Option<bray_ir::MirOperand>,
 }

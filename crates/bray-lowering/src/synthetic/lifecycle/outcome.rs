@@ -1,7 +1,7 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperationKind,
-    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirRuntimeReference,
+    MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 
@@ -37,34 +37,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         .map_err(|cause| self.capacity_error(cause))
     }
 
-    pub(in crate::synthetic) fn resolve_lifecycle_sequence(
-        &self,
-        builder: &mut MirUnitBuilder,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        operations: impl IntoIterator<Item = MirOperationKind>,
-    ) -> Result<MirBlockId, C::Error> {
-        let mut operations = operations.into_iter().peekable();
-
-        if operations.peek().is_none() {
-            return Ok(block);
-        }
-
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-
-        let block = outcome
-            .resolve(builder, block, source, operations)
-            .map_err(|cause| self.capacity_error(cause))?;
-
-        self.finish_cleanup_outcome(builder, block, source, &outcome)
-    }
-
     pub(in crate::synthetic) fn finish_cleanup_outcome(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
         outcome: &CleanupOutcome,
+        value: &mut Option<bray_ir::MirOperand>,
     ) -> Result<MirBlockId, C::Error> {
         let invalid = |cause| self.capacity_error(cause);
         let kind = builder.block_kind(block);
@@ -75,7 +54,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let abi = builder.target().runtime_abi();
 
         let completed = outcome
-            .dispatch(builder, block, source, panicked, cancelled)
+            .dispatch(builder, block, source, panicked, cancelled, value)
             .map_err(invalid)?;
 
         self.finish_cleanup_propagation(

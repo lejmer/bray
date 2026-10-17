@@ -878,7 +878,7 @@ macro_rules! runtime_role_catalog {
                 "Destroy initialized generator elements and release accumulation storage.", "generator_destruction",
                 native: (),
                 call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer] -> Void,
+                compiler: Bray [Pointer, Pointer, Pointer, Bool] -> Void,
                 owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [DestroyGenerator]

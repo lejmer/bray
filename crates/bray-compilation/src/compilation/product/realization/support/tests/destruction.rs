@@ -55,24 +55,24 @@ fn generated_destruction_composes_parts_in_reverse_order() {
         .filter(|operation| {
             matches!(
                 operation,
-                MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                MirOperationKind::Cleanup { .. } | MirOperationKind::Destroy { .. }
             )
         })
         .collect::<Vec<_>>();
 
     let expected = [
-        ("finalize", 1),
         ("destroy", 1),
-        ("finalize", 0),
+        ("cleanup", 1),
         ("destroy", 0),
+        ("cleanup", 0),
     ];
 
     assert_eq!(operations.len(), expected.len());
 
     for (operation, (kind, field)) in operations.into_iter().zip(expected) {
         let place = match operation {
-            MirOperationKind::Finalize(place) if kind == "finalize" => place,
-            MirOperationKind::Destroy(place) if kind == "destroy" => place,
+            MirOperationKind::Cleanup { place, .. } if kind == "cleanup" => place,
+            MirOperationKind::Destroy { place, .. } if kind == "destroy" => place,
             other => panic!("unexpected lifecycle operation: {other:?}"),
         };
 
@@ -162,10 +162,10 @@ fn nullable_lifecycle_resolves_only_the_present_payload() {
     assert_eq!(operations.len(), 2);
     assert!(absent.operations().is_empty());
 
-    for (operation, expected) in operations.into_iter().zip(["finalize", "destroy"]) {
+    for (operation, expected) in operations.into_iter().zip(["destroy", "cleanup"]) {
         let place = match (expected, operation) {
-            ("finalize", MirOperationKind::Finalize(place))
-            | ("destroy", MirOperationKind::Destroy(place)) => place,
+            ("cleanup", MirOperationKind::Cleanup { place, .. })
+            | ("destroy", MirOperationKind::Destroy { place, .. }) => place,
             other => panic!("unexpected nullable lifecycle operation: {other:?}"),
         };
 
@@ -228,10 +228,10 @@ fn union_lifecycle_resolves_only_the_active_variant_payload() {
         [2, 0]
     );
 
-    for (operation, expected) in payload_blocks[0].iter().zip(["finalize", "destroy"]) {
+    for (operation, expected) in payload_blocks[0].iter().zip(["destroy", "cleanup"]) {
         let place = match (expected, operation) {
-            ("finalize", MirOperationKind::Finalize(place))
-            | ("destroy", MirOperationKind::Destroy(place)) => place,
+            ("cleanup", MirOperationKind::Cleanup { place, .. })
+            | ("destroy", MirOperationKind::Destroy { place, .. }) => place,
             other => panic!("unexpected union lifecycle operation: {other:?}"),
         };
 
@@ -290,6 +290,7 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
 
     let MirOperationKind::Generator(MirGeneratorOperation::Destroy {
         element: operation_element,
+        abandoned,
         runtime,
         ..
     }) = operation.kind()
@@ -298,6 +299,10 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     };
 
     assert_eq!(*operation_element, element);
+
+    assert!(matches!(abandoned, bray_ir::MirOperand::Copy(place)
+        if matches!(generated.storage(place.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(1))));
+
     assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorDestruction);
 
     assert_eq!(
@@ -308,7 +313,10 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     assert_eq!(
         operation.kind().helper_references(),
         [
-            MirHelperReference::Finalize(element),
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: element,
+            },
             MirHelperReference::Destroy(element),
         ]
     );
@@ -326,13 +334,20 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
         )
         .expect("element lifecycle dependencies must realize");
 
-    let [dependency] = dependencies.as_slice() else {
-        panic!("only nontrivial element lifecycle dependencies must remain");
-    };
+    let references = dependencies
+        .iter()
+        .map(|dependency| dependency.instance().generated_lifecycle_reference())
+        .collect::<Vec<_>>();
 
     assert_eq!(
-        dependency.instance().generated_lifecycle_reference(),
-        Some(&MirHelperReference::Destroy(element))
+        references,
+        [
+            Some(&MirHelperReference::Destroy(element)),
+            Some(&MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: element,
+            }),
+        ]
     );
 }
 
@@ -380,7 +395,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
             .iter()
             .filter(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_))))
             .count(),
-        3
+        2
     );
 
     let reference = MirHelperReference::Destroy(owned);
@@ -432,8 +447,8 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     assert_eq!(
         calls.len(),
-        3,
-        "projection, target destruction and release each retain their requirement"
+        2,
+        "projection and storage release retain their selected policy calls"
     );
 
     compilation
@@ -827,7 +842,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     assert!(
         generated.operations().iter().all(|operation| !matches!(
             operation.kind(),
-            MirOperationKind::Destroy(_) | MirOperationKind::Finalize(_)
+            MirOperationKind::Destroy { .. } | MirOperationKind::Finalize(_)
         )),
         "the transferred payload stays owned by the incident chain"
     );

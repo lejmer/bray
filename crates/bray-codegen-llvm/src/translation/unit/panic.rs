@@ -185,7 +185,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let context = self
             .pending_call_panic_report_context
             .take()
-            .expect("checked MIR translation requires an established mapping or value");
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked call outcome in {:?} block {block:?} has no preceding call context",
+                    self.unit.key()
+                )
+            });
 
         if let Some(incoming) = self.panic_report_context {
             assert_eq!(

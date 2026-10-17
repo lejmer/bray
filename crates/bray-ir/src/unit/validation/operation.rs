@@ -64,9 +64,15 @@ pub(super) fn validate_operation(
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => {
             validate_place(unit, place, block, Some(id))?;
+        }
+        MirOperationKind::Destroy { place, abandoned } => {
+            validate_place(unit, place, block, Some(id))?;
+
+            if let Some(abandoned) = abandoned {
+                validate_operand(unit, abandoned, block, Some(id))?;
+            }
         }
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
@@ -173,13 +179,13 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         MirOperationKind::Host(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Quiesce(_)
         | MirOperationKind::Finalize(_)
-        | MirOperationKind::Destroy(_) => block_kind != MirBlockKind::CleanupBroadcast,
+        | MirOperationKind::Destroy { .. } => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Cleanup { phase, .. } => match phase {
             crate::MirCleanupPhase::TaskCancellation => {
                 block_kind == MirBlockKind::CleanupBroadcast
             }
             crate::MirCleanupPhase::LifecycleResolution => {
-                block_kind == MirBlockKind::LifecycleResolution
+                block_kind != MirBlockKind::CleanupBroadcast
             }
         },
         MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. }) => {
@@ -261,8 +267,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     | MirGeneratorOperation::Destroy { .. }
             )
             | MirOperationKind::Quiesce(_)
-            | MirOperationKind::Finalize(_)
-            | MirOperationKind::Destroy(_)
+            | MirOperationKind::Destroy { .. }
             | MirOperationKind::Cleanup { .. }
             | MirOperationKind::Host(_)
             | MirOperationKind::Async(
@@ -762,10 +767,12 @@ fn validate_generator_operation(
         }
         MirGeneratorOperation::Destroy {
             destination,
+            abandoned,
             runtime,
             ..
         } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorDestruction)?;
+            validate_operand(unit, abandoned, block, Some(operation))?;
 
             destination
         }

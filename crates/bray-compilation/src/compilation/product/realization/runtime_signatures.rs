@@ -69,16 +69,27 @@ impl Compilation {
             } else {
                 CodegenResultMapping::direct(result, None, [])
             }
+        } else if matches!(reference, MirHelperReference::Finalize(_)) {
+            CodegenResultMapping::direct(
+                self.codegen_representation_type(RepresentationRole::ScalarBool)?,
+                None,
+                [],
+            )
         } else {
             CodegenResultMapping::Void
         };
 
-        let signature = CodegenCallableSignature::new(
-            [CodegenParameterMapping::direct(pointer, None, [])],
-            result,
-            CallableAbi::Bray,
-            false,
-        );
+        let mut parameters = vec![CodegenParameterMapping::direct(pointer, None, [])];
+
+        if matches!(reference, MirHelperReference::Destroy(_)) {
+            parameters.push(CodegenParameterMapping::direct(
+                self.codegen_representation_type(RepresentationRole::ScalarBool)?,
+                None,
+                [],
+            ));
+        }
+
+        let signature = CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false);
 
         Ok(signature.with_panic_report_context())
     }

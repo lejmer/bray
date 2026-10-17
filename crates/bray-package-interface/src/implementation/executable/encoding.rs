@@ -606,9 +606,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(15);
                 self.place(place)?;
             }
-            MirOperationKind::Destroy(place) => {
+            MirOperationKind::Destroy { place, abandoned } => {
                 self.wire.write_u32(16);
                 self.place(place)?;
+                self.optional_operand(abandoned.as_ref())?;
             }
             MirOperationKind::Cleanup { phase, place } => {
                 self.wire.write_u32(17);
@@ -1737,11 +1738,13 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirGeneratorOperation::Destroy {
                 destination,
                 element,
+                abandoned,
                 runtime,
             } => {
                 self.wire.write_u32(4);
                 self.place(destination)?;
                 self.ty(*element)?;
+                self.operand(abandoned)?;
                 self.runtime_reference(*runtime);
             }
         }
@@ -1777,6 +1780,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         self.callable_references(operation.inline_assembly_symbols())?;
+        self.optional_operand(operation.abandoned_cleanup())?;
 
         Ok(())
     }

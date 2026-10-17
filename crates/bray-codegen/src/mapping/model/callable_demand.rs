@@ -119,7 +119,7 @@ fn operation_callable_instances(
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Quiesce(_)
         | MirOperationKind::Finalize(_)
-        | MirOperationKind::Destroy(_)
+        | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Async(_)
         | MirOperationKind::AdmitOutgoing { .. }

@@ -891,9 +891,13 @@ mod tests {
 
     extern "C" fn detach_thread_static() {}
 
-    extern "C-unwind" fn no_cleanup(_: &mut bray_runtime_abi::NativeRunOutcome) {}
+    extern "C-unwind" fn no_cleanup(_: u32, _: &mut bray_runtime_abi::NativeRunOutcome) {}
 
-    extern "C-unwind" fn record_product_destruction(_: &mut bray_runtime_abi::NativeRunOutcome) {
+    extern "C-unwind" fn record_product_destruction(
+        abandoned: u32,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
+        assert_eq!(abandoned, 0);
         record_product_phase(2);
         PRODUCT_DESTRUCTIONS.fetch_add(1, Ordering::SeqCst);
     }

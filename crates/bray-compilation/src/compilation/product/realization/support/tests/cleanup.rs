@@ -179,13 +179,17 @@ fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
                 .is_some_and(|operation| {
                     matches!(
                         operation.kind(),
-                        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                        MirOperationKind::Cleanup {
+                            phase: MirCleanupPhase::LifecycleResolution,
+                            ..
+                        }
                     )
                 })
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(checked.len(), 2);
+    assert_eq!(checked.len(), 1);
+    assert!(generated.is_valid());
 
     assert!(checked.iter().all(|block| matches!(
         block.terminator().kind(),
@@ -272,7 +276,8 @@ fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
 
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
-            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
+            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. })
+                && memory.abandoned_cleanup().is_some())));
 
     assert!(
         !cleanup
@@ -333,7 +338,8 @@ fn imported_standard_buffer_cleanup_uses_structural_allowance() {
 
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
-            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
+            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. })
+                && memory.abandoned_cleanup().is_some())));
 }
 
 #[test]
@@ -588,7 +594,7 @@ fn incident_quiescence_visits_children_without_parent_finalization_or_destructio
     assert!(!generated.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Finalize(_)
-            | MirOperationKind::Destroy(_)
+            | MirOperationKind::Destroy { .. }
             | MirOperationKind::DischargeOutgoing { .. }
     )));
 
@@ -802,7 +808,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
                         Some(place)
                     }
                     MirOperationKind::Finalize(_)
-                    | MirOperationKind::Destroy(_)
+                    | MirOperationKind::Destroy { .. }
                     | MirOperationKind::DischargeOutgoing { .. } => {
                         panic!("prefix traversal must retain its owner and elements")
                     }

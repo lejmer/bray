@@ -455,9 +455,6 @@ trait Storage<T>
     static func borrow_mut(pos storage: &mut Self) -> &mut T
         executes(pure, total);
 
-    trusted static func destroy(pos storage: &mut Self)
-        uses(raw_memory, unchecked_init);
-
     trusted static func release(pos storage: Self)
         uses(manual_alloc);
 }
@@ -477,10 +474,12 @@ Effectful acquisition, such as locking or mapping, belongs in ordinary operation
 [scoped use](../lifecycle/scoped-use.md). The acquired capability retains the dependencies needed for access throughout
 the borrow and any cleanup that uses it.
 
-`Storage<T>.destroy` destroys the stored `T` without releasing the storage object itself.
+The compiler resolves and destroys the stored `T` through its mutable projection before releasing the storage object.
+This uses the same lifecycle rules as inline ownership, including abandonment of inherited graceful cleanup.
 
 `Storage<T>.release` releases the storage object after the stored value has been destroyed or otherwise removed
-according to the storage contract.
+according to the storage contract. Its representation must remain valid without a live `T`, for example by retaining
+`Uninit<T>`. Release must not read the retired target as initialized or repeat its cleanup.
 
 `Storage<T>.create` requires `T` to be sized.
 
@@ -494,7 +493,7 @@ For `box[S] [T]`, box construction uses contiguous owned storage behavior for el
 count.
 
 The storage policy allocates storage for the element count, initializes each element exactly once, projects slice
-borrows, destroys initialized elements, and releases the allocation according to the storage policy.
+borrows, and releases the allocation. The compiler resolves and destroys initialized elements before release.
 
 ```bray
 let sink: box[Heap] view Sink = box[Heap](file_sink);

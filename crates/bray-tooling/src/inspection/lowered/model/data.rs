@@ -803,8 +803,12 @@ fn operation_parts(
 
             "finalize"
         }
-        MirOperationKind::Destroy(place) => {
+        MirOperationKind::Destroy { place, abandoned } => {
             parts.place("place", place, context)?;
+
+            if let Some(abandoned) = abandoned {
+                parts.operand("abandoned", abandoned, context)?;
+            }
 
             "destroy"
         }
@@ -889,6 +893,10 @@ fn memory_operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
+    if let Some(abandoned) = memory.abandoned_cleanup() {
+        parts.operand("abandoned", abandoned, context)?;
+    }
+
     match memory.kind() {
         CheckedMemoryOperationKind::AtomicLoad { order, .. }
         | CheckedMemoryOperationKind::AtomicStore { order, .. }
@@ -1386,9 +1394,11 @@ fn generator_operation(
         MirGeneratorOperation::Destroy {
             destination,
             element,
+            abandoned,
             runtime,
         } => {
             parts.attribute("step", "destroy");
+            parts.operand("abandoned", abandoned, context)?;
             parts.r#type("element_type", *element, context)?;
             runtime_reference("runtime", *runtime, parts);
             parts.place("destination", destination, context)?;

@@ -138,16 +138,6 @@ scope Ambient at ambient {
         surface { static func borrow_mut(pos storage: &mut Heap) -> &mut T executes(pure, total) {} }
     }
 
-    declaration HeapStorageDestroy {
-        owner HeapStorageImplementation;
-
-        surface {
-            trusted static func destroy(pos storage: &mut Heap)
-                uses(raw_memory, unchecked_init)
-            {}
-        }
-    }
-
     declaration HeapStorageRelease {
         owner HeapStorageImplementation;
 

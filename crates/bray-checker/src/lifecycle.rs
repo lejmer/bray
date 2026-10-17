@@ -141,8 +141,8 @@ fn select_represented_action<C: LifecycleSelectionContext + ?Sized>(
 
             let borrow = select("StorageBorrowMut")?;
 
-            let teardown = if phase == LifecyclePhase::Destroy {
-                Some([select("StorageDestroy")?, select("StorageRelease")?])
+            let release = if phase == LifecyclePhase::Destroy {
+                Some(select("StorageRelease")?)
             } else {
                 None
             };
@@ -151,7 +151,7 @@ fn select_represented_action<C: LifecycleSelectionContext + ?Sized>(
                 storage: *storage,
                 target: *target,
                 borrow,
-                teardown,
+                release,
             })
         }
         TypeData::Generator(element) => Ok(LifecycleAction::Generator(*element)),

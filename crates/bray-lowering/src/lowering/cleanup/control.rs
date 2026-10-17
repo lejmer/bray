@@ -596,52 +596,6 @@ impl Lowerer<'_> {
         body(self, block, place, value)
     }
 
-    fn push_cleanup_action(
-        &mut self,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        phase: MirCleanupPhase,
-        place: bray_ir::MirPlace,
-        release: Option<bray_bound_tree::StorageProtocolCall>,
-        completed: bool,
-    ) -> Result<MirBlockId, LoweringError> {
-        let owner = place.ty();
-        let completed = completed || self.input.type_finalizer_is_complete(owner);
-
-        if release.is_none()
-            && !completed
-            && phase == MirCleanupPhase::LifecycleResolution
-            && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
-            && callable.execution == bray_symbols::CallableExecution::Asynchronous
-        {
-            return self.push_async_finalizer(block, source, place, callable);
-        }
-
-        if let Some(release) = release {
-            self.set_storage_initialized(block, source, &place, false)?;
-            self.push_storage_protocol_call(block, source, &place, release, true)?;
-        } else {
-            self.push_operation(
-                block,
-                Self::retained_source(source),
-                if completed && phase == MirCleanupPhase::LifecycleResolution {
-                    MirOperationKind::Destroy(place)
-                } else {
-                    MirOperationKind::Cleanup { phase, place }
-                },
-                None,
-            )?;
-        }
-
-        if let Some(outcome) = &self.cleanup_outcome {
-            Ok(outcome.check(&mut self.builder, block, source)?)
-        } else {
-            Ok(self
-                .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
-                .0)
-        }
-    }
-
     pub(in crate::lowering) fn cleanup_parameter(
         &mut self,
         block: MirBlockId,

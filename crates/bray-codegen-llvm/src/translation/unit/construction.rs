@@ -131,9 +131,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let helper = next_helper(&mut helpers, &MirHelperReference::TypeForm(callable));
                 let input_values = inputs.iter().map(|input| input.value).collect::<Vec<_>>();
 
-                let value = self
-                    .invoke_operation_helper(operation_id, helper, &input_values)?
-                    .expect("checked MIR construction translation requires an established mapping or value");
+                let value = self.invoke_operation_helper(operation_id, helper, &input_values)?;
+                let value = self.materialize_call_result(value, result)?;
 
                 if helpers.next().is_some() {
                     panic!(
@@ -324,9 +323,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ConversionTarget::Trait { fulfillment, .. } => {
                 let helper = next_helper(helpers, &MirHelperReference::Conversion(*fulfillment));
 
-                Ok(self
-                    .invoke_helper(helper, &[value])?
-                    .expect("conversion helpers must return their converted value"))
+                let value = self.invoke_helper(helper, &[value])?;
+
+                self.materialize_call_result(value, conversion.target_type())
             }
             ConversionTarget::TraitConstraint { .. } => {
                 panic!(

@@ -1383,7 +1383,7 @@ mod tests {
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
         let destroys_owner = mir.operations().iter().any(|operation| {
-            matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == ty)
+            matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == ty)
         });
 
         let awaits_finalizer = mir.operations().iter().any(|operation| {

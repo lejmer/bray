@@ -191,17 +191,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_ir::MirValue::ty)
             .expect("checked MIR call translation requires an established mapping or value");
 
-        let mapping = self
-            .type_mapping(ty)
-            .expect("checked MIR call translation requires an established mapping or value");
+        self.materialize_call_result(None, ty).map(Some)
+    }
 
-        if mapping.layout().is_none_or(|layout| layout.size() != 0) {
-            panic!("checked MIR call translation violated an established compiler contract");
+    pub(in crate::translation::unit) fn materialize_call_result(
+        &mut self,
+        value: Option<BasicValueEnum<'context>>,
+        ty: bray_symbols::TypeId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        if let Some(value) = value {
+            return Ok(value);
         }
 
-        let ty = self.types.map(ty)?;
+        let mapping = self
+            .type_mapping(ty)
+            .expect("call result retains its semantic type mapping");
 
-        Ok(Some(ty.const_zero()))
+        assert!(
+            mapping.layout().is_some_and(|layout| layout.size() == 0),
+            "an erased call result must have zero-sized representation: {ty:?}"
+        );
+
+        Ok(self.types.map(ty)?.const_zero())
     }
 
     pub(in crate::translation::unit) fn operation_helpers(

@@ -192,7 +192,7 @@ impl Compilation {
             })
             .transpose()?;
 
-        let parameter_types = signature
+        let mut parameter_types = signature
             .parameters()
             .iter()
             .map(|parameter| {
@@ -204,6 +204,10 @@ impl Compilation {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        if definition.callable_symbol().kind() == bray_symbols::SymbolKind::Destructor {
+            parameter_types.push(self.codegen_representation_type(RepresentationRole::ScalarBool)?);
+        }
 
         let parameters = receiver
             .into_iter()

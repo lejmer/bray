@@ -85,10 +85,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder,
                 block,
                 source,
-                [
-                    MirOperationKind::Finalize(place.clone()),
-                    MirOperationKind::Destroy(place),
-                ],
+                [MirOperationKind::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    place,
+                }],
             )
             .map_err(|cause| self.capacity_error(cause))
     }

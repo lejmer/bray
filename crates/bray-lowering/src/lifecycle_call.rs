@@ -14,6 +14,7 @@ pub(crate) fn lower_lifecycle_call(
     borrow: Option<BorrowKind>,
     result: BoundCallResult,
     cleanup: bool,
+    destruction: Option<MirOperand>,
     mut emit: impl FnMut(
         MirOperationKind,
         Option<TypeId>,
@@ -35,7 +36,9 @@ pub(crate) fn lower_lifecycle_call(
         None => MirOperand::Move(place),
     };
 
-    let call = MirCall::protocol(MirCallTarget::Direct(callable), result, [receiver], [])
+    let arguments = std::iter::once(receiver).chain(destruction);
+
+    let call = MirCall::protocol(MirCallTarget::Direct(callable), result, arguments, [])
         .with_cleanup(cleanup);
 
     let operation = match result {

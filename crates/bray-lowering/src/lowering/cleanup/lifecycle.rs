@@ -1,7 +1,7 @@
 use bray_bound_tree::LifecycleCallable;
 use bray_ir::{
-    MirBlockId, MirCallableReference, MirEdge, MirOperand, MirOperationKind, MirPlace,
-    MirSourceAnchor, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirCallableReference, MirCleanupPhase, MirEdge, MirOperand,
+    MirOperationKind, MirPlace, MirSourceAnchor, MirTerminatorKind,
 };
 
 use crate::cleanup_outcome::CleanupOutcome;
@@ -9,6 +9,139 @@ use crate::lowering::LoweringError;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    pub(super) fn push_cleanup_action(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        place: bray_ir::MirPlace,
+        release: Option<bray_bound_tree::StorageProtocolCall>,
+        completed: bool,
+    ) -> Result<MirBlockId, LoweringError> {
+        let inherited = self
+            .destruction_argument
+            .as_ref()
+            .filter(|(receiver, _)| {
+                phase == MirCleanupPhase::LifecycleResolution
+                    && release.is_none()
+                    && matches!(
+                        self.cleanup_occurrence,
+                        Some(bray_bound_tree::BoundExecutionSite::Cleanup(_))
+                    )
+                    && self.storages.get(receiver) == Some(&place.storage())
+            })
+            .map(|(_, argument)| argument.clone());
+
+        let Some(inherited) = inherited else {
+            return self
+                .push_ordinary_cleanup_action(block, source, phase, place, release, completed);
+        };
+
+        let abandoned = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::LifecycleResolution,
+        )?;
+
+        let ordinary = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::LifecycleResolution,
+        )?;
+
+        let continuation = self.builder.push_block(
+            Self::retained_source(source),
+            MirBlockKind::LifecycleResolution,
+        )?;
+
+        self.set_terminator(
+            block,
+            Self::retained_source(source),
+            MirTerminatorKind::Branch {
+                condition: inherited.clone(),
+                then_edge: MirEdge::new(abandoned, []),
+                else_edge: MirEdge::new(ordinary, []),
+            },
+        )?;
+
+        self.push_operation(
+            abandoned,
+            Self::retained_source(source),
+            MirOperationKind::Destroy {
+                place: Self::retained_place(&place),
+                abandoned: Some(inherited),
+            },
+            None,
+        )?;
+
+        let abandoned = if let Some(outcome) = &self.cleanup_outcome {
+            outcome.check(&mut self.builder, abandoned, source)?
+        } else {
+            self.check_ordinary_cleanup(abandoned, source, None, false, None)?
+                .0
+        };
+
+        let ordinary =
+            self.push_ordinary_cleanup_action(ordinary, source, phase, place, release, completed)?;
+
+        for end in [abandoned, ordinary] {
+            self.set_terminator(
+                end,
+                Self::retained_source(source),
+                MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+            )?;
+        }
+
+        Ok(continuation)
+    }
+
+    fn push_ordinary_cleanup_action(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        place: bray_ir::MirPlace,
+        release: Option<bray_bound_tree::StorageProtocolCall>,
+        completed: bool,
+    ) -> Result<MirBlockId, LoweringError> {
+        let owner = place.ty();
+        let completed = completed || self.input.type_finalizer_is_complete(owner);
+
+        if release.is_none()
+            && !completed
+            && phase == MirCleanupPhase::LifecycleResolution
+            && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
+            && callable.execution == bray_symbols::CallableExecution::Asynchronous
+        {
+            return self.push_async_finalizer(block, source, place, callable);
+        }
+
+        if let Some(release) = release {
+            self.set_storage_initialized(block, source, &place, false)?;
+            self.push_storage_protocol_call(block, source, &place, release, true)?;
+        } else {
+            self.push_operation(
+                block,
+                Self::retained_source(source),
+                if completed && phase == MirCleanupPhase::LifecycleResolution {
+                    MirOperationKind::Destroy {
+                        place,
+                        abandoned: None,
+                    }
+                } else {
+                    MirOperationKind::Cleanup { phase, place }
+                },
+                None,
+            )?;
+        }
+
+        if let Some(outcome) = &self.cleanup_outcome {
+            Ok(outcome.check(&mut self.builder, block, source)?)
+        } else {
+            Ok(self
+                .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
+                .0)
+        }
+    }
+
     pub(super) fn push_async_finalizer(
         &mut self,
         block: MirBlockId,
@@ -47,6 +180,7 @@ impl Lowerer<'_> {
             borrow,
             invocation,
             true,
+            None,
             |operation, ty| {
                 self.push_operation(block, Self::retained_source(source), operation, ty)
             },
@@ -74,7 +208,7 @@ impl Lowerer<'_> {
             callable.result,
         );
 
-        let block =
+        let (block, abandoned) =
             outcome.retain_finalizer_result(&mut self.builder, block, source, value, payloads)?;
 
         // Keep the owner broadcastable throughout the awaited mutation. Destruction
@@ -82,7 +216,10 @@ impl Lowerer<'_> {
         self.push_operation(
             block,
             Self::retained_source(source),
-            MirOperationKind::Destroy(place),
+            MirOperationKind::Destroy {
+                place,
+                abandoned: Some(abandoned),
+            },
             None,
         )?;
 
@@ -129,6 +266,13 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(panicked, [])),
         )?;
 
-        Ok(outcome.dispatch(&mut self.builder, block, source, panic, cancelled)?)
+        Ok(outcome.dispatch(
+            &mut self.builder,
+            block,
+            source,
+            panic,
+            cancelled,
+            &mut None,
+        )?)
     }
 }

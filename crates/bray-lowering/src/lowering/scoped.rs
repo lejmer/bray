@@ -94,6 +94,7 @@ impl Lowerer<'_> {
                     borrow,
                     invocation_result,
                     false,
+                    None,
                     |operation, ty| {
                         lowerer.push_operation(
                             current,
@@ -308,6 +309,7 @@ impl Lowerer<'_> {
                     None,
                     invocation_result,
                     true,
+            None,
                     |operation, ty| {
                         lowerer.push_operation(block, Self::retained_source(source), operation, ty)
                     },

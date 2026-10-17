@@ -199,9 +199,10 @@ fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
                 .map(bray_codegen::CodegenHelperMapping::reference)
                 .collect::<Vec<_>>();
 
-            assert!(helper_references.contains(&&MirHelperReference::Finalize(error)));
-
-            assert!(helper_references.contains(&&MirHelperReference::Destroy(error)));
+            assert!(helper_references.contains(&&MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: error,
+            }));
 
             let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
                 .into_iter()

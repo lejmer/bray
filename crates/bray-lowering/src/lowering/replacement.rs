@@ -165,8 +165,14 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
 
-        let completed =
-            outcome.dispatch(&mut self.builder, installed, source, panicked, cancelled)?;
+        let completed = outcome.dispatch(
+            &mut self.builder,
+            installed,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
+        )?;
 
         self.finish_panic_to_active_catch(expression, panicked, source, outcome.report(), report)?;
         self.finish_cancellation(cancelled, source, expression.into())?;

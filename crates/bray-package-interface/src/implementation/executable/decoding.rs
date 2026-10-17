@@ -656,7 +656,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
             15 => Ok(MirOperationKind::Finalize(self.place()?)),
             25 => Ok(MirOperationKind::Quiesce(self.place()?)),
-            16 => Ok(MirOperationKind::Destroy(self.place()?)),
+            16 => Ok(MirOperationKind::Destroy {
+                place: self.place()?,
+                abandoned: self.optional_operand()?,
+            }),
             17 => Ok(MirOperationKind::Cleanup {
                 phase: self.cleanup_phase()?,
                 place: self.place()?,
@@ -1288,6 +1291,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             4 => Ok(MirGeneratorOperation::Destroy {
                 destination: self.place()?,
                 element: self.ty()?,
+                abandoned: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
@@ -1321,10 +1325,18 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.semantics)?;
         validate_decoded_atomic_result(kind, result_type, self.semantics)?;
 
-        Ok(
-            MirMemoryOperation::new(kind, operands, operand_types, result_type)
-                .with_inline_assembly_symbols(self.callable_references()?),
-        )
+        let mut operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
+            .with_inline_assembly_symbols(self.callable_references()?);
+
+        if let Some(abandoned) = self.optional_operand()? {
+            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
+                return Err(ExecutableTemplateDecodeError::Malformed);
+            }
+
+            operation = operation.with_abandoned_cleanup(abandoned);
+        }
+
+        Ok(operation)
     }
 
     fn memory_kind(&mut self) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {

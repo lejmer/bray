@@ -1227,7 +1227,7 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         if block.operations().iter().any(|id| {
             matches!(
                 mir.operation(*id).unwrap().kind(),
-                MirOperationKind::Destroy(_)
+                MirOperationKind::Destroy { .. }
             )
         }) {
             for id in block.operations() {
@@ -1567,4 +1567,93 @@ fn temporary_and_unconsumed_results_reuse_unconditional_completion() {
             assert_eq!(creates_finalizer, !completed, "{name}: {source}");
         }
     }
+}
+
+#[test]
+fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
+    let source = r#"
+        module app;
+
+        struct Child
+        {
+            finalize() {}
+            destruct() {}
+        }
+
+        struct Owner
+        {
+            child: Child;
+
+            destruct()
+            {
+                let local = Child {};
+            }
+        }
+    "#;
+
+    let compilation = compilation(source);
+
+    // Select the destructor containing the local owner; the empty Child destructor has no such storage.
+    let candidates = compilation
+        .declared_unit_keys_for_test()
+        .unwrap()
+        .into_iter()
+        .filter(|key| {
+            key.kind() == BoundUnitKind::CallableBody
+                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+        })
+        .collect::<Vec<_>>();
+
+    let units = candidates
+        .into_iter()
+        .map(|key| compilation.lowered_unit(key).unwrap())
+        .collect::<Vec<_>>();
+
+    let mir = units
+        .iter()
+        .map(|unit| lowered_mir(unit))
+        .find(|mir| {
+            mir.operations().iter().any(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Destroy {
+                        abandoned: Some(_),
+                        ..
+                    }
+                )
+            })
+        })
+        .expect("the represented receiver tail retains abandonment");
+
+    let inherited = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::Destroy {
+                place,
+                abandoned: Some(_),
+            } => Some(place.storage()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        inherited.len(),
+        1,
+        "only receiver storage inherits abandonment"
+    );
+
+    assert!(
+        mir.operations()
+            .iter()
+            .any(|operation| match operation.kind() {
+                MirOperationKind::Destroy {
+                    place,
+                    abandoned: None,
+                }
+                | MirOperationKind::Cleanup { place, .. } => !inherited.contains(&place.storage()),
+                _ => false,
+            }),
+        "ordinary local cleanup remains independent"
+    );
 }

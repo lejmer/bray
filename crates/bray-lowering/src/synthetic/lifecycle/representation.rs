@@ -46,18 +46,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         match action {
             LifecycleAction::None => Ok(block),
-            LifecycleAction::Call(callable) => {
-                self.push_lifecycle_call(builder, block, source, place, callable)
-            }
-            LifecycleAction::Resolve => self.resolve_lifecycle_sequence(
-                builder,
-                block,
-                source,
-                [
-                    MirOperationKind::Finalize(place.clone()),
-                    MirOperationKind::Destroy(place),
-                ],
-            ),
+            LifecycleAction::Call(callable) => self
+                .push_checked_lifecycle_call(builder, block, source, place, callable)
+                .map(|(block, _)| block),
+            LifecycleAction::Resolve => self.push_owner_resolution(builder, block, source, place),
             LifecycleAction::Members(members) => {
                 let children = members.iter().copied().enumerate().map(|(index, ty)| {
                     let index = u32::try_from(index)
@@ -81,15 +73,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 storage,
                 target,
                 borrow,
-                teardown,
+                release,
             } => self.push_owned_indirection_lifecycle_operations(
-                builder, block, source, role, place, storage, target, borrow, teardown,
+                builder, block, source, role, place, storage, target, borrow, release,
             ),
             LifecycleAction::Generator(element) => {
                 let operation = match role {
                     bray_ir::MirGeneratedLifecycleRole::Destroy => MirGeneratorOperation::Destroy {
                         destination: place,
                         element,
+                        abandoned: self
+                            .abandoned
+                            .clone()
+                            .expect("generator destruction retains its invocation argument"),
                         runtime: MirRuntimeReference::new(
                             RuntimeAbiRole::GeneratorDestruction,
                             runtime_abi,
@@ -268,45 +264,110 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         role: bray_ir::MirGeneratedLifecycleRole,
         children: impl IntoIterator<Item = Result<MirPlace, C::Error>, IntoIter: DoubleEndedIterator>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let mut operations = Vec::new();
+        let mut children = children.into_iter().rev().peekable();
 
-        for child in children.into_iter().rev() {
-            operations.extend(
-                child_lifecycle_operations(role, child?)
-                    .into_iter()
-                    .flatten(),
-            );
+        if children.peek().is_none() {
+            return Ok(block);
         }
 
-        self.resolve_lifecycle_sequence(builder, block, source, operations)
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+        let mut block = block;
+
+        for child in children {
+            block = self
+                .push_child_lifecycle_operation(builder, block, source, role, child?, &outcome)?;
+        }
+
+        self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)
     }
-}
 
-pub(super) fn child_lifecycle_operations(
-    role: bray_ir::MirGeneratedLifecycleRole,
-    child: MirPlace,
-) -> [Option<MirOperationKind>; 2] {
-    match role {
-        bray_ir::MirGeneratedLifecycleRole::Quiesce => {
-            [Some(MirOperationKind::Quiesce(child)), None]
-        }
-        bray_ir::MirGeneratedLifecycleRole::Destroy => {
-            // Both lifecycle stages operate on the same represented child.
-            [
-                Some(MirOperationKind::Finalize(child.clone())),
-                Some(MirOperationKind::Destroy(child)),
-            ]
-        }
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => [
-            Some(MirOperationKind::Cleanup {
+    pub(super) fn push_child_lifecycle_operation(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        child: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let operation = match role {
+            bray_ir::MirGeneratedLifecycleRole::Quiesce => MirOperationKind::Quiesce(child),
+            bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                let inherited = self
+                    .abandoned
+                    .as_ref()
+                    .expect("generated destruction retains its invocation argument");
+
+                let abandoned = builder
+                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                let ordinary = builder
+                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                let continuation = builder
+                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                builder.set_terminator(
+                    block,
+                    source.clone(),
+                    MirTerminatorKind::Branch {
+                        condition: inherited.clone(),
+                        then_edge: MirEdge::new(abandoned, []),
+                        else_edge: MirEdge::new(ordinary, []),
+                    },
+                );
+
+                self.push_lifecycle_operation(
+                    builder,
+                    abandoned,
+                    source,
+                    MirOperationKind::Destroy {
+                        place: child.clone(),
+                        abandoned: Some(inherited.clone()),
+                    },
+                )?;
+
+                self.push_lifecycle_operation(
+                    builder,
+                    ordinary,
+                    source,
+                    MirOperationKind::Cleanup {
+                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                        place: child,
+                    },
+                )?;
+
+                for end in [abandoned, ordinary] {
+                    let end = outcome
+                        .check(builder, end, source)
+                        .map_err(|cause| self.capacity_error(cause))?;
+
+                    builder.set_terminator(
+                        end,
+                        source.clone(),
+                        MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+                    );
+                }
+
+                return Ok(continuation);
+            }
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => MirOperationKind::Cleanup {
                 phase,
                 place: child,
-            }),
-            None,
-        ],
-        bray_ir::MirGeneratedLifecycleRole::Finalize
-        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-            panic!("lifecycle cleanup sequence does not support role {role:?}")
-        }
+            },
+            bray_ir::MirGeneratedLifecycleRole::Finalize
+            | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+                panic!("lifecycle cleanup sequence does not support role {role:?}")
+            }
+        };
+
+        self.push_lifecycle_operation(builder, block, source, operation)?;
+
+        outcome
+            .check(builder, block, source)
+            .map_err(|cause| self.capacity_error(cause))
     }
 }

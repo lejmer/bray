@@ -77,6 +77,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) initial_broadcast: Option<MirBlockId>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) destruction_argument: Option<(StorageIdentityId, MirOperand)>,
     pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
@@ -120,6 +121,7 @@ impl<'unit> Lowerer<'unit> {
             initial_broadcast: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
+            destruction_argument: None,
             cleanup_occurrence: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
@@ -135,6 +137,31 @@ impl<'unit> Lowerer<'unit> {
         let entry = self
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        if self.input.unit().key().declared_owner().kind() == bray_symbols::SymbolKind::Destructor {
+            let boolean =
+                self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+            let argument = self.builder.push_storage(
+                Self::retained_source(&source),
+                MirStorageKind::Parameter(1),
+                boolean,
+            )?;
+
+            let receiver = self
+                .input
+                .storage_plan()
+                .identity_entries()
+                .find_map(|(id, identity)| {
+                    matches!(identity, StorageIdentity::Receiver(_)).then_some(id)
+                })
+                .expect("a checked destructor retains its receiver identity");
+
+            self.destruction_argument = Some((
+                receiver,
+                MirOperand::Copy(MirPlace::new(argument, [], boolean)),
+            ));
+        }
 
         self.initialize_cleanup_guards(entry, &source)?;
 

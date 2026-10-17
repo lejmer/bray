@@ -35,8 +35,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirGeneratorOperation::Destroy {
                 destination,
                 element,
+                abandoned,
                 runtime,
-            } => self.translate_generator_destroy(&helpers, destination, *element, *runtime),
+            } => self.translate_generator_destroy(
+                &helpers,
+                destination,
+                *element,
+                abandoned,
+                *runtime,
+            ),
         }
     }
 
@@ -205,24 +212,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         helpers: &[CodegenHelperMapping],
         destination: &MirPlace,
         element: bray_symbols::TypeId,
+        abandoned: &bray_ir::MirOperand,
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let [finalize, destroy] = helpers else {
+        let [cleanup, destroy] = helpers else {
             panic!("checked MIR translation violated an established compiler contract");
         };
 
-        if finalize.reference() != &MirHelperReference::Finalize(element)
+        if cleanup.reference()
+            != &(MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: element,
+            })
             || destroy.reference() != &MirHelperReference::Destroy(element)
         {
             panic!("checked MIR translation violated an established compiler contract");
         }
 
-        let finalize = self.generator_callback_argument(finalize, runtime, 1)?;
+        let cleanup = self.generator_callback_argument(cleanup, runtime, 1)?;
+        let abandoned = self.operand(abandoned)?;
         let destroy = self.generator_callback_argument(destroy, runtime, 2)?;
         let destination = self.place(destination)?.into();
 
         if self
-            .invoke_runtime(runtime, &[destination, finalize, destroy])?
+            .invoke_runtime(runtime, &[destination, cleanup, destroy, abandoned])?
             .is_some()
         {
             panic!("checked MIR translation violated an established compiler contract");

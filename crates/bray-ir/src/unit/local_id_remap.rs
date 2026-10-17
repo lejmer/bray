@@ -46,8 +46,14 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
         | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => place.remap_local_ids(mappings),
+        MirOperationKind::Destroy { place, abandoned } => {
+            place.remap_local_ids(mappings);
+
+            if let Some(abandoned) = abandoned {
+                abandoned.remap_local_ids(mappings);
+            }
+        }
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
@@ -74,6 +80,10 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::Generator(operation) => remap_generator_operation(operation, mappings),
         MirOperationKind::Call(call) => call.remap_local_ids(mappings),
         MirOperationKind::Memory(operation) => {
+            if let Some(abandoned) = &mut operation.abandoned_cleanup {
+                abandoned.remap_local_ids(mappings);
+            }
+
             for operand in Arc::make_mut(&mut operation.operands) {
                 operand.remap_local_ids(mappings);
             }
@@ -227,14 +237,21 @@ fn remap_generator_operation(
     mappings: &impl MirLocalIdMapping,
 ) {
     match operation {
+        MirGeneratorOperation::Destroy {
+            destination,
+            abandoned,
+            ..
+        } => {
+            destination.remap_local_ids(mappings);
+            abandoned.remap_local_ids(mappings);
+        }
         MirGeneratorOperation::Push { destination, value } => {
             destination.remap_local_ids(mappings);
             value.remap_local_ids(mappings);
         }
         MirGeneratorOperation::Begin { destination, .. }
         | MirGeneratorOperation::Finish { destination }
-        | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-        | MirGeneratorOperation::Destroy { destination, .. } => {
+        | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
             destination.remap_local_ids(mappings);
         }
     }

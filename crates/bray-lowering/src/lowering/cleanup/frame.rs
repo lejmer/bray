@@ -255,7 +255,14 @@ impl Lowerer<'_> {
         let cancelled =
             self.broadcast_terminal(source, CleanupDestination::PropagateCancellation, None)?;
 
-        let completed = outcome.dispatch(&mut self.builder, finish, source, panicked, cancelled)?;
+        let completed = outcome.dispatch(
+            &mut self.builder,
+            finish,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
+        )?;
 
         self.set_terminator(
             completed,

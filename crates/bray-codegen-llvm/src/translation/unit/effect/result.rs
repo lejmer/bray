@@ -404,12 +404,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let helpers = self.operation_helpers(operation)?;
 
-        let [finalize, destroy] = helpers.as_slice() else {
+        let [cleanup] = helpers.as_slice() else {
             panic!("checked MIR effect translation violated an established compiler contract");
         };
 
-        if finalize.reference() != &bray_ir::MirHelperReference::Finalize(error_type)
-            || destroy.reference() != &bray_ir::MirHelperReference::Destroy(error_type)
+        if cleanup.reference()
+            != &(bray_ir::MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: error_type,
+            })
         {
             panic!("checked MIR effect translation violated an established compiler contract");
         }
@@ -455,13 +458,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let outcome = self.allocate_temporary(outcome_type, "entry.cleanup.outcome")?;
 
-        for helper in [finalize, destroy] {
-            if helper.symbol().is_none() {
-                continue;
-            }
-
+        if cleanup.symbol().is_some() {
             llvm(self.builder.build_store(outcome, outcome_type.const_zero()))?;
-            self.invoke_helper_with_panic_report_context(helper, &[error.into()], outcome)?;
+            self.invoke_helper_with_panic_report_context(cleanup, &[error.into()], outcome)?;
 
             let result = llvm(self.builder.build_load(
                 outcome_type,

@@ -22,7 +22,6 @@ impl Compilation {
             ("HeapStorageCreate", HeapStorageMethod::Create),
             ("HeapStorageBorrow", HeapStorageMethod::Borrow),
             ("HeapStorageBorrowMut", HeapStorageMethod::BorrowMut),
-            ("HeapStorageDestroy", HeapStorageMethod::Destroy),
             ("HeapStorageRelease", HeapStorageMethod::Release),
         ] {
             let key = CompilerKnownDeclarationKey::try_new(name)
@@ -245,7 +244,6 @@ mod tests {
                         return &mut storage.value;
                     }}
 
-                    trusted static func destroy(pos storage: &mut Self) {{ loop {{}} }}
                     trusted static func release(pos storage: Self) {{ loop {{}} }}
                 }}
 
@@ -372,7 +370,6 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             "StorageCreate",
             "StorageBorrow",
             "StorageBorrowMut",
-            "StorageDestroy",
             "StorageRelease",
         ] {
             let selected = selected_storage_callable(
@@ -418,7 +415,7 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
                 if block.operations().iter().any(|id| {
                     matches!(
                         mir.operation(*id).map(|operation| operation.kind()),
-                        Some(MirOperationKind::Destroy(_) | MirOperationKind::Cleanup { .. })
+                        Some(MirOperationKind::Destroy { .. } | MirOperationKind::Cleanup { .. })
                     )
                 }) {
                     assert!(

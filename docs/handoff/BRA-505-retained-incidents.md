@@ -475,16 +475,16 @@ source checks and bundle verification passed (`bra-505-review-format.log`,
 threads `4304384191` and `4304384194` have replies and are resolved.
 
 That re-review found unresolved assignment destinations losing RHS capture (`4304443313`).
-The current uncommitted correction collects RHS origins before destination invalidation and
+Checkpoint `df473c0b` collects RHS origins before destination invalidation and
 retains capture without an exact target. Source and imported conditional-destination regressions
-pass, including a later opaque call. Publication and re-review of this correction remain pending.
+pass, including a later opaque call. Independent review `5560121489` has no findings. Reply `4304541312` is published and the thread is resolved.
 
 
 ## Active destruction implementation checkpoint
 
 The current uncommitted work carries abandonment as an explicit internal destruction-call
 argument. It changes no Bray syntax or public ABI version. Source destructors apply the argument
-only to implicit receiver-tail cleanup at checked scope exits; ordinary locals and explicit
+only to implicit receiver-tail cleanup at checked scope exits. Ordinary locals and explicit
 operations keep normal cleanup. Existing initialization guards remain in force.
 
 Finalizer results carry one SSA disposition through existing outcome branches. Error, panic and
@@ -511,3 +511,64 @@ and no-double-destruction acceptance, final formatting/audit, push and independe
 ordinary synthetic asynchronous call assumption, inactive Future quiescence, incident payload
 transfer and run/report ownership matrix above remain unfinished. General generator construction
 belongs to active BRA-484 through BRA-506; do not implement a second generator engine here.
+
+
+## Storage-policy simplification in progress
+
+The buffer batch passes 48 lowering, lifecycle and LLVM tests, including actual standard-memory
+source emission (`bra-505-buffer-tests.log`). The internal optional abandonment operand is retained
+by traversal, remapping, type/helper demands, serialization and inspection. Ordinary explicit
+buffer release retains its original cleanup. Generated release shares the existing reverse loop.
+
+The storage-policy audit found duplicate target lifecycle ownership in `Storage.destroy`. The
+compiler already obtains the exact target through `Storage.borrow_mut`, and `Storage.release`
+already requires the target to have been destroyed or removed. Remove the redundant destroy hook,
+its Heap implementation and selected-call demand. Resolve the target through shared child cleanup
+with the enclosing outcome, then release storage even if target cleanup panics. No new syntax,
+ambient mode, callable specialization or storage-state metadata is needed. Protected policy
+representation such as `Uninit<T>` remains storage, and release must not destroy its retired target
+again. The existing custom-policy native fixture must establish exact target cleanup and release.
+The catalog's 62 tests, 44 IR tests, 39 lowering tests and 191 interface tests pass. The
+64-test storage batch passed 63 tests and exposed a zero-sized custom-storage construction
+result that LLVM had intentionally erased. Construction and conversion now reuse the ordinary
+call's zero-sized materialization rule. The custom fixture, buffer, replacement and nested
+cleanup native emission tests all pass after that correction. Exact native execution remains
+pending the known incident-transfer integration, not established by emission.
+
+The final audit removes unused finalizer-disposition forwarding from destructor helpers by
+reusing the existing checked-call path. Generator destruction now forwards its inherited mode
+and demands ordinary Cleanup plus abandoned Destroy callbacks, rather than the superseded
+Finalize/Destroy pair. Traversal, remapping, serialization, demand, inspection and its runtime
+signature carry the mode. Native generator implementation remains owned by BRA-484/BRA-506.
+These final audit changes require the next focused test batch before publication.
+
+Review matrix for this checkpoint: explicit versus implicit receiver cleanup, ordinary locals,
+normal and failed finalizer disposition, aggregate/nullable/union/array traversal, buffer prefix
+retirement, custom/heap storage target and backing release, task result and entry-error disposal,
+generator callback contracts, source/imported MIR transport, and zero-sized returned values.
+Searches covered Destroy/Finalize helper consumers, StorageDestroy/HeapStorageDestroy and
+storage trait implementations, call-result materialization, and optional operand visitors.
+No compatibility hook or duplicate storage destruction implementation remains. Non-executable
+generator and retained-incident paths remain explicit outstanding acceptance, not passing rows.
+
+
+The callback audit also covers product and exact-thread statics. Their native destruction callback
+now receives the finalizer abandonment outcome and forwards it to generated destruction. Its C
+fixture declaration matches, without changing the ABI version. Existing runtime tests assert
+ordinary and failed-finalizer modes. Runtime sources/tests check with bundled bootstrap disabled.
+The 85-test audit batch passed 84 tests, including all static LLVM emission. The corrected generator
+dependency regression now passes separately (`bra-505-generator-audit-test.log`). The final IR,
+lowering, package-interface and runtime ABI suites pass 44, 39, 191 and 21 tests respectively.
+The callback audit found and corrected this producer/consumer boundary before independent review.
+
+
+Checkpoint audit: the implementation delta adds about 590 lines across production modules including
+inline tests, 331 lines in dedicated tests/fixtures, and removes 30 generated catalog lines. Most of
+the cross-file changes carry one explicit invocation operand through existing MIR transport. Removed
+mechanisms include Storage.destroy/HeapStorageDestroy, their helper body, split child finalize/destroy
+sequences and unused destructor disposition accumulation. The remaining mode argument is a register
+value, not retained per-owner metadata. No allocation or runtime history is added for it. Actual native
+counts and denied-allocation acceptance remain pending the incident-transfer integration.
+
+Rustfmt, mutating `cargo xtask style`, explicit `cargo xtask format` and whitespace checks pass
+for this checkpoint (`bra-505-final-destruction-format.log`). Independent PR review remains next.
