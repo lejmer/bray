@@ -30,6 +30,10 @@ pub(super) fn validate_operation(
         for place in collection.places() {
             validate_place(unit, place, block, Some(id))?;
         }
+
+        if let Some(retention) = collection.retention() {
+            super::core::validate_frame_retention(unit, retention)?;
+        }
     }
 
     match operation.kind() {

@@ -437,10 +437,25 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
             .find(|state| state.state() == completion)
             .unwrap();
 
-        assert!(state.is_completion_cleanup());
+        assert!(state.retention().is_completion_cleanup());
+
+        assert!(
+            instance.mir().operations().iter().any(|operation| {
+                operation
+                    .kind()
+                    .cleanup_collection()
+                    .and_then(|collection| collection.retention())
+                    .is_some_and(|retention| {
+                        retention.is_completion_cleanup()
+                            && retention.initialized_storages()
+                                == state.retention().initialized_storages()
+                    })
+            }),
+            "imported generic cleanup preserves the completed owner's checked retention"
+        );
 
         assert_eq!(
-            state.lane_requirements(),
+            state.retention().lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 

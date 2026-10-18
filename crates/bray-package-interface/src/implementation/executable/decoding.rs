@@ -750,14 +750,59 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         Ok(operands)
     }
 
+    fn frame_retention(
+        &mut self,
+    ) -> Result<bray_ir::MirFrameRetention, ExecutableTemplateDecodeError> {
+        let broadcast = self.block_id()?;
+
+        let affinity =
+            bray_runtime_interface::ProtectedFrameAffinity::from_code(read_u32(&mut self.reader)?)
+                .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+        let completion_cleanup = match read_u32(&mut self.reader)? {
+            0 => false,
+            1 => true,
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
+        let mut requirements = [Vec::new(), Vec::new(), Vec::new()];
+
+        for lanes in &mut requirements {
+            let lane_count = self.count()?;
+
+            *lanes = self.items(lane_count)?;
+
+            for _ in 0..lane_count {
+                lanes.push(self.execution_lane()?);
+            }
+        }
+
+        let storage_count = self.count()?;
+        let mut storages = self.items(storage_count)?;
+
+        for _ in 0..storage_count {
+            storages.push(self.storage_id()?);
+        }
+
+        Ok(bray_ir::MirFrameRetention::new(broadcast, [], storages)
+            .with_operation_requirements(requirements)
+            .with_affinity(affinity)
+            .with_completion_cleanup(completion_cleanup))
+    }
+
     fn cleanup_collection(
         &mut self,
     ) -> Result<Option<bray_ir::MirCleanupCollection>, ExecutableTemplateDecodeError> {
         if read_bool(&mut self.reader)? {
-            Ok(Some(bray_ir::MirCleanupCollection::new(
-                self.place()?,
-                self.place()?,
-            )))
+            let collection = bray_ir::MirCleanupCollection::new(self.place()?, self.place()?);
+
+            let retention = if read_bool(&mut self.reader)? {
+                Some(std::sync::Arc::new(self.frame_retention()?))
+            } else {
+                None
+            };
+
+            Ok(Some(collection.with_retention(retention)))
         } else {
             Ok(None)
         }
@@ -2215,44 +2260,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 for _ in 0..state_count {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
-                    let broadcast = self.block_id()?;
 
-                    let affinity = bray_runtime_interface::ProtectedFrameAffinity::from_code(
-                        read_u32(&mut self.reader)?,
-                    )
-                    .ok_or(ExecutableTemplateDecodeError::Malformed)?;
-
-                    let completion_cleanup = match read_u32(&mut self.reader)? {
-                        0 => false,
-                        1 => true,
-                        _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                    };
-
-                    let mut requirements = [Vec::new(), Vec::new(), Vec::new()];
-
-                    for lanes in &mut requirements {
-                        let lane_count = self.count()?;
-
-                        *lanes = self.items(lane_count)?;
-
-                        for _ in 0..lane_count {
-                            lanes.push(self.execution_lane()?);
-                        }
-                    }
-
-                    let storage_count = self.count()?;
-                    let mut storages = self.items(storage_count)?;
-
-                    for _ in 0..storage_count {
-                        storages.push(self.storage_id()?);
-                    }
-
-                    states.push(
-                        MirFrameState::new(state, entry, broadcast, [], storages)
-                            .with_operation_requirements(requirements)
-                            .with_affinity(affinity)
-                            .with_completion_cleanup(completion_cleanup),
-                    );
+                    states.push(MirFrameState::new(state, entry, self.frame_retention()?));
                 }
 
                 let mut entries = BTreeSet::new();

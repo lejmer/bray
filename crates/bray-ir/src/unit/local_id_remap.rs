@@ -39,6 +39,10 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
     if let Some(Some(collection)) = operation.cleanup_collection_slot() {
         collection.state.remap_local_ids(mappings);
         collection.report.remap_local_ids(mappings);
+
+        if let Some(retention) = &mut collection.retention {
+            Arc::make_mut(retention).remap_local_ids(mappings);
+        }
     }
 
     match operation {

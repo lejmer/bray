@@ -77,212 +77,69 @@ Delete this temporary record after BRA-505 acceptance and independent PR review.
 Carry only unfinished BRA-619 inputs into its record. No handoff survives the stack.
 Completed implementation detail and evidence belong in Git and PR history.
 
-## Current transport replacement boundary
+## Current checkpoint and implementation boundary
 
-Checkpoint `6306d9f33` is pushed to PR #612. Its evidence is posted at
-https://github.com/lejmer/bray/pull/612#issuecomment-6246187339.
-BRA-505 remains incomplete. The PR is draft. Independent review 5560583230 found no
-checkpoint findings before the active human architectural review. Follow the workflow's
-human-review rule instead of launching repeated agent reviews.
+Published baseline: `61a483957` on PR #612. Earlier evidence remains in Git and the PR:
+`6306d9f33` establishes the shared enclosing collection, `1d15b68c9` fixes native boundary
+and report ownership, and `61a483957` adds source allocation-denial acceptance. The PR is
+still draft. Independent review 5560583230 preceded active human architectural review.
+Follow the workflow's human-review rule. Do not launch another agent review unless asked.
 
-Replace helper-local failure collection with the enclosing cleanup collection. Retain the
-existing native outcome states and report representation. No Rust owner, TLS sink, source
-feature, extra structural activation or outcome journal is needed. The concrete approach
-under examination is borrowed state/report places for generated cleanup helpers, using
-ordinary MIR parameter storage and explicit cleanup operands. Keep source-call failure
-storage distinct from that collection so a nested source catch cannot consume its caller's
-already-retained incidents. Native callbacks already own initialized outcome destinations.
+Structural cleanup borrows `MirCleanupCollection` state/report places. It does not create
+another shield or independent report group. Source invocations keep a separate incoming
+failure destination. Collection states are Normal, Incidents, Cancelled and Panicked.
+Only Normal has no initialized report. Ordinary source call outcomes remain completed,
+panicked or cancelled. Headless completed incident chains belong to native callbacks.
+Typed incidents consume admitted payload backing and retain the provider independently
+of owner discharge. Fixed C platform-service boundaries report and terminate on failures
+that have no caller outcome destination. Ordinary Bray calls forward their existing outcome.
 
-The collection invariant is that completed state has no report obligation. Cancellation and
-panic states own a report, possibly an empty incident chain for cancellation. Initialize a
-report on an abnormal transition, not eagerly at every successful cleanup entry. A finalizer
-Error can become a retained incident only during abnormal cleanup. Normal fallible scoped
-exit returns its Result explicitly. Check the existing normal-exit legality coverage for
-represented and inactive captures before relying on this invariant globally.
+Current continuation work extracts `MirFrameRetention` from `MirFrameState`. Executable
+states and logical cleanup share broadcast entry, affinity, operation requirements,
+completion-cleanup identity and initialized storage. Source await and yield use the same
+producer. Failed-finalizer quiescence reuses its awaited state. Completed-result cleanup
+carries its checked retention through generic executable imports. Existing MIR reconstruction,
+optimization, storage walking and import validation preserve it. The wire encoder/decoder
+share one retention contract. This is transport for the planned expansion consumer, not
+completion of generated resumable cleanup.
 
-Cancellation transport preserves reports through ordinary Bray outcome destinations.
-Fixed C native platform-service boundaries consume the report and terminate when no such
-destination exists. Use shared routing for panic and cancellation. Completed native callback
-reports are a separate already-existing boundary and must be retained regardless of the
-callback control tag. Do not extend ordinary source completion with an incident channel
-without a demonstrated source-language case requiring it.
+The focused tests pass 44 MIR, 39 lowering and 191 package-interface checks. Source coverage
+passes all 25 lifecycle and eight async lowering cases, plus imported completed-result
+specialization. The replacement test now checks the shared collection's two failure exits
+and exact report transfer, replacing its stale helper-local CheckCallOutcome expectation.
+MIR inspection passes all 17 focused checks. The audit also verifies that omitting a cleanup
+operation removes its exclusively retained callback and storage. Style, Rust formatting, Bray
+formatting and diff whitespace checks pass. No native acceptance is claimed for this transport batch.
+Logs in the shared target: bra-505-retention-tests.log, bra-505-retention-verified.log and
+bra-505-retention-replacement.log. The latter is the passing rerun of that corrected assertion.
 
-Remaining proof before changing generated helper execution: resumable structural expansion
-must share the enclosing continuation rather than acquire a frame per organizational helper.
-The existing scalar-only MIR splice is not a cleanup splice. Do not broaden it by relaxing its
-safety checks. Remove the forced Immediate invocation only when the actual continuation is
-connected. Do not repeatedly reconsider TLS, a Rust frame, universal extra hidden arguments,
-zeroing full reports on successful paths, or independent nested helper report grouping.
+Native baseline: full runtime-artifact smoke passes development and release, including
+ordinary finalization, started tasks, bootstrap allocation/lifetime/reentry checks and
+activation depths 1, 32 and 2048 with constant measured native callback stack usage.
+The ordinary-finalization fixture denies Bray backing allocation after owner admission and
+observes zero attempts through suspension, retained typed-error transfer, owner destruction
+and report disposal. It preserves a 2 KiB-aligned payload, skips its finalizer and destroys
+it exactly once. This measures the Bray allocator boundary, not every process allocator.
+The panic has an empty message because a nonempty source message snapshots bytes before
+raising the requested panic, under the existing catchable allocation-failure contract.
+No runtime implementation was changed to evade that test. See bra-505-allocation-native.log.
+This evidence does not cover retained errors with child work or generated resumable traversal.
 
-## Shared collection checkpoint
+## Next implementation
 
-The checkpoint replaces helper-local collections with the enclosing collection.
-Source cleanup, generated lifecycle actions, raw-buffer/generator traversal and native
-cleanup callbacks must name the same collection owner. Source calls retain separate failure
-storage so their catches cannot observe the caller's earlier incidents. An organizational
-helper must borrow collection storage and return after updating it. Only the owning boundary
-dispatches the final outcome. Remove repeated shields and helper-local suppression when that
-connection is complete.
+Use the shared selected-action expander to lower concrete structural cleanup into its
+owning continuation before layout and reachability. Remove the generated Immediate override
+only when its actual continuation is connected. Keep the scalar call splicer's existing
+eligibility checks. Do not allocate a frame merely because compiler code uses a helper.
+Retain pending values, array counters, borrowed storage projections and the enclosing
+collection across introduced suspension. Physical SSA retention belongs to MIR construction,
+not a downstream semantic reproof. Avoid copying/rebuilding the whole unit per cleanup site.
 
-The ordering counterexample is an outer panic A, then typed incident E, then cleanup panic C.
-Merging a helper-local headless E/C report into A can produce A/C/E. Appending into the enclosing
-collection preserves A/E/C. No timestamps, event journal or runtime frame is needed.
-
-Native callback outcomes can complete while owning a headless incident chain. Their collector
-must distinguish that ownership from an uninitialized successful source collection. Reusing
-only panic/cancellation booleans as the report-initialization test is insufficient for that
-consumer. A single internal state with normal, incidents, cancelled and panicked alternatives
-can replace the two booleans, without new source syntax or a runtime type. Normal source
-cleanup still initializes only the state. The report is initialized on the first incident or
-abnormal transition. Shared helpers need the state and report places, with one separate
-incoming-call report. Resolve this representation together with its actual consumers before
-publishing another partial collection implementation.
-
-Concrete consumer inventory: source cleanup lifecycle/outcomes/frame, synthetic lifecycle
-body/calls/aggregate/representation/storage/task, heap-construction failure, LLVM raw-buffer
-cleanup, static cleanup callbacks and retained-incident destruction. StaticFinalize remains
-an ordinary selected invocation returning its result, not a structural collector. The native
-boundary must keep its borrowed collection disjoint from the source-call failure destination.
-The current scalar MIR splicer remains ineligible for cleanup and must not be relaxed.
-
-Checkpoint 6306d9f33 uses `MirCleanupCollection` state/report operands on
-structural cleanup, raw-buffer release and generator traversal. Structural helpers borrow
-those two slots, have no hidden source-failure outcome, and neither enter a shield nor
-publish the enclosing outcome. Native callbacks use their initialized destination as the
-owning collection. Source calls keep separate incoming failure storage. This scratch slot
-is now created only on demand and shared by the builder views, so structural-only helpers
-allocate no report temporary even before optimization. The shared cell is private to one
-sequential MIR construction, never part of published compiler data or generated runtime.
-
-Typed incident transfer now moves the admitted payload into its concrete backing and passes
-the owned enclosing report by value to Bray `report.incident.retain`. The returned report
-replaces that same collection. This removes the raw destination-slot witness loss and its
-read-and-zero operation. Existing callback authority requirements remain. The exact production
-report declarations and 49 realization checks pass in `bra-505-shared-collection-tests.log`.
-The completed library batch passes 93 LLVM, 44 MIR, 39 lowering, 191 package-interface and
-21 runtime-ABI tests. The follow-up emission batch exposed one stale generated-helper
-signature assertion, now corrected to the explicit borrowed collection parameters. Four
-focused production/authority and scratch-storage regressions pass. Logs are
-`bra-505-shared-collection-remaining.log`, `bra-505-shared-collection-emission.log` and
-`bra-505-collection-regressions.log` in the shared target directory.
-
-The first native smoke attempt stopped during standard-library code generation. Static
-initializer signatures omitted the synchronous Bray outcome destination that their MIR
-requires. Their owning signature producer now uses the existing invocation-signature rule,
-as runtime-default bodies also do. All 27 static and adjacent lifecycle emission checks pass
-in `bra-505-collection-boundary-verified.log`. Nine lifecycle emission tests pass after moving
-shared continuation routing into the existing continuation module, keeping CleanupOutcome
-below the production-module size threshold. See `bra-505-collection-lifecycle-final.log`.
-The relocation changes no runtime behavior or representation.
-
-The native ordinary-finalization fixture passes in development and release against the actual
-standard library and trusted runtime. It covers asynchronous replacement, later-input failure,
-discarded and unused Future captures, and a retained 2 KiB-aligned typed error whose finalizer
-must be skipped. The catch result ends ownership in handle_failure before main checks disposal.
-A discard binding retains its unnamed owner until scope exit, so an earlier assertion in the
-same scope was incorrect. Native debugger traces confirmed owner destruction, incident transfer,
-report disposal and the intact payload. Logs: bra-505-ordinary-{development,release}-{build,run}.log.
-This does not cover a retained error containing child work or generated asynchronous traversal.
-
-Fixed C platform-service boundaries now consume and report retained incidents, then terminate
-on uncaught panic or cancellation. This is the user's authorized internally consistent policy.
-Ordinary Bray calls forward their existing outcome. Ordinary foreign callback trampolines retain
-their separate declared contract. The obsolete report-less cancellation export and demand are
-removed. Both platform-boundary regressions and all 11 native-entry checks pass in
-`bra-505-terminal-entries.log`. All 28 runtime-interface tests pass after updating the closed
-role inventory. No new language feature, runtime frame or ABI version was introduced.
-
-The runtime ABI now distinguishes owned PanicReport values from PanicReportPointer slots.
-CleanupIncidentTransfer consumes a value. Slot consumers retain their existing contract.
-The source signature projection, native adapter audit and C fixtures agree with that distinction.
-The all-target LLVM matrix, production report declaration test, five ABI classification tests,
-six adapter contract tests and 11 native-entry tests pass. Impossible classifier states now
-panic with context rather than returning a recoverable compiler-bug diagnostic.
-
-Native execution exposed a Win64 caller defect: indirect report argument storage had 8-byte
-alignment, but the callee legitimately used a 16-byte aligned load. The debugger located the
-fault in bray_runtime_cleanup_incident_transfer. The private ABI emitter now aligns indirect
-value arguments to 16 bytes and shares aligned temporary allocation with ordinary source calls.
-The existing all-role/all-target matrix checks the allocation contract. The native fixture
-passes after that repair. No extra runtime allocation or ownership mechanism was added.
-Logs: bra-505-win64-abi-tests.log, bra-505-native-crash.log, bra-505-native-reports.log.
-
-The runtime smoke workflow built all archives and passed bootstrap denied-allocation/lifetime
-checks and activation depths through 2048 with constant measured native stack usage. Ordinary
-finalization passed in both profiles. The next task case exposed an old generated callback caller
-that omitted the shared collection arguments. The callback now uses the same begin/publish
-operations as static and retained-incident callbacks. Its existing emission regression passes,
-including the three-argument invocation and balanced shield. Inspecting compiler block structure
-uses unoptimized IR because LLVM may merge those blocks. The full rerun passes all cases, including ordinary finalization and started tasks in development
-and release. The native phase took 117.7 seconds. Logs: bra-505-task-callback.log and
-bra-505-boundary-checkpoint-native.log. This establishes existing task callback compatibility,
-not the later BRA-560 task migration.
-
-The shared propagation check exposed an unchecked string-deallocation call in generated
-cleanup. Its owning lifecycle lowering now emits the existing checked outcome transition.
-LLVM string release establishes the destination before its ownership/refcount branches,
-so even the no-deallocation path reaches the same initialized outcome. A dedicated MIR
-regression and all nine lifecycle emission cases pass. The 93 LLVM unit tests pass.
-Logs are `bra-505-string-collection.log`, `bra-505-propagation-lifecycle.log` and
-`bra-505-propagation-llvm.log`. Both isolated native-provider regressions now pass. The boundary and report-ABI batch passed rustfmt, mutating cargo xtask style,
-cargo xtask format and git diff --check. The task callback correction also passes the same
-formatting commands in bra-505-boundary-checkpoint-format.log. Its audit traces all generated
-native lifecycle callback callers and verifies that runtime callers initialize their outcomes.
-The boundary/ABI checkpoint removes about 37 production lines net and adds about 140 test lines.
-It introduces no runtime owner, scheduler, allocation, compatibility version or new source feature.
-
-Checkpoint maintainability audit: collection construction, source failure collection,
-structural forwarding, native callback publication, typed payload transfer, parameter
-signatures, outgoing demands, MIR operand/storage/type walks, remapping, package codecs
-and inspection were traced through their existing owning modules. The audit found and
-fixed string-release forwarding and an unnecessary visibility expansion. No second
-runtime frame, report chain, cleanup scheduler or compatibility version was introduced.
-The batch is about 1,270 net production lines and 350 net test/fixture lines, excluding
-this record. Most production growth makes shared ownership explicit through the existing
-MIR and LLVM paths. Native performance and denied-allocation evidence remain pending,
-so passing emission tests does not justify claiming the cost constraints are satisfied.
-
-Backing trace: outgoing activation acquires an admitted record and payload lease. Retirement
-releases the temporary payload lease while preserving the owner's credit. Typed incident
-transfer claims an already-registered free lease from that allowance. Reservation ensures
-credits plus one available lease independently of in-use leases. Owner discharge decrements
-credits without releasing transferred leases. The retained payload therefore survives owner
-discharge without fresh allocation. Native execution under denial remains required evidence.
-
-Audit scope: static destruction callers initialize `NativeRunOutcome::new(COMPLETED, 0)` in
-`bray-runtime/src/product/cleanup.rs` before invoking the generated callback. Retained incident
-destroy callbacks initialize both their own outputs. Ordinary source calls can publish only
-completed, cancelled or panicked outcomes, so their collector does not interpret runtime
-admission failures or pending frame states. Source normal ownership end cannot retain a
-possibly fallible implicit finalizer. Headless completed reports arise at native boundaries,
-where publication retains report ownership independently of the control state.
-
-The static finalizer error callback still selects full lifecycle cleanup rather than
-quiescence plus abandoned destruction. This is the existing host consumer owned by open
-[BRA-507](https://linear.app/bray-lang/issue/BRA-507), not proof of BRA-505 ordinary retained
-incident acceptance. General generator production remains open
-[BRA-484](https://linear.app/bray-lang/issue/BRA-484), explicitly excluded by BRA-506. Its existing
-MIR callback contract now forwards the shared collection, but no executable general-generator
-implementation is claimed. BRA-505 still must finish ordinary shared continuation, inactive
-Future integration and retained-payload native acceptance. Do not count synchronous MIR tests
-as proof of those paths.
-
-## Source allocation-denial acceptance
-
-The ordinary-finalization native fixture now denies backing allocation after FailingOwner
-admission and keeps denial active through suspension, typed-error retention, owner destruction
-and report disposal. Development and release pass with zero attempted backing allocations,
-the 2 KiB-aligned payload intact, its finalizer skipped and exactly one payload destruction.
-The shared C probe is also used by the existing bootstrap reentry and allocation checks.
-This observes the Bray allocator boundary, not every allocator used by the process.
-
-The fixture raises an empty-message panic. A debugger trace of the earlier nonempty message
-showed one 16-byte request for the panic message snapshot, before the requested panic was
-raised. That source operation follows the existing catchable allocation-failure contract.
-It is not evidence of allocation by mandatory incident transfer. No runtime implementation
-was changed for this acceptance check. Full native smoke passes in
-`bra-505-allocation-native.log`, including started tasks in both profiles. Retained errors
-with child work and generated resumable traversal remain outstanding.
+Audit all cleanup producers while connecting expansion, including ordinary cleanup with no
+preexisting collection, scoped incidents, input temporaries, completed results and imported
+generic bodies. A missing checked suspension must not become guessed execution requirements.
+If an error's child-work obligation is missing from cleanup suspension analysis, repair that
+owning analysis. Do not conceal it by using the previous frame state or a blocking root.
 
 ## Remaining implementation and acceptance
 
@@ -325,8 +182,6 @@ and the remaining table above remains the acceptance boundary.
 
 ## Resuming efficiently
 
-Earlier detailed evidence and abandoned approaches are preserved in this file at
-`6306d9f33` and its ancestors. They are historical records, not active instructions.
 The tracked stack plan remains in runtime-stack-linear-execution.md and its semantic-proof,
 rule-coverage and coverage-inventory companion records. Preserve BRA-619-remaining-work.md.
 

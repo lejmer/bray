@@ -868,6 +868,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             for place in collection.places() {
                 self.place(place)?;
             }
+
+            write_bool(&mut self.wire, collection.retention().is_some());
+
+            if let Some(retention) = collection.retention() {
+                self.frame_retention(retention);
+            }
         }
 
         Ok(())
@@ -1396,29 +1402,33 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         for state in frame.states() {
             self.wire.write_u32(state.state().raw());
             self.wire.write_u32(state.entry().slot());
-            self.wire.write_u32(state.broadcast().slot());
-
-            self.wire.write_u32(state.affinity().code());
-
-            self.wire
-                .write_u32(u32::from(state.is_completion_cleanup()));
-
-            for requirements in state.operation_requirements() {
-                write_count(&mut self.wire, requirements.len());
-
-                for requirement in requirements.iter() {
-                    self.execution_lane(*requirement);
-                }
-            }
-
-            write_count(&mut self.wire, state.initialized_storages().len());
-
-            for storage in state.initialized_storages() {
-                self.wire.write_u32(storage.slot());
-            }
+            self.frame_retention(state.retention());
         }
 
         Ok(())
+    }
+
+    fn frame_retention(&mut self, retention: &bray_ir::MirFrameRetention) {
+        self.wire.write_u32(retention.broadcast().slot());
+
+        self.wire.write_u32(retention.affinity().code());
+
+        self.wire
+            .write_u32(u32::from(retention.is_completion_cleanup()));
+
+        for requirements in retention.operation_requirements() {
+            write_count(&mut self.wire, requirements.len());
+
+            for requirement in requirements.iter() {
+                self.execution_lane(*requirement);
+            }
+        }
+
+        write_count(&mut self.wire, retention.initialized_storages().len());
+
+        for storage in retention.initialized_storages() {
+            self.wire.write_u32(storage.slot());
+        }
     }
 
     fn immediate(&mut self, value: MirImmediateValue) {

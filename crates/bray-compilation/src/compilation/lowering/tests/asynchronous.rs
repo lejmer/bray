@@ -92,7 +92,7 @@ fn construction_inputs_survive_a_later_await() {
                 .states()
                 .iter()
                 .skip(1)
-                .any(|state| state.initialized_storages().contains(&first)),
+                .any(|state| state.retention().initialized_storages().contains(&first)),
             "the initialized {input_type} input must survive the later await"
         );
     }
@@ -120,7 +120,13 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
 
     assert_eq!(frame.states().len(), 2);
     assert!(frame.completion_state().is_none());
-    assert!(!frame.states()[1].initialized_storages().is_empty());
+
+    assert!(
+        !frame.states()[1]
+            .retention()
+            .initialized_storages()
+            .is_empty()
+    );
 
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
@@ -252,7 +258,7 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         assert!(
             guards
                 .iter()
-                .all(|(guard, _)| state.initialized_storages().contains(guard)),
+                .all(|(guard, _)| state.retention().initialized_storages().contains(guard)),
             "all entry-initialized flags must survive suspension: {frame:?}"
         );
     }
@@ -287,12 +293,9 @@ fn async_callable_frames_retain_declared_execution_lanes() {
         .frame_descriptor()
         .unwrap_or_else(|| panic!("async callable must publish a frame descriptor"));
 
-    assert!(
-        frame
-            .states()
-            .iter()
-            .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
-    );
+    assert!(frame.states().iter().all(|state| {
+        state.retention().lane_requirements() == [ExecutionLaneRequirement::Blocking]
+    }));
 }
 
 #[test]
@@ -491,7 +494,7 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         .find(|entry| entry.state() == state)
         .unwrap();
 
-    let [storage] = completion.initialized_storages() else {
+    let [storage] = completion.retention().initialized_storages() else {
         panic!("completion owns just its result");
     };
 
@@ -500,7 +503,12 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         bray_ir::MirStorageKind::FrameCompletion
     ));
 
-    assert!(!frame.states()[0].initialized_storages().contains(storage));
+    assert!(
+        !frame.states()[0]
+            .retention()
+            .initialized_storages()
+            .contains(storage)
+    );
 
     assert!(
         matches!(mir.block(completion.entry()).unwrap().terminator().kind(),
@@ -550,7 +558,7 @@ fn completed_result_cleanup_retains_its_separate_execution_phase() {
     let frame = lowered_mir(&result).frame_descriptor().unwrap();
     let completion = frame.completion_state().unwrap();
 
-    assert!(frame.states()[0].lane_requirements().is_empty());
+    assert!(frame.states()[0].retention().lane_requirements().is_empty());
 
     let cleanup = frame
         .states()
@@ -558,10 +566,10 @@ fn completed_result_cleanup_retains_its_separate_execution_phase() {
         .find(|state| state.state() == completion)
         .unwrap();
 
-    assert!(cleanup.is_completion_cleanup());
+    assert!(cleanup.retention().is_completion_cleanup());
 
     assert!(
-        cleanup.lane_requirements().is_empty(),
+        cleanup.retention().lane_requirements().is_empty(),
         "concrete lifecycle realization owns this requirement"
     );
 }

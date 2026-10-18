@@ -22,6 +22,7 @@ pub(crate) enum CleanupFailure {
 #[derive(Clone)]
 pub(crate) struct CleanupOutcome {
     state: MirPlace,
+    retention: Option<std::sync::Arc<bray_ir::MirFrameRetention>>,
     states: [bray_symbols::ConstantValueId; 4],
     boolean: TypeId,
     report: MirPlace,
@@ -101,6 +102,7 @@ impl CleanupOutcome {
 
         Ok(Self {
             state: storage(states.0)?,
+            retention: None,
             states: states.1,
             boolean,
             report: storage(report)?,
@@ -120,6 +122,7 @@ impl CleanupOutcome {
     ) -> Self {
         Self {
             state: collection.state().clone(),
+            retention: collection.retention().cloned(),
             report: collection.report().clone(),
             incoming_report: Rc::new(Cell::new(None)),
             incoming_kind: MirStorageKind::Temporary,
@@ -165,6 +168,16 @@ impl CleanupOutcome {
 
     pub(crate) fn collection(&self) -> bray_ir::MirCleanupCollection {
         bray_ir::MirCleanupCollection::new(self.state.clone(), self.report.clone())
+            .with_retention(self.retention.clone())
+    }
+
+    pub(crate) fn with_retention(
+        mut self,
+        retention: Option<std::sync::Arc<bray_ir::MirFrameRetention>>,
+    ) -> Self {
+        self.retention = retention;
+
+        self
     }
 
     pub(crate) fn report(&self) -> MirOperand {

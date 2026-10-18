@@ -147,7 +147,15 @@ impl Lowerer<'_> {
             )?;
         }
 
-        if let Some(outcome) = &self.cleanup_outcome {
+        if let Some(outcome) = self.cleanup_outcome.clone() {
+            let retention = if phase == MirCleanupPhase::LifecycleResolution {
+                self.cleanup_retention(source)?
+            } else {
+                None
+            };
+
+            let outcome = outcome.with_retention(retention);
+
             Ok(outcome.check(&mut self.builder, block, source)?)
         } else {
             Ok(self
@@ -257,6 +265,22 @@ impl Lowerer<'_> {
                 )
             }
         };
+
+        let retention = match invocation {
+            bray_bound_tree::BoundCallResult::Immediate(_) => self.cleanup_retention(source)?,
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
+                // The just-published awaited state already owns the exact cleanup retention.
+                Some(std::sync::Arc::new(
+                    self.frame_states
+                        .last()
+                        .expect("awaited finalizer published its continuation")
+                        .retention()
+                        .clone(),
+                ))
+            }
+        };
+
+        let outcome = outcome.with_retention(retention);
 
         let payloads = crate::operand::result_payloads(
             self.input.semantic_values(),

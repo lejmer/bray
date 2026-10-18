@@ -317,13 +317,13 @@ impl Compilation {
                     ordinary[state.entry().slot() as usize]
                         .iter()
                         .copied()
-                        .chain(state.lane_requirements().iter().copied()),
+                        .chain(state.retention().lane_requirements().iter().copied()),
                 );
 
                 [
                     resume,
                     cancelled[state.entry().slot() as usize],
-                    ordinary[state.broadcast().slot() as usize],
+                    ordinary[state.retention().broadcast().slot() as usize],
                 ]
             })
             .collect();

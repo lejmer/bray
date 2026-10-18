@@ -161,9 +161,10 @@ impl InspectionMirUnit {
                     .map(|state| InspectionMirFrameState {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
-                        broadcast: state.broadcast().slot(),
-                        completion_cleanup: state.is_completion_cleanup(),
+                        broadcast: state.retention().broadcast().slot(),
+                        completion_cleanup: state.retention().is_completion_cleanup(),
                         initialized_storages: state
+                            .retention()
                             .initialized_storages()
                             .iter()
                             .map(|storage| storage.slot())
@@ -616,6 +617,16 @@ fn operation_parts(
     if let Some(collection) = operation.cleanup_collection() {
         parts.place("cleanup_state", collection.state(), context)?;
         parts.place("cleanup_report", collection.report(), context)?;
+
+        if let Some(retention) = collection.retention() {
+            parts.attribute("cleanup_broadcast", retention.broadcast().slot());
+            parts.attribute("cleanup_completion", retention.is_completion_cleanup());
+            parts.attribute("cleanup_affinity", retention.affinity().code());
+
+            for (index, storage) in retention.initialized_storages().iter().enumerate() {
+                parts.attribute(format!("cleanup_storage_{index}"), storage.slot());
+            }
+        }
     }
 
     let kind = match operation {

@@ -118,6 +118,16 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
 }
 
 impl MirOperationKind {
+    /// Visits callback entries retained by this logical operation.
+    pub fn for_each_retained_block(&self, mut visit: impl FnMut(MirBlockId)) {
+        if let Some(retention) = self
+            .cleanup_collection()
+            .and_then(|collection| collection.retention())
+        {
+            visit(retention.broadcast());
+        }
+    }
+
     /// Visits evaluated operands, including storage selectors, in execution order.
     ///
     /// Addressed storage is not a value operand. Operations such as frame moves also have
@@ -371,6 +381,12 @@ pub(crate) fn for_each_operation_storage(
     if let Some(collection) = operation.cleanup_collection() {
         for place in collection.places() {
             visit(place.storage());
+        }
+
+        if let Some(retention) = collection.retention() {
+            for storage in retention.initialized_storages() {
+                visit(*storage);
+            }
         }
     }
 

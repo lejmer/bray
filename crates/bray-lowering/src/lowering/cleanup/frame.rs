@@ -12,6 +12,49 @@ use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    pub(in crate::lowering) fn frame_retention(
+        &mut self,
+        source: &MirSourceAnchor,
+        occurrence: BoundExecutionSite,
+    ) -> Result<bray_ir::MirFrameRetention, LoweringError> {
+        let broadcast = self.frame_broadcast(source, occurrence, false)?;
+
+        let initialized = match &self.completion_cleanup {
+            Some(place) => vec![place.storage()],
+            None => {
+                let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
+                    panic!("lowering contract violation: MissingSuspensionPoint {occurrence:?}")
+                });
+
+                self.retained_storages(suspension.retained_subjects())?
+            }
+        };
+
+        Ok(bray_ir::MirFrameRetention::new(
+            broadcast,
+            self.execution_lane_requirements(),
+            initialized,
+        )
+        .with_affinity(self.frame_affinity())
+        .with_completion_cleanup(self.completion_cleanup.is_some()))
+    }
+
+    pub(super) fn cleanup_retention(
+        &mut self,
+        source: &MirSourceAnchor,
+    ) -> Result<Option<std::sync::Arc<bray_ir::MirFrameRetention>>, LoweringError> {
+        let Some(occurrence) = self.cleanup_occurrence.filter(|occurrence| {
+            self.input.unit_kind().protected_frame().is_some()
+                && (self.completion_cleanup.is_some()
+                    || self.input.suspension(*occurrence).is_some())
+        }) else {
+            return Ok(None);
+        };
+
+        self.frame_retention(source, occurrence)
+            .map(|retention| Some(std::sync::Arc::new(retention)))
+    }
+
     pub(in crate::lowering) fn frame_completion(
         &mut self,
         source: &MirSourceAnchor,
@@ -61,17 +104,17 @@ impl Lowerer<'_> {
 
         let state = self.next_frame_state()?;
 
-        self.frame_states.push(
-            bray_ir::MirFrameState::new(
-                state,
-                entry,
+        self.frame_states.push(bray_ir::MirFrameState::new(
+            state,
+            entry,
+            bray_ir::MirFrameRetention::new(
                 broadcast,
                 self.execution_lane_requirements(),
                 [storage],
             )
             .with_affinity(self.frame_affinity())
             .with_completion_cleanup(true),
-        );
+        ));
 
         self.completion_cleanup = None;
         self.cleanup_occurrence = previous_occurrence;

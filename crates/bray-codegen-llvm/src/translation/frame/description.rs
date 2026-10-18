@@ -165,6 +165,7 @@ pub(super) fn translate_state_callback<'context>(
         let mut operations = Vec::with_capacity(6);
 
         for (index, lanes) in state
+            .retention()
             .operation_requirements()
             .iter()
             .map(|lanes| lanes.as_ref())
@@ -179,7 +180,7 @@ pub(super) fn translate_state_callback<'context>(
                 if lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread) {
                     bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
                 } else {
-                    state.affinity().code()
+                    state.retention().affinity().code()
                 };
 
             builder.position_at_end(selected);

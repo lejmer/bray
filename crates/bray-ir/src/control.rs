@@ -13,12 +13,29 @@ use crate::{
 pub struct MirCleanupCollection {
     pub(crate) state: MirPlace,
     pub(crate) report: MirPlace,
+    pub(crate) retention: Option<Arc<crate::MirFrameRetention>>,
 }
 
 impl MirCleanupCollection {
     /// Names the collection retained by the caller across this cleanup operation.
     pub const fn new(state: MirPlace, report: MirPlace) -> Self {
-        Self { state, report }
+        Self {
+            state,
+            report,
+            retention: None,
+        }
+    }
+
+    /// Preserves checked enclosing state until concrete cleanup is expanded.
+    pub fn with_retention(mut self, retention: Option<Arc<crate::MirFrameRetention>>) -> Self {
+        self.retention = retention;
+
+        self
+    }
+
+    /// Returns the enclosing continuation contract for cleanup that may suspend.
+    pub fn retention(&self) -> Option<&Arc<crate::MirFrameRetention>> {
+        self.retention.as_ref()
     }
 
     /// Returns the four-way cleanup state slot.

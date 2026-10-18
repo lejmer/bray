@@ -19,11 +19,9 @@ pub enum MirFrameReference {
     Erased,
 }
 
-/// Checked lane, affinity, and storage state for one protected-frame state.
+/// Checked retention shared by a source continuation and its structural cleanup expansion.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirFrameState {
-    state: MirFrameStateId,
-    entry: MirBlockId,
+pub struct MirFrameRetention {
     broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
     completion_cleanup: bool,
@@ -31,34 +29,20 @@ pub struct MirFrameState {
     initialized_storages: Arc<[MirStorageId]>,
 }
 
-impl MirFrameState {
-    /// Creates state-indexed frame state.
+impl MirFrameRetention {
+    /// Retains the checked broadcast entry, execution requirements and live storage.
     pub fn new(
-        state: MirFrameStateId,
-        entry: MirBlockId,
         broadcast: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
-            state,
-            entry,
             broadcast,
             affinity: ProtectedFrameAffinity::Movable,
             completion_cleanup: false,
             lane_requirements: [ExecutionLaneRequirement::set(lane_requirements), &[], &[]],
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
-    }
-
-    /// Returns the descriptor-local frame state.
-    pub const fn state(&self) -> MirFrameStateId {
-        self.state
-    }
-
-    /// Returns the block entered when this state resumes.
-    pub const fn entry(&self) -> MirBlockId {
-        self.entry
     }
 
     /// Returns the checked entry that only broadcasts initialized task obligations.
@@ -112,9 +96,58 @@ impl MirFrameState {
         self
     }
 
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        self.broadcast = mappings.block(self.broadcast);
+
+        for storage in Arc::make_mut(&mut self.initialized_storages) {
+            *storage = mappings.storage(*storage);
+        }
+    }
+
     /// Returns storages known to be initialized when this state is entered.
     pub fn initialized_storages(&self) -> &[MirStorageId] {
         &self.initialized_storages
+    }
+}
+
+/// One executable continuation and the checked state it retains.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirFrameState {
+    state: MirFrameStateId,
+    entry: MirBlockId,
+    retention: MirFrameRetention,
+}
+
+impl MirFrameState {
+    /// Associates a continuation with its established retention contract.
+    pub const fn new(
+        state: MirFrameStateId,
+        entry: MirBlockId,
+        retention: MirFrameRetention,
+    ) -> Self {
+        Self {
+            state,
+            entry,
+            retention,
+        }
+    }
+
+    /// Returns the descriptor-local frame state.
+    pub const fn state(&self) -> MirFrameStateId {
+        self.state
+    }
+
+    /// Returns the block entered when this state resumes.
+    pub const fn entry(&self) -> MirBlockId {
+        self.entry
+    }
+
+    /// Returns the established state retained across suspension.
+    pub const fn retention(&self) -> &MirFrameRetention {
+        &self.retention
     }
 }
 
@@ -141,7 +174,7 @@ impl MirFrameDescriptor {
         );
 
         for (state, requirements) in Arc::make_mut(&mut self.states).iter_mut().zip(requirements) {
-            state.lane_requirements = *requirements;
+            state.retention.lane_requirements = *requirements;
         }
     }
 
@@ -151,11 +184,7 @@ impl MirFrameDescriptor {
     ) {
         for state in Arc::make_mut(&mut self.states) {
             state.entry = mappings.block(state.entry);
-            state.broadcast = mappings.block(state.broadcast);
-
-            for storage in Arc::make_mut(&mut state.initialized_storages) {
-                *storage = mappings.storage(*storage);
-            }
+            state.retention.remap_local_ids(mappings);
         }
     }
 
@@ -287,7 +316,11 @@ mod tests {
             .is_err()
         );
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            crate::MirFrameRetention::new(entry, [], []),
+        );
 
         assert!(
             std::panic::catch_unwind(|| {
@@ -303,7 +336,11 @@ mod tests {
             .is_err()
         );
 
-        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, entry, [], []);
+        let non_contiguous = MirFrameState::new(
+            MirFrameStateId::new(1),
+            entry,
+            crate::MirFrameRetention::new(entry, [], []),
+        );
 
         assert!(
             std::panic::catch_unwind(|| {

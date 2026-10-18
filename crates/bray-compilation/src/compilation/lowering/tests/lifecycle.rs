@@ -109,9 +109,21 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
     let compilation = compilation(
         r#"
         module app;
-        struct Resource { destruct() {} }
-        struct Container { mut value: Resource?; }
-        func replace(pos owner: &mut Container, pos value: Resource) { owner.value = value; }
+
+        struct Resource
+        {
+            destruct() {}
+        }
+
+        struct Container
+        {
+            mut value: Resource?;
+        }
+
+        func replace(pos owner: &mut Container, pos value: Resource)
+        {
+            owner.value = value;
+        }
     "#,
     );
 
@@ -121,10 +133,77 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
 
     assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 
-    assert!(lowered_mir(&lowered).blocks().iter().any(|block| matches!(
-        block.terminator().kind(),
-        MirTerminatorKind::CheckCallOutcome { .. }
-    )));
+    let mir = lowered_mir(&lowered);
+
+    let collection = mir
+        .operations()
+        .iter()
+        .find_map(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    ..
+                }
+            )
+            .then(|| operation.kind().cleanup_collection())
+            .flatten()
+        })
+        .expect("replacement cleanup borrows its enclosing failure collection");
+
+    let cases = mir
+        .blocks()
+        .iter()
+        .find_map(|block| match block.terminator().kind() {
+            MirTerminatorKind::Switch {
+                discriminant: bray_ir::MirOperand::Copy(place),
+                cases,
+                ..
+            } if place == collection.state() => Some(cases),
+            _ => None,
+        })
+        .expect("replacement dispatches its enclosing failure collection");
+
+    assert_eq!(
+        cases.len(),
+        2,
+        "panic and cancellation retain separate exits"
+    );
+
+    for case in cases.iter() {
+        let failure = mir.block(case.edge().target()).unwrap();
+
+        let mut transfers = 0;
+
+        let mut count_transfer = |operand: &bray_ir::MirOperand| {
+            if matches!(operand, bray_ir::MirOperand::Move(place) if place == collection.report()) {
+                transfers += 1;
+            }
+        };
+
+        for id in failure.operations() {
+            mir.operation(*id)
+                .unwrap()
+                .kind()
+                .for_each_operand(&mut count_transfer);
+        }
+
+        failure
+            .terminator()
+            .kind()
+            .for_each_input(&mut count_transfer);
+
+        if let MirTerminatorKind::CancelCurrentRun { cleanup } = failure.terminator().kind() {
+            for argument in cleanup.edge().arguments() {
+                count_transfer(argument);
+            }
+        }
+
+        assert_eq!(
+            transfers, 1,
+            "each failure exit transfers the collected report exactly once: {failure:#?}"
+        );
+    }
 }
 
 #[test]
@@ -1053,7 +1132,7 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
     assert!(shielded);
 
     for state in frame.states() {
-        let mut pending = vec![state.broadcast()];
+        let mut pending = vec![state.retention().broadcast()];
         let mut seen = BTreeSet::new();
         let mut broadcasts_task = false;
 
@@ -1125,7 +1204,7 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
     assert!(mir.is_valid());
 
     for state in mir.frame_descriptor().unwrap().states() {
-        let block = mir.block(state.broadcast()).unwrap();
+        let block = mir.block(state.retention().broadcast()).unwrap();
 
         assert!(block.operations().is_empty());
 
@@ -1292,6 +1371,41 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         "ordinary async cleanup must obey MIR ownership and suspension contracts"
     );
 
+    let retained = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| {
+            if !matches!(operation.kind(), MirOperationKind::Quiesce { .. }) {
+                return None;
+            }
+
+            operation
+                .kind()
+                .cleanup_collection()
+                .and_then(|collection| collection.retention())
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !retained.is_empty(),
+        "failed finalizer quiescence preserves its checked continuation"
+    );
+
+    for retention in retained {
+        assert!(
+            mir.frame_descriptor()
+                .unwrap()
+                .states()
+                .iter()
+                .any(|state| state.retention() == retention.as_ref()),
+            "generated quiescence reuses the selected source continuation without reproof"
+        );
+    }
+
+    let (reconstructed, _) = bray_ir::reconstruct_reachable(mir).unwrap();
+
+    assert!(reconstructed.is_valid());
+
     let invocation = mir
         .operations()
         .iter()
@@ -1412,7 +1526,7 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
             .find(|state| state.state() == *resume_state)
             .unwrap();
 
-        assert!(mir.block(state.broadcast()).is_some());
+        assert!(mir.block(state.retention().broadcast()).is_some());
     }
 }
 
@@ -1619,9 +1733,9 @@ fn unconsumed_frame_results_await_their_finalizers() {
             .find(|state| state.state() == resume)
             .unwrap();
 
-        assert!(state.is_completion_cleanup());
+        assert!(state.retention().is_completion_cleanup());
 
-        let broadcast = mir.block(state.broadcast()).unwrap();
+        let broadcast = mir.block(state.retention().broadcast()).unwrap();
 
         assert!(
             broadcast.operations().iter().any(|id| matches!(

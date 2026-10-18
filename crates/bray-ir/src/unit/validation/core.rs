@@ -198,12 +198,14 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
                 .states()
                 .iter()
                 .find(|entry| entry.state() == state)?
+                .retention()
                 .is_completion_cleanup()
                 || value.ty() != descriptor.result_type()
                 || !descriptor
                     .states()
                     .iter()
                     .find(|entry| entry.state() == state)?
+                    .retention()
                     .initialized_storages()
                     .contains(&storage)
             {
@@ -219,20 +221,33 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
     }
 
     for state in descriptor.states() {
-        if state.is_completion_cleanup() && descriptor.completion_state().is_none() {
+        if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
             return None;
         }
 
-        for entry in [state.entry(), state.broadcast()] {
-            if entry.unit() != unit.unit() || unit.block(entry).is_none() {
-                return None;
-            }
-        }
+        validate_frame_retention(unit, state.retention())?;
+    }
 
-        for storage in state.initialized_storages() {
-            if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
-                return None;
-            }
+    Some(())
+}
+
+pub(super) fn validate_frame_retention(
+    unit: &MirUnit,
+    retention: &crate::MirFrameRetention,
+) -> Option<()> {
+    let descriptor = unit.frame_descriptor()?;
+
+    if retention.is_completion_cleanup() && descriptor.completion_state().is_none() {
+        return None;
+    }
+
+    if retention.broadcast().unit() != unit.unit() || unit.block(retention.broadcast()).is_none() {
+        return None;
+    }
+
+    for storage in retention.initialized_storages() {
+        if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
+            return None;
         }
     }
 

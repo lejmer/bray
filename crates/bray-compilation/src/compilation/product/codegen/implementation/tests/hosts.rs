@@ -786,16 +786,16 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
         );
 
         assert_eq!(
-            completions[0].lane_requirements(),
+            completions[0].retention().lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
         assert_eq!(
-            completions[0].operation_requirements()[1].as_ref(),
+            completions[0].retention().operation_requirements()[1].as_ref(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
-        assert!(completions[0].operation_requirements()[2].is_empty());
+        assert!(completions[0].retention().operation_requirements()[2].is_empty());
 
         let frame = plan
             .units()
@@ -806,7 +806,7 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
             .unwrap();
 
         assert_eq!(
-            frame.states()[0].operation_requirements()[1].as_ref(),
+            frame.states()[0].retention().operation_requirements()[1].as_ref(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
             "abandoning the generic capture runs its concrete destructor before body entry"
         );
@@ -845,12 +845,12 @@ fn inactive_cancellation_does_not_require_unentered_body_lanes() {
 
     for state in states {
         assert_eq!(
-            state.lane_requirements(),
+            state.retention().lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
-        assert!(state.operation_requirements()[1].is_empty());
-        assert!(state.operation_requirements()[2].is_empty());
+        assert!(state.retention().operation_requirements()[1].is_empty());
+        assert!(state.retention().operation_requirements()[2].is_empty());
     }
 }
 

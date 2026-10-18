@@ -123,12 +123,6 @@ impl Lowerer<'_> {
             );
         };
 
-        let suspension = self.completion_cleanup.is_none().then(|| {
-            self.input.suspension(occurrence).unwrap_or_else(|| {
-                panic!("lowering contract violation: MissingSuspensionPoint {occurrence:?}")
-            })
-        });
-
         let resume = self.builder.push_block(
             Self::retained_source(&source),
             self.builder.block_kind(current),
@@ -157,27 +151,8 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
-        let broadcast = self.frame_broadcast(&source, occurrence, false)?;
-        let state = self.next_frame_state()?;
-
-        let initialized_storages = match &self.completion_cleanup {
-            Some(place) => vec![place.storage()],
-            None => self.retained_storages(
-                suspension
-                    .expect("body await retains its checked suspension")
-                    .retained_subjects(),
-            )?,
-        };
-
-        let state = MirFrameState::new(
-            state,
-            resume,
-            broadcast,
-            self.execution_lane_requirements(),
-            initialized_storages,
-        )
-        .with_affinity(self.frame_affinity())
-        .with_completion_cleanup(self.completion_cleanup.is_some());
+        let retention = self.frame_retention(&source, occurrence)?;
+        let state = MirFrameState::new(self.next_frame_state()?, resume, retention);
 
         // Composition consumes the future. Keep source initialization guards in the
         // owning lowerer before shared emission transfers it to the parent frame.

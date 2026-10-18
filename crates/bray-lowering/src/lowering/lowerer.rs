@@ -299,12 +299,14 @@ impl<'unit> Lowerer<'unit> {
             let initial = MirFrameState::new(
                 MirFrameStateId::new(0),
                 entry,
-                self.initial_broadcast
-                    .expect("protected source frame retains its capture broadcast"),
-                self.execution_lane_requirements(),
-                initial_storages,
-            )
-            .with_affinity(self.frame_affinity());
+                bray_ir::MirFrameRetention::new(
+                    self.initial_broadcast
+                        .expect("protected source frame retains its capture broadcast"),
+                    self.execution_lane_requirements(),
+                    initial_storages,
+                )
+                .with_affinity(self.frame_affinity()),
+            );
 
             let runtime_abi = self.input.target().runtime_abi();
 
