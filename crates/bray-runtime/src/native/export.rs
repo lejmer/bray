@@ -11,7 +11,6 @@ use bray_runtime_abi::{
 };
 
 use crate::current_run_cancellation_requested;
-use crate::root::propagate_current_run_cancellation;
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
@@ -350,14 +349,6 @@ native_export! {
     #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_cleanup_shield_leave() {
         crate::context::leave_current_run_cleanup_shield();
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation() -> ! {
-        propagate_current_run_cancellation()
     }
 }
 

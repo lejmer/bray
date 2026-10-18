@@ -508,18 +508,18 @@ pub enum MirTerminatorKind {
         /// Cleanup entered before propagation.
         cleanup: MirCleanupEdge,
     },
-    /// Transfer an already-cleaned panic report to the nearest native run boundary.
+    /// Forward an already-cleaned panic report, terminating if the native caller has no outcome destination.
     PropagatePanic {
         /// Owned panic report being propagated.
         report: MirOperand,
-        /// Selected private panic-propagation ABI role.
+        /// Terminal report consumer for a caller without an outcome destination.
         runtime: crate::MirRuntimeReference,
     },
-    /// Transfer cancellation to the nearest native run boundary.
+    /// Forward cancellation, terminating if the native caller has no outcome destination.
     PropagateCancellation {
         /// Owned cleanup incidents retained during cancellation.
         report: MirOperand,
-        /// Selected private cancellation-entry ABI role.
+        /// Terminal report consumer for a caller without an outcome destination.
         runtime: crate::MirRuntimeReference,
     },
     /// Abandon normal continuation because the current run was cancelled.

@@ -125,15 +125,19 @@ pub(crate) fn cleanup_callback<'context>(
         "frame cleanup consumes its value without returning another owner"
     );
 
+    let collection = super::cleanup::begin_collection(module, &builder, outcome, types)?;
+
     super::invoke_with_outcome(
         &builder,
         function,
         symbol.signature(),
-        &[payload.into()],
+        &[payload.into(), collection[0].into(), collection[1].into()],
         outcome,
         "",
         types,
     )?;
+
+    super::cleanup::publish_collection(module, &builder, collection[0], types)?;
 
     builder
         .build_return(None)

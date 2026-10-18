@@ -308,7 +308,6 @@ trusted internal func consume_values(
 
 trusted internal func consume_panic(pos stored: &StoredReportPrimary, pos reporting: u32) -> (u32, ReportRecords)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(intrinsic)
 {
     let copy = stored.copy_message;
     let callback = stored.release_message;

@@ -70,7 +70,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             NativeRunState::CANCELLED,
             report,
             bray_ir::MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
                 self.unit.target().runtime_abi(),
             ),
         )
@@ -102,14 +102,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             llvm(self.builder.build_store(context, outcome))?;
             self.return_propagated_outcome()?;
         } else {
-            assert_eq!(
-                state,
-                NativeRunState::PANICKED,
-                "cancellation propagation in {:?} ({:?}) requires the enclosing Bray outcome destination",
-                self.unit.key(),
-                self.function.get_name(),
-            );
-
+            // A fixed native result cannot carry abnormal completion. Consume the report
+            // and terminate instead of returning a value or unwinding through its caller.
             self.invoke_runtime(runtime, &[report.into()])?;
             llvm(self.builder.build_unreachable())?;
         }

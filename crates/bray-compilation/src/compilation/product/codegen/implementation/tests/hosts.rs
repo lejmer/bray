@@ -126,10 +126,17 @@ fn independently_started_tasks_emit_native_units() {
             .all(|artifact| !artifact.is_empty())
     );
 
-    let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
-        .into_iter()
-        .map(|bytes| String::from_utf8(bytes).unwrap())
-        .collect::<String>();
+    let options = plan.options().with_optimization(OptimizationLevel::None);
+
+    let ir = generated_artifacts_of_kind_with_options(
+        &backend,
+        &plan,
+        BackendArtifactKind::BackendIr,
+        &options,
+    )
+    .into_iter()
+    .map(|bytes| String::from_utf8(bytes).unwrap())
+    .collect::<String>();
 
     assert!(
         ir.contains("frame.terminal.broadcast:"),
@@ -156,6 +163,15 @@ fn independently_started_tasks_emit_native_units() {
         let body = callback.split("\n}").next().unwrap();
 
         assert!(!body.contains("@bray_runtime_panic_propagation("));
+        assert!(body.contains("@bray_runtime_cleanup_shield_enter("));
+        assert!(body.contains("@bray_runtime_cleanup_shield_leave("));
+
+        let invocation = body
+            .lines()
+            .find(|line| line.contains("call void @bray_lifecycle_"))
+            .unwrap();
+
+        assert_eq!(invocation.matches("ptr ").count(), 3);
     }
 }
 

@@ -77,7 +77,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::UnsizedTypeByValue(ty) => Kind::CodegenUnsizedTypeByValue(
             identity_failure_detail("codegen_unsized_type_by_value", "semantic_type", ty),
         ),
-        CodegenPreparationError::InvalidAbiMapping => Kind::CodegenInvalidAbiMapping(None),
         CodegenPreparationError::UnsupportedType(ty) => Kind::CodegenUnsupportedType(
             identity_failure_detail("codegen_unsupported_type", "semantic_type", ty),
         ),

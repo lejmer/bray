@@ -34,9 +34,3 @@ native_adapter! {
         implementation::bray_runtime_current_run_cancellation_observation()
     }
 }
-
-native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation() -> ! {
-        implementation::bray_runtime_current_run_cancellation_propagation()
-    }
-}

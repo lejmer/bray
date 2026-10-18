@@ -269,7 +269,7 @@ macro_rules! runtime_role_catalog {
             }
             NativeThreadExecution {
                 "Execute one Bray-owned native-thread root behind its runtime boundary.", "native_thread_execution",
-                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PanicReport] -> U32),
+                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (NativeThreadExecution),
                 compiler: C [Pointer, Usize, Pointer, Usize, Pointer] -> U32,
@@ -481,16 +481,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ObserveCancellation]
             }
-            CurrentRunCancellationPropagation {
-                "Transfer current-run cancellation to the nearest run boundary.", "current_run_cancellation_propagation",
-                native: (CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL = "bray_runtime_current_run_cancellation_propagation", [] -> Never),
-                service: Host,
-                call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [PropagateCancellation]
-            }
             CleanupShieldEnter {
                 "Defer cancellation delivery during current-run cleanup.", "cleanup_shield_enter",
                 native: (CLEANUP_SHIELD_ENTER_SYMBOL = "bray_runtime_cleanup_shield_enter", [] -> Void),
@@ -631,7 +621,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReporting {
                 "Report and resolve one root panic payload.", "panic_reporting",
-                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [PanicReport] -> U32),
+                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (NativeThreadPanicReporting),
                 compiler: Bray [PanicReport] -> U32,
@@ -641,7 +631,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportDestruction {
                 "Destroy one handled panic report without reporting it.", "panic_report_destruction",
-                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [PanicReport] -> U32),
+                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> U32,
@@ -757,7 +747,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportSuppression {
                 "Attach an owned cleanup incident to the primary panic report.", "panic_report_suppression",
-                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [PanicReport, PanicReport] -> PanicReport),
+                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [PanicReportPointer, PanicReportPointer] -> PanicReport),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport, PanicReport] -> PanicReport,
@@ -884,8 +874,8 @@ macro_rules! runtime_role_catalog {
                 effects: [ConstructPanicReport]
             }
             PanicPropagation {
-                "Propagate one owned panic report to the nearest native run boundary.", "panic_propagation",
-                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [PanicReport] -> Never),
+                "Report and terminate an uncaught native-boundary failure.", "panic_propagation",
+                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [PanicReportPointer] -> Never),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> Void,

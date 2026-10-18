@@ -101,8 +101,8 @@ exit returns its Result explicitly. Check the existing normal-exit legality cove
 represented and inactive captures before relying on this invariant globally.
 
 Cancellation transport preserves reports through ordinary Bray outcome destinations.
-Direct native platform-service boundaries still lack that destination, as recorded below. Prefer one failure-edge shape
-and shared routing over separate panic/cancellation implementations. Completed native callback
+Fixed C native platform-service boundaries consume the report and terminate when no such
+destination exists. Use shared routing for panic and cancellation. Completed native callback
 reports are a separate already-existing boundary and must be retained regardless of the
 callback control tag. Do not extend ordinary source completion with an incident channel
 without a demonstrated source-language case requiring it.
@@ -175,28 +175,48 @@ shared continuation routing into the existing continuation module, keeping Clean
 below the production-module size threshold. See `bra-505-collection-lifecycle-final.log`.
 The relocation changes no runtime behavior or representation.
 
-The new native ordinary-finalization fixture checks asynchronous replacement, discarded and
-unused Future cleanup, and a retained 2 KiB-aligned typed error whose finalizer must be skipped.
-It has not executed yet. It runs through the existing native execution workflow against the
-actual standard library, in development and release modes. The lightweight compiler fixture
-dependency lacks std.task, so it cannot faithfully run this exact source. Existing focused
-emission regressions remain in place. Formatting completed successfully in
-`bra-505-collection-final-format.log`, including the later propagation and string-release repair. Do not claim native acceptance from emission tests.
+The native ordinary-finalization fixture passes in development and release against the actual
+standard library and trusted runtime. It covers asynchronous replacement, later-input failure,
+discarded and unused Future captures, and a retained 2 KiB-aligned typed error whose finalizer
+must be skipped. The catch result ends ownership in handle_failure before main checks disposal.
+A discard binding retains its unnamed owner until scope exit, so an earlier assertion in the
+same scope was incorrect. Native debugger traces confirmed owner destruction, incident transfer,
+report disposal and the intact payload. Logs: bra-505-ordinary-{development,release}-{build,run}.log.
+This does not cover a retained error containing child work or generated asynchronous traversal.
 
-The next native smoke stopped in direct platform-service bodies, before native execution.
-Their fixed C signatures intentionally omit the ordinary Bray outcome destination. The
-new focused regression reproduces this with a provider that owns a destructor, without
-building the standard library. Panic and explicit cancellation now have separate tests.
-See `bra-505-native-boundary.log`. These regressions are not passing.
+Fixed C platform-service boundaries now consume and report retained incidents, then terminate
+on uncaught panic or cancellation. This is the user's authorized internally consistent policy.
+Ordinary Bray calls forward their existing outcome. Ordinary foreign callback trampolines retain
+their separate declared contract. The obsolete report-less cancellation export and demand are
+removed. Both platform-boundary regressions and all 11 native-entry checks pass in
+`bra-505-terminal-entries.log`. All 28 runtime-interface tests pass after updating the closed
+role inventory. No new language feature, runtime frame or ABI version was introduced.
 
-The unchecked call path now uses the same propagation function as explicit MIR propagation.
-Inside a Bray body it forwards the owned report to the existing outcome destination rather
-than invoking report-less native cancellation. Direct native service cancellation still
-fails the invariant visibly. No trap, false success return, new Rust frame or native ABI
-change has been substituted. The pending user choice is whether these service boundaries
-report and terminate on uncaught cancellation, or acquire an explicit native outcome ABI.
-Do not implement either policy until that material decision is answered. Ordinary foreign
-callback trampolines and overridable native platform services are distinct contracts.
+The runtime ABI now distinguishes owned PanicReport values from PanicReportPointer slots.
+CleanupIncidentTransfer consumes a value. Slot consumers retain their existing contract.
+The source signature projection, native adapter audit and C fixtures agree with that distinction.
+The all-target LLVM matrix, production report declaration test, five ABI classification tests,
+six adapter contract tests and 11 native-entry tests pass. Impossible classifier states now
+panic with context rather than returning a recoverable compiler-bug diagnostic.
+
+Native execution exposed a Win64 caller defect: indirect report argument storage had 8-byte
+alignment, but the callee legitimately used a 16-byte aligned load. The debugger located the
+fault in bray_runtime_cleanup_incident_transfer. The private ABI emitter now aligns indirect
+value arguments to 16 bytes and shares aligned temporary allocation with ordinary source calls.
+The existing all-role/all-target matrix checks the allocation contract. The native fixture
+passes after that repair. No extra runtime allocation or ownership mechanism was added.
+Logs: bra-505-win64-abi-tests.log, bra-505-native-crash.log, bra-505-native-reports.log.
+
+The runtime smoke workflow built all archives and passed bootstrap denied-allocation/lifetime
+checks and activation depths through 2048 with constant measured native stack usage. Ordinary
+finalization passed in both profiles. The next task case exposed an old generated callback caller
+that omitted the shared collection arguments. The callback now uses the same begin/publish
+operations as static and retained-incident callbacks. Its existing emission regression passes,
+including the three-argument invocation and balanced shield. Inspecting compiler block structure
+uses unoptimized IR because LLVM may merge those blocks. The full rerun passes all cases, including ordinary finalization and started tasks in development
+and release. The native phase took 117.7 seconds. Logs: bra-505-task-callback.log and
+bra-505-boundary-checkpoint-native.log. This establishes existing task callback compatibility,
+not the later BRA-560 task migration.
 
 The shared propagation check exposed an unchecked string-deallocation call in generated
 cleanup. Its owning lifecycle lowering now emits the existing checked outcome transition.
@@ -204,8 +224,12 @@ LLVM string release establishes the destination before its ownership/refcount br
 so even the no-deallocation path reaches the same initialized outcome. A dedicated MIR
 regression and all nine lifecycle emission cases pass. The 93 LLVM unit tests pass.
 Logs are `bra-505-string-collection.log`, `bra-505-propagation-lifecycle.log` and
-`bra-505-propagation-llvm.log`. Both isolated native-provider regressions still fail at
-the missing cancellation destination. Rustfmt, mutating cargo xtask style, cargo xtask format and git diff --check pass after this bounded repair.
+`bra-505-propagation-llvm.log`. Both isolated native-provider regressions now pass. The boundary and report-ABI batch passed rustfmt, mutating cargo xtask style,
+cargo xtask format and git diff --check. The task callback correction also passes the same
+formatting commands in bra-505-boundary-checkpoint-format.log. Its audit traces all generated
+native lifecycle callback callers and verifies that runtime callers initialize their outcomes.
+The boundary/ABI checkpoint removes about 37 production lines net and adds about 140 test lines.
+It introduces no runtime owner, scheduler, allocation, compatibility version or new source feature.
 
 Checkpoint maintainability audit: collection construction, source failure collection,
 structural forwarding, native callback publication, typed payload transfer, parameter
@@ -259,6 +283,29 @@ Keep `scoped_selected_calls_emit_native_artifacts` required through BRA-505/BRA-
 Incident transfer is now implemented, but full quiescence and abandoned destruction
 acceptance must establish its contract before the PR becomes ready.
 
+## Continuation proof still to implement
+
+A source-owned Future is inactive: await and start consume it. Its native composition path
+currently consumes and retires that token, and frame failure cleanup destroys captures.
+Therefore calling await_frame with no completion destination cannot implement retained
+error quiescence. That would destroy captured owners early and leave a stale token inside E.
+See lowering/asynchronous.rs, continuation.rs and activation/run/step.bray and retirement.bray.
+This is a concrete ownership mismatch, not a request for new syntax or a Rust frame.
+
+Keep quiescence distinct from destruction using the existing activation and frame ownership.
+A quiesced Future must retain its capture storage and descriptor until synchronous abandoned
+destruction consumes it. Ordinary await/unused-Future cleanup must still retire exactly once.
+Synchronous destructors cannot await or start a Future (asynchronous/check.rs owns the start
+restriction), and they cannot let receiver-derived ownership escape. Do not use field privacy
+or a fabricated valid token as a substitute for these contracts.
+
+Source cleanup already emits array loops into its enclosing frame and materializes counters
+in MIR storage. Concrete generic cleanup expansion must retain that same enclosing progress,
+collection and checked lane/guard information before layout. Do not relax the scalar inliner
+or allocate an activation for each organizational helper. Recursive or erased ownership must
+use its already-admitted child allowance. This continuation work has not been implemented,
+and the remaining table above remains the acceptance boundary.
+
 ## Resuming efficiently
 
 Earlier detailed evidence and abandoned approaches are preserved in this file at
@@ -292,7 +339,7 @@ this checkout uses LLVM 22.1.8. Do not change the global toolchain or rebuild th
 to select the provider producer. Native TMP/TEMP use target/native/bra-505. Keep logs and temporary
 products inside the repository target. No full native rerun until its known blocker changes.
 
-No task-owned build or test process remains active. Use focused test filters, not the broad
-unit:: filter. Avoid duplicate release xtask rebuilds. Find files with rg and read bounded
+Check the active task-owned process before launching another build. Use focused test filters,
+not the broad unit:: filter. Avoid duplicate release xtask rebuilds. Find files with rg and read bounded
 relevant sections without truncation. PowerShell does not expand directory wildcards for rg.
 Preserve exact leaf failures instead of repeatedly running expensive workflows.

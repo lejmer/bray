@@ -84,14 +84,6 @@ pub fn demanded_runtime_references_for_mir(
             runtime_abi,
         ))))
         .chain(
-            (checked_call_cancellation_propagation_is_demanded(mir) || boundary_panic).then_some(
-                Some(MirRuntimeReference::new(
-                    bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-                    runtime_abi,
-                )),
-            ),
-        )
-        .chain(
             [
                 RuntimeAbiRole::OutgoingActivation,
                 RuntimeAbiRole::ActivationPublication,
@@ -121,15 +113,6 @@ pub fn demanded_runtime_references_for_mir(
         )
         .flatten()
         .collect()
-}
-
-fn checked_call_cancellation_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
-    mir.blocks().iter().any(|block| {
-        matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::CheckCallOutcome { .. }
-        )
-    })
 }
 
 fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
@@ -187,12 +170,7 @@ pub fn mapped_symbol_runtime_roles(
             }),
         )
         .chain(
-            [
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::CurrentRunCancellationPropagation,
-            ]
-            .into_iter()
-            .filter(move |_| panic_report_context),
+            std::iter::once(RuntimeAbiRole::PanicPropagation).filter(move |_| panic_report_context),
         )
 }
 
@@ -486,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_outcome_context_demands_panic_and_cancellation_runtime() {
+    fn hidden_outcome_context_demands_the_terminal_report_consumer() {
         let fixture = codegen_request();
         let request = fixture.request();
 
@@ -509,13 +487,6 @@ mod tests {
             references
                 .iter()
                 .any(|reference| reference.role() == RuntimeAbiRole::PanicPropagation)
-        );
-
-        assert!(
-            references
-                .iter()
-                .any(|reference| reference.role()
-                    == RuntimeAbiRole::CurrentRunCancellationPropagation)
         );
     }
 }

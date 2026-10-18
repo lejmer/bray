@@ -540,11 +540,6 @@ mod tests {
         let panic =
             MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, target.runtime_abi());
 
-        let cancellation = MirRuntimeReference::new(
-            RuntimeAbiRole::CurrentRunCancellationPropagation,
-            target.runtime_abi(),
-        );
-
         let mut builder =
             MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
 
@@ -592,7 +587,7 @@ mod tests {
             },
             MirTerminatorKind::PropagateCancellation {
                 report: MirOperand::Move(report.clone()),
-                runtime: cancellation,
+                runtime: panic,
             },
         ];
 

@@ -1,5 +1,7 @@
 module ordinary_finalization;
 
+using std.task;
+
 internal static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 internal static ERRORS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
@@ -106,8 +108,8 @@ struct Failure
 
     destruct()
     {
-        assert(self.value == 17);
-        assert(core.atomic.load<usize, 1>(&ERRORS) == 1);
+        assert(self.value == 17, "retained error payload changed");
+        assert(core.atomic.load<usize, 1>(&ERRORS) == 1, "error destroyed before its owner or more than once");
         core.atomic.store<usize, 4>(&ERRORS, 2);
     }
 }
@@ -128,7 +130,7 @@ struct FailingOwner
 
     destruct()
     {
-        assert(core.atomic.load<usize, 1>(&ERRORS) == 0);
+        assert(core.atomic.load<usize, 1>(&ERRORS) == 0, "failed owner destroyed more than once");
         core.atomic.store<usize, 4>(&ERRORS, 1);
     }
 }
@@ -142,19 +144,23 @@ async func fail()
     panic("original failure");
 }
 
-async func main()
+async func handle_failure()
 {
-    await ordinary();
-    assert(core.atomic.load<usize, 1>(&COUNT) == 4);
-
-    await inactive();
-    assert(core.atomic.load<usize, 1>(&COUNT) == 7);
-
     let _ = catch
     {
         await fail();
         yield unit;
     };
+}
 
-    assert(core.atomic.load<usize, 1>(&ERRORS) == 2);
+async func main()
+{
+    await ordinary();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 4, "ordinary ownership ends did not finalize exactly once");
+
+    await inactive();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 7, "inactive captures did not finalize exactly once");
+
+    await handle_failure();
+    assert(core.atomic.load<usize, 1>(&ERRORS) == 2, "retained error was not destroyed");
 }

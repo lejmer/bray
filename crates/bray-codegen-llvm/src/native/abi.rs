@@ -78,9 +78,12 @@ pub(crate) fn runtime_attributes(
         let mut index = u32::from(runtime_indirect_result_type(context, target, role).is_some());
 
         for kind in signature.parameters() {
-            if *kind == RuntimeAbiType::InactiveFrame {
+            if matches!(
+                kind,
+                RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport
+            ) {
                 let value = runtime_value_type(context, target, *kind)
-                    .expect("inactive frame has a native layout");
+                    .expect("indirect aggregate parameter has a native layout");
 
                 attributes.push((
                     AttributeLoc::Param(index),
@@ -137,15 +140,18 @@ fn parameter_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if matches!(
-        kind,
-        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
-    ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
-    {
+    if parameter_is_indirect(target, kind) {
         return Some(context.ptr_type(AddressSpace::default()).into());
     }
 
     register_type(context, target, kind)
+}
+
+fn parameter_is_indirect(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
+    matches!(
+        kind,
+        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
+    ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
 }
 
 fn expands_parameter(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
@@ -214,15 +220,25 @@ pub(super) fn invoke_runtime<'context>(
         let physical = parameter_type(context, target, kind)
             .expect("native ABI lowering requires an established mapping or value");
 
-        if kind == RuntimeAbiType::PanicReport && value.is_pointer_value() {
+        if kind == RuntimeAbiType::PanicReportPointer && value.is_pointer_value() {
             native_arguments.push(value.into());
-        } else if matches!(
-            kind,
-            RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
-        ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
+        } else if parameter_is_indirect(target, kind) || kind == RuntimeAbiType::PanicReportPointer
         {
-            let storage =
-                crate::translation::allocate_temporary(context, builder, value.get_type(), name)?;
+            let name = format!("{name}.argument");
+
+            let storage = if uses_microsoft_x64_abi(target) && parameter_is_indirect(target, kind) {
+                // Win64 indirect value arguments require 16-byte temporary alignment,
+                // even when the record's fields only require native-word alignment.
+                crate::translation::allocate_aligned_temporary(
+                    context,
+                    builder,
+                    value.get_type(),
+                    16,
+                    &name,
+                )?
+            } else {
+                crate::translation::allocate_temporary(context, builder, value.get_type(), &name)?
+            };
 
             builder
                 .build_store(storage, value)
@@ -569,6 +585,30 @@ mod tests {
 
                 let symbol = format!("@{}(", role.native_symbol().unwrap());
 
+                if native == NativeTarget::X86_64WindowsMsvc {
+                    let name = format!("%{}.argument", role.as_str());
+
+                    let arguments = ir
+                        .lines()
+                        .filter(|line| {
+                            line.trim_start().starts_with(&name) && line.contains(" = alloca ")
+                        })
+                        .collect::<Vec<_>>();
+
+                    let expected = signature
+                        .parameters()
+                        .iter()
+                        .filter(|kind| super::parameter_is_indirect(&target, **kind))
+                        .count();
+
+                    assert_eq!(arguments.len(), expected, "{native:?} {role:?}");
+
+                    assert!(
+                        arguments.iter().all(|line| line.ends_with("align 16")),
+                        "{native:?} {role:?}: {arguments:?}"
+                    );
+                }
+
                 let byte_count = signature
                     .parameters()
                     .iter()
@@ -600,7 +640,7 @@ mod tests {
                     "{native:?} {role:?} call"
                 );
 
-                let indirect_tokens = if matches!(
+                let indirect_values = if matches!(
                     native,
                     NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs
                 ) {
@@ -608,7 +648,11 @@ mod tests {
                         .parameters()
                         .iter()
                         .filter(|kind| {
-                            **kind == bray_runtime_interface::RuntimeAbiType::InactiveFrame
+                            matches!(
+                                kind,
+                                bray_runtime_interface::RuntimeAbiType::InactiveFrame
+                                    | bray_runtime_interface::RuntimeAbiType::PanicReport
+                            )
                         })
                         .count()
                 } else {
@@ -618,7 +662,7 @@ mod tests {
                 for (kind, instruction) in [("declaration", declaration), ("call", call)] {
                     assert_eq!(
                         instruction.matches("byval(").count(),
-                        indirect_tokens,
+                        indirect_values,
                         "{native:?} {role:?} {kind}"
                     );
                 }

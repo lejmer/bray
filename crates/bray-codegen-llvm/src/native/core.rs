@@ -460,7 +460,9 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::U32 => context.i32_type().into(),
         RuntimeAbiType::U64 => context.i64_type().into(),
         RuntimeAbiType::Usize => usize.into(),
-        RuntimeAbiType::Pointer => context.ptr_type(AddressSpace::default()).into(),
+        RuntimeAbiType::Pointer | RuntimeAbiType::PanicReportPointer => {
+            context.ptr_type(AddressSpace::default()).into()
+        }
         RuntimeAbiType::Configuration => runtime_configuration_type(context, target).into(),
         RuntimeAbiType::RootStart => root_start_type(context).into(),
         RuntimeAbiType::RunOutcome => run_outcome_type(context, target).into(),

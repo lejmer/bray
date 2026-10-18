@@ -151,10 +151,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             MirTerminatorKind::PropagateCancellation {
                 report: outcome.report(),
-                runtime: MirRuntimeReference::new(
-                    RuntimeAbiRole::CurrentRunCancellationPropagation,
-                    abi,
-                ),
+                runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
             },
         )?;
 
@@ -243,10 +240,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             MirTerminatorKind::PropagateCancellation {
                 report: bray_ir::MirOperand::Move(report.clone()),
-                runtime: MirRuntimeReference::new(
-                    RuntimeAbiRole::CurrentRunCancellationPropagation,
-                    abi,
-                ),
+                runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
             },
         )?;
 

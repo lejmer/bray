@@ -250,11 +250,6 @@ ProductHostObservation bray_runtime_product_host_control(void* descriptor, uint3
     return observation;
 }
 
-void bray_runtime_current_run_cancellation_propagation(void)
-{
-    abort();
-}
-
 extern uint32_t bray_runtime_panic_reporting(PanicReport*);
 extern uint32_t bray_runtime_panic_report_destruction(PanicReport*);
 

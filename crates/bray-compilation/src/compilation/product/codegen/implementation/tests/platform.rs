@@ -630,7 +630,7 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
 }
 
 #[test]
-fn native_platform_cleanup_preserves_panic() {
+fn native_platform_cleanup_terminates_uncaught_panic() {
     assert_native_platform_cleanup_emits(
         r#"
             destruct()
@@ -642,7 +642,7 @@ fn native_platform_cleanup_preserves_panic() {
 }
 
 #[test]
-fn native_platform_cleanup_preserves_cancellation() {
+fn native_platform_cleanup_terminates_uncaught_cancellation() {
     assert_native_platform_cleanup_emits(
         r#"
             finalize()
@@ -693,7 +693,36 @@ fn assert_native_platform_cleanup_emits(cleanup: &str) {
         [binding],
     );
 
-    assert!(!generated_artifacts(&backend, &plan).is_empty());
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let implementation = artifacts
+        .iter()
+        .find_map(|artifact| {
+            let ir = std::str::from_utf8(artifact).expect("LLVM IR is UTF-8");
+
+            let start = ir.lines().position(|line| {
+                line.starts_with("define ")
+                    && line.contains("@bray_platform_standard_output_flush(")
+            })?;
+
+            Some(
+                ir.lines()
+                    .skip(start)
+                    .take_while(|line| *line != "}")
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        })
+        .expect("the selected platform service must have an emitted definition");
+
+    assert!(
+        implementation.lines().any(|line| {
+            line.contains("call ") && line.contains("@bray_runtime_panic_propagation(")
+        }),
+        "{implementation}"
+    );
+
+    assert!(!implementation.contains("@bray_runtime_current_run_cancellation_propagation("));
 }
 
 #[test]

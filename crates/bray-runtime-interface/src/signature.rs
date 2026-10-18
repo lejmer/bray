@@ -19,8 +19,10 @@ pub enum RuntimeAbiType {
     Configuration,
     /// Root-start status and root handle.
     RootStart,
-    /// Movable panic primary and detached outgoing ownership. Parameters transfer through a pointer.
+    /// Movable panic primary and detached outgoing ownership.
     PanicReport,
+    /// Address of a panic report slot consumed or updated by the callee.
+    PanicReportPointer,
     /// Terminal run state and payload.
     RunOutcome,
     /// Task allocation status and task handle.

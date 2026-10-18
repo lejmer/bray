@@ -282,8 +282,6 @@ pub enum RuntimeRoleContractEffect {
     ConstructPanicReport,
     /// Propagate one owned panic report without resuming the failed continuation.
     PropagatePanic,
-    /// Propagate cancellation without resuming the cancelled continuation.
-    PropagateCancellation,
     /// Create one inactive protected frame value.
     CreateFrame,
     /// Move one inactive frame before first resume.
@@ -499,7 +497,7 @@ mod tests {
         }
 
         assert_eq!(host, 26);
-        assert_eq!(execution, 22);
+        assert_eq!(execution, 21);
     }
 
     #[test]

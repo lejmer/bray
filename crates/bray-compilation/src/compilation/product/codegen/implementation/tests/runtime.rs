@@ -761,18 +761,13 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             --shield_depth;
         }}
 
-        void {propagate_panic}(Report report)
+        void {propagate_panic}(Report* report)
         {{
             (void)report;
             _Exit(11);
         }}
 
-        void {propagate_cancellation}(void)
-        {{
-            _Exit(12);
-        }}
-
-        Report {suppress}(Report first, Report second)
+        Report {suppress}(Report* first, Report* second)
         {{
             (void)first;
             (void)second;
@@ -844,7 +839,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             return report;
         }}
 
-        unsigned {report}(Report value)
+        unsigned {report}(Report* value)
         {{
             (void)value;
             ++reports;
@@ -934,9 +929,6 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
         propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
-        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
-            .native_symbol()
-            .unwrap(),
         construction = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
             .unwrap(),
@@ -1141,11 +1133,6 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             _Exit(9);
         }}
 
-        void {propagate_cancellation}(void)
-        {{
-            _Exit(10);
-        }}
-
         Report {construct}(uint32_t cause,
             uint32_t present,
             uint32_t identity,
@@ -1166,9 +1153,9 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             return result;
         }}
 
-        unsigned {report}(Report value)
+        unsigned {report}(Report* value)
         {{
-            if (value.source[0] != 22)
+            if (value->source[0] != 22)
                 _Exit(1);
 
             ++reported;
@@ -1232,9 +1219,6 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
         propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
-        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
-            .native_symbol()
-            .unwrap(),
         align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
         source_size = std::mem::size_of::<bray_runtime_abi::NativeSourceAnchor>(),
         construct = RuntimeAbiRole::PanicReportConstruction

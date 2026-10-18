@@ -34,7 +34,9 @@ impl Compilation {
                 pending,
             )?,
             CodegenResultMapping::Indirect { .. } => {
-                return Err(CodegenPreparationError::InvalidAbiMapping);
+                panic!(
+                    "ABI classification requires a semantic signature, got {signature:?} for {target:?}"
+                );
             }
         };
 
@@ -47,7 +49,9 @@ impl Compilation {
             let ty = match parameter {
                 CodegenParameterMapping::Direct { ty, .. } => *ty,
                 CodegenParameterMapping::Ignore | CodegenParameterMapping::Indirect { .. } => {
-                    return Err(CodegenPreparationError::InvalidAbiMapping);
+                    panic!(
+                        "ABI classification requires a semantic signature, got {signature:?} for {target:?}"
+                    );
                 }
             };
 

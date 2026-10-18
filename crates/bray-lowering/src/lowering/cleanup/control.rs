@@ -722,7 +722,7 @@ impl Lowerer<'_> {
             },
             CleanupDestination::PropagateCancellation => MirTerminatorKind::PropagateCancellation {
                 report: value.expect("cancelled cleanup must retain its report"),
-                runtime: self.runtime_reference(RuntimeAbiRole::CurrentRunCancellationPropagation),
+                runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
         };
 

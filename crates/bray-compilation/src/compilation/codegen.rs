@@ -499,8 +499,6 @@ pub enum CodegenPreparationError {
     UnresolvedType(bray_symbols::TypeId),
     /// An unsized semantic type was demanded in a by-value position.
     UnsizedTypeByValue(bray_symbols::TypeId),
-    /// A callable signature reached target classification in a non-semantic mapping state.
-    InvalidAbiMapping,
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
     /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
