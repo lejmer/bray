@@ -173,12 +173,7 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
         (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
             return None;
         }
-        (
-            crate::MirUnitKind::Synchronous
-            | crate::MirUnitKind::ExecutableHost(_)
-            | crate::MirUnitKind::GeneratedLifecycle(_),
-            Some(_),
-        ) => {
+        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::ExecutableHost(_), Some(_)) => {
             return None;
         }
         (crate::MirUnitKind::ExecutableHost(host), None) => {
@@ -188,7 +183,7 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
 
             return Some(());
         }
-        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::GeneratedLifecycle(_), None) => {
+        (crate::MirUnitKind::Synchronous, None) => {
             return Some(());
         }
     };

@@ -36,9 +36,10 @@ Confirmed implementation conflicts, not new language requirements:
   static signatures consume it. Generated push_lifecycle_call still forces Immediate.
   Removing that override requires completing the shared continuation path, not merely
   changing the field type. Do not claim the representation batch completes this repair.
-- `MirUnitKind::GeneratedLifecycle` mixes provenance with execution classification and
-  excludes a frame descriptor. `MirSourceOrigin` already retains generated provenance.
-  Merely changing the enum does not complete shared resumable cleanup.
+- The execution-kind checkpoint removes `MirUnitKind::GeneratedLifecycle`. Generated
+  provenance remains in `MirSourceOrigin` and `MirUnitKey`, while bodies use the ordinary
+  execution categories. Generated bodies still select synchronous execution until shared
+  resumable cleanup is connected. This removal alone does not complete that connection.
 - Native `TaskObservation` owns a separate Rust frame, cleanup sequence and failure
   collection. Generated task cleanup uses blocking `resolve_task`. Native `observe`
   consumes the outcome, so it is not a non-consuming readiness check. Reusing these
@@ -51,7 +52,7 @@ The governing designs already state this boundary: `docs/design/composed-async-e
 and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
 alignment, not permission to invent another runtime architecture.
 
-Latest pushed checkpoint: `d9a16a86`, PR #612. The previous reviewed checkpoint is
+Latest pushed checkpoint before the execution-kind removal: `acb8229a`, PR #612. The previous reviewed checkpoint is
 `216886091c2734aa5cb835c468ab3e163193c776`.
 Independent review 5560583230 found no actionable checkpoint findings. Native acceptance
 remains unfinished. Human architectural feedback is now the active review.
@@ -72,6 +73,15 @@ MIR. The storage-policy regression compares complete invocation results too. Rus
 mutating structural style and Bray formatting pass in `bra-505-selected-invocation-format.log`.
 No test/build session remains active. Generated async completion and native acceptance
 remain unfinished. No Rust runtime source was changed.
+
+Execution-kind verification: 116 selected compilation, MIR construction/reconstruction
+and package codec/artifact tests pass in `bra-505-mir-execution-tests.log`. Generated
+symbols retain LinkOnce linkage through their existing unit identity. Interface template
+export still rejects generated bodies, now from their source identity. Codegen content
+encodes the actual execution category, with no compatibility version bump. All consumers
+of the removed enum variant were searched and updated. Rustfmt initially encountered a
+transient Windows mapped-file lock, then succeeded on retry. Mutating structural style
+and Bray formatting pass in `bra-505-mir-execution-format.log`. No runtime code changed.
 
 Boundary deduction to preserve: a destructor body and its checked tail are synchronous.
 Do not make a destructor call async. Whole owner resolution may await finalizers and child

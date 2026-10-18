@@ -153,20 +153,21 @@ impl MirUnitBuilder {
         }
     }
 
-    /// Starts MIR construction for one type-specialized generated lifecycle definition.
+    /// Starts a generated lifecycle definition with its selected execution representation.
     pub fn for_generated_lifecycle(
         unit: MirUnitId,
         key: MirUnitKey,
         reference: MirHelperReference,
+        kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Self {
         Self {
             key,
             unit,
-            source: MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+            source: MirSourceOrigin::GeneratedLifecycle(reference),
             allow_foreign_sources: false,
             target,
-            kind: MirUnitKind::GeneratedLifecycle(reference),
+            kind,
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
@@ -187,9 +188,7 @@ impl MirUnitBuilder {
             MirUnitKind::ProtectedAsyncFrame(_) => {
                 panic!("MIR frame descriptor has the wrong frame")
             }
-            MirUnitKind::Synchronous
-            | MirUnitKind::ExecutableHost(_)
-            | MirUnitKind::GeneratedLifecycle(_) => {
+            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => {
                 panic!("MIR unit cannot carry a frame descriptor")
             }
         }

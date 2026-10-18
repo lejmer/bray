@@ -48,8 +48,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let source = MirSourceAnchor::generated_lifecycle(reference.clone());
 
-        let mut builder =
-            MirUnitBuilder::for_generated_lifecycle(unit, key, reference.clone(), target.clone());
+        let mut builder = MirUnitBuilder::for_generated_lifecycle(
+            unit,
+            key,
+            reference.clone(),
+            bray_ir::MirUnitKind::Synchronous,
+            target.clone(),
+        );
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)

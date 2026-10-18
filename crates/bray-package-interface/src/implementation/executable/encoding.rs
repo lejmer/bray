@@ -136,6 +136,15 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
     context: &mut C,
     purpose: EncodingPurpose,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
+    if purpose == EncodingPurpose::InterfaceTemplate
+        && matches!(
+            unit.source(),
+            bray_ir::MirSourceOrigin::GeneratedLifecycle(_)
+        )
+    {
+        return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+    }
+
     let mut encoder = Encoder {
         wire: WireEncoder::new(),
         context,
@@ -393,12 +402,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirUnitKind::ExecutableHost(_) if self.purpose == EncodingPurpose::CodegenContent => {
                 self.wire.write_u32(2);
             }
-            MirUnitKind::GeneratedLifecycle(_)
-                if self.purpose == EncodingPurpose::CodegenContent =>
-            {
-                self.wire.write_u32(3);
-            }
-            MirUnitKind::ExecutableHost(_) | MirUnitKind::GeneratedLifecycle(_) => {
+            MirUnitKind::ExecutableHost(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }
         }

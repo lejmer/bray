@@ -339,9 +339,7 @@ fn codegen_mappings(
                 // The mapping owns the selected process-entry spelling past the MIR borrow.
                 (host.native_entry().clone(), CodegenLinkage::Export)
             }
-            MirUnitKind::Synchronous
-            | MirUnitKind::ProtectedAsyncFrame(_)
-            | MirUnitKind::GeneratedLifecycle(_) => (
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => (
                 super::product::generated_symbol_name(
                     target,
                     CodegenLinkage::Internal,

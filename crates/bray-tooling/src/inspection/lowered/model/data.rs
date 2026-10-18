@@ -2595,7 +2595,6 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
         MirUnitKind::Synchronous => "synchronous",
         MirUnitKind::ProtectedAsyncFrame(_) => "protected_async_frame",
         MirUnitKind::ExecutableHost(_) => "executable_host",
-        MirUnitKind::GeneratedLifecycle(_) => "generated_lifecycle",
     }
 }
 

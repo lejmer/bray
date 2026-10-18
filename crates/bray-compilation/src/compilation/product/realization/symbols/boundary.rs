@@ -1,6 +1,4 @@
-use crate::compilation::product::realization::names::{
-    generated_instance_symbol_name, native_entry_name,
-};
+use crate::compilation::product::realization::names::native_entry_name;
 use crate::compilation::product::realization::support::native_boundary_mapping;
 use crate::compilation::product::specialization::{
     ConcreteCodegenInstance, ConcreteCodegenReachability,
@@ -25,7 +23,9 @@ fn default_instance_linkage(
 ) -> CodegenLinkage {
     // Package-portable bodies may be emitted by their producer and consumers.
     match instance.key().template() {
-        MirUnitKey::ImportedExecutable(_) => CodegenLinkage::LinkOnce,
+        MirUnitKey::ImportedExecutable(_) | MirUnitKey::GeneratedLifecycle(_) => {
+            CodegenLinkage::LinkOnce
+        }
         MirUnitKey::Bound(unit)
             if unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault =>
         {
@@ -83,11 +83,6 @@ impl Compilation {
             MirUnitKind::ExecutableHost(host) => {
                 Ok((host.native_entry().clone(), CodegenLinkage::Export, None))
             }
-            MirUnitKind::GeneratedLifecycle(_) => Ok((
-                generated_instance_symbol_name(target, CodegenLinkage::LinkOnce, instance.key())?,
-                CodegenLinkage::LinkOnce,
-                None,
-            )),
             MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
                 let realization = reachability
                     .instance(instance.key())
@@ -172,7 +167,6 @@ impl Compilation {
 
         let linkage = match instance.mir().kind() {
             MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
-            MirUnitKind::GeneratedLifecycle(_) => CodegenLinkage::LinkOnce,
             MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => self
                 .codegen_native_boundary(realization, &BTreeSet::new(), cancellation)?
                 .map_or_else(

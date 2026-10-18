@@ -87,9 +87,6 @@ impl Compilation {
 
             let signature = match instance.mir().kind() {
                 MirUnitKind::ExecutableHost(_) => void_signature(CallableAbi::Bray),
-                MirUnitKind::GeneratedLifecycle(reference) => {
-                    self.generated_lifecycle_signature(reference, cancellation)?
-                }
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
                     let realization = reachability
                         .instance(instance.key())
