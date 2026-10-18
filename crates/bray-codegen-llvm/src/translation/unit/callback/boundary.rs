@@ -185,21 +185,17 @@ pub(in crate::translation::unit) fn resolve_callback_outcome<'context>(
     trampoline: FunctionValue<'context>,
     outcome: BasicValueEnum<'context>,
 ) -> Result<(), CodegenFailure> {
-    let (state, _) = native_run_outcome(builder, outcome)?;
-
     let payload = super::super::support::extract_value(builder, outcome, 2)?;
 
-    let panicked = native_run_state_is(
-        builder,
-        state,
-        NativeRunState::PANICKED,
-        "callback.panicked",
-    )?;
+    let owns_report = crate::translation::panic::report_has_ownership(context, builder, |index| {
+        super::super::support::extract_value(builder, payload, index)
+            .map(BasicValueEnum::into_int_value)
+    })?;
 
-    let report = context.append_basic_block(trampoline, "callback.report_panic");
+    let report = context.append_basic_block(trampoline, "callback.report_incidents");
     let complete = context.append_basic_block(trampoline, "callback.complete");
 
-    llvm(builder.build_conditional_branch(panicked, report, complete))?;
+    llvm(builder.build_conditional_branch(owns_report, report, complete))?;
     builder.position_at_end(report);
 
     let panic = MirRuntimeReference::new(
@@ -281,6 +277,13 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
         9,
     )?;
 
+    let report = super::super::support::insert_value(
+        builder,
+        report,
+        context.i32_type().const_int(1, false).into(),
+        10,
+    )?;
+
     let consumer = crate::native::declare_runtime_function(
         module,
         context,
@@ -292,7 +295,7 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
         builder,
         report,
         consumer.as_global_value().as_pointer_value().into(),
-        18,
+        19,
     )?;
 
     let outcome = native_run_outcome_value(

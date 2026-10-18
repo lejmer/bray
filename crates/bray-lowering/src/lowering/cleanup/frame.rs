@@ -51,7 +51,7 @@ impl Lowerer<'_> {
             bray_ir::MirCleanupPhase::LifecycleResolution,
             entry,
             source,
-            None,
+            crate::cleanup_outcome::CleanupFailure::Cancellation(None),
             CleanupDestination::Goto(cancelled),
             &[],
             Some(&place),
@@ -252,8 +252,11 @@ impl Lowerer<'_> {
             Some(outcome.report()),
         )?;
 
-        let cancelled =
-            self.broadcast_terminal(source, CleanupDestination::PropagateCancellation, None)?;
+        let cancelled = self.broadcast_terminal(
+            source,
+            CleanupDestination::PropagateCancellation,
+            Some(outcome.report()),
+        )?;
 
         let completed = outcome.dispatch(
             &mut self.builder,

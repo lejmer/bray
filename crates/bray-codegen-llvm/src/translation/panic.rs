@@ -75,59 +75,64 @@ pub(crate) fn merge_pending_outcomes<'context>(
 ) -> Result<(), CodegenFailure> {
     let ty = crate::native::run_outcome_type(context, target);
 
-    let first = builder
-        .build_load(ty, destination, "outcome.first")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
+    let load_field = |pointer, index, name| {
+        let field = builder
+            .build_struct_gep(ty, pointer, index, name)
+            .map_err(CodegenFailure::backend_library)?;
 
-    let second = builder
-        .build_load(ty, secondary, "outcome.second")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
+        let value = builder
+            .build_load(
+                ty.get_field_type_at_index(index)
+                    .expect("native outcome field exists"),
+                field,
+                name,
+            )
+            .map_err(CodegenFailure::backend_library)?;
 
-    let first_state = builder
-        .build_extract_value(first, 0, "outcome.first.state")
-        .map_err(CodegenFailure::backend_library)?
-        .into_int_value();
+        Ok::<_, CodegenFailure>((field, value))
+    };
 
-    let second_state = builder
-        .build_extract_value(second, 0, "outcome.second.state")
-        .map_err(CodegenFailure::backend_library)?
-        .into_int_value();
+    let (state, first_state) = load_field(destination, 0, "outcome.first.state")?;
+
+    let (_, second_state) = load_field(secondary, 0, "outcome.second.state")?;
 
     let first_panicked = native_run_state_is(
         builder,
-        first_state,
+        first_state.into_int_value(),
         NativeRunState::PANICKED,
         "outcome.first.panicked",
     )?;
 
-    let second_panicked = native_run_state_is(
+    let second_completed = native_run_state_is(
         builder,
-        second_state,
-        NativeRunState::PANICKED,
-        "outcome.second.panicked",
+        second_state.into_int_value(),
+        NativeRunState::COMPLETED,
+        "outcome.second.completed",
     )?;
 
-    let both_panicked = builder
-        .build_and(first_panicked, second_panicked, "outcome.both.panicked")
+    let keep_first = builder
+        .build_or(first_panicked, second_completed, "outcome.keep.first")
         .map_err(CodegenFailure::backend_library)?;
 
-    let function = builder
-        .get_insert_block()
-        .and_then(BasicBlock::get_parent)
-        .expect("LLVM outcome merge requires an active function");
-
-    let merge = context.append_basic_block(function, "outcome.merge");
-    let inspect = context.append_basic_block(function, "outcome.inspect.second");
-    let replace = context.append_basic_block(function, "outcome.replace");
-    let finished = context.append_basic_block(function, "outcome.finished");
+    let selected = builder
+        .build_select(keep_first, first_state, second_state, "outcome.state")
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
-        .build_conditional_branch(both_panicked, merge, inspect)
+        .build_store(state, selected)
         .map_err(CodegenFailure::backend_library)?;
 
-    builder.position_at_end(merge);
+    let (payload, first_payload) = load_field(destination, 1, "outcome.first.payload")?;
+
+    let (_, second_payload) = load_field(secondary, 1, "outcome.second.payload")?;
+
+    let selected = builder
+        .build_select(keep_first, first_payload, second_payload, "outcome.payload")
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(payload, selected)
+        .map_err(CodegenFailure::backend_library)?;
 
     let first_report = builder
         .build_struct_gep(ty, destination, 2, "outcome.first.report")
@@ -136,6 +141,75 @@ pub(crate) fn merge_pending_outcomes<'context>(
     let second_report = builder
         .build_struct_gep(ty, secondary, 2, "outcome.second.report")
         .map_err(CodegenFailure::backend_library)?;
+
+    merge_report_slots(
+        module,
+        context,
+        builder,
+        target,
+        runtime_abi,
+        first_report,
+        second_report,
+    )?;
+
+    builder
+        .build_store(secondary, ty.const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
+}
+
+fn merge_report_slots<'context>(
+    module: &Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    target: &CodegenTarget,
+    runtime_abi: RuntimeAbiVersion,
+    first: PointerValue<'context>,
+    second: PointerValue<'context>,
+) -> Result<(), CodegenFailure> {
+    let function = builder
+        .get_insert_block()
+        .and_then(BasicBlock::get_parent)
+        .expect("LLVM report merge requires an active function");
+
+    let inspect = context.append_basic_block(function, "report.inspect.first");
+    let replace = context.append_basic_block(function, "report.replace");
+    let merge = context.append_basic_block(function, "report.merge");
+    let finished = context.append_basic_block(function, "report.finished");
+    let incoming = report_slot_has_ownership(context, builder, second)?;
+
+    builder
+        .build_conditional_branch(incoming, inspect, finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(inspect);
+
+    let retained = report_slot_has_ownership(context, builder, first)?;
+
+    builder
+        .build_conditional_branch(retained, merge, replace)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(replace);
+
+    let report = builder
+        .build_load(
+            crate::native::panic_report_type(context),
+            second,
+            "report.incoming",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(first, report)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_unconditional_branch(finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(merge);
 
     let role = RuntimeAbiRole::PanicReportSuppression;
     let runtime = crate::native::declare_runtime_function(module, context, target, role)?;
@@ -146,40 +220,13 @@ pub(crate) fn merge_pending_outcomes<'context>(
         target,
         &CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(role, runtime_abi)),
         runtime,
-        &[first_report.into(), second_report.into()],
+        &[first.into(), second.into()],
         "outcome.suppressed.report",
     )?
-    .expect("panic report suppression must return a report");
+    .expect("report suppression returns the combined owner");
 
     builder
-        .build_store(first_report, report)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_unconditional_branch(finished)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(inspect);
-
-    let second_completed = native_run_state_is(
-        builder,
-        second_state,
-        NativeRunState::COMPLETED,
-        "outcome.second.completed",
-    )?;
-
-    let keep_first = builder
-        .build_or(first_panicked, second_completed, "outcome.keep.first")
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_conditional_branch(keep_first, finished, replace)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(replace);
-
-    builder
-        .build_store(destination, second)
+        .build_store(first, report)
         .map_err(CodegenFailure::backend_library)?;
 
     builder
@@ -191,7 +238,58 @@ pub(crate) fn merge_pending_outcomes<'context>(
     Ok(())
 }
 
-/// Traps an impossible failure after the compiler has established runtime authority.
+fn report_slot_has_ownership<'context>(
+    context: &'context Context,
+    builder: &Builder<'context>,
+    report: PointerValue<'context>,
+) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    let ty = crate::native::panic_report_type(context);
+
+    report_has_ownership(context, builder, |index| {
+        let pointer = builder
+            .build_struct_gep(ty, report, index, "report.ownership.field")
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder
+            .build_load(
+                ty.get_field_type_at_index(index)
+                    .expect("report ownership field exists"),
+                pointer,
+                "report.ownership",
+            )
+            .map(inkwell::values::BasicValueEnum::into_int_value)
+            .map_err(CodegenFailure::backend_library)
+    })
+}
+
+pub(crate) fn report_has_ownership<'context>(
+    context: &'context Context,
+    builder: &Builder<'context>,
+    mut field: impl FnMut(u32) -> Result<inkwell::values::IntValue<'context>, CodegenFailure>,
+) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    let mut present = context.bool_type().const_zero();
+
+    // The native header owns its primary, incident chain and unused reservation independently.
+    for index in [10, 17, 18] {
+        let value = field(index)?;
+
+        let owned = builder
+            .build_int_compare(
+                inkwell::IntPredicate::NE,
+                value,
+                value.get_type().const_zero(),
+                "report.owned",
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
+        present = builder
+            .build_or(present, owned, "report.has_ownership")
+            .map_err(CodegenFailure::backend_library)?;
+    }
+
+    Ok(present)
+}
+
 pub(crate) fn require_runtime_success<'context>(
     module: &Module<'context>,
     context: &'context Context,

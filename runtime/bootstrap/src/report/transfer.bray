@@ -100,10 +100,7 @@ trusted internal func panic_report_suppression(
     return trusted suppress_report(report, suppressed);
 }
 
-trusted internal func suppress_report(
-    pos mut report: PanicReportData,
-    pos suppressed: PanicReportData
-) -> PanicReportData
+trusted internal func suppress_report(pos report: PanicReportData, pos suppressed: PanicReportData) -> PanicReportData
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_report_callbacks(report = &report),
@@ -111,13 +108,31 @@ trusted internal func suppress_report(
     )
     ensures(trusted native_report_callbacks(report = &result))
 {
-    let mut incident_records = trusted retain_report(suppressed);
-
-    let mut chain: ReportRecords =
+    let (mut primary, mut chain, mut incident_records) = if report.primary_present == 0
     {
-        head = report.outgoing_head,
-        tail = report.outgoing_tail,
-        count = report.outgoing_count
+        let earlier = trusted retain_report(report);
+
+        let later: ReportRecords =
+        {
+            head = suppressed.outgoing_head,
+            tail = suppressed.outgoing_tail,
+            count = suppressed.outgoing_count
+        };
+
+        yield(suppressed, earlier, later);
+    }
+    else
+    {
+        let earlier: ReportRecords =
+        {
+            head = report.outgoing_head,
+            tail = report.outgoing_tail,
+            count = report.outgoing_count
+        };
+
+        let later = trusted retain_report(suppressed);
+
+        yield(report, earlier, later);
     };
 
     trusted report_records_append(
@@ -125,10 +140,10 @@ trusted internal func suppress_report(
         std.memory.address_of_mut<ReportRecords>(&mut incident_records)
     );
 
-    report.outgoing_head = chain.head;
-    report.outgoing_tail = chain.tail;
-    report.outgoing_count = chain.count;
-    return report;
+    primary.outgoing_head = chain.head;
+    primary.outgoing_tail = chain.tail;
+    primary.outgoing_count = chain.count;
+    return primary;
 }
 
 // Transfer one owned report into its preadmitted record. Its existing incident

@@ -60,7 +60,7 @@ impl Lowerer<'_> {
                 )))
             }
             Some(ImplementationHook::CurrentRunCancellationPropagation) => {
-                self.finish_cancellation(current, &source, expression.into())?;
+                self.finish_cancellation(current, &source, expression.into(), None)?;
 
                 Ok(Some(LoweredExpression::terminated(source)))
             }

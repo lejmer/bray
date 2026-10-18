@@ -1262,8 +1262,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(report)?;
                 self.runtime_reference(*runtime);
             }
-            MirTerminatorKind::PropagateCancellation { runtime } => {
+            MirTerminatorKind::PropagateCancellation { report, runtime } => {
                 self.wire.write_u32(13);
+                self.operand(report)?;
                 self.runtime_reference(*runtime);
             }
             MirTerminatorKind::CancelCurrentRun { cleanup } => {
@@ -1306,7 +1307,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.edge(completed)?;
                 self.wire.write_u32(panicked.target().slot());
                 self.place(panicked.report())?;
-                self.edge(cancelled)?;
+                self.wire.write_u32(cancelled.target().slot());
+                self.place(cancelled.report())?;
             }
         }
 
@@ -1405,6 +1407,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirImmediateValue::Boolean(true) => 1,
             MirImmediateValue::Unit => 2,
             MirImmediateValue::NullableAbsent => 3,
+            MirImmediateValue::EmptyPanicReport => 4,
         });
     }
 
@@ -2395,7 +2398,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                         self.wire.write_u32(0);
                         self.operand(value)?;
                     }
-                    bray_ir::MirTaskTerminalState::Cancelled => self.wire.write_u32(1),
+                    bray_ir::MirTaskTerminalState::Cancelled(report) => {
+                        self.wire.write_u32(1);
+                        self.operand(report)?;
+                    }
                     bray_ir::MirTaskTerminalState::Panicked(report) => {
                         self.wire.write_u32(2);
                         self.operand(report)?;

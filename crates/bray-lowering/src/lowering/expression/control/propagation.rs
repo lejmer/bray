@@ -360,7 +360,7 @@ impl Lowerer<'_> {
         )?;
 
         self.finish_panic_to_active_catch(id, panicked, &source, report, report_type)?;
-        self.finish_cancellation(cancelled, &source, id.into())?;
+        self.finish_cancellation(cancelled, &source, id.into(), None)?;
 
         Ok(LoweredExpression::continuing(
             completed,

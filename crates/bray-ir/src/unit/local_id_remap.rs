@@ -213,7 +213,8 @@ pub(super) fn remap_terminator(
             remap_edge(completed, mappings);
             panicked.target = mappings.block(panicked.target);
             panicked.report.remap_local_ids(mappings);
-            remap_edge(cancelled, mappings);
+            cancelled.target = mappings.block(cancelled.target);
+            cancelled.report.remap_local_ids(mappings);
         }
         MirTerminatorKind::BeginCleanup(cleanup)
         | MirTerminatorKind::ContinueCleanup(cleanup)
@@ -224,10 +225,11 @@ pub(super) fn remap_terminator(
             report.remap_local_ids(mappings);
             remap_cleanup_edge(cleanup, mappings);
         }
-        MirTerminatorKind::PropagatePanic { report, .. } => {
+        MirTerminatorKind::PropagatePanic { report, .. }
+        | MirTerminatorKind::PropagateCancellation { report, .. } => {
             report.remap_local_ids(mappings);
         }
-        MirTerminatorKind::Unreachable | MirTerminatorKind::PropagateCancellation { .. } => {}
+        MirTerminatorKind::Unreachable => {}
     }
 }
 
@@ -298,10 +300,11 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => task.remap_local_ids(mappings),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 value.remap_local_ids(mappings);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             incident.remap_local_ids(mappings);

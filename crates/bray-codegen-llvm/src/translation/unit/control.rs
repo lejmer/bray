@@ -130,8 +130,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::PropagatePanic { report, runtime } => {
                 self.translate_panic_propagation(report, *runtime)?;
             }
-            MirTerminatorKind::PropagateCancellation { runtime } => {
-                self.translate_cancellation_propagation(*runtime)?;
+            MirTerminatorKind::PropagateCancellation { report, .. } => {
+                self.translate_cancellation_propagation(report)?;
             }
             MirTerminatorKind::PatternBranch {
                 subject,
@@ -358,7 +358,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .into_struct_value();
         }
 
-        let payload_index = if kind == bray_runtime_abi::NativeFrameProgressKind::PANICKED.code() {
+        let payload_index = if kind == bray_runtime_abi::NativeFrameProgressKind::PANICKED.code()
+            || kind == bray_runtime_abi::NativeFrameProgressKind::CANCELLED.code()
+        {
             3
         } else {
             2

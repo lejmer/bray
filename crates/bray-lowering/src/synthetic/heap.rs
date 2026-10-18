@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundCallResult, CheckedMemoryOperationKind, MemoryLayoutQueryKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCallableReference,
+    MirBlockId, MirBlockKind, MirCall, MirCallFailureEdge, MirCallTarget, MirCallableReference,
     MirCapacityError, MirCleanupEdge, MirCleanupPhase, MirEdge, MirMemoryOperation, MirOperand,
     MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor,
     MirStandardLibraryHelper, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
@@ -289,19 +289,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             builder,
             source,
             parameter.clone(),
-            Some(report.clone()),
+            crate::cleanup_outcome::CleanupFailure::Panic(MirOperand::Move(report.clone())),
         )?;
 
-        let cancelled =
-            self.push_heap_construction_failure(builder, source, parameter.clone(), None)?;
+        let cancelled = self.push_heap_construction_failure(
+            builder,
+            source,
+            parameter.clone(),
+            crate::cleanup_outcome::CleanupFailure::Cancellation(Some(MirOperand::Move(
+                report.clone(),
+            ))),
+        )?;
 
         builder.set_terminator(
             entry,
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [MirOperand::Value(allocation)]),
-                panicked: MirCallPanicEdge::new(panicked, report),
-                cancelled: MirEdge::new(cancelled, []),
+                panicked: MirCallFailureEdge::new(panicked, report.clone()),
+                cancelled: MirCallFailureEdge::new(cancelled, report),
             },
         );
 
@@ -339,7 +345,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &mut MirUnitBuilder,
         source: &MirSourceAnchor,
         parameter: MirPlace,
-        report: Option<MirPlace>,
+        failure: crate::cleanup_outcome::CleanupFailure,
     ) -> Result<MirBlockId, C::Error> {
         let invalid = |cause| self.capacity_error(cause);
 
@@ -349,15 +355,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let outcome = self.cleanup_outcome(builder, failed, source)?;
 
-        if let Some(report) = report {
-            outcome
-                .initialize_panic(builder, failed, source, MirOperand::Move(report))
-                .map_err(invalid)?;
-        } else {
-            outcome
-                .initialize_cancellation(builder, failed, source)
-                .map_err(invalid)?;
+        match failure {
+            crate::cleanup_outcome::CleanupFailure::Panic(report) => {
+                outcome.initialize_panic(builder, failed, source, report)
+            }
+            crate::cleanup_outcome::CleanupFailure::Cancellation(report) => {
+                outcome.initialize_cancellation(builder, failed, source, report)
+            }
         }
+        .map_err(invalid)?;
 
         let broadcast = builder
             .push_block(source.clone(), MirBlockKind::CleanupBroadcast)

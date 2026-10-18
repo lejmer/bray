@@ -219,6 +219,104 @@ catch boundaries need one coherent ownership transport before connecting Transfe
 Inspect this producer/consumer boundary completely before changing it. This is an investigation,
 not an accepted implementation or a claim that outcome transport is finished.
 
+## Current transport replacement boundary
+
+Checkpoint `61fd2eac` is pushed. The subsequent report-transport edits are uncommitted.
+Production report/activation declarations, including result movement and retirement,
+pass the focused checks recorded below. The expanded native fixture still needs execution. Native execution remains blocked
+by the unfinished compiler transfer. Do not claim these fixtures have executed.
+
+Replace helper-local failure collection with the enclosing cleanup collection. Retain the
+existing native outcome states and report representation. No Rust owner, TLS sink, source
+feature, extra structural activation or outcome journal is needed. The concrete approach
+under examination is borrowed state/report places for generated cleanup helpers, using
+ordinary MIR parameter storage and explicit cleanup operands. Keep source-call failure
+storage distinct from that collection so a nested source catch cannot consume its caller's
+already-retained incidents. Native callbacks already own initialized outcome destinations.
+
+The collection invariant is that completed state has no report obligation. Cancellation and
+panic states own a report, possibly an empty incident chain for cancellation. Initialize a
+report on an abnormal transition, not eagerly at every successful cleanup entry. A finalizer
+Error can become a retained incident only during abnormal cleanup. Normal fallible scoped
+exit returns its Result explicitly. Check the existing normal-exit legality coverage for
+represented and inactive captures before relying on this invariant globally.
+
+Cancellation transport currently discards reports. Its call edge, abnormal cleanup entry and
+propagation must carry report ownership, just as panic does. Prefer one failure-edge shape
+and shared routing over separate panic/cancellation implementations. Completed native callback
+reports are a separate already-existing boundary and must be retained regardless of the
+callback control tag. Do not extend ordinary source completion with an incident channel
+without a demonstrated source-language case requiring it.
+
+Remaining proof before changing generated helper execution: resumable structural expansion
+must share the enclosing continuation rather than acquire a frame per organizational helper.
+The existing scalar-only MIR splice is not a cleanup splice. Do not broaden it by relaxing its
+safety checks. Remove the forced Immediate invocation only when the actual continuation is
+connected. Do not repeatedly reconsider TLS, a Rust frame, universal extra hidden arguments,
+zeroing full reports on successful paths, or independent nested helper report grouping.
+
+## Cancellation transport batch, 2026-10-18
+
+The worktree remains on pushed `61fd2eac`. Cancellation transport is uncommitted.
+`MirCallFailureEdge` now carries either abnormal report. Cancellation propagation
+and terminal publication own a report operand. `EmptyPanicReport` is an internal MIR
+immediate for fresh cancellation, initialized only on that abnormal path. Source
+and synthetic lowering, walks, remapping, codecs, inspection and LLVM consume this
+contract. Panic and cancellation use one LLVM report-transfer route. Generated
+terminal publication uses the existing frame, with its unused Rust fallback removed.
+The source finalizer dispatcher transfers both failure reports to its enclosing handler.
+The collector now merges cancellation reports instead of replacing them with a flag.
+
+Verification is complete for this transport checkpoint. The final focused batch passes
+91 compilation checks, including production authority declarations and both native callback
+regressions, plus 24 LLVM checks. The remaining full library suites pass 44 MIR, 39 lowering,
+191 interface and 21 ABI tests. Four runtime packaging checks pass. Logs in the shared target:
+`bra-505-cancellation-report-focused.log`, `bra-505-cancellation-report-remaining.log`, and
+`bra-505-cancellation-boundary-tests.log`. No test process remains active. The first batch's
+broad `unit::` filter unnecessarily selected costly storage-growth tests. Do not repeat it.
+The lowering suffix regression now checks report transfer to both destinations. Native
+fixtures now construct actual report ownership, rather than zeroed opaque headers.
+
+Subsequent source corrections are not in that running test binary. Activation retention
+now accepts an owned report, and every progress caller uses the existing witness-preserving
+`take_report` operation. A direct move out of a borrowed progress was correctly rejected
+and removed. A partial report-field move also does not substitute for the established
+whole-witness transfer. Result replacement retains the old report before replacing progress.
+The production test now includes `retire` so its source is covered too.
+
+Inactive abandonment proof: continuation::await_frame passes no completion destination,
+LLVM compose_awaited_frame sets abandoning from completion.is_none(), and Bray child
+retirement owns the actual selected child. deliver now retains non-panic reports from
+both Completed and Cancelled abandoned children in the run incident chain before sending
+an empty expected cancellation to a continuing parent. A panic still delivers its owned
+report to the parent's handler. Native acceptance and ordering checks remain outstanding.
+
+LLVM callback/buffer outcome merging now retains report ownership independently of control
+state. Native callback reporting uses the same ownership predicate for primary, chain and
+reservation fields. Entry-failure report construction sets the primary ownership flag and
+uses the actual consumer field. The native cancellation-plus-cleanup-panic regression passes,
+as do source and imported foreign callbacks. These tests exercise LLVM-generated boundaries.
+They do not execute the expanded Bray bootstrap report/activation fixture yet.
+
+Rustfmt, mutating structural style and Bray formatting pass in
+`bra-505-cancellation-format.log`. Style reports existing module-size warnings. The
+workspace all-target check reached the known native toolchain mismatch: Rust 1.99's LLVM 23
+provider archive cannot be read by pinned LLVM 22. This is not a successful workspace check.
+Do not repeat that run with the same toolchain. Native full acceptance must rebuild providers
+with Rust 1.98.1 before consuming them. The focused codegen demand and MIR suites pass in
+`bra-505-cancellation-demand-tests.log`, including report projection constant ownership.
+
+The audit covers every changed file, failure producers and destinations, report representation,
+projection walks/demands, codec and inspection, native terminal consumers, and Bray report
+retirement. The shared LLVM ownership predicate replaces panic-only checks. Cancellation and
+panic use the same edge and transfer implementation. The new empty-report value initializes
+only abnormal paths. No successful source path acquires an extra owner or report allocation.
+
+Generated helpers still need the shared enclosing collection and resumable structural
+continuation. TransferCleanupIncident is unfinished. Do not repeat the known native full-build
+failure or claim this batch completes BRA-505. No new runtime frame, language feature, ABI
+version, downstream validation or Rust runtime implementation was added.
+
 ## Active agreement
 
 Complete BRA-505, then BRA-619, with one independently reviewed stacked PR per issue.

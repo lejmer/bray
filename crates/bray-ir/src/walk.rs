@@ -258,10 +258,11 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => visit_place_operands(task, visit),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 visit_operand(value, visit);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             visit_place_operands(incident, visit)
@@ -272,6 +273,13 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+    }
+}
+
+impl MirPlace {
+    /// Visits operands used to select this place's projections, in evaluation order.
+    pub fn for_each_operand(&self, mut visit: impl FnMut(&MirOperand)) {
+        visit_place_operands(self, &mut visit);
     }
 }
 
@@ -296,9 +304,9 @@ impl MirTerminatorKind {
                 }
             }
             Self::ForwardRunResult { result, .. } => visit_operand(result, &mut visit),
-            Self::Panic { report, .. } | Self::PropagatePanic { report, .. } => {
-                visit_operand(report, &mut visit)
-            }
+            Self::Panic { report, .. }
+            | Self::PropagatePanic { report, .. }
+            | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
             Self::Iterate { cursor, .. } | Self::RangeIterate { cursor, .. } => {
                 visit_place_operands(cursor, &mut visit)
             }
@@ -307,7 +315,6 @@ impl MirTerminatorKind {
             | Self::CheckCallOutcome { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
-            | Self::PropagateCancellation { .. }
             | Self::CancelCurrentRun { .. } => {}
         }
     }
@@ -476,7 +483,7 @@ pub(crate) fn for_each_terminator_storage(
         } => {
             visit_edge_storage(completed, &mut visit);
             visit_place_storage(panicked.report(), &mut visit);
-            visit_edge_storage(cancelled, &mut visit);
+            visit_place_storage(cancelled.report(), &mut visit);
         }
         MirTerminatorKind::BeginCleanup(cleanup)
         | MirTerminatorKind::ContinueCleanup(cleanup)
@@ -540,9 +547,9 @@ mod tests {
     }
 
     #[test]
-    fn call_panic_report_storage_includes_projection_selectors() {
+    fn call_failure_report_storage_includes_projection_selectors() {
         use crate::{
-            MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirPlace, MirProjection,
+            MirBlockId, MirCallFailureEdge, MirEdge, MirOperand, MirPlace, MirProjection,
             MirProjectionKind, MirStorageId, MirTerminatorKind, MirUnitId,
         };
 
@@ -563,15 +570,15 @@ mod tests {
 
         let terminator = MirTerminatorKind::CheckCallOutcome {
             completed: MirEdge::new(MirBlockId::from_slot(unit, 1), []),
-            panicked: MirCallPanicEdge::new(MirBlockId::from_slot(unit, 2), report),
-            cancelled: MirEdge::new(MirBlockId::from_slot(unit, 3), []),
+            panicked: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 2), report.clone()),
+            cancelled: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 3), report),
         };
 
         let mut storages = Vec::new();
 
         super::for_each_terminator_storage(&terminator, |storage| storages.push(storage));
 
-        assert_eq!(storages, [root, selector]);
+        assert_eq!(storages, [root, selector, root, selector]);
     }
 
     #[test]

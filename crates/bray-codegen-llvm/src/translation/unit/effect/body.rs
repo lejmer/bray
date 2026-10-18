@@ -621,16 +621,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 nonzero_integer(&self.builder, value, "run.cancelled")
                     .map(|value| Some(value.into()))
             }
-            MirAsyncOperation::PublishTerminalState { state, runtime } => {
-                if self.frame_context.is_some() {
-                    self.translate_frame_terminal_state(state)?;
+            MirAsyncOperation::PublishTerminalState { state, .. } => {
+                self.translate_frame_terminal_state(state)?;
 
-                    return Ok(None);
-                }
-
-                let arguments = self.terminal_state_arguments(*runtime, state)?;
-
-                self.invoke_runtime(*runtime, &arguments)
+                Ok(None)
             }
             MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
             | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {

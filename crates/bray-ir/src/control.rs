@@ -161,15 +161,15 @@ pub struct MirCleanupEdge {
     pub(crate) edge: MirEdge,
 }
 
-/// Panic successor of one synchronous Bray call.
+/// Failure successor of one synchronous Bray call, retaining its report ownership.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirCallPanicEdge {
+pub struct MirCallFailureEdge {
     pub(crate) target: MirBlockId,
     pub(crate) report: MirPlace,
 }
 
-impl MirCallPanicEdge {
-    /// Creates a panic successor that stores the propagated report before transfer.
+impl MirCallFailureEdge {
+    /// Creates a failure successor that stores the propagated report before transfer.
     pub const fn new(target: MirBlockId, report: MirPlace) -> Self {
         Self { target, report }
     }
@@ -438,9 +438,9 @@ pub enum MirTerminatorKind {
         /// Normal continuation after the call completed.
         completed: MirEdge,
         /// Abnormal continuation receiving the propagated panic report.
-        panicked: MirCallPanicEdge,
+        panicked: MirCallFailureEdge,
         /// Cancellation continuation after ownership transferred into the call.
-        cancelled: MirEdge,
+        cancelled: MirCallFailureEdge,
     },
     /// Enter phase-one cleanup.
     BeginCleanup(MirCleanupEdge),
@@ -462,6 +462,8 @@ pub enum MirTerminatorKind {
     },
     /// Transfer cancellation to the nearest native run boundary.
     PropagateCancellation {
+        /// Owned cleanup incidents retained during cancellation.
+        report: MirOperand,
         /// Selected private cancellation-entry ABI role.
         runtime: crate::MirRuntimeReference,
     },
@@ -544,14 +546,7 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallOutcome {
-                completed,
-                cancelled,
-                ..
-            } => {
-                visit(completed)?;
-                visit(cancelled)?;
-            }
+            Self::CheckCallOutcome { completed, .. } => visit(completed)?,
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }

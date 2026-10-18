@@ -304,33 +304,41 @@ impl Lowerer<'_> {
             .clone()
             .expect("ordinary finalization retains the surrounding cleanup failure targets");
 
-        let panic = self.builder.push_block(
-            Self::retained_source(source),
-            self.builder.block_kind(block),
-        )?;
+        let mut transfers = [panicked, cancelled];
 
-        self.push_operation(
-            panic,
-            Self::retained_source(source),
-            MirOperationKind::Store {
-                kind: bray_ir::MirStoreKind::Initialize,
-                destination: report,
-                value: outcome.report(),
-            },
-            None,
-        )?;
+        for target in &mut transfers {
+            let transfer = self.builder.push_block(
+                Self::retained_source(source),
+                self.builder.block_kind(block),
+            )?;
 
-        self.set_terminator(
-            panic,
-            Self::retained_source(source),
-            MirTerminatorKind::Goto(MirEdge::new(panicked, [])),
-        )?;
+            self.push_operation(
+                transfer,
+                Self::retained_source(source),
+                MirOperationKind::Store {
+                    kind: bray_ir::MirStoreKind::Initialize,
+                    destination: Self::retained_place(&report),
+                    value: outcome.report(),
+                },
+                None,
+            )?;
+
+            self.set_terminator(
+                transfer,
+                Self::retained_source(source),
+                MirTerminatorKind::Goto(MirEdge::new(*target, [])),
+            )?;
+
+            *target = transfer;
+        }
+
+        let [panicked, cancelled] = transfers;
 
         Ok(outcome.dispatch(
             &mut self.builder,
             block,
             source,
-            panic,
+            panicked,
             cancelled,
             &mut None,
         )?)

@@ -689,7 +689,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 first,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -701,7 +701,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 different,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::Return,
                 &[],
                 Some(&different_place),
@@ -713,7 +713,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 second,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -725,7 +725,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 different_occurrence,
                 &different_source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -737,7 +737,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 panicking,
                 &source,
-                Some(bray_ir::MirOperand::Move(report)),
+                crate::cleanup_outcome::CleanupFailure::Panic(bray_ir::MirOperand::Move(report)),
                 crate::lowering::cleanup::CleanupDestination::PropagatePanic,
                 &[],
                 Some(&shared_place),
@@ -815,16 +815,23 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(
-            destinations
-                .iter()
-                .any(|destination| matches!(destination, MirTerminatorKind::Return(None)))
-        );
+        let returned_report = destinations
+            .iter()
+            .find_map(|destination| match destination {
+                MirTerminatorKind::Return(Some(report)) => Some(report),
+                _ => None,
+            })
+            .expect("return route must transfer the collected report");
 
-        assert!(destinations.iter().any(|destination| matches!(
-            destination,
-            MirTerminatorKind::PropagateCancellation { .. }
-        )));
+        let propagated_report = destinations
+            .iter()
+            .find_map(|destination| match destination {
+                MirTerminatorKind::PropagateCancellation { report, .. } => Some(report),
+                _ => None,
+            })
+            .expect("cancellation route must transfer the collected report");
+
+        assert_eq!(returned_report, propagated_report);
     }
 
     #[test]

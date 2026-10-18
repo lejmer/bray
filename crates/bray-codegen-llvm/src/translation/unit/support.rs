@@ -144,7 +144,7 @@ pub(super) fn native_run_outcome_value<'context>(
         .const_zero()
         .into();
 
-    let payload_index = if state == NativeRunState::PANICKED {
+    let payload_index = if state == NativeRunState::PANICKED || state == NativeRunState::CANCELLED {
         2
     } else {
         1

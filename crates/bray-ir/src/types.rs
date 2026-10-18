@@ -321,7 +321,7 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             cancelled,
         } => {
             collect_edge_types(completed, types);
-            collect_edge_types(cancelled, types);
+            collect_place_types(cancelled.report(), types);
             collect_place_types(panicked.report(), types);
         }
         MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
@@ -331,10 +331,10 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             collect_operand_types(report, types);
             collect_cleanup_edge_types(cleanup, types);
         }
-        MirTerminatorKind::PropagatePanic { report, .. } => {
+        MirTerminatorKind::PropagatePanic { report, .. }
+        | MirTerminatorKind::PropagateCancellation { report, .. } => {
             collect_operand_types(report, types);
         }
-        MirTerminatorKind::PropagateCancellation { .. } => {}
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_types(cleanup, types);
         }
@@ -406,10 +406,11 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => collect_place_types(task, types),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 collect_operand_types(value, types);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
         MirAsyncOperation::TransferCleanupIncident {
             incident,

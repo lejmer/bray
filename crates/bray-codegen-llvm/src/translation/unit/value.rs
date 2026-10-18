@@ -29,9 +29,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             "checked MIR value translation violated an established compiler contract: {unexpected:?}"
                         ),
                     },
-                    MirImmediateValue::Unit | MirImmediateValue::NullableAbsent => {
-                        Ok(ty.const_zero())
-                    }
+                    MirImmediateValue::Unit
+                    | MirImmediateValue::NullableAbsent
+                    | MirImmediateValue::EmptyPanicReport => Ok(ty.const_zero()),
                 }
             }
             MirOperand::Copy(place) => {

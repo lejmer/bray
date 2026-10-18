@@ -72,6 +72,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             cancelled,
             source,
             MirTerminatorKind::PropagateCancellation {
+                report: outcome.report(),
                 runtime: MirRuntimeReference::new(
                     RuntimeAbiRole::CurrentRunCancellationPropagation,
                     abi,
@@ -122,8 +123,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
-                panicked: bray_ir::MirCallPanicEdge::new(panicked, report.clone()),
-                cancelled: MirEdge::new(cancelled, []),
+                panicked: bray_ir::MirCallFailureEdge::new(panicked, report.clone()),
+                cancelled: bray_ir::MirCallFailureEdge::new(cancelled, report.clone()),
             },
         );
 
@@ -134,7 +135,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             panicked,
             source,
             MirTerminatorKind::PropagatePanic {
-                report: bray_ir::MirOperand::Move(report),
+                report: bray_ir::MirOperand::Move(report.clone()),
                 runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
             },
         )?;
@@ -144,6 +145,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             cancelled,
             source,
             MirTerminatorKind::PropagateCancellation {
+                report: bray_ir::MirOperand::Move(report.clone()),
                 runtime: MirRuntimeReference::new(
                     RuntimeAbiRole::CurrentRunCancellationPropagation,
                     abi,
@@ -173,7 +175,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block(source.clone(), MirBlockKind::LifecycleResolution)
             .map_err(invalid)?;
 
-        let argument = if let MirTerminatorKind::PropagatePanic { report, .. } = &mut terminator
+        let argument = if let MirTerminatorKind::PropagatePanic { report, .. }
+        | MirTerminatorKind::PropagateCancellation { report, .. } =
+            &mut terminator
             && matches!(report, bray_ir::MirOperand::Value(_))
         {
             let report_type = self

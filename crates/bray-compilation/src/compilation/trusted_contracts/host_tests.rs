@@ -8,7 +8,7 @@ use crate::{Compilation, CompilationRequest};
 fn production_report_consumers_check_their_callback_protocol() {
     let compilation = production_host_compilation("module app;");
 
-    let sources = [
+    let names = [
         "dispose",
         "begin",
         "number",
@@ -18,13 +18,28 @@ fn production_report_consumers_check_their_callback_protocol() {
         "exchange_record",
         "pop_record_value",
         "retain_primary",
-    ]
-    .map(|name| {
-        source_function_body_key(&compilation, name)
-            .source()
-            .syntax()
-            .source_id()
-    });
+        "accept_progress",
+        "transfer",
+        "retire",
+    ];
+
+    let symbols = compilation.symbol_graph().unwrap();
+
+    let sources = symbols
+        .functions()
+        .iter()
+        .filter_map(|function| {
+            let symbol = function.id().into();
+            let name = symbols.member_name(symbol)?;
+
+            names.contains(&name.as_str()).then(|| {
+                symbols
+                    .declaration_syntax_anchor(symbol)
+                    .expect("production source function has its declaration")
+                    .source_id()
+            })
+        })
+        .collect::<Vec<_>>();
 
     let diagnostics = compilation.check_diagnostics();
 

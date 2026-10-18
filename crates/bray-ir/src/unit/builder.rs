@@ -1139,8 +1139,8 @@ mod tests {
                 source.clone(),
                 MirTerminatorKind::CheckCallOutcome {
                     completed: MirEdge::new(completed, []),
-                    panicked: crate::MirCallPanicEdge::new(panicked, report),
-                    cancelled: MirEdge::new(cancelled, []),
+                    panicked: crate::MirCallFailureEdge::new(panicked, report.clone()),
+                    cancelled: crate::MirCallFailureEdge::new(cancelled, report),
                 },
             );
 

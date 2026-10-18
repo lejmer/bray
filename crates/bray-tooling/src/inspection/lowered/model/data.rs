@@ -1525,7 +1525,10 @@ fn async_operation(
                     parts.attribute("state", "completed");
                     parts.operand("value", value, context)?;
                 }
-                MirTaskTerminalState::Cancelled => parts.attribute("state", "cancelled"),
+                MirTaskTerminalState::Cancelled(report) => {
+                    parts.attribute("state", "cancelled");
+                    parts.operand("report", report, context)?;
+                }
                 MirTaskTerminalState::Panicked(report) => {
                     parts.attribute("state", "panicked");
                     parts.operand("report", report, context)?;
@@ -1847,7 +1850,15 @@ fn inspection_terminator(
             cancelled,
         } => {
             parts.edge("completed", completed, None, &context)?;
-            parts.edge("cancelled", cancelled, None, &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("cancelled"),
+                target: cancelled.target().slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            parts.place("cancelled_report", cancelled.report(), &context)?;
 
             parts.edges.push(InspectionMirEdge {
                 role: String::from("panicked"),
@@ -1881,7 +1892,11 @@ fn inspection_terminator(
 
             "propagate_panic"
         }
-        MirTerminatorKind::PropagateCancellation { .. } => "propagate_cancellation",
+        MirTerminatorKind::PropagateCancellation { report, .. } => {
+            parts.operand("report", report, &context)?;
+
+            "propagate_cancellation"
+        }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             parts.cleanup_edge("cleanup", cleanup, &context)?;
 
@@ -2792,6 +2807,7 @@ fn immediate_text(value: MirImmediateValue) -> &'static str {
         MirImmediateValue::Boolean(false) => "false",
         MirImmediateValue::Unit => "()",
         MirImmediateValue::NullableAbsent => "none",
+        MirImmediateValue::EmptyPanicReport => "empty_report",
     }
 }
 

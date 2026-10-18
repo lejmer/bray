@@ -25,23 +25,21 @@ internal func cleanup_exit(pos kind: u32) -> usize
     return (kind - 1) as usize;
 }
 
-// The caller has removed this progress from its callback destination. Retain only
-// cleanup incidents here. The original source outcome remains in header.progress.
+// Retain an owned cleanup report. The source outcome remains in header.progress.
 trusted internal func retain_incident(
     pos incidents: &mut bray.runtime.bootstrap.ReportRecords,
-    pos mut progress: bray.runtime.bootstrap.activation.Progress,
+    pos report: bray.runtime.bootstrap.PanicReportData,
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &report),
     )
 {
-    if progress.kind != 3
+    if report.primary_present == 0 && report.outgoing_count == 0 && report.reserved == 0
     {
         return;
     }
 
-    let report = trusted take_report(&mut progress);
     let mut incoming = trusted bray.runtime.bootstrap.retain_report(report);
 
     trusted bray.runtime.bootstrap.report_records_append(
@@ -64,13 +62,23 @@ trusted internal func merge_panic(
     )
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
 {
-    if previous.kind != 3
+    let state = if previous.kind == 3
     {
-        return incoming;
+        yield previous.state;
     }
+    else
+    {
+        yield incoming.state;
+    };
 
-    let state = previous.state;
-    let payload = previous.payload;
+    let payload = if previous.kind == 3
+    {
+        yield previous.payload;
+    }
+    else
+    {
+        yield incoming.payload;
+    };
 
     let report = trusted bray.runtime.bootstrap.suppress_report(
         trusted take_report(previous),
@@ -91,7 +99,7 @@ trusted internal func merge_panic(
 trusted internal func accept_progress(
     pos header: &mut bray.runtime.bootstrap.activation.Header,
     pos operation: u32,
-    pos progress: bray.runtime.bootstrap.activation.Progress,
+    pos mut progress: bray.runtime.bootstrap.activation.Progress,
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -122,7 +130,7 @@ trusted internal func accept_progress(
         }
         else
         {
-            trusted retain_incident(&mut header.incidents, progress);
+            trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
         }
 
         return;
@@ -131,6 +139,7 @@ trusted internal func accept_progress(
     if suspended(progress.kind)
     {
         header.state = progress.state;
+        trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
 
         if operation == 3
         {
@@ -179,7 +188,7 @@ trusted internal func accept_progress(
     }
     else
     {
-        trusted retain_incident(&mut header.incidents, progress);
+        trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
     }
 
     header.phase = bray.runtime.bootstrap.activation.TERMINAL;

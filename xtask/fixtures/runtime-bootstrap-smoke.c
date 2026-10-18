@@ -1554,6 +1554,9 @@ static unsigned chain_broadcasts;
 static unsigned chain_moves;
 static unsigned chain_yield;
 static unsigned chain_abandoning;
+static uintptr_t chain_report_records[2];
+static unsigned chain_reports_emitted;
+static unsigned chain_reports_released;
 static uintptr_t chain_stack_low;
 static uintptr_t chain_stack_high;
 
@@ -1709,6 +1712,14 @@ static void chain_destroy(uintptr_t context)
     activation_destroy(context);
 }
 
+static void chain_release_report(uintptr_t message, uintptr_t length, RunOutcome* outcome)
+{
+    if (message != chain_reports_released + 1 || length != 0 || outcome->state != 0)
+        abort();
+
+    ++chain_reports_released;
+}
+
 static void chain_callback(
     const ActivationExecution* execution,
     const ActivationDescriptor* descriptor,
@@ -1759,6 +1770,25 @@ static void chain_callback(
         case 5: descriptor->destroy(context); break;
         default: abort();
     }
+
+    if (chain_mode == CHAIN_CANCEL &&
+        ((chain_reports_emitted == 0 && progress->kind == 5) ||
+            (chain_reports_emitted == 1 && operation == 3 && progress->kind == 1)))
+    {
+        RunOutcome incident = {
+            .state = 2,
+            .report = {
+                .primary_present = 1,
+                .message = chain_reports_emitted + 1,
+                .release_message = chain_release_report,
+                .consume = bray_runtime_report_consumer,
+            },
+        };
+
+        bray_runtime_outgoing_retirement(chain_report_records[chain_reports_emitted], NULL, &incident);
+        progress->report = incident.report;
+        ++chain_reports_emitted;
+    }
 }
 
 static int check_activation_chain(unsigned depth, enum ChainMode mode)
@@ -1806,6 +1836,20 @@ static int check_activation_chain(unsigned depth, enum ChainMode mode)
     chain_stack_low = UINTPTR_MAX;
     chain_stack_high = 0;
 
+    chain_reports_emitted = chain_reports_released = 0;
+
+    if (mode == CHAIN_CANCEL)
+    {
+        RunOutcome admission = { 0 };
+        bray_runtime_outgoing_admission(&(CleanupBundle){ 2, NULL, 0 }, &admission);
+
+        if (admission.state != 0)
+            return 189;
+
+        for (unsigned index = 0; index < 2; ++index)
+            chain_report_records[index] = bray_runtime_outgoing_activation(NULL, NULL);
+    }
+
     atomic_store(&reject_allocations, 1);
 
     unsigned attempts = atomic_load(&allocation_attempts);
@@ -1838,8 +1882,23 @@ static int check_activation_chain(unsigned depth, enum ChainMode mode)
             &incidents
         );
 
-        if (remaining.count != 0 || incidents.count != 0)
+        if (remaining.count != 0 || (mode != CHAIN_CANCEL && incidents.count != 0))
             return 136;
+
+        if (incidents.count != 0)
+        {
+            PanicReport report = {
+                .head = incidents.head,
+                .tail = incidents.tail,
+                .count = incidents.count,
+                .consume = bray_runtime_report_consumer,
+            };
+
+            incidents = (ActivationRecords){ 0 };
+
+            if (bray_runtime_report_consumer(&report, 0) != 0)
+                return 190;
+        }
 
         if (status == 2)
             break;
@@ -1899,6 +1958,14 @@ static int check_activation_chain(unsigned depth, enum ChainMode mode)
         atomic_load(&allocation_attempts) != attempts
     )
         return 140;
+
+    if (mode == CHAIN_CANCEL)
+    {
+        if (chain_reports_emitted != 2 || chain_reports_released != 2)
+            return 191;
+
+        bray_runtime_outgoing_discharge(&(CleanupBundle){ 2, NULL, 0 });
+    }
 
     atomic_store(&reject_allocations, 0);
 
@@ -2404,6 +2471,15 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
         .tail = records.tail,
         .count = records.count
     };
+    PanicReport incoming = { .primary_present = 1, .cause = 1, .consume = bray_runtime_report_consumer };
+    PanicReport combined = bray_runtime_panic_report_suppression(&report, &incoming);
+
+    if (combined.primary_present != 1 || combined.cause != 1 || combined.count != 1 ||
+        report.primary_present != 0 || report.count != 0 || incoming.primary_present != 0)
+        return 188;
+
+    report = combined;
+
 
     uint32_t status = bray_runtime_panic_report_destruction(&report);
 

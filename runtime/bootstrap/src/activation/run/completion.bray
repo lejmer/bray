@@ -64,7 +64,7 @@ trusted internal func transfer(
         return (progress, status);
     };
 
-    let (progress, status) = trusted retaining(cursor, callback, ready, destination);
+    let (mut progress, status) = trusted retaining(cursor, callback, ready, destination);
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS
     {
@@ -76,12 +76,21 @@ trusted internal func transfer(
     if progress.kind == 1
     {
         updated.progress.payload = destination;
+
+        trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+            &mut updated.incidents,
+            trusted bray.runtime.bootstrap.activation.execution.take_report(&mut progress)
+        );
     }
     else
     {
         // A failed mover retains its source value. Resolution must abandon that
         // value before retirement, while preserving the mover's owned report.
+        let previous = trusted bray.runtime.bootstrap.activation.execution.take_report(&mut updated.progress);
+
         updated.progress = progress;
+
+        trusted bray.runtime.bootstrap.activation.execution.retain_incident(&mut updated.incidents, previous);
 
         updated.abandoned = 1;
         updated.phase = bray.runtime.bootstrap.activation.CLEANUP;

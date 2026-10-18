@@ -155,7 +155,7 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
-            state: bray_ir::MirTaskTerminalState::Cancelled,
+            state: bray_ir::MirTaskTerminalState::Cancelled(_),
             ..
         })
     )));

@@ -955,11 +955,15 @@ fn validate_terminal_state(
     operation: MirOperationId,
     state: &MirTaskTerminalState,
 ) -> Option<()> {
+    unit.kind().protected_frame()?;
+
     match state {
         MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
             validate_operand(unit, value, block, Some(operation))
         }
-        MirTaskTerminalState::Cancelled => Some(()),
+        MirTaskTerminalState::Cancelled(report) => {
+            validate_operand(unit, report, block, Some(operation))
+        }
     }
 }
 

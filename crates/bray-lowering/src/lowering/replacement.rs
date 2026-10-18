@@ -175,7 +175,7 @@ impl Lowerer<'_> {
         )?;
 
         self.finish_panic_to_active_catch(expression, panicked, source, outcome.report(), report)?;
-        self.finish_cancellation(cancelled, source, expression.into())?;
+        self.finish_cancellation(cancelled, source, expression.into(), Some(outcome.report()))?;
 
         self.cleanup_occurrence = previous_occurrence;
 

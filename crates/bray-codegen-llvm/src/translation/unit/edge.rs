@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::CodegenFailure;
 use bray_ir::{
-    MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirOperationId, MirPlace, MirTerminatorKind,
-    MirUnit,
+    MirBlockId, MirCallFailureEdge, MirEdge, MirOperand, MirOperationId, MirPlace,
+    MirTerminatorKind, MirUnit,
 };
 use inkwell::basic_block::BasicBlock;
 use inkwell::context::Context;
@@ -68,7 +68,7 @@ pub(super) fn create_blocks<'context>(
         .collect()
 }
 
-pub(super) fn direct_panic_propagation(unit: &MirUnit, edge: &MirCallPanicEdge) -> bool {
+pub(super) fn direct_panic_propagation(unit: &MirUnit, edge: &MirCallFailureEdge) -> bool {
     let Some(block) = unit.block(edge.target()) else {
         return false;
     };
@@ -105,26 +105,25 @@ pub(super) fn direct_panic_propagation(unit: &MirUnit, edge: &MirCallPanicEdge) 
     }
 }
 
-pub(super) fn direct_cancellation_propagation(unit: &MirUnit, edge: &MirEdge) -> bool {
+pub(super) fn direct_cancellation_propagation(unit: &MirUnit, edge: &MirCallFailureEdge) -> bool {
     let Some(block) = unit.block(edge.target()) else {
         return false;
     };
 
-    if !edge.arguments().is_empty()
+    if !edge.report().projections().is_empty()
         || !block.operations().is_empty()
         || !block.parameters().is_empty()
     {
         return false;
     }
 
+    let report = MirOperand::Move(edge.report().clone());
+
     match block.terminator().kind() {
-        MirTerminatorKind::PropagateCancellation { .. } => true,
+        MirTerminatorKind::PropagateCancellation { report: propagated, .. } => propagated == &report,
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
-            empty_cleanup_destination(unit, cleanup, None).is_some_and(|(destination, _)| {
-                matches!(
-                    destination.terminator().kind(),
-                    MirTerminatorKind::PropagateCancellation { .. }
-                )
+            empty_cleanup_destination(unit, cleanup, Some(report)).is_some_and(|(destination, report)| {
+                matches!(destination.terminator().kind(), MirTerminatorKind::PropagateCancellation { report: propagated, .. } if Some(propagated) == report.as_ref())
             })
         }
         _ => false,
@@ -237,18 +236,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(route)
     }
 
-    pub(super) fn route_call_panic(
+    pub(super) fn route_call_failure(
         &mut self,
-        edge: &MirCallPanicEdge,
+        edge: &MirCallFailureEdge,
         context: PointerValue<'context>,
-        name: &str,
+        state: bray_runtime_abi::NativeRunState,
         pending_moves: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
+        let (name, direct) = if state == bray_runtime_abi::NativeRunState::PANICKED {
+            ("call.panicked", direct_panic_propagation(self.unit, edge))
+        } else {
+            assert_eq!(state, bray_runtime_abi::NativeRunState::CANCELLED);
+
+            (
+                "call.cancelled",
+                direct_cancellation_propagation(self.unit, edge),
+            )
+        };
+
         let route = self.begin_route(name, pending_moves);
 
         // An empty propagation path transfers this same report back to the caller.
         // Keep its ownership in the incoming context instead of materializing a temporary.
-        if self.panic_report_context == Some(context) && direct_panic_propagation(self.unit, edge) {
+        if self.panic_report_context == Some(context) && direct {
             self.clear_moved_places()?;
             self.return_propagated_outcome()?;
 
@@ -288,31 +298,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         super::support::llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
 
         self.finish_route(edge.target())?;
-
-        Ok(route)
-    }
-
-    pub(super) fn route_call_cancellation(
-        &mut self,
-        edge: &MirEdge,
-        context: PointerValue<'context>,
-        pending_moves: &[MirPlace],
-    ) -> Result<BasicBlock<'context>, CodegenFailure> {
-        let route = self.begin_route("call.cancelled", pending_moves);
-
-        if self.panic_report_context == Some(context)
-            && direct_cancellation_propagation(self.unit, edge)
-        {
-            self.clear_moved_places()?;
-            self.return_propagated_outcome()?;
-        } else {
-            let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
-
-            llvm(self.builder.build_store(context, ty.const_zero()))?;
-
-            self.add_edge_arguments(edge)?;
-            self.finish_route(edge.target())?;
-        }
 
         Ok(route)
     }
@@ -381,7 +366,7 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiRole;
 
     use super::{
-        MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirPlace, MirTerminatorKind,
+        MirBlockId, MirCallFailureEdge, MirEdge, MirOperand, MirPlace, MirTerminatorKind,
         direct_panic_propagation, reachable_blocks,
     };
 
@@ -511,26 +496,28 @@ mod tests {
 
         assert!(!direct_panic_propagation(
             &unit,
-            &MirCallPanicEdge::new(panicked, projected)
+            &MirCallFailureEdge::new(panicked, projected)
         ));
     }
 
     #[test]
-    fn cancellation_arguments_preserve_their_transfer() {
+    fn cancellation_with_a_different_report_is_not_forwarded() {
         let (mut builder, source, [entry, completed, panicked, cancelled], report) =
             propagation_builder(Some(0));
 
-        builder
-            .push_block_parameter(cancelled, source.clone(), report.ty())
+        let other = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, report.ty())
             .unwrap();
+
+        let other = MirPlace::new(other, [], report.ty());
 
         builder.set_terminator(
             entry,
             source,
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, []),
-                panicked: MirCallPanicEdge::new(panicked, report.clone()),
-                cancelled: MirEdge::new(cancelled, [MirOperand::Move(report)]),
+                panicked: MirCallFailureEdge::new(panicked, report.clone()),
+                cancelled: MirCallFailureEdge::new(cancelled, other),
             },
         );
 
@@ -594,8 +581,8 @@ mod tests {
         let terminators = [
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, []),
-                panicked: MirCallPanicEdge::new(panicked, report.clone()),
-                cancelled: MirEdge::new(cancelled, []),
+                panicked: MirCallFailureEdge::new(panicked, report.clone()),
+                cancelled: MirCallFailureEdge::new(cancelled, report.clone()),
             },
             MirTerminatorKind::Return(None),
             MirTerminatorKind::PropagatePanic {
@@ -603,6 +590,7 @@ mod tests {
                 runtime: panic,
             },
             MirTerminatorKind::PropagateCancellation {
+                report: MirOperand::Move(report.clone()),
                 runtime: cancellation,
             },
         ];

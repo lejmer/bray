@@ -82,7 +82,7 @@ trusted internal func retire(
 
     let retain = trusted lambda(
         pos incidents: &mut bray.runtime.bootstrap.ReportRecords,
-        pos first: bray.runtime.bootstrap.activation.Progress,
+        pos mut first: bray.runtime.bootstrap.activation.Progress,
         pos second: bray.runtime.bootstrap.activation.Progress,
     ) -> bray.runtime.bootstrap.activation.Progress
         requires(
@@ -94,7 +94,10 @@ trusted internal func retire(
     {
         // The second report owns its provider independently. Disposing the first
         // record's previous primary cannot consume this retained report owner.
-        trusted bray.runtime.bootstrap.activation.execution.retain_incident(incidents, first);
+        trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+            incidents,
+            trusted bray.runtime.bootstrap.activation.execution.take_report(&mut first)
+        );
 
         return second;
     };
@@ -102,9 +105,13 @@ trusted internal func retire(
     let (retained, discarded) = trusted deliver(ancestor, before.abandoned, progress, outcome);
 
     // All header access has ended before report disposal can invoke native code.
-    let incident = trusted retain(&mut incidents, discarded, retained);
+    let mut incident = trusted retain(&mut incidents, discarded, retained);
 
-    trusted bray.runtime.bootstrap.activation.execution.retain_incident(&mut incidents, incident);
+    trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+        &mut incidents,
+        trusted bray.runtime.bootstrap.activation.execution.take_report(&mut incident)
+    );
+
     return (incidents, remaining, status);
 }
 
@@ -145,9 +152,10 @@ trusted internal func deliver(
             return (progress, incoming);
         }
 
-        // A discarded completed value never initializes the parent's result slot.
-        // Failures still reach a continuing parent through their owned outcome.
-        if incoming.kind == 1
+        // Abandonment has no result to install. Retain its non-panic reports in
+        // the run's incident chain before delivering the expected cancellation.
+        // A panic still transfers its report to the continuing parent's handler.
+        if incoming.kind == 1 || incoming.kind == 2
         {
             parent.incoming =
             {

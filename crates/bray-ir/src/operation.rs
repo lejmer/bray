@@ -439,8 +439,8 @@ impl MirConstruction {
 pub enum MirTaskTerminalState {
     /// The task completed with a value.
     Completed(MirOperand),
-    /// The task observed current-run cancellation.
-    Cancelled,
+    /// The task observed cancellation and retains its cleanup incidents.
+    Cancelled(MirOperand),
     /// The task panicked with ownership of a panic report.
     Panicked(MirOperand),
 }

@@ -10,7 +10,7 @@ use bray_ir::{
 use bray_symbols::ConstantValueId;
 
 use super::control::{CleanupDestination, TerminalState};
-use crate::cleanup_outcome::CleanupOutcome;
+use crate::cleanup_outcome::{CleanupFailure, CleanupOutcome};
 use crate::lowering::LoweringError;
 use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
@@ -116,7 +116,7 @@ impl Lowerer<'_> {
 
         let outcome = self.create_cleanup_outcome(broadcast, source)?;
 
-        outcome.initialize_cancellation(&mut self.builder, broadcast, source)?;
+        outcome.initialize_cancellation(&mut self.builder, broadcast, source, None)?;
         self.cleanup_outcome = Some(outcome);
 
         let lifecycle = self.resolve_cleanup(
@@ -158,12 +158,12 @@ impl Lowerer<'_> {
         first_phase: MirCleanupPhase,
         current: MirBlockId,
         source: &MirSourceAnchor,
-        report: Option<MirOperand>,
+        failure: CleanupFailure,
         destination: CleanupDestination,
         plans: &[AsyncScopeExitPlan],
         abandoned: Option<&bray_ir::MirPlace>,
     ) -> Result<(), LoweringError> {
-        let panicking = report.is_some();
+        let panicking = matches!(failure, CleanupFailure::Panic(_));
 
         let input_exit = if panicking {
             self.abnormal_input_exit(destination)
@@ -192,14 +192,18 @@ impl Lowerer<'_> {
 
         machine.outcome.begin(&mut self.builder, current, source)?;
 
-        if let Some(report) = report {
-            machine
-                .outcome
-                .initialize_panic(&mut self.builder, current, source, report)?;
-        } else {
-            machine
-                .outcome
-                .initialize_cancellation(&mut self.builder, current, source)?;
+        match failure {
+            CleanupFailure::Panic(report) => {
+                machine
+                    .outcome
+                    .initialize_panic(&mut self.builder, current, source, report)?
+            }
+            CleanupFailure::Cancellation(report) => machine.outcome.initialize_cancellation(
+                &mut self.builder,
+                current,
+                source,
+                report,
+            )?,
         }
 
         let temporaries = self.input_cleanup(input_exit);
@@ -403,12 +407,7 @@ impl Lowerer<'_> {
             MirBlockKind::LifecycleResolution,
         )?;
 
-        self.set_destination(
-            target,
-            source,
-            destination,
-            panicking.then(|| machine.outcome.report()),
-        )?;
+        self.set_destination(target, source, destination, Some(machine.outcome.report()))?;
 
         machine.routes.push(AbnormalCleanupRoute {
             panicking,
@@ -847,7 +846,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(cancelled, [])),
         )?;
 
-        self.set_destination(cancelled, source, destination, None)?;
+        self.set_destination(cancelled, source, destination, Some(outcome.report()))?;
 
         let panic_destination = if self.input.unit_kind().protected_frame().is_some() {
             let report = self.representation_type(RepresentationRole::PanicReport)?;

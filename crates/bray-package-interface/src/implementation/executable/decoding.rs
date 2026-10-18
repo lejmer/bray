@@ -819,6 +819,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirImmediateValue::Boolean(true)),
             2 => Ok(MirImmediateValue::Unit),
             3 => Ok(MirImmediateValue::NullableAbsent),
+            4 => Ok(MirImmediateValue::EmptyPanicReport),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1889,7 +1890,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             9 => {
                 let state = match read_u32(&mut self.reader)? {
                     0 => bray_ir::MirTaskTerminalState::Completed(self.operand()?),
-                    1 => bray_ir::MirTaskTerminalState::Cancelled,
+                    1 => bray_ir::MirTaskTerminalState::Cancelled(self.operand()?),
                     2 => bray_ir::MirTaskTerminalState::Panicked(self.operand()?),
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
@@ -2021,6 +2022,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 runtime: self.runtime_reference()?,
             }),
             13 => Ok(MirTerminatorKind::PropagateCancellation {
+                report: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
             14 => Ok(MirTerminatorKind::CancelCurrentRun {
@@ -2066,8 +2068,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             17 => Ok(MirTerminatorKind::CheckCallOutcome {
                 completed: self.edge()?,
-                panicked: bray_ir::MirCallPanicEdge::new(self.block_id()?, self.place()?),
-                cancelled: self.edge()?,
+                panicked: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
+                cancelled: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
