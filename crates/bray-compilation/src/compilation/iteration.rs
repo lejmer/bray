@@ -91,10 +91,8 @@ impl Compilation {
 
         let types = semantics.result().value().types();
 
-        let mut diagnostics = bound
-            .result()
-            .diagnostics()
-            .merged(semantics.result().diagnostics());
+        // The selection owns bound diagnostics. Provisional type diagnostics belong to final checking.
+        let mut diagnostics = bound.result().diagnostics().clone();
 
         let (source, mode) = iteration_source(bound.result().value(), key.expression())?;
 

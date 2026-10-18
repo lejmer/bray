@@ -415,7 +415,13 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
                 if block.operations().iter().any(|id| {
                     matches!(
                         mir.operation(*id).map(|operation| operation.kind()),
-                        Some(MirOperationKind::Destroy { .. } | MirOperationKind::Cleanup { .. })
+                        Some(
+                            MirOperationKind::Destroy { .. }
+                                | MirOperationKind::Cleanup {
+                                    collection: None,
+                                    ..
+                                }
+                        )
                     )
                 }) {
                     assert!(
@@ -429,6 +435,14 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             }
 
             if member == "StorageCreate" {
+                assert!(mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Cleanup {
+                        collection: Some(_),
+                        ..
+                    }
+                )));
+
                 assert!(mir.blocks().iter().any(|block| matches!(
                     block.terminator().kind(),
                     MirTerminatorKind::CheckCallOutcome { .. }
