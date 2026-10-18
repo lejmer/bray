@@ -291,35 +291,45 @@ Current pushed checkpoint is e31ab120e. PR #612 remains draft during the final b
 Human duplication findings are fixed and pushed. Review evidence is PR review 5560583230,
 followed by active human review. Do not start a fresh agent cycle unless the human asks.
 
-## Remaining native boundary audit
+## Native boundary audit and issue scope
 
-Source-Future retained incident acceptance now passes end to end. Do not infer that every
-unmigrated native producer satisfies the new disposition from the simple task smoke.
+The migrated ordinary-scope and source-Future paths pass end to end. The issue explicitly
+assigns started-task ownership to BRA-560 and suspending hosts to BRA-507. It permits existing
+task roles for separately unmigrated consumers. The tracked initiative assigns root orchestration
+to BRA-567 and independently unloaded providers to BRA-555. Those migrations remain open.
+This acceptance does not establish native conformance for those families.
 
-- Concrete open task finding: lower_call_operation creates a source-visible inactive join/cancel
-  Future using the existing Rust TaskObservation. Its resolve_lifecycle treats every non-completed
-  exit alike and resume consumes the completed payload through resolve_owned_task. That cannot
-  establish retained Quiescence followed by later destruction. It also allocates an Arc wake
-  callback while polling. The existing BRA-560 description now records this composition and
-  denied-allocation acceptance explicitly. Its migration owns this adapter and depends on the
-  shared BRA-505 cleanup. Do not extend a Rust frame or add a second cleanup mechanism to hide it.
-  Determine the coherent completion boundary before marking all BRA-505 quiescence accepted.
-- Current native readiness consumes an actual task lane while installed. Outside a task it
-  deliberately grants no workload/Main authority and checks origin through a live attachment.
-  Foreign entry must retain that restriction. Existing BRA-567 now records retaining genuine
-  root execution authority through post-terminal report destruction and restoring nested foreign
-  entry, without an always-ready bypass or inference from thread identity. Map actual callers
-  before treating this as proved for every root/provider family.
-- Exact provider order: synchronous and foreign generated callbacks consume reports inside their
-  entry. Async take_host_result consumes panic reports before resolve_host_result retires the
-  root, and native runtime retains its thread/attachment until shutdown. Product static cleanup
-  drains incidents before receiver and TLS retirement. Linked generated callbacks have process
-  image lifetime. Independently unloaded providers and suspending host fallback remain the
-  existing BRA-555/507 consumers, not new owners in this PR.
+| Consumer | Current evidence and remaining owner |
+| --- | --- |
+| Generated source Future and its retained captures | The shared Bray activation protocol resolves quiescence without entering inactive bodies, retains concrete storage, then destroys once. Allocation-denial native acceptance passes in both profiles. |
+| Synchronous and foreign generated entry | Reports are consumed inside the entry before its lease retires. Foreign entry retains its restricted execution authority. |
+| Async host result | take_host_result consumes panic reports before resolve_host_result releases the root. NativeRuntime retains its thread/attachment through shutdown. This establishes physical ordering, not universal workload authority for every root. BRA-567 owns the genuine root execution-context migration and its post-terminal report acceptance. |
+| Static cleanup and linked providers | Incidents drain before receiver and TLS retirement under the existing static cleanup context. Generated callbacks have process-image lifetime. BRA-555 and BRA-507 retain unloaded-provider and suspending-host acceptance. |
+| Join/cancel Future from TaskObservation | This is BRA-560's unmigrated started-task adapter. Its non-completed resolve currently consumes a result and its polling allocates an Arc. BRA-560 now names the exact producer/callback and requires non-consuming retained quiescence, later destruction, child-Future composition and denied-allocation acceptance. No Rust frame extension is added here. |
 
-Continue the authorized stack. BRA-626 is independent of these native adapter findings and
-must remove construction workarounds before BRA-619. Keep all acceptance and PR status honest.
-Do not mark BRA-505 Done or claim the native adapter audit complete solely from passing smoke.
+The shared protocol and compiler continuation are the contract those remaining consumers must
+implement. Do not infer their correctness from a simple task smoke or a lifetime dependency.
+No native readiness or authority condition was weakened, and no second cleanup mechanism was
+introduced to bridge an unmigrated consumer. Keep the concrete findings on their existing owners
+and retain those issues' planned initiative order. Do not claim the whole initiative complete.
+
+## Base verification and forward integration
+
+BRA-626 is implemented and independently reviewed in PR #613. Its constructor workaround
+removal and direct partial-input native acceptance pass. Broader checks found two base issues:
+iteration copied provisional inference diagnostics into a converged result, and the heap test
+expected a separate outcome branch even for cleanup using a shared incident collection. Their
+owning fixes are placed on this BRA-505 base and merged forward into BRA-626, preserving its
+reviewed implementation. The base's source query, lowering and heap suites pass independently.
+No changed native execution behavior warrants repeating the already passed native smoke.
+
+Logs: target/bra-505-base-test-build.log, bra-505-base-tests.log, bra-505-base-style.log.
+The latest full integrated acceptance is target/bra-626-native-smoke.log and
+bra-626-final-consumer-tests.log. All task-owned build/test/native/debug sessions have finished.
+After the current checkpoint is pushed, continue BRA-619 from the forward-integrated stack.
+Remove this record when its remaining dependency on BRA-619 is retired. Do not mark Done before
+user merge. Active human review follows PR review 5560583230, so do not start a fresh agent
+review unless the human asks.
 
 ## Efficient execution
 
