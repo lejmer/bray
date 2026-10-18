@@ -114,9 +114,9 @@ safety checks. Remove the forced Immediate invocation only when the actual conti
 connected. Do not repeatedly reconsider TLS, a Rust frame, universal extra hidden arguments,
 zeroing full reports on successful paths, or independent nested helper report grouping.
 
-## Shared collection boundary under implementation
+## Shared collection checkpoint
 
-The next batch must replace helper-local collections, not add an adapter around them.
+The checkpoint replaces helper-local collections with the enclosing collection.
 Source cleanup, generated lifecycle actions, raw-buffer/generator traversal and native
 cleanup callbacks must name the same collection owner. Source calls retain separate failure
 storage so their catches cannot observe the caller's earlier incidents. An organizational
@@ -249,15 +249,15 @@ as proof of those paths.
 | --- | --- |
 | Ordinary async cleanup | Shared lifecycle expansion and protected source continuations. Replace generated immediate-call assumptions with admitted same-run completion under the cleanup shield. Retain parent progress, pending outcomes and dependencies. |
 | Inactive Future captures | Existing frame descriptor and abandonment entry. Never enter an inactive body. Resolve accepted captures before retaining a terminal representation. Future selection currently rejects quiescence explicitly. |
-| Retained error quiescence | Shared selected expansion. Resolve child runs while retaining payload and terminal handles. Generator quiescence remains missing. Buffer prefix selection is covered. |
+| Retained error quiescence | Shared selected expansion. Resolve child runs while retaining payload and terminal handles. General generator work remains owned by BRA-484/BRA-506. Buffer prefix selection is covered. |
 | Abandoned destruction | Generated destruction and source destructor receiver cleanup must not replay implicit graceful finalizers. Explicit operations keep ordinary checked semantics. |
-| Physical incident ownership | Move pre-admitted payload backing, provider and attachment dependencies into the existing report chain. Discharge cannot release transferred storage. Do not use immediate disposal or a separate activation. |
+| Physical incident ownership | Verify the implemented transfer of pre-admitted payload backing, provider and attachment dependencies into the existing report chain. Discharge cannot release transferred storage. Do not use immediate disposal or a separate activation. |
 | Run ownership and disposal | Retain ordered typed entries across direct await, suspension and nested independent roots. Destroy and release exactly once, preserving reporting/destruction/release failures and cancellation. |
 | Production acceptance | Source/imported contracts, normal/panic/cancel exits, temporary/partial/nested owners, inactive captures, large/aligned errors, denied allocation, exact release and link maps. BRA-561 driver tests are not proof of these consumers. |
 
-The enabled `scoped_selected_calls_emit_native_artifacts` reaches missing
-CleanupIncidentTransfer. Keep it required through BRA-505/BRA-619. Do not publish
-production transfer before quiescence and abandoned destruction meet the contract.
+Keep `scoped_selected_calls_emit_native_artifacts` required through BRA-505/BRA-619.
+Incident transfer is now implemented, but full quiescence and abandoned destruction
+acceptance must establish its contract before the PR becomes ready.
 
 ## Resuming efficiently
 
@@ -296,4 +296,3 @@ No task-owned build or test process remains active. Use focused test filters, no
 unit:: filter. Avoid duplicate release xtask rebuilds. Find files with rg and read bounded
 relevant sections without truncation. PowerShell does not expand directory wildcards for rg.
 Preserve exact leaf failures instead of repeatedly running expensive workflows.
-
