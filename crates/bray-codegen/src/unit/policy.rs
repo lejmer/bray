@@ -325,7 +325,6 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
         | MirOperationKind::Quiesce(_)
-        | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy { .. } => 2,
         MirOperationKind::AdmitOutgoing { .. }
         | MirOperationKind::DischargeOutgoing { .. }

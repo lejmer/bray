@@ -471,7 +471,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     assert!(generated.operations().iter().any(|operation| {
         match operation.kind() {
-            MirOperationKind::Borrow { place, .. } | MirOperationKind::Finalize(place) => place
+            MirOperationKind::Borrow { place, .. } => place
                 .projections()
                 .iter()
                 .any(|projection| projection.kind() == &MirProjectionKind::OwnedStorage),
@@ -574,8 +574,15 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
 
         let target = codegen_target(&compilation);
 
-        let finalized =
-            generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 190);
+        let finalized = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty,
+            },
+            190,
+        );
 
         assert_eq!(finalized.operations().iter().filter(|operation|
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), calls);
@@ -745,10 +752,32 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     let target = codegen_target(&compilation);
 
-    let generated =
-        generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 192);
+    let generated = generated_lifecycle(
+        &compilation,
+        &target,
+        MirHelperReference::Cleanup {
+            phase: MirCleanupPhase::LifecycleResolution,
+            ty,
+        },
+        192,
+    );
 
     assert!(generated.is_valid());
+
+    assert_eq!(
+        generated
+            .operations()
+            .iter()
+            .filter(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Call(call)
+                    if matches!(call.target(), MirCallTarget::Runtime(runtime)
+                        if runtime.role() == RuntimeAbiRole::CleanupShieldEnter)
+            ))
+            .count(),
+        1,
+        "finalization and destruction share the enclosing cleanup outcome",
+    );
 
     let (call_block, call) = generated.blocks_with_ids().find_map(|(id, block)| {
         block.operations().iter().find_map(|operation| {
@@ -842,7 +871,13 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     )));
 
     let owner = compilation
-        .concrete_codegen_lifecycle(MirHelperReference::Finalize(ty), &target)
+        .concrete_codegen_lifecycle(
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty,
+            },
+            &target,
+        )
         .unwrap();
 
     let cancellation = CancellationToken::new();
@@ -935,7 +970,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     assert!(
         generated.operations().iter().all(|operation| !matches!(
             operation.kind(),
-            MirOperationKind::Destroy { .. } | MirOperationKind::Finalize(_)
+            MirOperationKind::Destroy { place, .. } if place == payload
         )),
         "the transferred payload stays owned by the incident chain"
     );

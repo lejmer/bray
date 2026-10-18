@@ -19,7 +19,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     pub(super) fn push_owner_resolution(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -31,67 +31,39 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
-        let finalized = builder
-            .push_operation(
+        let action = self
+            .context
+            .lifecycle_action(place.ty(), bray_bound_tree::LifecyclePhase::Finalize)?;
+
+        let (block, abandoned) = match action {
+            bray_bound_tree::LifecycleAction::None => (
                 block,
-                source.clone(),
-                MirOperationKind::Finalize(place.clone()),
-                Some(boolean),
-            )
-            .map_err(|cause| self.capacity_error(cause))?
-            .result()
-            .expect("finalization publishes its disposition");
-
-        let (completed, disposition, failed) = outcome
-            .check_completion(
-                builder,
-                block,
-                source,
-                Some(bray_ir::MirOperand::Value(finalized)),
-            )
-            .map_err(|cause| self.capacity_error(cause))?;
-
-        let destruction = builder
-            .push_block(source.clone(), builder.block_kind(block))
-            .map_err(|cause| self.capacity_error(cause))?;
-
-        let argument = builder
-            .push_block_parameter(destruction, source.clone(), boolean)
-            .map_err(|cause| self.capacity_error(cause))?;
-
-        builder.set_terminator(
-            completed,
-            source.clone(),
-            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(
-                destruction,
-                [disposition.expect("completed finalization retains its disposition")],
-            )),
-        );
-
-        builder.set_terminator(
-            failed,
-            source.clone(),
-            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(
-                destruction,
-                [bray_ir::MirOperand::Immediate {
+                bray_ir::MirOperand::Immediate {
                     ty: boolean,
-                    value: bray_ir::MirImmediateValue::Boolean(true),
-                }],
-            )),
-        );
+                    value: bray_ir::MirImmediateValue::Boolean(false),
+                },
+            ),
+            bray_bound_tree::LifecycleAction::Call(callable) => {
+                // Invocation borrows this path while destruction retains the same owner.
+                self.push_lifecycle_call(builder, block, source, place.clone(), callable, &outcome)?
+            }
+            action => {
+                panic!("selected whole-value finalization must be an invocation, got {action:?}")
+            }
+        };
 
         self.push_lifecycle_operation(
             builder,
-            destruction,
+            block,
             source,
             MirOperationKind::Destroy {
                 place,
-                abandoned: Some(bray_ir::MirOperand::Value(argument)),
+                abandoned: Some(abandoned),
             },
         )?;
 
         let end = outcome
-            .check(builder, destruction, source)
+            .check(builder, block, source)
             .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, end, source, &outcome, &mut None)
@@ -104,9 +76,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: bray_bound_tree::LifecycleCallable,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<(bray_ir::MirBlockId, bray_ir::MirOperand), C::Error> {
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-
         let value = self.push_selected_call(
             builder,
             block,
@@ -136,15 +107,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.capacity_error(cause))?;
 
-        let mut abandoned = Some(abandoned);
-
-        let completed =
-            self.finish_cleanup_outcome(builder, completed, source, &outcome, &mut abandoned)?;
-
-        Ok((
-            completed,
-            abandoned.expect("finalizer completion retains its disposition"),
-        ))
+        Ok((completed, abandoned))
     }
 
     pub(super) fn push_checked_lifecycle_call(

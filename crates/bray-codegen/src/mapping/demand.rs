@@ -136,7 +136,6 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
-        | MirOperationKind::Finalize(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }

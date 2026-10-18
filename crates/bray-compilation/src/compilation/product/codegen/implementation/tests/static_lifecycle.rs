@@ -11,7 +11,7 @@ use super::support::runtime::{
 use crate::compilation::product::codegen::NativeProductPlanningError;
 use crate::{CancellationToken, SelectedTarget};
 use bray_codegen::CodegenLinkage;
-use bray_ir::{MirHelperReference, MirUnitKey};
+use bray_ir::MirUnitKey;
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeCapability};
 use bray_symbols::{ProductKind, StaticStorageDuration};
 use bray_target::NativeTarget;
@@ -509,17 +509,6 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
     );
 
     let (backend, plan) = runtime_native_plan(source);
-
-    assert!(
-        !plan
-            .units()
-            .iter()
-            .flat_map(bray_codegen::CodegenUnit::mir_units)
-            .any(|mir| matches!(
-                mir.source(),
-                bray_ir::MirSourceOrigin::GeneratedLifecycle(MirHelperReference::Finalize(_))
-            ))
-    );
 
     assert!(
         plan.executable_host()

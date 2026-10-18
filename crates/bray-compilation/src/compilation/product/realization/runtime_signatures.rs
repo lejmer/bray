@@ -45,12 +45,6 @@ impl Compilation {
             } else {
                 CodegenResultMapping::direct(result, None, [])
             }
-        } else if matches!(reference, MirHelperReference::Finalize(_)) {
-            CodegenResultMapping::direct(
-                self.codegen_representation_type(RepresentationRole::ScalarBool)?,
-                None,
-                [],
-            )
         } else {
             CodegenResultMapping::Void
         };

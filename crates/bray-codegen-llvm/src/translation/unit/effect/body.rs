@@ -181,16 +181,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Finalize(place) => {
-                let result = self.translate_lifecycle_helper(
-                    id,
-                    MirHelperReference::Finalize(place.ty()),
-                    place,
-                    None,
-                )?;
-
-                operation.result().and(result)
-            }
             MirOperationKind::Destroy { place, abandoned } => {
                 self.translate_lifecycle_helper(
                     id,
@@ -453,17 +443,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.invoke_operation_helper(operation, helper, &[place])?
         };
 
-        if result.is_some() && !matches!(expected, MirHelperReference::Finalize(_)) {
-            panic!("checked MIR effect translation violated an established compiler contract");
-        }
+        assert!(
+            result.is_none(),
+            "lifecycle disposal does not return a value"
+        );
 
-        Ok(
-            if matches!(expected, MirHelperReference::Finalize(_)) && helper.symbol().is_none() {
-                Some(self.types.context().bool_type().const_zero().into())
-            } else {
-                result
-            },
-        )
+        Ok(None)
     }
 
     pub(super) fn translate_async_operation(

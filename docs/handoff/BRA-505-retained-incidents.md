@@ -52,7 +52,7 @@ The governing designs already state this boundary: `docs/design/composed-async-e
 and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
 alignment, not permission to invent another runtime architecture.
 
-Latest pushed checkpoint before the execution-kind removal: `acb8229a`, PR #612. The previous reviewed checkpoint is
+Latest pushed checkpoint before finalizer-wrapper removal: `14f53f28`, PR #612. The previous reviewed checkpoint is
 `216886091c2734aa5cb835c468ab3e163193c776`.
 Independent review 5560583230 found no actionable checkpoint findings. Native acceptance
 remains unfinished. Human architectural feedback is now the active review.
@@ -82,6 +82,19 @@ encodes the actual execution category, with no compatibility version bump. All c
 of the removed enum variant were searched and updated. Rustfmt initially encountered a
 transient Windows mapped-file lock, then succeeded on retry. Mutating structural style
 and Bray formatting pass in `bra-505-mir-execution-format.log`. No runtime code changed.
+
+Finalizer-wrapper removal: generated owner resolution now invokes its selected finalizer
+inside the same cleanup outcome that collects destruction failures. The redundant
+`Finalize` MIR operation, helper identity, generated role and boolean-returning wrapper
+are removed end to end. Static finalization still preserves the selected raw invocation
+result through `StaticFinalize`. Lane calculation consumes emitted invocations and
+structural dependency edges rather than reselecting local lifecycle actions. The existing
+retained-error regression now exercises complete owner cleanup and asserts one shield.
+The 166 selected compilation, host/static/codegen, MIR and interface checks pass in
+`bra-505-inline-finalization-tests.log`. A now-unused test import is removed. Rustfmt, mutating structural style and Bray formatting pass in
+`bra-505-inline-finalization-format.log`. The generated async call override and
+current-graph quiescence remain unfinished, as do native acceptance
+and BRA-619. Do not treat this removal as completion of shared resumable cleanup.
 
 Boundary deduction to preserve: a destructor body and its checked tail are synchronous.
 Do not make a destructor call async. Whole owner resolution may await finalizers and child

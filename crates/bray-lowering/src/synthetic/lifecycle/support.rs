@@ -9,8 +9,7 @@ pub(super) fn lifecycle_operation_block_kind(
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
             MirBlockKind::CleanupBroadcast
         }
-        bray_ir::MirGeneratedLifecycleRole::Finalize
-        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
+        bray_ir::MirGeneratedLifecycleRole::StaticFinalize
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
         ) => panic!(

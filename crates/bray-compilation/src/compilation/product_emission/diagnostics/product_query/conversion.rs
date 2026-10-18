@@ -540,7 +540,6 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::Memory(_) => "memory",
         Operation::Text(_) => "text",
         Operation::PanicReport(_) => "panic_report",
-        Operation::Finalize(_) => "finalize",
         Operation::Quiesce(_) => "quiesce",
         Operation::Destroy { .. } => "destroy",
         Operation::Cleanup { .. } => "cleanup",
@@ -553,7 +552,6 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
 
 const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
-        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
         bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",

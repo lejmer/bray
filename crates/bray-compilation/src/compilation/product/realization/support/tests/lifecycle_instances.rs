@@ -32,7 +32,7 @@ fn lifecycle_helpers_use_distinct_type_aware_instance_dependencies() {
         .expect("aggregate type must intern");
 
     let references = [
-        MirHelperReference::Finalize(aggregate),
+        MirHelperReference::StaticFinalize(aggregate),
         MirHelperReference::Quiesce(aggregate),
         MirHelperReference::Destroy(aggregate),
         MirHelperReference::Cleanup {
@@ -159,7 +159,7 @@ fn lifecycle_payload_must_match_the_stable_key_role() {
         .expect("test type must intern");
 
     let finalize = compilation
-        .concrete_codegen_lifecycle(MirHelperReference::Finalize(ty), &target)
+        .concrete_codegen_lifecycle(MirHelperReference::StaticFinalize(ty), &target)
         .expect("finalization instance must realize");
 
     assert!(

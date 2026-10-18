@@ -310,7 +310,6 @@ fn operation_runtime_references(
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Quiesce(_)
-        | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(

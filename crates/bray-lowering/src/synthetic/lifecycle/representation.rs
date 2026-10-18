@@ -358,8 +358,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 phase,
                 place: child,
             },
-            bray_ir::MirGeneratedLifecycleRole::Finalize
-            | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+            bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                 panic!("lifecycle cleanup sequence does not support role {role:?}")
             }
         };

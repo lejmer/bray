@@ -655,7 +655,7 @@ impl Compilation {
         let lifecycle_dependencies = template.value().lifecycle_dependencies().to_vec();
 
         let finalization = (!self.codegen_lifecycle_is_trivial(
-            &bray_ir::MirHelperReference::Finalize(ty),
+            &bray_ir::MirHelperReference::StaticFinalize(ty),
             cancellation,
         )?)
         .then(|| {

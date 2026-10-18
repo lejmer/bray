@@ -65,7 +65,6 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce(place)
-        | MirOperationKind::Finalize(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
         MirOperationKind::Destroy { place, abandoned } => {
             collect_place_types(place, types);

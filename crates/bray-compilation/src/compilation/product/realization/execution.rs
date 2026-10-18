@@ -92,22 +92,33 @@ impl Compilation {
         let mut edges = Vec::with_capacity(helpers.len());
         let mut calls = BTreeMap::new();
 
-        for (instance, owner) in &helpers {
+        for (instance, _) in &helpers {
             cancellation.check()?;
-
-            let action = self.codegen_lifecycle_action(
-                owner
-                    .generated_lifecycle_reference()
-                    .expect("selected lifecycle retains its role"),
-                cancellation,
-            )?;
 
             let mut requirements = ExecutionLaneRequirement::set([]);
 
-            for call in action.local_calls() {
-                let selected = match calls.entry(call.callable) {
+            // Lowering already selected every local invocation. Structural helper edges
+            // below retain child work, so do not select the lifecycle action again here.
+            let invocations = instance.mir().operations().iter().filter_map(|operation| {
+                let call = match operation.kind() {
+                    MirOperationKind::Call(call)
+                    | MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer: bray_ir::MirFrameInitializer::Callable(call),
+                        ..
+                    }) => call,
+                    _ => return None,
+                };
+
+                match call.target() {
+                    bray_ir::MirCallTarget::Direct(reference) => Some(reference.instance()),
+                    _ => None,
+                }
+            });
+
+            for callable in invocations {
+                let selected = match calls.entry(callable) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(self.lifecycle_invocation_lanes(call.callable, cancellation)?)
+                        entry.insert(self.lifecycle_invocation_lanes(callable, cancellation)?)
                     }
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 };

@@ -118,7 +118,6 @@ fn operation_callable_instances(
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Quiesce(_)
-        | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Async(_)

@@ -270,7 +270,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
             bray_bound_tree::LifecycleAction::Task => match role {
                 bray_ir::MirGeneratedLifecycleRole::Quiesce
-                | bray_ir::MirGeneratedLifecycleRole::Finalize
                 | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
                 | bray_ir::MirGeneratedLifecycleRole::Cleanup(
                     bray_ir::MirCleanupPhase::LifecycleResolution,

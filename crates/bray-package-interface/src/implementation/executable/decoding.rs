@@ -654,7 +654,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
-            15 => Ok(MirOperationKind::Finalize(self.place()?)),
             25 => Ok(MirOperationKind::Quiesce(self.place()?)),
             16 => Ok(MirOperationKind::Destroy {
                 place: self.place()?,

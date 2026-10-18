@@ -780,8 +780,6 @@ pub enum MirOperationKind {
         /// Runtime discharge boundary.
         runtime: MirRuntimeReference,
     },
-    /// Run checked finalization for a storage place.
-    Finalize(MirPlace),
     /// Resolve child runs without finalizing or destroying the retained incident payload.
     Quiesce(MirPlace),
     /// Destroy a storage place after its value is no longer live.

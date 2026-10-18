@@ -142,44 +142,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirTerminatorKind::Return(return_value),
                 );
             }
-            MirHelperReference::Finalize(ty) => {
-                let boolean = self
-                    .context
-                    .representation_type(RepresentationRole::ScalarBool)?;
-
-                let action = self
-                    .context
-                    .lifecycle_action(*ty, bray_bound_tree::LifecyclePhase::Finalize)?;
-
-                let (end, abandoned) =
-                    if let bray_bound_tree::LifecycleAction::Call(callable) = action {
-                        self.push_lifecycle_call(&mut builder, entry, &source, place, callable)?
-                    } else {
-                        let end = self.expand_lifecycle_action(
-                            &mut builder,
-                            entry,
-                            &source,
-                            bray_ir::MirGeneratedLifecycleRole::Finalize,
-                            place,
-                            target.runtime_abi(),
-                            action,
-                        )?;
-
-                        (
-                            end,
-                            MirOperand::Immediate {
-                                ty: boolean,
-                                value: bray_ir::MirImmediateValue::Boolean(false),
-                            },
-                        )
-                    };
-
-                builder.set_terminator(
-                    end,
-                    source.clone(),
-                    MirTerminatorKind::Return(Some(abandoned)),
-                );
-            }
             MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,

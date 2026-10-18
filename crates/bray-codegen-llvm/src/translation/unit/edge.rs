@@ -430,7 +430,10 @@ mod tests {
             .push_operation(
                 panicked,
                 source.clone(),
-                MirOperationKind::Finalize(report),
+                MirOperationKind::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    place: report,
+                },
                 None,
             )
             .unwrap();

@@ -12,8 +12,6 @@ use crate::{
 /// Stable role of one generated lifecycle definition.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirGeneratedLifecycleRole {
-    /// Runs semantic finalization.
-    Finalize,
     /// Resolves child runs without consuming the retained incident.
     Quiesce,
     /// Runs semantic finalization while preserving its completion.
@@ -30,9 +28,7 @@ impl MirGeneratedLifecycleRole {
         use bray_bound_tree::LifecyclePhase;
 
         match self {
-            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
-                LifecyclePhase::Finalize
-            }
+            MirGeneratedLifecycleRole::StaticFinalize => LifecyclePhase::Finalize,
             MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
             MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
@@ -47,7 +43,6 @@ impl MirGeneratedLifecycleRole {
     /// Returns the stable role represented by an exact lifecycle helper reference.
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {
-            MirHelperReference::Finalize(_) => Some(Self::Finalize),
             MirHelperReference::Quiesce(_) => Some(Self::Quiesce),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
@@ -86,7 +81,8 @@ mod tests {
     fn generated_lifecycle_identity_uses_role_and_structural_type_identity() {
         let identity = [7; 32];
 
-        let finalize = MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
+        let finalize =
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::StaticFinalize, identity);
 
         let destroy = MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Destroy, identity);
 
@@ -99,12 +95,12 @@ mod tests {
         assert_ne!(destroy, cleanup);
 
         let equivalent_type =
-            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, identity);
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::StaticFinalize, identity);
 
         assert_eq!(finalize, equivalent_type);
 
         let other_type_identity =
-            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Finalize, [8; 32]);
+            MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::StaticFinalize, [8; 32]);
 
         assert_ne!(finalize, other_type_identity);
     }

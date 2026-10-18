@@ -130,10 +130,9 @@ impl MirOperationKind {
                 visit_place_operands(destination, &mut visit);
                 visit_operand(value, &mut visit);
             }
-            Self::Borrow { place, .. }
-            | Self::Quiesce(place)
-            | Self::Finalize(place)
-            | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
+            Self::Borrow { place, .. } | Self::Quiesce(place) | Self::Cleanup { place, .. } => {
+                visit_place_operands(place, &mut visit)
+            }
             Self::Destroy { place, abandoned } => {
                 visit_place_operands(place, &mut visit);
 
@@ -357,7 +356,6 @@ pub(crate) fn for_each_operation_storage(
             place: destination, ..
         }
         | MirOperationKind::Quiesce(destination)
-        | MirOperationKind::Finalize(destination)
         | MirOperationKind::Destroy {
             place: destination, ..
         }

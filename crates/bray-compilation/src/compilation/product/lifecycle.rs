@@ -35,9 +35,7 @@ impl CodegenLifecycleNeeds {
 
     const fn requires(self, role: MirGeneratedLifecycleRole) -> bool {
         let required = match role {
-            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
-                Self::FINALIZE
-            }
+            MirGeneratedLifecycleRole::StaticFinalize => Self::FINALIZE,
             MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
             MirGeneratedLifecycleRole::Quiesce => Self::QUIESCE,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
@@ -472,7 +470,7 @@ mod tests {
         }
 
         for reference in [
-            MirHelperReference::Finalize(report),
+            MirHelperReference::StaticFinalize(report),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,
                 ty: report,
@@ -590,7 +588,7 @@ mod tests {
         assert!(
             compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Finalize(resource),
+                    &MirHelperReference::StaticFinalize(resource),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("resource finalization must resolve: {error:?}"))

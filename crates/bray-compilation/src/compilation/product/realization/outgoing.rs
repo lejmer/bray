@@ -137,7 +137,7 @@ impl Compilation {
         let mut requirements = Vec::new();
 
         for helper in [
-            MirHelperReference::Finalize(ty),
+            MirHelperReference::StaticFinalize(ty),
             MirHelperReference::Destroy(ty),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,

@@ -593,9 +593,7 @@ fn incident_quiescence_visits_children_without_parent_finalization_or_destructio
 
     assert!(!generated.operations().iter().any(|operation| matches!(
         operation.kind(),
-        MirOperationKind::Finalize(_)
-            | MirOperationKind::Destroy { .. }
-            | MirOperationKind::DischargeOutgoing { .. }
+        MirOperationKind::Destroy { .. } | MirOperationKind::DischargeOutgoing { .. }
     )));
 
     assert!(
@@ -807,8 +805,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
 
                         Some(place)
                     }
-                    MirOperationKind::Finalize(_)
-                    | MirOperationKind::Destroy { .. }
+                    MirOperationKind::Destroy { .. }
                     | MirOperationKind::DischargeOutgoing { .. } => {
                         panic!("prefix traversal must retain its owner and elements")
                     }
