@@ -36,6 +36,11 @@ pub(crate) fn remap_operand_ids(operand: &mut MirOperand, mappings: &impl MirLoc
 }
 
 pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl MirLocalIdMapping) {
+    if let Some(Some(collection)) = operation.cleanup_collection_slot() {
+        collection.state.remap_local_ids(mappings);
+        collection.report.remap_local_ids(mappings);
+    }
+
     match operation {
         MirOperationKind::Store {
             destination, value, ..
@@ -44,9 +49,11 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             value.remap_local_ids(mappings);
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Quiesce(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => place.remap_local_ids(mappings),
-        MirOperationKind::Destroy { place, abandoned } => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             place.remap_local_ids(mappings);
 
             if let Some(abandoned) = abandoned {
@@ -237,6 +244,13 @@ fn remap_generator_operation(
     operation: &mut MirGeneratorOperation,
     mappings: &impl MirLocalIdMapping,
 ) {
+    if let MirGeneratorOperation::CleanupBroadcast { collection, .. }
+    | MirGeneratorOperation::Destroy { collection, .. } = operation
+    {
+        collection.state.remap_local_ids(mappings);
+        collection.report.remap_local_ids(mappings);
+    }
+
     match operation {
         MirGeneratorOperation::Destroy {
             destination,
@@ -306,8 +320,11 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
                 value.remap_local_ids(mappings);
             }
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, report, ..
+        } => {
             incident.remap_local_ids(mappings);
+            report.remap_local_ids(mappings);
         }
         MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }

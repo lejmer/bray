@@ -31,18 +31,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 destination,
                 element,
                 runtime,
-            } => self.translate_generator_cleanup(&helpers, destination, *element, *runtime),
+                collection,
+            } => self.translate_generator_cleanup(
+                &helpers,
+                destination,
+                *element,
+                *runtime,
+                collection,
+            ),
             MirGeneratorOperation::Destroy {
                 destination,
                 element,
                 abandoned,
                 runtime,
+                collection,
             } => self.translate_generator_destroy(
                 &helpers,
                 destination,
                 *element,
                 abandoned,
                 *runtime,
+                collection,
             ),
         }
     }
@@ -180,6 +189,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         destination: &MirPlace,
         element: bray_symbols::TypeId,
         runtime: bray_ir::MirRuntimeReference,
+        collection: &bray_ir::MirCleanupCollection,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [helper] = helpers else {
             panic!("checked MIR translation violated an established compiler contract");
@@ -196,9 +206,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let callback = self.generator_callback_argument(helper, runtime, 1)?;
         let destination = self.place(destination)?.into();
+        let state = self.place(collection.state())?.into();
+        let report = self.place(collection.report())?.into();
 
         if self
-            .invoke_runtime(runtime, &[destination, callback])?
+            .invoke_runtime(runtime, &[destination, callback, state, report])?
             .is_some()
         {
             panic!("checked MIR translation violated an established compiler contract");
@@ -214,6 +226,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         element: bray_symbols::TypeId,
         abandoned: &bray_ir::MirOperand,
         runtime: bray_ir::MirRuntimeReference,
+        collection: &bray_ir::MirCleanupCollection,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [cleanup, destroy] = helpers else {
             panic!("checked MIR translation violated an established compiler contract");
@@ -233,9 +246,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let abandoned = self.operand(abandoned)?;
         let destroy = self.generator_callback_argument(destroy, runtime, 2)?;
         let destination = self.place(destination)?.into();
+        let state = self.place(collection.state())?.into();
+        let report = self.place(collection.report())?.into();
 
         if self
-            .invoke_runtime(runtime, &[destination, cleanup, destroy, abandoned])?
+            .invoke_runtime(
+                runtime,
+                &[destination, cleanup, destroy, abandoned, state, report],
+            )?
             .is_some()
         {
             panic!("checked MIR translation violated an established compiler contract");

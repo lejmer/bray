@@ -45,4 +45,5 @@ pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Size
     pub(crate) context: &'context C,
     // The current generated destructor's explicit invocation argument.
     pub(crate) abandoned: Option<bray_ir::MirOperand>,
+    pub(crate) collection: Option<crate::cleanup_outcome::CleanupOutcome>,
 }

@@ -431,7 +431,7 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
 
         disposes_result |= block.operations().iter().any(|id| matches!(
             mir.operation(*id).unwrap().kind(),
-            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. }
                 if place.storage() == result
         ));
 
@@ -511,7 +511,7 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         mir.operations()
             .iter()
             .any(|operation| matches!(operation.kind(),
-        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. }
             if place.storage() == *storage))
     );
 }

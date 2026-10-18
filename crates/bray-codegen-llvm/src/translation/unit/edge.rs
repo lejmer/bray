@@ -416,6 +416,7 @@ mod tests {
                 panicked,
                 source.clone(),
                 MirOperationKind::Cleanup {
+                    collection: None,
                     phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                     place: report,
                 },

@@ -57,6 +57,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             block,
             source,
             MirOperationKind::Destroy {
+                collection: None,
                 place,
                 abandoned: Some(abandoned),
             },

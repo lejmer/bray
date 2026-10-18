@@ -26,6 +26,12 @@ pub(super) fn validate_operation(
     validate_operation_result(unit, operation)?;
     validate_operation_block(block_kind, operation.kind())?;
 
+    if let Some(collection) = operation.kind().cleanup_collection() {
+        for place in collection.places() {
+            validate_place(unit, place, block, Some(id))?;
+        }
+    }
+
     match operation.kind() {
         MirOperationKind::AdmitOutgoing { owner, runtime } => {
             if let crate::MirOutgoingOwner::FrameFactory(callee) = owner {
@@ -62,11 +68,13 @@ pub(super) fn validate_operation(
             }
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Quiesce(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => {
             validate_place(unit, place, block, Some(id))?;
         }
-        MirOperationKind::Destroy { place, abandoned } => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             validate_place(unit, place, block, Some(id))?;
 
             if let Some(abandoned) = abandoned {
@@ -176,7 +184,7 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         ) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Host(_) => block_kind == MirBlockKind::Ordinary,
-        MirOperationKind::Quiesce(_) | MirOperationKind::Destroy { .. } => {
+        MirOperationKind::Quiesce { .. } | MirOperationKind::Destroy { .. } => {
             block_kind != MirBlockKind::CleanupBroadcast
         }
         MirOperationKind::Cleanup { phase, .. } => match phase {
@@ -268,7 +276,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     | MirGeneratorOperation::CleanupBroadcast { .. }
                     | MirGeneratorOperation::Destroy { .. }
             )
-            | MirOperationKind::Quiesce(_)
+            | MirOperationKind::Quiesce { .. }
             | MirOperationKind::Destroy { .. }
             | MirOperationKind::Cleanup { .. }
             | MirOperationKind::Host(_)
@@ -920,9 +928,13 @@ fn validate_async_operation(
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
         }
         MirAsyncOperation::TransferCleanupIncident {
-            incident, runtime, ..
+            incident,
+            report,
+            runtime,
+            ..
         } => {
             validate_place(unit, incident, block, Some(operation_id))?;
+            validate_place(unit, report, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
         }
         MirAsyncOperation::DestroyTerminalTask { task } => {

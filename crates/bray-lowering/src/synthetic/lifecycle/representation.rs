@@ -78,10 +78,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder, block, source, role, place, storage, target, borrow, release,
             ),
             LifecycleAction::Generator(element) => {
+                let collection = Box::new(
+                    self.collection
+                        .as_ref()
+                        .expect("generator traversal borrows its enclosing cleanup collection")
+                        .collection(),
+                );
+
                 let operation = match role {
                     bray_ir::MirGeneratedLifecycleRole::Destroy => MirGeneratorOperation::Destroy {
                         destination: place,
                         element,
+                        collection,
                         abandoned: self
                             .abandoned
                             .clone()
@@ -96,6 +104,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     ) => MirGeneratorOperation::CleanupBroadcast {
                         destination: place,
                         element,
+                        collection,
                         runtime: MirRuntimeReference::new(
                             RuntimeAbiRole::GeneratorCleanupBroadcast,
                             runtime_abi,
@@ -291,7 +300,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let operation = match role {
-            bray_ir::MirGeneratedLifecycleRole::Quiesce => MirOperationKind::Quiesce(child),
+            bray_ir::MirGeneratedLifecycleRole::Quiesce => MirOperationKind::Quiesce {
+                place: child,
+                collection: None,
+            },
             bray_ir::MirGeneratedLifecycleRole::Destroy => {
                 let inherited = self
                     .abandoned
@@ -325,6 +337,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     abandoned,
                     source,
                     MirOperationKind::Destroy {
+                        collection: None,
                         place: child.clone(),
                         abandoned: Some(inherited.clone()),
                     },
@@ -335,6 +348,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     ordinary,
                     source,
                     MirOperationKind::Cleanup {
+                        collection: None,
                         phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                         place: child,
                     },
@@ -355,6 +369,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 return Ok(continuation);
             }
             bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => MirOperationKind::Cleanup {
+                collection: None,
                 phase,
                 place: child,
             },

@@ -800,7 +800,17 @@ mod tests {
             .blocks()
             .iter()
             .find_map(|block| match block.terminator().kind() {
-                MirTerminatorKind::Switch { cases, .. } if cases.len() == 2 => Some(cases),
+                MirTerminatorKind::Switch { cases, .. }
+                    if cases.len() == 2
+                        && cases.iter().any(|case| {
+                            matches!(
+                                mir.block(case.edge().target()).unwrap().terminator().kind(),
+                                MirTerminatorKind::Return(Some(_))
+                            )
+                        }) =>
+                {
+                    Some(cases)
+                }
                 _ => None,
             })
             .expect("cancellation dispatcher must retain both destinations");

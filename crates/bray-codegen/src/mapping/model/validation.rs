@@ -47,6 +47,11 @@ pub fn demanded_runtime_references_for_mir(
         )
     });
 
+    let owns_collection = mir
+        .operations()
+        .iter()
+        .any(|operation| operation.kind().owns_cleanup_collection());
+
     mir.operations()
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind(), runtime_abi))
@@ -103,6 +108,15 @@ pub fn demanded_runtime_references_for_mir(
             ]
             .into_iter()
             .filter(|_| asynchronous_root)
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
+        .chain(
+            [
+                RuntimeAbiRole::CleanupShieldEnter,
+                RuntimeAbiRole::CleanupShieldLeave,
+            ]
+            .into_iter()
+            .filter(|_| owns_collection)
             .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
         .flatten()
@@ -225,13 +239,11 @@ fn operation_runtime_references(
     match operation {
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
-        MirOperationKind::Memory(operation) => [
-            operation
-                .atomic_word_runtime_role()
-                .map(|role| MirRuntimeReference::new(role, abi)),
-            None,
-            None,
-        ],
+        MirOperationKind::Memory(operation) => {
+            let mut roles = operation.runtime_roles();
+
+            std::array::from_fn(|_| roles.next().map(|role| MirRuntimeReference::new(role, abi)))
+        }
         MirOperationKind::Call(call) if call.is_cleanup() => [
             Some(MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::OutgoingActivation,
@@ -249,6 +261,17 @@ fn operation_runtime_references(
             | bray_ir::MirCallTarget::DefaultValue { .. }
             | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
         },
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { runtime, .. }) => [
+            Some(*runtime),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::CleanupStorageClaim,
+                abi,
+            )),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::CleanupStorageRelease,
+                abi,
+            )),
+        ],
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
@@ -276,8 +299,7 @@ fn operation_runtime_references(
             | MirAsyncOperation::ObserveCurrentRunCancellation { runtime }
             | MirAsyncOperation::ResolveTask { runtime, .. }
             | MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
-            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. }
-            | MirAsyncOperation::TransferCleanupIncident { runtime, .. },
+            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. },
         )
         | MirOperationKind::Host(
             MirHostOperation::InitializeRuntime { runtime }
@@ -309,7 +331,7 @@ fn operation_runtime_references(
         )
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
-        | MirOperationKind::Quiesce(_)
+        | MirOperationKind::Quiesce { .. }
         | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(

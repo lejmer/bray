@@ -59,9 +59,34 @@ impl Compilation {
             ));
         }
 
+        if !matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            for role in [
+                RepresentationRole::ScalarU32,
+                RepresentationRole::PanicReport,
+            ] {
+                let target = self.codegen_representation_type(role)?;
+
+                let pointer = self
+                    .semantic_value_store()?
+                    .intern_type(TypeData::Borrow {
+                        kind: BorrowKind::Mutable,
+                        target,
+                    })
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                parameters.push(CodegenParameterMapping::direct(pointer, None, []));
+            }
+        }
+
         let signature = CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false);
 
-        Ok(signature.with_panic_report_context())
+        Ok(
+            if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+                signature.with_panic_report_context()
+            } else {
+                signature
+            },
+        )
     }
 }
 

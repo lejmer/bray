@@ -25,6 +25,11 @@ pub(super) fn smoke_test(
             42,
         ),
         (
+            "ordinary-finalization",
+            include_str!("../../fixtures/native-execution/ordinary-finalization.bray"),
+            0,
+        ),
+        (
             "async-tasks",
             include_str!("../../fixtures/native-execution/async_tasks.bray"),
             0,

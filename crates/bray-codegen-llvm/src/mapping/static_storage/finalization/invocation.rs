@@ -382,7 +382,16 @@ fn declare_static_finalizer_resolver<'context>(
         .and_then(|key| mappings.instance_symbol(key))
         .expect("fallible finalization has its concrete incident cleanup");
 
-    let destroy = crate::mapping::incident::declare_destroyer(module, cleanup, types)?;
+    let destroy = crate::mapping::incident::declare_destroyer(
+        module,
+        Some((
+            cleanup,
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                bray_ir::MirCleanupPhase::LifecycleResolution,
+            ),
+        )),
+        types,
+    )?;
 
     let identity = finalization
         .error_type_identity()

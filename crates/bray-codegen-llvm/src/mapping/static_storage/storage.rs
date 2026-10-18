@@ -552,15 +552,29 @@ fn declare_static_lifecycle_phase<'context>(
     if let Some(instance) = instance {
         let (function, signature) = mapped_instance_function(module, mappings, instance);
 
+        let collection = crate::mapping::cleanup::begin_collection(
+            module,
+            &builder,
+            static_outcome(callback),
+            types,
+        )?;
+
         crate::mapping::invoke_with_outcome(
             &builder,
             function,
             signature,
-            &[storage.into(), abandoned.into()],
+            &[
+                storage.into(),
+                abandoned.into(),
+                collection[0].into(),
+                collection[1].into(),
+            ],
             static_outcome(callback),
             "",
             types,
         )?;
+
+        crate::mapping::cleanup::publish_collection(module, &builder, collection[0], types)?;
     }
 
     builder

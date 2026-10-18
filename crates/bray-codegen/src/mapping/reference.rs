@@ -189,6 +189,7 @@ pub struct CodegenOperationMapping {
     operation: MirOperationId,
     helpers: Arc<[CodegenHelperMapping]>,
     outgoing_requirements: Option<Arc<[CodegenCleanupRequirement]>>,
+    incident_type_identity: Option<Box<[u8; 32]>>,
 }
 
 /// Extra realization inputs required by one MIR terminator.
@@ -241,6 +242,7 @@ impl CodegenOperationMapping {
             operation,
             helpers: shared_slice(helpers),
             outgoing_requirements: None,
+            incident_type_identity: None,
         }
     }
 
@@ -252,6 +254,18 @@ impl CodegenOperationMapping {
         self.outgoing_requirements = requirements.map(Arc::from);
 
         self
+    }
+
+    /// Retains the concrete payload identity for an incident transfer operation.
+    pub fn with_incident_type_identity(mut self, identity: Option<[u8; 32]>) -> Self {
+        self.incident_type_identity = identity.map(Box::new);
+
+        self
+    }
+
+    /// Returns the transferred incident's stable structural type identity.
+    pub fn incident_type_identity(&self) -> Option<[u8; 32]> {
+        self.incident_type_identity.as_deref().copied()
     }
 
     /// Returns the selected local requirements in execution order, preserving multiplicity.

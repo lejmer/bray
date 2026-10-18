@@ -55,34 +55,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.clear_moved_places()?;
 
-        if self.frame_broadcast {
-            self.return_broadcast_outcome(
-                bray_runtime_abi::NativeFrameProgressKind::PANICKED,
-                report,
-            )?;
-        } else if self.signature.has_panic_report_context() {
-            let context = self
-                .panic_report_context
-                .expect("checked MIR translation requires an established mapping or value");
-
-            let outcome = native_run_outcome_value(
-                self.types.context(),
-                &self.builder,
-                self.request.target(),
-                NativeRunState::PANICKED,
-                report,
-            )?;
-
-            llvm(self.builder.build_store(context, outcome))?;
-
-            self.return_propagated_outcome()?;
-        } else {
-            self.invoke_runtime(runtime, &[report.into()])?;
-
-            llvm(self.builder.build_unreachable())?;
-        }
-
-        Ok(())
+        self.propagate_failure(NativeRunState::PANICKED, report, runtime)
     }
 
     pub(super) fn translate_cancellation_propagation(
@@ -93,26 +66,52 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.clear_moved_places()?;
 
-        if self.frame_broadcast {
-            self.return_broadcast_outcome(
-                bray_runtime_abi::NativeFrameProgressKind::CANCELLED,
-                report,
-            )?;
-        } else {
-            let context = self
-                .panic_report_context
-                .expect("cancellation propagation requires the enclosing Bray outcome destination");
+        self.propagate_failure(
+            NativeRunState::CANCELLED,
+            report,
+            bray_ir::MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+                self.unit.target().runtime_abi(),
+            ),
+        )
+    }
 
+    pub(in crate::translation::unit) fn propagate_failure(
+        &mut self,
+        state: NativeRunState,
+        report: BasicValueEnum<'context>,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let progress = match state {
+            NativeRunState::PANICKED => bray_runtime_abi::NativeFrameProgressKind::PANICKED,
+            NativeRunState::CANCELLED => bray_runtime_abi::NativeFrameProgressKind::CANCELLED,
+            _ => panic!("failure propagation requires panic or cancellation, got {state:?}"),
+        };
+
+        if self.frame_broadcast {
+            self.return_broadcast_outcome(progress, report)?;
+        } else if let Some(context) = self.panic_report_context {
             let outcome = native_run_outcome_value(
                 self.types.context(),
                 &self.builder,
                 self.request.target(),
-                NativeRunState::CANCELLED,
+                state,
                 report,
             )?;
 
             llvm(self.builder.build_store(context, outcome))?;
             self.return_propagated_outcome()?;
+        } else {
+            assert_eq!(
+                state,
+                NativeRunState::PANICKED,
+                "cancellation propagation in {:?} ({:?}) requires the enclosing Bray outcome destination",
+                self.unit.key(),
+                self.function.get_name(),
+            );
+
+            self.invoke_runtime(runtime, &[report.into()])?;
+            llvm(self.builder.build_unreachable())?;
         }
 
         Ok(())

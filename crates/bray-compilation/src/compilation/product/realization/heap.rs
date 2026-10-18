@@ -436,8 +436,7 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
 
                 assert!(mir.operations().iter().any(
                     |operation| matches!(operation.kind(), MirOperationKind::Cleanup {
-                    phase: MirCleanupPhase::LifecycleResolution, place,
-                } if place.ty() == element)
+                    phase: MirCleanupPhase::LifecycleResolution, place, .. } if place.ty() == element)
                 ));
 
                 assert!(

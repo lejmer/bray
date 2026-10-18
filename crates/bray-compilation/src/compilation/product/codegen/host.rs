@@ -606,7 +606,11 @@ pub(super) fn native_host_runtime_roles(
         .collect::<BTreeSet<_>>();
 
     if !statics.is_empty() || !native_statics.is_empty() {
-        roles.insert(RuntimeAbiRole::ProductHostControl);
+        roles.extend([
+            RuntimeAbiRole::ProductHostControl,
+            RuntimeAbiRole::CleanupShieldEnter,
+            RuntimeAbiRole::CleanupShieldLeave,
+        ]);
     }
 
     if statics

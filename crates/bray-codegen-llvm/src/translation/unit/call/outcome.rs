@@ -37,7 +37,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(context)
     }
 
-    pub(super) fn propagate_boundary_call_panic(
+    pub(in crate::translation::unit) fn propagate_boundary_call_panic(
         &mut self,
         context: PointerValue<'context>,
     ) -> Result<(), CodegenFailure> {
@@ -55,20 +55,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.unit.target().runtime_abi(),
         );
 
-        self.invoke_runtime(runtime, &[report.into()])?;
-        llvm(self.builder.build_unreachable())?;
+        self.propagate_failure(bray_runtime_abi::NativeRunState::PANICKED, report, runtime)?;
 
         self.builder.position_at_end(cancelled);
 
-        self.invoke_runtime(
+        self.propagate_failure(
+            bray_runtime_abi::NativeRunState::CANCELLED,
+            report,
             bray_ir::MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
                 self.unit.target().runtime_abi(),
             ),
-            &[],
         )?;
-
-        llvm(self.builder.build_unreachable())?;
 
         self.builder.position_at_end(continued);
 

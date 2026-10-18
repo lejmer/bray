@@ -235,50 +235,41 @@ trusted internal func destinations(
 @abi(c)
 trusted internal func retain(
     pos pointer: RawPointer<Record>,
-    pos destination: RawPointer<bray.runtime.bootstrap.ReportRecords>
-)
+    pos mut report: bray.runtime.bootstrap.PanicReportData
+) -> bray.runtime.bootstrap.PanicReportData
     requires(
         trusted owned(pointer = pointer),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = destination)
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &report)
     )
-    uses(raw_memory, unchecked_init)
-{
-    let records = trusted retain_value(pointer, destination);
-
-    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(destination, records);
-}
-
-trusted internal func retain_value(
-    pos pointer: RawPointer<Record>,
-    pos destination: RawPointer<bray.runtime.bootstrap.ReportRecords>
-) -> bray.runtime.bootstrap.ReportRecords
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted owned(pointer = pointer),
-        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = destination)
-    )
-    ensures(
-        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = destination)
-    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
 {
     let value = trusted read_record(pointer);
+
+    let mut records: bray.runtime.bootstrap.ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool = guard.get();
     let handle = trusted bray.runtime.bootstrap.activate_record(pool);
     let entry = trusted bray.runtime.bootstrap.record(pool, handle);
 
     entry.value = value;
+    trusted bray.runtime.bootstrap.append_record(pool, &mut records, handle);
+    report.outgoing_head = records.head;
+    report.outgoing_tail = records.tail;
+    report.outgoing_count = records.count;
 
-    return
+    if report.consumer == 0
     {
-        head = handle,
-        tail = handle,
-        count = 1
-    };
+        report.consumer = trusted bray.runtime.bootstrap.consume_address();
+    }
+
+    return report;
 }
 
 @abi(c)

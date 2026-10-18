@@ -263,7 +263,7 @@ impl Lowerer<'_> {
             }
         }
 
-        crate::cleanup_outcome::check_call_outcome(
+        crate::continuation::check_call_outcome(
             &mut self.builder,
             block,
             source,

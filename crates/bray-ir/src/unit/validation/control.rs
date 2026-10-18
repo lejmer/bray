@@ -326,7 +326,7 @@ fn validate_call_outcome_check(
             })
             | crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
-            | crate::MirOperationKind::Quiesce(_)
+            | crate::MirOperationKind::Quiesce { .. }
             | crate::MirOperationKind::Destroy { .. } => true,
             _ => false,
         });

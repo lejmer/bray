@@ -19,6 +19,7 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
     SyntheticLowerer {
         context,
         abandoned: None,
+        collection: None,
     }
     .lower_lifecycle(key, reference, unit, target)
 }
@@ -84,6 +85,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.capacity_error(cause))?;
 
             self.abandoned = Some(MirOperand::Copy(MirPlace::new(argument, [], boolean)));
+        }
+
+        if !matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            self.collection = Some(self.borrow_collection(
+                &mut builder,
+                &source,
+                if self.abandoned.is_some() { 2 } else { 1 },
+            )?);
         }
 
         match reference {
@@ -332,6 +341,7 @@ mod tests {
             assert!(matches!(
                 role,
                 RepresentationRole::ScalarBool
+                    | RepresentationRole::ScalarU32
                     | RepresentationRole::PanicReport
                     | RepresentationRole::Unit
                     | RepresentationRole::ScalarUsize
@@ -523,7 +533,7 @@ mod tests {
             );
 
             match phase {
-                MirCleanupPhase::TaskCancellation => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == leaf))),
+                MirCleanupPhase::TaskCancellation => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place.ty() == leaf))),
                 MirCleanupPhase::LifecycleResolution => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == nullable))),
             }
         }

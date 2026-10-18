@@ -66,6 +66,7 @@ pub fn lower_heap_storage<C: SyntheticLoweringContext + ?Sized>(
     SyntheticLowerer {
         context,
         abandoned: None,
+        collection: None,
     }
     .lower_heap_storage(input)
 }
@@ -387,6 +388,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 broadcast,
                 source.clone(),
                 MirOperationKind::Cleanup {
+                    collection: None,
                     phase: MirCleanupPhase::TaskCancellation,
                     place: parameter.clone(),
                 },
@@ -410,6 +412,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 resolution,
                 source.clone(),
                 MirOperationKind::Cleanup {
+                    collection: None,
                     phase: MirCleanupPhase::LifecycleResolution,
                     place: parameter,
                 },

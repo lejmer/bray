@@ -186,14 +186,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         element: bray_symbols::TypeId,
         abandoned: Option<&bray_ir::MirOperand>,
     ) -> Result<(), CodegenFailure> {
-        assert!(
-            self.checked_call_operations.contains(&operation),
-            "raw-buffer release requires a checked MIR call outcome"
-        );
+        let borrowed = self
+            .unit
+            .operation(operation)
+            .expect("buffer operation exists")
+            .kind()
+            .cleanup_collection();
 
-        let outcome = self.checked_call_panic_report_context()?;
+        let owned = if borrowed.is_none() {
+            let outcome = self.checked_call_panic_report_context()?;
 
-        self.set_pending_call_context(outcome)?;
+            self.set_pending_call_context(outcome)?;
+
+            Some(outcome)
+        } else {
+            None
+        };
+
+        let collection = if let Some(borrowed) = borrowed {
+            [
+                self.place(borrowed.state())?,
+                self.place(borrowed.report())?,
+            ]
+        } else {
+            crate::mapping::cleanup::begin_collection(
+                self.module,
+                &self.builder,
+                owned.expect("buffer boundary owns its collection"),
+                self.types,
+            )?
+        };
 
         let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, buffer_type)?;
 
@@ -259,10 +281,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             None
         };
 
-        // Deallocation can share the outcome when neither element path can fail.
-        let has_destructor = cleanup.symbol().is_some()
-            || inherited.is_some_and(|(helper, _)| helper.symbol().is_some());
-
         self.destroy_raw_buffer_elements(
             cleanup,
             inherited,
@@ -272,7 +290,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             pointer,
             initialized,
             stride,
-            outcome,
+            collection,
         )?;
 
         let deallocate = next_helper(
@@ -283,14 +301,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.invoke_buffer_cleanup_helper(
             deallocate,
             &[pointer.into(), bytes.into(), alignment.into()],
-            outcome,
-            has_destructor,
+            collection,
         )?;
 
         llvm(self.builder.build_unconditional_branch(done))?;
         self.builder.position_at_end(done);
 
         llvm(self.builder.build_store(buffer, llvm_type.const_zero()))?;
+
+        if owned.is_some() {
+            crate::mapping::cleanup::publish_collection(
+                self.module,
+                &self.builder,
+                collection[0],
+                self.types,
+            )?;
+        }
 
         Ok(())
     }
@@ -425,7 +451,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         pointer: PointerValue<'context>,
         initialized: IntValue<'context>,
         stride: u64,
-        outcome: PointerValue<'context>,
+        collection: [PointerValue<'context>; 2],
     ) -> Result<(), CodegenFailure> {
         if helper.symbol().is_none()
             && inherited.is_none_or(|(destroy, _)| destroy.symbol().is_none())
@@ -517,17 +543,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.invoke_buffer_cleanup_helper(
                 destroy,
                 &[element.into(), abandoned.into()],
-                outcome,
-                true,
+                collection,
             )?;
 
             llvm(self.builder.build_unconditional_branch(completed))?;
             self.builder.position_at_end(ordinary);
-            self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
+            self.invoke_buffer_cleanup_helper(helper, &[element.into()], collection)?;
             llvm(self.builder.build_unconditional_branch(completed))?;
             self.builder.position_at_end(completed);
         } else {
-            self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
+            self.invoke_buffer_cleanup_helper(helper, &[element.into()], collection)?;
         }
 
         let body_end = self
@@ -547,8 +572,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         helper: &CodegenHelperMapping,
         arguments: &[BasicValueEnum<'context>],
-        outcome: PointerValue<'context>,
-        merge: bool,
+        collection: [PointerValue<'context>; 2],
     ) -> Result<(), CodegenFailure> {
         let Some(key) = helper.symbol() else {
             return Ok(());
@@ -560,31 +584,34 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .symbol(key)
             .expect("raw-buffer cleanup helper must have a mapped symbol");
 
+        if helper.reference().lifecycle_type().is_some() {
+            let mut arguments = arguments.to_vec();
+
+            arguments.extend(collection.map(BasicValueEnum::from));
+            self.invoke_helper(helper, &arguments)?;
+
+            return Ok(());
+        }
+
         if !symbol.signature().has_panic_report_context() {
             self.invoke_helper(helper, arguments)?;
 
             return Ok(());
         }
 
-        let incident = if merge {
-            self.allocate_panic_report_context()?
-        } else {
-            outcome
-        };
+        let incident = self.allocate_panic_report_context()?;
 
         self.invoke_helper_with_panic_report_context(helper, arguments, incident)?;
 
-        if merge {
-            crate::translation::merge_pending_outcomes(
-                self.module,
-                self.types.context(),
-                &self.builder,
-                self.request.target(),
-                self.unit.target().runtime_abi(),
-                outcome,
-                incident,
-            )?;
-        }
+        crate::translation::collect_cleanup_outcome(
+            self.module,
+            self.types.context(),
+            &self.builder,
+            self.request.target(),
+            self.unit.target().runtime_abi(),
+            collection,
+            incident,
+        )?;
 
         Ok(())
     }

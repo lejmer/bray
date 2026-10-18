@@ -232,6 +232,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
             }
             bray_bound_tree::LifecycleAction::ReleaseString => {
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
                 self.push_lifecycle_operation(
                     builder,
                     block,
@@ -243,6 +245,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         None,
                     )),
                 )?;
+
+                let block = outcome
+                    .check(builder, block, source)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
             }
             bray_bound_tree::LifecycleAction::DestroyReport => {
                 let status = self

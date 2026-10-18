@@ -159,6 +159,177 @@ pub(crate) fn merge_pending_outcomes<'context>(
     Ok(())
 }
 
+/// Collects an ordinary native call's outcome into borrowed structural cleanup storage.
+pub(crate) fn collect_cleanup_outcome<'context>(
+    module: &Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    target: &CodegenTarget,
+    runtime_abi: RuntimeAbiVersion,
+    collection: [PointerValue<'context>; 2],
+    incoming: PointerValue<'context>,
+) -> Result<(), CodegenFailure> {
+    let ty = crate::native::run_outcome_type(context, target);
+
+    let function = builder
+        .get_insert_block()
+        .and_then(BasicBlock::get_parent)
+        .expect("cleanup collection requires an active function");
+
+    let state = builder
+        .build_struct_gep(ty, incoming, 0, "cleanup.incoming.state")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let state = builder
+        .build_load(context.i32_type(), state, "cleanup.incoming.state")
+        .map_err(CodegenFailure::backend_library)?
+        .into_int_value();
+
+    let report = builder
+        .build_struct_gep(ty, incoming, 2, "cleanup.incoming.report")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let normal = native_run_state_is(
+        builder,
+        state,
+        NativeRunState::COMPLETED,
+        "cleanup.incoming.normal",
+    )?;
+
+    let failed = builder
+        .build_not(normal, "cleanup.incoming.failed")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let owned = report_slot_has_ownership(context, builder, report)?;
+
+    let present = builder
+        .build_or(failed, owned, "cleanup.incoming.present")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let collect = context.append_basic_block(function, "cleanup.collect");
+    let finished = context.append_basic_block(function, "cleanup.collected");
+
+    builder
+        .build_conditional_branch(present, collect, finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(collect);
+
+    let previous = builder
+        .build_load(context.i32_type(), collection[0], "cleanup.previous")
+        .map_err(CodegenFailure::backend_library)?
+        .into_int_value();
+
+    let empty = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            previous,
+            context.i32_type().const_zero(),
+            "cleanup.empty",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let initialize = context.append_basic_block(function, "cleanup.initialize");
+    let merge = context.append_basic_block(function, "cleanup.merge");
+    let retained = context.append_basic_block(function, "cleanup.retained");
+
+    builder
+        .build_conditional_branch(empty, initialize, merge)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(initialize);
+
+    let value = builder
+        .build_load(
+            crate::native::panic_report_type(context),
+            report,
+            "cleanup.first.report",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(collection[1], value)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_unconditional_branch(retained)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(merge);
+
+    merge_report_slots(
+        module,
+        context,
+        builder,
+        target,
+        runtime_abi,
+        collection[1],
+        report,
+    )?;
+
+    builder
+        .build_unconditional_branch(retained)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(retained);
+
+    let mut incoming_state = context
+        .i32_type()
+        .const_int(u64::from(bray_ir::MirCleanupState::Incidents.code()), false);
+
+    for (native, collected) in [
+        (
+            NativeRunState::CANCELLED,
+            bray_ir::MirCleanupState::Cancelled,
+        ),
+        (NativeRunState::PANICKED, bray_ir::MirCleanupState::Panicked),
+    ] {
+        let matches = native_run_state_is(builder, state, native, "cleanup.incoming.kind")?;
+
+        incoming_state = builder
+            .build_select(
+                matches,
+                context
+                    .i32_type()
+                    .const_int(u64::from(collected.code()), false),
+                incoming_state,
+                "cleanup.incoming.collection",
+            )
+            .map_err(CodegenFailure::backend_library)?
+            .into_int_value();
+    }
+
+    // Cleanup discriminants encode precedence: normal < incidents < cancellation < panic.
+    let preserve = builder
+        .build_int_compare(
+            inkwell::IntPredicate::UGT,
+            previous,
+            incoming_state,
+            "cleanup.preserve",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let selected = builder
+        .build_select(preserve, previous, incoming_state, "cleanup.state")
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(collection[0], selected)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(incoming, ty.const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_unconditional_branch(finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(finished);
+
+    Ok(())
+}
+
 fn merge_report_slots<'context>(
     module: &Module<'context>,
     context: &'context Context,

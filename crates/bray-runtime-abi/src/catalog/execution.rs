@@ -572,7 +572,7 @@ macro_rules! runtime_role_catalog {
             }
             CleanupIncidentTransfer {
                 "Transfer ownership of one cleanup incident.", "cleanup_incident_transfer",
-                native: (CLEANUP_INCIDENT_TRANSFER_SYMBOL = "bray_runtime_cleanup_incident_transfer", [Pointer, Pointer] -> Void),
+                native: (CLEANUP_INCIDENT_TRANSFER_SYMBOL = "bray_runtime_cleanup_incident_transfer", [Pointer, PanicReport] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: ("report.incident.retain"), host_control: false,
@@ -860,7 +860,7 @@ macro_rules! runtime_role_catalog {
                 "Broadcast task cleanup through initialized generator elements.", "generator_cleanup_broadcast",
                 native: (),
                 call_hook: (),
-                compiler: Bray [Pointer, Pointer] -> Void,
+                compiler: Bray [Pointer, Pointer, Pointer, Pointer] -> Void,
                 owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [BroadcastGeneratorCleanup]
@@ -869,7 +869,7 @@ macro_rules! runtime_role_catalog {
                 "Destroy initialized generator elements and release accumulation storage.", "generator_destruction",
                 native: (),
                 call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer, Bool] -> Void,
+                compiler: Bray [Pointer, Pointer, Pointer, Bool, Pointer, Pointer] -> Void,
                 owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [DestroyGenerator]

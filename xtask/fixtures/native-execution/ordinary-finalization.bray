@@ -1,0 +1,160 @@
+module ordinary_finalization;
+
+internal static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static ERRORS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+async func record()
+{
+    await std.task.yield_now();
+
+    let previous = core.atomic.load<usize, 1>(&COUNT);
+
+    core.atomic.store<usize, 4>(&COUNT, previous + 1);
+}
+
+struct Owner
+{
+    value: usize;
+
+    async finalize()
+    {
+        await record();
+    }
+}
+
+func rejected() -> usize
+{
+    panic("later input");
+}
+
+async func accept(pos owner: Owner, number: usize = rejected()) {}
+
+async func completed() -> Owner
+{
+    return Owner
+    {
+        value = 3
+    };
+}
+
+async func ordinary()
+{
+    let mut owner = Owner
+    {
+        value = 1
+    };
+
+    owner = Owner
+    {
+        value = 2
+    };
+
+    let result = await completed();
+
+    let _ = catch
+    {
+        await accept(
+            Owner
+            {
+                value = 4
+            }
+        );
+
+        yield unit;
+    };
+}
+
+async func child(pos owner: Owner) -> [u64; 1024]
+{
+    panic("inactive body entered");
+}
+
+async func inactive()
+{
+    let mut pending = child(
+        Owner
+        {
+            value = 5
+        }
+    );
+
+    pending = child(
+        Owner
+        {
+            value = 6
+        }
+    );
+
+    child(
+        Owner
+        {
+            value = 7
+        }
+    );
+}
+
+@layout(stable, align = 2048)
+struct Failure
+{
+    value: u64;
+
+    finalize()
+    {
+        panic("retained error must abandon finalization");
+    }
+
+    destruct()
+    {
+        assert(self.value == 17);
+        assert(core.atomic.load<usize, 1>(&ERRORS) == 1);
+        core.atomic.store<usize, 4>(&ERRORS, 2);
+    }
+}
+
+struct FailingOwner
+{
+    async finalize() -> Result<unit, Failure>
+    {
+        await std.task.yield_now();
+
+        return Error(
+            Failure
+            {
+                value = 17
+            }
+        );
+    }
+
+    destruct()
+    {
+        assert(core.atomic.load<usize, 1>(&ERRORS) == 0);
+        core.atomic.store<usize, 4>(&ERRORS, 1);
+    }
+}
+
+async func fail()
+{
+    let owner = FailingOwner
+    {
+    };
+
+    panic("original failure");
+}
+
+async func main()
+{
+    await ordinary();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 4);
+
+    await inactive();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 7);
+
+    let _ = catch
+    {
+        await fail();
+        yield unit;
+    };
+
+    assert(core.atomic.load<usize, 1>(&ERRORS) == 2);
+}

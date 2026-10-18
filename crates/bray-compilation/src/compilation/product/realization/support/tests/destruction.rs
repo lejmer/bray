@@ -489,21 +489,53 @@ fn owned_indirection_uses_storage_policy_teardown() {
         83,
     );
 
-    assert!(
-        broadcast.blocks().iter().any(|block| {
+    let failed = broadcast
+        .blocks()
+        .iter()
+        .find_map(|block| {
             let MirTerminatorKind::CheckCallOutcome { panicked, .. } = block.terminator().kind()
             else {
-                return false;
+                return None;
             };
 
-            matches!(
-                broadcast
-                    .block(panicked.target())
-                    .map(|target| target.terminator().kind()),
-                Some(MirTerminatorKind::ContinueCleanup(_))
-            )
-        }),
-        "storage borrow panic must retain its report across cleanup broadcast"
+            Some(panicked.target())
+        })
+        .expect("storage projection checks its failure outcome");
+
+    let reachable = bray_base::transitive_dependencies([failed], |id| {
+        let mut successors = Vec::new();
+
+        broadcast
+            .block(*id)
+            .unwrap()
+            .terminator()
+            .kind()
+            .for_each_successor(|next| successors.push(next));
+
+        successors
+    });
+
+    assert!(reachable.iter().any(|id| broadcast.block(*id).unwrap().operations().iter().any(|id|
+        matches!(broadcast.operation(*id).unwrap().kind(),
+            MirOperationKind::Store { destination, .. }
+                if matches!(broadcast.storage(destination.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(2)))
+    )), "storage projection failures write the enclosing report");
+
+    assert!(
+        reachable.iter().any(|id| matches!(
+            broadcast.block(*id).unwrap().terminator().kind(),
+            MirTerminatorKind::Return(None)
+        )),
+        "a failed projection returns to the enclosing traversal"
+    );
+
+    assert!(
+        broadcast.blocks().iter().all(|block| !matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::PropagatePanic { .. }
+                | MirTerminatorKind::PropagateCancellation { .. }
+        )),
+        "a borrowed collection is dispatched only by its owner"
     );
 }
 
@@ -775,8 +807,8 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                         if runtime.role() == RuntimeAbiRole::CleanupShieldEnter)
             ))
             .count(),
-        1,
-        "finalization and destruction share the enclosing cleanup outcome",
+        0,
+        "structural helpers borrow the caller's shield and collection",
     );
 
     let (call_block, call) = generated.blocks_with_ids().find_map(|(id, block)| {
@@ -852,16 +884,12 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     assert!(broadcast.operations().iter().any(|id| matches!(
         generated.operation(*id).unwrap().kind(),
-        MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place == payload
+        MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place == payload
     )));
 
-    let MirTerminatorKind::CheckCallOutcome {
-        completed: broadcast_complete,
-        panicked: broadcast_panic,
-        cancelled: broadcast_cancel,
-    } = broadcast.terminator().kind()
+    let MirTerminatorKind::ContinueCleanup(broadcast_complete) = broadcast.terminator().kind()
     else {
-        panic!("broadcast failures must be collected before child resolution");
+        panic!("shared broadcast collection proceeds directly to child resolution");
     };
 
     let (resolution_id, resolution) = generated
@@ -870,7 +898,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
             block.operations().iter().any(|id| {
                 matches!(
                     generated.operation(*id).unwrap().kind(),
-                    MirOperationKind::Quiesce(place) if place == payload
+                    MirOperationKind::Quiesce { place, .. } if place == payload
                 )
             })
         })
@@ -878,7 +906,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     assert!(resolution.operations().iter().any(|id| matches!(
         generated.operation(*id).unwrap().kind(),
-        MirOperationKind::Quiesce(place) if place == payload
+        MirOperationKind::Quiesce { place, .. } if place == payload
     )));
 
     assert!(generated.operations().iter().any(|operation| matches!(
@@ -943,36 +971,40 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         })
     };
 
-    for start in [
-        broadcast_complete.target(),
-        broadcast_panic.target(),
-        broadcast_cancel.target(),
-    ] {
-        assert!(
-            reachable(start).contains(&resolution_id),
-            "every broadcast outcome proceeds through error quiescence"
-        );
-    }
+    assert_eq!(broadcast_complete.edge().target(), resolution_id);
 
-    let MirTerminatorKind::CheckCallOutcome {
-        completed,
-        panicked: quiescence_panic,
-        cancelled: quiescence_cancel,
-    } = resolution.terminator().kind()
-    else {
-        panic!("quiescence must collect its outcome before incident transfer");
-    };
+    assert!(
+        reachable(resolution_id).contains(&transfer_block),
+        "shared quiescence retains the payload before transfer on every outcome"
+    );
 
-    for target in [
-        completed.target(),
-        quiescence_panic.target(),
-        quiescence_cancel.target(),
-    ] {
-        assert!(
-            reachable(target).contains(&transfer_block),
-            "quiescence retains the payload on every outcome"
-        );
-    }
+    let collections = generated
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::Cleanup {
+                place, collection, ..
+            }
+            | MirOperationKind::Quiesce { place, collection }
+                if place == payload =>
+            {
+                Some(
+                    collection
+                        .as_deref()
+                        .expect("structural cleanup borrows its caller collection"),
+                )
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(collections.len(), 2);
+    assert_eq!(collections[0], collections[1]);
+
+    assert!(generated.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { report, .. })
+            if report == collections[0].report()
+    )), "quiescence and transfer append to the same enclosing report");
 
     for target in [panicked.target(), cancelled.target(), matched.target()] {
         assert!(
@@ -989,6 +1021,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                     MirOperationKind::Destroy {
                         place,
                         abandoned: Some(abandoned),
+                        ..
                     } if place.ty() == ty => Some((id, place, abandoned)),
                     _ => None,
                 }
@@ -1028,7 +1061,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                 .iter()
                 .any(|operation| {
                     matches!(generated.operation(*operation).unwrap().kind(),
-            MirOperationKind::Quiesce(place) if place == destroyed)
+            MirOperationKind::Quiesce { place, .. } if place == destroyed)
                 })
                 .then_some(id)
         })

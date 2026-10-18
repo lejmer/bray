@@ -45,6 +45,12 @@ impl MirUnit {
 }
 
 fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<TypeId>) {
+    if let Some(collection) = operation.cleanup_collection() {
+        for place in collection.places() {
+            collect_place_types(place, types);
+        }
+    }
+
     match operation {
         MirOperationKind::AdmitOutgoing { owner, .. }
         | MirOperationKind::DischargeOutgoing { owner, .. } => match owner {
@@ -64,9 +70,11 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_operand_types(value, types);
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Quiesce(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
-        MirOperationKind::Destroy { place, abandoned } => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             collect_place_types(place, types);
 
             if let Some(abandoned) = abandoned {
@@ -414,10 +422,12 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         },
         MirAsyncOperation::TransferCleanupIncident {
             incident,
+            report,
             invocation,
             ..
         } => {
             collect_place_types(incident, types);
+            collect_place_types(report, types);
             collect_call_result_types(*invocation, types);
         }
     }

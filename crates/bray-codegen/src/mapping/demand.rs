@@ -135,6 +135,12 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
 }
 
 fn collect_operation_values(operation: &MirOperationKind, demands: &mut ConstantDemands) {
+    if let Some(collection) = operation.cleanup_collection() {
+        for place in collection.places() {
+            collect_place_values(place, demands);
+        }
+    }
+
     match operation {
         MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::AdmitOutgoing { owner, .. }
@@ -150,7 +156,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
             collect_operand_value(value, demands);
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Quiesce(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
@@ -185,7 +191,9 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
             demands.values.extend(memory.kind().contract_constants());
             collect_operands(memory.operands(), demands);
         }
-        MirOperationKind::Destroy { place, abandoned } => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             collect_place_values(place, demands);
 
             if let Some(abandoned) = abandoned {
@@ -360,8 +368,11 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
                 collect_operand_value(value, demands);
             }
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, report, ..
+        } => {
             collect_place_values(incident, demands);
+            collect_place_values(report, demands);
         }
     }
 }

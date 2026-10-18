@@ -866,8 +866,7 @@ fn assert_frame_admission_retains_capture(source: &str) {
             );
 
             resolves_capture |= matches!(kind, MirOperationKind::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place
-            } if place == capture);
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. } if place == capture);
         }
 
         block
@@ -943,6 +942,7 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
             if let MirOperationKind::Cleanup {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 place,
+                ..
             } = kind
             {
                 cleans_capture |= matches!(
@@ -1072,7 +1072,7 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
             ));
 
             for id in block.operations() {
-                if let MirOperationKind::Cleanup { phase, place } =
+                if let MirOperationKind::Cleanup { phase, place, .. } =
                     mir.operation(*id).unwrap().kind()
                 {
                     assert_eq!(*phase, bray_ir::MirCleanupPhase::TaskCancellation);
@@ -1366,6 +1366,7 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         let MirOperationKind::Destroy {
             place,
             abandoned: Some(_),
+            ..
         } = operation.kind()
         else {
             continue;
@@ -1375,7 +1376,7 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
             mir.operations()
                 .iter()
                 .any(|operation| matches!(operation.kind(),
-            MirOperationKind::Quiesce(current) if current == place)),
+            MirOperationKind::Quiesce { place: current, .. } if current == place)),
             "a failed mutating finalizer quiesces its current owner before destruction"
         );
     }
@@ -1763,6 +1764,7 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
             MirOperationKind::Destroy {
                 place,
                 abandoned: Some(bray_ir::MirOperand::Copy(argument)),
+                ..
             } if matches!(
                 mir.storage(argument.storage()).unwrap().kind(),
                 bray_ir::MirStorageKind::Parameter(1)
@@ -1787,6 +1789,7 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
                 MirOperationKind::Destroy {
                     place,
                     abandoned: None | Some(bray_ir::MirOperand::Value(_)),
+                    ..
                 }
                 | MirOperationKind::Cleanup { place, .. } => !inherited.contains(&place.storage()),
                 _ => false,

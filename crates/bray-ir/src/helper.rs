@@ -182,9 +182,9 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::DefaultValue(*provider));
                 }
             }
-            Self::Quiesce(place) => helpers.push(MirHelperReference::Quiesce(place.ty())),
+            Self::Quiesce { place, .. } => helpers.push(MirHelperReference::Quiesce(place.ty())),
             Self::Destroy { place, .. } => helpers.push(MirHelperReference::Destroy(place.ty())),
-            Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
+            Self::Cleanup { phase, place, .. } => helpers.push(MirHelperReference::Cleanup {
                 phase: *phase,
                 ty: place.ty(),
             }),

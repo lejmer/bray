@@ -79,9 +79,34 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let incident_type_identity =
+                    if let MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+                        incident,
+                        ..
+                    }) = data.kind()
+                    {
+                        let ty = self.concrete_codegen_type(
+                            incident.ty(),
+                            realization.substitution(),
+                            Some(realization),
+                            cancellation,
+                        )?;
+
+                        let binding = self.binding_context(cancellation)?;
+
+                        Some(super::super::structural_type_identity(
+                            self.semantic_value_store()?,
+                            &binding,
+                            ty,
+                        )?)
+                    } else {
+                        None
+                    };
+
                 mappings.push(
                     CodegenOperationMapping::new(instance.key().clone(), operation, helpers)
-                        .with_outgoing_requirements(outgoing),
+                        .with_outgoing_requirements(outgoing)
+                        .with_incident_type_identity(incident_type_identity),
                 );
             }
         }

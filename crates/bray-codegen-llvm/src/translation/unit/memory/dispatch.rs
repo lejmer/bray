@@ -2504,7 +2504,7 @@ mod tests {
             cleanup,
             MEMORY_VALUE_CLEANUP_HELPER_SYMBOL,
             CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(types.pointer, None, [])],
+                (0..3).map(|_| CodegenParameterMapping::direct(types.pointer, None, [])),
                 CodegenResultMapping::Void,
                 CallableAbi::Bray,
                 false,

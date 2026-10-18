@@ -230,6 +230,7 @@ impl Lowerer<'_> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
         let report = self.representation_type(RepresentationRole::PanicReport)?;
         let unit = self.representation_type(RepresentationRole::Unit)?;
+        let states = self.cleanup_state_constants()?;
 
         let outcome = CleanupOutcome::allocate(
             &mut self.builder,
@@ -238,6 +239,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            states,
             bray_ir::MirStorageKind::BroadcastLocal,
         )?;
 

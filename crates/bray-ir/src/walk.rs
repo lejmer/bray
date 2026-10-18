@@ -123,6 +123,12 @@ impl MirOperationKind {
     /// Addressed storage is not a value operand. Operations such as frame moves also have
     /// explicit storage effects that callers must handle independently.
     pub fn for_each_operand(&self, mut visit: impl FnMut(&MirOperand)) {
+        if let Some(collection) = self.cleanup_collection() {
+            for place in collection.places() {
+                visit_place_operands(place, &mut visit);
+            }
+        }
+
         match self {
             Self::Store {
                 destination, value, ..
@@ -130,10 +136,12 @@ impl MirOperationKind {
                 visit_place_operands(destination, &mut visit);
                 visit_operand(value, &mut visit);
             }
-            Self::Borrow { place, .. } | Self::Quiesce(place) | Self::Cleanup { place, .. } => {
-                visit_place_operands(place, &mut visit)
-            }
-            Self::Destroy { place, abandoned } => {
+            Self::Borrow { place, .. }
+            | Self::Quiesce { place, .. }
+            | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
+            Self::Destroy {
+                place, abandoned, ..
+            } => {
                 visit_place_operands(place, &mut visit);
 
                 if let Some(abandoned) = abandoned {
@@ -264,8 +272,11 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
                 visit_operand(value, visit);
             }
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            visit_place_operands(incident, visit)
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, report, ..
+        } => {
+            visit_place_operands(incident, visit);
+            visit_place_operands(report, visit);
         }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
@@ -357,12 +368,20 @@ pub(crate) fn for_each_operation_storage(
 ) {
     operation.for_each_operand(|operand| visit_operand_storage(operand, &mut visit));
 
+    if let Some(collection) = operation.cleanup_collection() {
+        for place in collection.places() {
+            visit(place.storage());
+        }
+    }
+
     match operation {
         MirOperationKind::Store { destination, .. }
         | MirOperationKind::Borrow {
             place: destination, ..
         }
-        | MirOperationKind::Quiesce(destination)
+        | MirOperationKind::Quiesce {
+            place: destination, ..
+        }
         | MirOperationKind::Destroy {
             place: destination, ..
         }
@@ -396,9 +415,16 @@ pub(crate) fn for_each_operation_storage(
                 visit(*completion);
             }
         }
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            report,
+            ..
+        }) => {
+            visit_place_storage(incident, &mut visit);
+            visit_place_storage(report, &mut visit);
+        }
         MirOperationKind::Async(
-            MirAsyncOperation::TransferCleanupIncident { incident, .. }
-            | MirAsyncOperation::ResolveTask { task: incident, .. }
+            MirAsyncOperation::ResolveTask { task: incident, .. }
             | MirAsyncOperation::RequestTaskCancellation { task: incident, .. },
         ) => {
             visit_place_storage(incident, &mut visit);

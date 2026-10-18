@@ -602,19 +602,24 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(14);
                 self.panic_cause(cause)?;
             }
-            MirOperationKind::Quiesce(place) => {
+            MirOperationKind::Quiesce { place, .. } => {
                 self.wire.write_u32(25);
                 self.place(place)?;
+                self.cleanup_collection(operation.cleanup_collection())?;
             }
-            MirOperationKind::Destroy { place, abandoned } => {
+            MirOperationKind::Destroy {
+                place, abandoned, ..
+            } => {
                 self.wire.write_u32(16);
                 self.place(place)?;
                 self.optional_operand(abandoned.as_ref())?;
+                self.cleanup_collection(operation.cleanup_collection())?;
             }
-            MirOperationKind::Cleanup { phase, place } => {
+            MirOperationKind::Cleanup { phase, place, .. } => {
                 self.wire.write_u32(17);
                 self.cleanup_phase(*phase);
                 self.place(place)?;
+                self.cleanup_collection(operation.cleanup_collection())?;
             }
             MirOperationKind::Async(operation) => {
                 self.wire.write_u32(18);
@@ -847,6 +852,21 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(11);
                 self.symbol((*variant).into())?;
                 self.wire.write_u32(ordinal.raw());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn cleanup_collection(
+        &mut self,
+        collection: Option<&bray_ir::MirCleanupCollection>,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        write_bool(&mut self.wire, collection.is_some());
+
+        if let Some(collection) = collection {
+            for place in collection.places() {
+                self.place(place)?;
             }
         }
 
@@ -1732,23 +1752,27 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 destination,
                 element,
                 runtime,
+                collection,
             } => {
                 self.wire.write_u32(3);
                 self.place(destination)?;
                 self.ty(*element)?;
                 self.runtime_reference(*runtime);
+                self.cleanup_collection(Some(collection))?;
             }
             MirGeneratorOperation::Destroy {
                 destination,
                 element,
                 abandoned,
                 runtime,
+                collection,
             } => {
                 self.wire.write_u32(4);
                 self.place(destination)?;
                 self.ty(*element)?;
                 self.operand(abandoned)?;
                 self.runtime_reference(*runtime);
+                self.cleanup_collection(Some(collection))?;
             }
         }
 
@@ -1784,6 +1808,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
         self.callable_references(operation.inline_assembly_symbols())?;
         self.optional_operand(operation.abandoned_cleanup())?;
+        self.cleanup_collection(operation.cleanup_collection())?;
 
         Ok(())
     }
@@ -2422,12 +2447,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             Operation::TransferCleanupIncident {
                 incident,
+                report,
                 producer,
                 invocation,
                 runtime,
             } => {
                 self.wire.write_u32(12);
                 self.place(incident)?;
+                self.place(report)?;
                 self.callable_instance(producer.instance())?;
                 self.callable_abi(producer.abi());
                 self.call_result(*invocation)?;

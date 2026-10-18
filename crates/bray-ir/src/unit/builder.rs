@@ -304,6 +304,22 @@ impl MirUnitBuilder {
         Ok(MirOperationCommit::new(operation, result))
     }
 
+    /// Makes the block's last structural operation borrow the enclosing collection.
+    /// Source invocations retain their separate failure channel and return false.
+    pub fn borrow_cleanup_collection(
+        &mut self,
+        block: MirBlockId,
+        collection: &crate::MirCleanupCollection,
+    ) -> bool {
+        let Some(id) = self.blocks[self.block_index(block)].operations.last() else {
+            return false;
+        };
+
+        self.operations[usize::try_from(id.slot()).expect("operation slot fits usize")]
+            .kind
+            .borrow_cleanup_collection(collection)
+    }
+
     /// Sets the single terminator for one block.
     pub fn set_terminator(
         &mut self,
@@ -1115,6 +1131,7 @@ mod tests {
 
             let operation = if fallible {
                 MirOperationKind::Destroy {
+                    collection: None,
                     place,
                     abandoned: None,
                 }

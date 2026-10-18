@@ -613,6 +613,11 @@ fn operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<&'static str, MirInspectionModelError> {
+    if let Some(collection) = operation.cleanup_collection() {
+        parts.place("cleanup_state", collection.state(), context)?;
+        parts.place("cleanup_report", collection.report(), context)?;
+    }
+
     let kind = match operation {
         MirOperationKind::AnonymousCallable(key) => {
             match key {
@@ -793,12 +798,14 @@ fn operation_parts(
                 "outgoing_discharge"
             }
         }
-        MirOperationKind::Quiesce(place) => {
+        MirOperationKind::Quiesce { place, .. } => {
             parts.place("place", place, context)?;
 
             "quiesce"
         }
-        MirOperationKind::Destroy { place, abandoned } => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             parts.place("place", place, context)?;
 
             if let Some(abandoned) = abandoned {
@@ -807,7 +814,7 @@ fn operation_parts(
 
             "destroy"
         }
-        MirOperationKind::Cleanup { phase, place } => {
+        MirOperationKind::Cleanup { phase, place, .. } => {
             parts.attribute("phase", cleanup_phase(*phase));
             parts.place("place", place, context)?;
 
@@ -1380,6 +1387,7 @@ fn generator_operation(
             destination,
             element,
             runtime,
+            ..
         } => {
             parts.attribute("step", "cleanup_broadcast");
             parts.r#type("element_type", *element, context)?;
@@ -1391,6 +1399,7 @@ fn generator_operation(
             element,
             abandoned,
             runtime,
+            ..
         } => {
             parts.attribute("step", "destroy");
             parts.operand("abandoned", abandoned, context)?;
@@ -1551,6 +1560,7 @@ fn async_operation(
         }
         MirAsyncOperation::TransferCleanupIncident {
             incident,
+            report,
             producer,
             invocation,
             runtime,
@@ -1559,6 +1569,7 @@ fn async_operation(
             parts.r#type("invocation_result", invocation.ty(), context)?;
             runtime_reference("runtime", *runtime, parts);
             parts.place("incident", incident, context)?;
+            parts.place("report", report, context)?;
 
             "transfer_cleanup_incident"
         }

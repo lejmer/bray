@@ -118,10 +118,13 @@ pub(crate) fn declare_reporter<'context>(
 
 pub(crate) fn declare_destroyer<'context>(
     module: &Module<'context>,
-    cleanup: &CodegenSymbolMapping,
+    cleanup: Option<(&CodegenSymbolMapping, bray_ir::MirGeneratedLifecycleRole)>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = format!("{}.incident.destroy", cleanup.name().as_str());
+    let name = cleanup.map_or_else(
+        || "__bray_incident_release".to_owned(),
+        |(cleanup, _)| format!("{}.incident.destroy", cleanup.name().as_str()),
+    );
 
     if let Some(callback) = module.get_function(&name) {
         return Ok(callback);
@@ -194,19 +197,38 @@ pub(crate) fn declare_destroyer<'context>(
             .map_err(CodegenFailure::backend_library)?;
     }
 
-    let function = module
-        .get_function(cleanup.name().as_str())
-        .expect("incident destruction requires its checked cleanup mapping");
+    if let Some((cleanup, role)) = cleanup {
+        let function = module
+            .get_function(cleanup.name().as_str())
+            .expect("incident destruction requires its checked cleanup mapping");
 
-    crate::mapping::invoke_with_outcome(
-        &builder,
-        function,
-        cleanup.signature(),
-        &[payload_pointer.into()],
-        destruction_outcome,
-        "",
-        types,
-    )?;
+        let mut arguments = vec![payload_pointer.into()];
+
+        if role == bray_ir::MirGeneratedLifecycleRole::Destroy {
+            arguments.push(context.bool_type().const_int(1, false).into());
+        }
+
+        let collection = crate::mapping::cleanup::begin_collection(
+            module,
+            &builder,
+            destruction_outcome,
+            types,
+        )?;
+
+        arguments.extend(collection.map(inkwell::values::BasicMetadataValueEnum::from));
+
+        crate::mapping::invoke_with_outcome(
+            &builder,
+            function,
+            cleanup.signature(),
+            &arguments,
+            destruction_outcome,
+            "",
+            types,
+        )?;
+
+        crate::mapping::cleanup::publish_collection(module, &builder, collection[0], types)?;
+    }
 
     let release = crate::native::declare_runtime_function(
         module,

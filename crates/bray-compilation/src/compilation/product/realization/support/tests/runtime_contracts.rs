@@ -78,7 +78,7 @@ fn generator_runtime_helpers_use_stable_erased_abis() {
         .expect("generator destruction signature must realize");
 
     assert_eq!(begin.parameters().len(), 6);
-    assert_eq!(destruction.parameters().len(), 4);
+    assert_eq!(destruction.parameters().len(), 6);
     assert_eq!(begin.result(), &CodegenResultMapping::Void);
     assert_eq!(destruction.result(), &CodegenResultMapping::Void);
 }

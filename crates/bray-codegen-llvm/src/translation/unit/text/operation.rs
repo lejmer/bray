@@ -190,6 +190,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<(), CodegenFailure> {
+        let outcome = if self.checked_call_operations.contains(&operation_id) {
+            let context = self.checked_call_panic_report_context()?;
+
+            self.set_pending_call_context(context)?;
+
+            Some(context)
+        } else {
+            None
+        };
+
         let operands = self.text_operands(operation)?;
 
         let [(value, ty)] = operands.as_slice() else {
@@ -258,10 +268,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
         );
 
-        if self
-            .invoke_helper(helper, &[owner.into(), bytes.into(), alignment.into()])?
-            .is_some()
-        {
+        let arguments = [owner.into(), bytes.into(), alignment.into()];
+
+        let result = match outcome {
+            Some(context) => {
+                self.invoke_helper_with_panic_report_context(helper, &arguments, context)?
+            }
+            None => self.invoke_helper(helper, &arguments)?,
+        };
+
+        if result.is_some() {
             panic!("checked MIR text translation violated an established compiler contract");
         }
 

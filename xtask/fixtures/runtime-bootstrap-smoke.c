@@ -2372,7 +2372,7 @@ struct CleanupIncident
     CleanupLease backing;
 };
 
-extern void bray_runtime_cleanup_incident_transfer(const CleanupIncident*, ActivationRecords*);
+extern PanicReport bray_runtime_cleanup_incident_transfer(const CleanupIncident*, PanicReport);
 
 static const CleanupShape incident_shape = { { 77 }, sizeof(unsigned), _Alignof(unsigned) };
 static unsigned incident_destructions;
@@ -2434,11 +2434,11 @@ static ActivationRecords retain_test_incident(unsigned remaining)
         .backing = backing
     };
 
-    ActivationRecords records = { 0 };
+    PanicReport report = { 0 };
 
-    bray_runtime_cleanup_incident_transfer(&incident, &records);
+    report = bray_runtime_cleanup_incident_transfer(&incident, report);
 
-    return records;
+    return (ActivationRecords){ report.head, report.tail, report.count };
 }
 
 static int check_retained_incidents(unsigned count, uint32_t outcome)

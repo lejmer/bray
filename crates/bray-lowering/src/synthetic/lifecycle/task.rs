@@ -86,6 +86,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 block,
                 source,
                 [MirOperationKind::Cleanup {
+                    collection: None,
                     phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                     place,
                 }],

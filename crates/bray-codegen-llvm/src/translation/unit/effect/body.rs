@@ -171,7 +171,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Quiesce(place) => {
+            MirOperationKind::Quiesce { place, .. } => {
                 self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Quiesce(place.ty()),
@@ -181,7 +181,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Destroy { place, abandoned } => {
+            MirOperationKind::Destroy {
+                place, abandoned, ..
+            } => {
                 self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Destroy(place.ty()),
@@ -191,7 +193,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Cleanup { phase, place } => {
+            MirOperationKind::Cleanup { phase, place, .. } => {
                 self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Cleanup {
@@ -430,18 +432,70 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR effect translation violated an established compiler contract");
         }
 
-        let place = self.place(place)?.into();
+        if helper.symbol().is_none() {
+            if self.checked_call_operations.contains(&operation) {
+                let context = self.checked_call_panic_report_context()?;
 
-        let result = if matches!(expected, MirHelperReference::Destroy(_)) {
-            let abandoned = match abandoned {
+                self.set_pending_call_context(context)?;
+            }
+
+            return Ok(None);
+        }
+
+        let mut arguments = vec![self.place(place)?.into()];
+
+        if matches!(expected, MirHelperReference::Destroy(_)) {
+            arguments.push(match abandoned {
                 Some(value) => self.operand(value)?,
                 None => self.types.context().bool_type().const_zero().into(),
-            };
+            });
+        }
 
-            self.invoke_operation_helper(operation, helper, &[place, abandoned])?
+        let collection = self
+            .unit
+            .operation(operation)
+            .expect("translated cleanup operation exists")
+            .kind()
+            .cleanup_collection();
+
+        let owned = if collection.is_none() {
+            Some(self.checked_call_panic_report_context()?)
         } else {
-            self.invoke_operation_helper(operation, helper, &[place])?
+            None
         };
+
+        let slots = if let Some(collection) = collection {
+            [
+                self.place(collection.state())?,
+                self.place(collection.report())?,
+            ]
+        } else {
+            crate::mapping::cleanup::begin_collection(
+                self.module,
+                &self.builder,
+                owned.expect("local collection has its outcome"),
+                self.types,
+            )?
+        };
+
+        arguments.extend(slots.map(BasicValueEnum::from));
+
+        let result = self.invoke_helper(helper, &arguments)?;
+
+        if let Some(outcome) = owned {
+            crate::mapping::cleanup::publish_collection(
+                self.module,
+                &self.builder,
+                slots[0],
+                self.types,
+            )?;
+
+            if self.checked_call_operations.contains(&operation) {
+                self.set_pending_call_context(outcome)?;
+            } else {
+                self.propagate_boundary_call_panic(outcome)?;
+            }
+        }
 
         assert!(
             result.is_none(),
@@ -631,12 +685,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_runtime(*runtime, &[])
             }
             MirAsyncOperation::TransferCleanupIncident {
-                incident, runtime, ..
+                incident,
+                report,
+                runtime,
+                ..
             } => {
-                // The temporary move operand shares the immutable path with move bookkeeping.
-                let incident = self.operand(&bray_ir::MirOperand::Move(incident.clone()))?;
+                self.transfer_cleanup_incident(operation_id, incident, report, *runtime)?;
 
-                self.invoke_runtime(*runtime, &[incident])
+                Ok(None)
             }
             MirAsyncOperation::DestroyTerminalTask { task } => {
                 let task = self.operand(task)?;

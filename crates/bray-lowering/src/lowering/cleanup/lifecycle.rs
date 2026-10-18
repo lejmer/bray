@@ -66,6 +66,7 @@ impl Lowerer<'_> {
             abandoned,
             Self::retained_source(source),
             MirOperationKind::Destroy {
+                collection: None,
                 place: Self::retained_place(&place),
                 abandoned: Some(inherited),
             },
@@ -131,11 +132,16 @@ impl Lowerer<'_> {
                 Self::retained_source(source),
                 if completed && phase == MirCleanupPhase::LifecycleResolution {
                     MirOperationKind::Destroy {
+                        collection: None,
                         place,
                         abandoned: None,
                     }
                 } else {
-                    MirOperationKind::Cleanup { phase, place }
+                    MirOperationKind::Cleanup {
+                        phase,
+                        place,
+                        collection: None,
+                    }
                 },
                 None,
             )?;
@@ -277,6 +283,7 @@ impl Lowerer<'_> {
             block,
             Self::retained_source(source),
             MirOperationKind::Destroy {
+                collection: None,
                 place,
                 abandoned: Some(abandoned),
             },

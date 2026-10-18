@@ -81,6 +81,14 @@ struct AbnormalCleanupSuffix {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn cleanup_state_constants(
+        &self,
+    ) -> Result<(bray_symbols::TypeId, [bray_symbols::ConstantValueId; 4]), LoweringError> {
+        let ty = self.representation_type(RepresentationRole::ScalarU32)?;
+
+        CleanupOutcome::state_constants(self.input.semantic_values(), ty).map_err(Into::into)
+    }
+
     pub(in crate::lowering) fn create_cleanup_outcome(
         &mut self,
         block: MirBlockId,
@@ -89,6 +97,7 @@ impl Lowerer<'_> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
         let report = self.representation_type(RepresentationRole::PanicReport)?;
         let unit = self.representation_type(RepresentationRole::Unit)?;
+        let states = self.cleanup_state_constants()?;
 
         CleanupOutcome::new(
             &mut self.builder,
@@ -98,6 +107,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            states,
         )
         .map_err(Into::into)
     }
@@ -291,6 +301,7 @@ impl Lowerer<'_> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
         let report = self.representation_type(RepresentationRole::PanicReport)?;
         let unit = self.representation_type(RepresentationRole::Unit)?;
+        let states = self.cleanup_state_constants()?;
         let selector_type = self.representation_type(RepresentationRole::ScalarU32)?;
 
         let outcome = CleanupOutcome::allocate(
@@ -300,6 +311,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            states,
             bray_ir::MirStorageKind::Temporary,
         )?;
 

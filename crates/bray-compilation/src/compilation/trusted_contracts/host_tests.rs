@@ -10,6 +10,7 @@ fn production_report_consumers_check_their_callback_protocol() {
 
     let names = [
         "dispose",
+        "retain",
         "begin",
         "number",
         "consume_segment",

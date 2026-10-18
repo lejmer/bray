@@ -12,6 +12,47 @@ use super::targets::codegen_target;
 use crate::test_support::compilation;
 
 #[test]
+fn string_release_collects_deallocation_failure_before_returning() {
+    let compilation = compilation("module app; func main() {}");
+    let target = codegen_target(&compilation);
+
+    let string = compilation
+        .compiler_known_type(RepresentationRole::String)
+        .expect("string representation must resolve");
+
+    let generated = generated_lifecycle(
+        &compilation,
+        &target,
+        MirHelperReference::Destroy(string),
+        79,
+    );
+
+    let release = generated
+        .blocks()
+        .iter()
+        .find(|block| {
+            block.operations().last().is_some_and(|id| {
+                matches!(
+                    generated.operation(*id).map(|operation| operation.kind()),
+                    Some(MirOperationKind::Text(operation))
+                        if operation.kind() == bray_ir::MirTextOperationKind::Release
+                )
+            })
+        })
+        .expect("string destruction must release its backing");
+
+    assert!(matches!(
+        release.terminator().kind(),
+        MirTerminatorKind::CheckCallOutcome { .. }
+    ));
+
+    assert!(generated.blocks().iter().all(|block| !matches!(
+        block.terminator().kind(),
+        MirTerminatorKind::PropagatePanic { .. } | MirTerminatorKind::PropagateCancellation { .. }
+    )));
+}
+
+#[test]
 fn nullable_cancellation_branches_within_the_cleanup_phase() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
@@ -71,8 +112,7 @@ fn nullable_cancellation_branches_within_the_cleanup_phase() {
         operations[0],
         MirOperationKind::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
-            place,
-        } if matches!(
+            place, .. } if matches!(
             place.projections().last().map(|projection| projection.kind()),
             Some(MirProjectionKind::NullableValue)
         )
@@ -168,37 +208,41 @@ fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
         97,
     );
 
-    let checked = generated
-        .blocks()
-        .iter()
-        .filter(|block| {
-            block
-                .operations()
-                .last()
-                .and_then(|id| generated.operation(*id))
-                .is_some_and(|operation| {
-                    matches!(
-                        operation.kind(),
-                        MirOperationKind::Cleanup {
-                            phase: MirCleanupPhase::LifecycleResolution,
-                            ..
-                        }
-                    )
-                })
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(checked.len(), 1);
     assert!(generated.is_valid());
 
-    assert!(checked.iter().all(|block| matches!(
-        block.terminator().kind(),
-        bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
-    )));
+    let operations = generated.operations();
+
+    let payload = operations
+        .iter()
+        .position(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Cleanup {
+                    phase: MirCleanupPhase::LifecycleResolution,
+                    collection: Some(_),
+                    ..
+                }
+            )
+        })
+        .expect("completed task payload borrows the enclosing cleanup collection");
+
+    let release = operations
+        .iter()
+        .position(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyTerminalTask { .. })
+            )
+        })
+        .expect("the resolved task retains one terminal release");
+
+    assert!(
+        payload < release,
+        "payload cleanup finishes before its task storage is released"
+    );
 
     assert_eq!(
-        generated
-            .operations()
+        operations
             .iter()
             .filter(|operation| matches!(
                 operation.kind(),
@@ -596,11 +640,23 @@ fn incident_quiescence_visits_children_without_parent_finalization_or_destructio
     let generated =
         generated_lifecycle(&compilation, &target, MirHelperReference::Quiesce(pair), 93);
 
+    let report = compilation
+        .codegen_representation_type(RepresentationRole::PanicReport)
+        .unwrap();
+
+    assert!(
+        generated
+            .storages()
+            .iter()
+            .all(|storage| storage.ty() != report),
+        "structural traversal borrows report storage without a local report temporary"
+    );
+
     let children = generated
         .operations()
         .iter()
         .filter_map(|operation| match operation.kind() {
-            MirOperationKind::Quiesce(place) => Some(place),
+            MirOperationKind::Quiesce { place, .. } => Some(place),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -767,7 +823,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
         );
 
         assert!(disposed.value().as_ref().unwrap().mir().unwrap().operations().iter().any(|operation| matches!(operation.kind(),
-            MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == buffer)),
+            MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place.ty() == buffer)),
             "scope broadcast must include task obligations stored in the buffer");
 
         let target = codegen_target(&compilation);
@@ -812,12 +868,12 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
                 .operations()
                 .iter()
                 .filter_map(|operation| match operation.kind() {
-                    MirOperationKind::Quiesce(place) => {
+                    MirOperationKind::Quiesce { place, .. } => {
                         assert!(matches!(reference, MirHelperReference::Quiesce(_)));
 
                         Some(place)
                     }
-                    MirOperationKind::Cleanup { phase, place } => {
+                    MirOperationKind::Cleanup { phase, place, .. } => {
                         assert_eq!(*phase, MirCleanupPhase::TaskCancellation);
                         assert!(matches!(reference, MirHelperReference::Cleanup { .. }));
 

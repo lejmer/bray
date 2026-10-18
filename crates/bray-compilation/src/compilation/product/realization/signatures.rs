@@ -278,11 +278,15 @@ impl Compilation {
             cancellation,
         )?;
 
-        Ok(CodegenCallableSignature::new(
-            [],
-            CodegenResultMapping::direct(ty, None, []),
-            CallableAbi::Bray,
-            false,
+        Ok(invocation_signature(
+            CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(ty, None, []),
+                CallableAbi::Bray,
+                false,
+            ),
+            bray_symbols::CallableInvocation::Bray,
+            CallableExecution::Synchronous,
         ))
     }
 
@@ -389,10 +393,11 @@ impl Compilation {
             CodegenResultMapping::direct(result, None, [])
         };
 
-        Ok(
-            CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false)
-                .with_panic_report_context(),
-        )
+        Ok(invocation_signature(
+            CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false),
+            bray_symbols::CallableInvocation::Bray,
+            CallableExecution::Synchronous,
+        ))
     }
 
     pub(super) fn codegen_runtime_default_input_type(

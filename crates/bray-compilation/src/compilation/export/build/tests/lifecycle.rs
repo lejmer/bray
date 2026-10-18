@@ -1636,7 +1636,7 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
 
         let place = incident;
 
-        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Quiesce(quiescent) if quiescent == place)));
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Quiesce { place: quiescent, .. } if quiescent == place)));
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),

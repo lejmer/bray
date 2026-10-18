@@ -7,6 +7,36 @@ use crate::{
     MirBlockId, MirCallableReference, MirFrameStateId, MirOperand, MirPlace, MirSourceAnchor,
 };
 
+/// Borrowed storage for the enclosing cleanup sequence's state and owned report.
+/// Structural cleanup updates this collection without dispatching or shielding it again.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirCleanupCollection {
+    pub(crate) state: MirPlace,
+    pub(crate) report: MirPlace,
+}
+
+impl MirCleanupCollection {
+    /// Names the collection retained by the caller across this cleanup operation.
+    pub const fn new(state: MirPlace, report: MirPlace) -> Self {
+        Self { state, report }
+    }
+
+    /// Returns the four-way cleanup state slot.
+    pub const fn state(&self) -> &MirPlace {
+        &self.state
+    }
+
+    /// Returns the report slot, initialized whenever the state is not Normal.
+    pub const fn report(&self) -> &MirPlace {
+        &self.report
+    }
+
+    /// Visits both borrowed storage identities in parameter order.
+    pub fn places(&self) -> [&MirPlace; 2] {
+        [&self.state, &self.report]
+    }
+}
+
 /// Trusted inline assembly whose checked labels may leave the ordinary control-flow path.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirInlineAssemblyTerminator {
@@ -152,6 +182,31 @@ pub enum MirCleanupPhase {
     TaskCancellation,
     /// Resolve task and ordinary lifecycle obligations after cancellation broadcast.
     LifecycleResolution,
+}
+
+/// Control and report ownership of one enclosing cleanup collection.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirCleanupState {
+    /// No failure or incident has initialized the collection's report.
+    Normal,
+    /// Cleanup retains incidents without changing the original control outcome.
+    Incidents,
+    /// Cancellation owns the report, including any retained incidents.
+    Cancelled,
+    /// A primary panic owns the report, including later cleanup incidents.
+    Panicked,
+}
+
+impl MirCleanupState {
+    /// Returns the compiler-owned discriminant stored in the collection.
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Normal => 0,
+            Self::Incidents => 1,
+            Self::Cancelled => 2,
+            Self::Panicked => 3,
+        }
+    }
 }
 
 /// A control-flow edge whose target performs one checked cleanup phase.

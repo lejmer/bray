@@ -630,6 +630,73 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
 }
 
 #[test]
+fn native_platform_cleanup_preserves_panic() {
+    assert_native_platform_cleanup_emits(
+        r#"
+            destruct()
+            {
+                panic("native provider cleanup");
+            }
+        "#,
+    );
+}
+
+#[test]
+fn native_platform_cleanup_preserves_cancellation() {
+    assert_native_platform_cleanup_emits(
+        r#"
+            finalize()
+            {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+        "#,
+    );
+}
+
+fn assert_native_platform_cleanup_emits(cleanup: &str) {
+    let source = format!(
+        r#"
+            trusted module app;
+
+            @layout(c)
+            internal struct PlatformStatus
+            {{
+                category: u32;
+                reserved: u32;
+                native_code: i64;
+            }}
+
+            struct Owner
+            {{
+                {cleanup}
+            }}
+
+            @abi(c)
+            trusted internal func flush() -> PlatformStatus
+            {{
+                let owner = Owner {{}};
+                return {{ category = 0, reserved = 0, native_code = 0 }};
+            }}
+        "#,
+    );
+
+    let binding =
+        PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
+            .expect("platform service binding must validate");
+
+    let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+        &[&source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        &[],
+        [binding],
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
 fn bray_platform_service_implementations_are_native_fallbacks() {
     let source = concat!(
         "trusted module app;\n",

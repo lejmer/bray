@@ -222,11 +222,27 @@ fn replacement_cleanup_helpers_emit_checked_outcomes() {
             .iter()
             .flat_map(bray_codegen::CodegenMappings::symbols)
         {
-            if matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Instance(instance)
-                    if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)))
-            {
-                assert!(symbol.signature().has_panic_report_context());
-            }
+            let bray_codegen::CodegenSymbolKey::Instance(instance) = symbol.key() else {
+                continue;
+            };
+
+            let MirUnitKey::GeneratedLifecycle(lifecycle) = instance.template() else {
+                continue;
+            };
+
+            let signature = symbol.signature();
+
+            assert!(!signature.has_panic_report_context());
+
+            assert_eq!(
+                signature.parameters().len(),
+                if lifecycle.role() == bray_ir::MirGeneratedLifecycleRole::Destroy {
+                    4
+                } else {
+                    3
+                },
+                "structural cleanup borrows the enclosing state and report"
+            );
         }
 
         assert!(!generated_artifacts(&backend, &plan).is_empty());

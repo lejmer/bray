@@ -654,14 +654,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
-            25 => Ok(MirOperationKind::Quiesce(self.place()?)),
+            25 => Ok(MirOperationKind::Quiesce {
+                place: self.place()?,
+                collection: self.cleanup_collection()?.map(Box::new),
+            }),
             16 => Ok(MirOperationKind::Destroy {
                 place: self.place()?,
                 abandoned: self.optional_operand()?,
+                collection: self.cleanup_collection()?.map(Box::new),
             }),
             17 => Ok(MirOperationKind::Cleanup {
                 phase: self.cleanup_phase()?,
                 place: self.place()?,
+                collection: self.cleanup_collection()?.map(Box::new),
             }),
             18 => Ok(MirOperationKind::Async(self.async_operation()?)),
             19 => Ok(MirOperationKind::DeclaredCallable(
@@ -743,6 +748,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
 
         Ok(operands)
+    }
+
+    fn cleanup_collection(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCleanupCollection>, ExecutableTemplateDecodeError> {
+        if read_bool(&mut self.reader)? {
+            Ok(Some(bray_ir::MirCleanupCollection::new(
+                self.place()?,
+                self.place()?,
+            )))
+        } else {
+            Ok(None)
+        }
     }
 
     fn optional_operand(&mut self) -> Result<Option<MirOperand>, ExecutableTemplateDecodeError> {
@@ -1287,12 +1305,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 destination: self.place()?,
                 element: self.ty()?,
                 runtime: self.runtime_reference()?,
+                collection: Box::new(
+                    self.cleanup_collection()?
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
+                ),
             }),
             4 => Ok(MirGeneratorOperation::Destroy {
                 destination: self.place()?,
                 element: self.ty()?,
                 abandoned: self.operand()?,
                 runtime: self.runtime_reference()?,
+                collection: Box::new(
+                    self.cleanup_collection()?
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
+                ),
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1334,6 +1360,14 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }
 
             operation = operation.with_abandoned_cleanup(abandoned);
+        }
+
+        if let Some(collection) = self.cleanup_collection()? {
+            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
+                return Err(ExecutableTemplateDecodeError::Malformed);
+            }
+
+            operation = operation.with_cleanup_collection(collection);
         }
 
         Ok(operation)
@@ -1910,6 +1944,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             12 => Ok(Operation::TransferCleanupIncident {
                 incident: self.place()?,
+                report: self.place()?,
                 producer: MirCallableReference::new(
                     self.callable_instance()?,
                     self.callable_abi()?,
