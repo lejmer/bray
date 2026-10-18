@@ -165,6 +165,7 @@ impl CleanupOutcome {
         block: MirBlockId,
         source: &MirSourceAnchor,
         value: MirOperand,
+        owner: &MirPlace,
         producer: (bray_ir::MirCallableReference, BoundCallResult),
         payloads: Option<([TypeId; 2], bray_symbols::CompilerKnownResultRepresentation)>,
     ) -> Result<(MirBlockId, MirOperand), MirCapacityError> {
@@ -221,7 +222,36 @@ impl CleanupOutcome {
             );
         }
 
-        Ok((continuation, MirOperand::Value(abandoned)))
+        let pending = builder.push_block(source.clone(), builder.block_kind(continuation))?;
+        let destruction = builder.push_block(source.clone(), builder.block_kind(continuation))?;
+
+        let disposition =
+            builder.push_block_parameter(destruction, source.clone(), self.panicked.ty())?;
+
+        builder.set_terminator(
+            continuation,
+            source.clone(),
+            MirTerminatorKind::Branch {
+                condition: MirOperand::Value(abandoned),
+                then_edge: MirEdge::new(pending, []),
+                else_edge: MirEdge::new(destruction, [Self::boolean(false, self.panicked.ty())]),
+            },
+        );
+
+        // Finalizer mutation can introduce child runs after the earlier broadcast.
+        // Resolve that current graph before terminal-only destruction starts.
+        let pending = self.quiesce(builder, pending, source, owner)?;
+
+        builder.set_terminator(
+            pending,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(
+                destruction,
+                [Self::boolean(true, self.panicked.ty())],
+            )),
+        );
+
+        Ok((destruction, MirOperand::Value(disposition)))
     }
 
     /// Resolves an error's child work before transferring its still-owned payload.
@@ -248,6 +278,33 @@ impl CleanupOutcome {
             None,
         )?;
 
+        let block = self.quiesce(builder, block, source, &place)?;
+
+        builder.push_operation(
+            block,
+            source.clone(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                incident: place,
+                producer: producer.0,
+                invocation: producer.1,
+                runtime: MirRuntimeReference::new(
+                    RuntimeAbiRole::CleanupIncidentTransfer,
+                    self.runtime_abi,
+                ),
+            }),
+            None,
+        )?;
+
+        Ok(block)
+    }
+
+    fn quiesce(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: &MirPlace,
+    ) -> Result<MirBlockId, MirCapacityError> {
         let broadcast = builder.push_block(source.clone(), MirBlockKind::CleanupBroadcast)?;
         let resolution = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
 
@@ -270,6 +327,8 @@ impl CleanupOutcome {
             None,
         )?;
 
+        let broadcast = self.check(builder, broadcast, source)?;
+
         builder.set_terminator(
             broadcast,
             source.clone(),
@@ -286,26 +345,9 @@ impl CleanupOutcome {
             None,
         )?;
 
-        // Quiescence retains the payload on every outcome. Keep its cleanup panics
-        // with the enclosing outcome before transferring the original typed error.
-        let block = self.check(builder, resolution, source)?;
-
-        builder.push_operation(
-            block,
-            source.clone(),
-            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
-                incident: place,
-                producer: producer.0,
-                invocation: producer.1,
-                runtime: MirRuntimeReference::new(
-                    RuntimeAbiRole::CleanupIncidentTransfer,
-                    self.runtime_abi,
-                ),
-            }),
-            None,
-        )?;
-
-        Ok(block)
+        // Quiescence retains storage on every outcome. Its incidents remain owned
+        // by the enclosing cleanup before destruction or payload transfer proceeds.
+        self.check(builder, resolution, source)
     }
 
     /// Adds incident continuations after the block's last fallible cleanup operation.

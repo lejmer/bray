@@ -333,10 +333,10 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
             collect_operand_value(frame, demands);
         }
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
         | MirAsyncOperation::DestroyTerminalTask { task } => {
             collect_operand_value(task, demands);
         }
+        MirAsyncOperation::ResolveTask { task, .. } => collect_place_values(task, demands),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 collect_operand_value(value, demands);

@@ -78,11 +78,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         callable: bray_bound_tree::LifecycleCallable,
         outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<(bray_ir::MirBlockId, bray_ir::MirOperand), C::Error> {
+        // The invocation and failed-owner quiescence retain the same Arc-backed path.
         let value = self.push_selected_call(
             builder,
             block,
             source,
-            place,
+            place.clone(),
             callable,
             bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),
         )?;
@@ -99,6 +100,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 block,
                 source,
                 bray_ir::MirOperand::Value(value),
+                &place,
                 (
                     bray_ir::MirCallableReference::new(callable.callable, callable.abi),
                     bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),

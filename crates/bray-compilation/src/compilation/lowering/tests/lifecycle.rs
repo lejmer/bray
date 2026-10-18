@@ -1157,10 +1157,11 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
 
         struct Owner
         {
-            pending: Task<unit>;
+            mut pending: Task<unit>;
 
             async finalize()
             {
+                self.pending = pause().start();
                 await pause();
             }
         }
@@ -1269,6 +1270,24 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
     }
 
     assert!(!destruction_guards.is_empty());
+
+    for operation in mir.operations() {
+        let MirOperationKind::Destroy {
+            place,
+            abandoned: Some(_),
+        } = operation.kind()
+        else {
+            continue;
+        };
+
+        assert!(
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(),
+            MirOperationKind::Quiesce(current) if current == place)),
+            "a failed mutating finalizer quiesces its current owner before destruction"
+        );
+    }
 
     for block in mir.blocks() {
         let MirTerminatorKind::Suspend {

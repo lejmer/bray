@@ -598,7 +598,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 variants,
                 runtime,
             } => {
-                let task = int_value(self.operand(task)?).expect(
+                let task = int_value(self.observed_place(task)?).expect(
                     "checked MIR effect translation requires an established mapping or value",
                 );
 

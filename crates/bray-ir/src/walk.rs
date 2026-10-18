@@ -255,8 +255,8 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => visit_operand(frame, visit),
         MirAsyncOperation::StartTask { value, .. } => visit_operand(value, visit),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
         | MirAsyncOperation::DestroyTerminalTask { task } => visit_operand(task, visit),
+        MirAsyncOperation::ResolveTask { task, .. } => visit_place_operands(task, visit),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 visit_operand(value, visit);
@@ -389,9 +389,10 @@ pub(crate) fn for_each_operation_storage(
                 visit(*completion);
             }
         }
-        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
-            incident, ..
-        }) => {
+        MirOperationKind::Async(
+            MirAsyncOperation::TransferCleanupIncident { incident, .. }
+            | MirAsyncOperation::ResolveTask { task: incident, .. },
+        ) => {
             visit_place_storage(incident, &mut visit);
         }
         MirOperationKind::Unary { .. }

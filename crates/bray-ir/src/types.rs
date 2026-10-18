@@ -401,10 +401,10 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
             collect_operand_types(frame, types);
         }
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
         | MirAsyncOperation::DestroyTerminalTask { task } => {
             collect_operand_types(task, types);
         }
+        MirAsyncOperation::ResolveTask { task, .. } => collect_place_types(task, types),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 collect_operand_types(value, types);

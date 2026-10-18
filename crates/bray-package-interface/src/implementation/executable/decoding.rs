@@ -1882,7 +1882,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 runtime: self.runtime_reference()?,
             }),
             8 => Ok(Operation::ResolveTask {
-                task: self.operand()?,
+                task: self.place()?,
                 variants: self.run_result_variants()?,
                 runtime: self.runtime_reference()?,
             }),

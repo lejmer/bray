@@ -14,7 +14,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
-        place: bray_ir::MirPlace,
+        place: MirPlace,
         release: Option<bray_bound_tree::StorageProtocolCall>,
         completed: bool,
     ) -> Result<MirBlockId, LoweringError> {
@@ -98,7 +98,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
-        place: bray_ir::MirPlace,
+        place: MirPlace,
         release: Option<bray_bound_tree::StorageProtocolCall>,
         completed: bool,
     ) -> Result<MirBlockId, LoweringError> {
@@ -258,6 +258,7 @@ impl Lowerer<'_> {
             block,
             source,
             value,
+            &place,
             (
                 MirCallableReference::new(callable.callable, callable.abi),
                 invocation,

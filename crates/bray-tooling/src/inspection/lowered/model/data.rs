@@ -1513,7 +1513,7 @@ fn async_operation(
         }
         MirAsyncOperation::ResolveTask { task, runtime, .. } => {
             runtime_reference("runtime", *runtime, parts);
-            parts.operand("task", task, context)?;
+            parts.place("task", task, context)?;
 
             "resolve_task"
         }

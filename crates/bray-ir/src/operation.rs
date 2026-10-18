@@ -555,10 +555,10 @@ pub enum MirAsyncOperation {
         /// Selected private cancellation-observation ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Register and resolve terminal task observation.
+    /// Resolve the task result while retaining its terminal control state.
     ResolveTask {
-        /// Owned task control state.
-        task: MirOperand,
+        /// Task storage retained until terminal destruction.
+        task: MirPlace,
         /// Exact compiler-known variants used to form the terminal result.
         variants: crate::MirRunResultVariants,
         /// Selected private terminal-resolution ABI role.

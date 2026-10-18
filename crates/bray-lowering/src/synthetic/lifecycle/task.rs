@@ -51,7 +51,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 block,
                 source.clone(),
                 MirOperationKind::Async(MirAsyncOperation::ResolveTask {
-                    task: MirOperand::Move(task),
+                    task,
                     variants,
                     runtime: MirRuntimeReference::new(RuntimeAbiRole::TaskResolution, runtime_abi),
                 }),

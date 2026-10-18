@@ -295,8 +295,8 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         }
         MirAsyncOperation::StartTask { value, .. } => value.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
         | MirAsyncOperation::DestroyTerminalTask { task } => task.remap_local_ids(mappings),
+        MirAsyncOperation::ResolveTask { task, .. } => task.remap_local_ids(mappings),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 value.remap_local_ids(mappings);

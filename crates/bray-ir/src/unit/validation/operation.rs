@@ -904,7 +904,7 @@ fn validate_async_operation(
             )?;
         }
         MirAsyncOperation::ResolveTask { task, runtime, .. } => {
-            validate_operand(unit, task, block, Some(operation_id))?;
+            validate_place(unit, task, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskResolution)?;
         }
         MirAsyncOperation::PublishTerminalState { state, runtime } => {

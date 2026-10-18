@@ -532,17 +532,25 @@ fn incident_quiescence_retains_terminal_task_ownership() {
     let generated =
         generated_lifecycle(&compilation, &target, MirHelperReference::Quiesce(task), 92);
 
-    assert_eq!(
-        generated
-            .operations()
-            .iter()
-            .filter(|operation| matches!(
-                operation.kind(),
-                MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { .. })
-            ))
-            .count(),
-        1
-    );
+    let resolved = generated
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { task, .. }) => {
+                Some(task)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].ty(), task);
+
+    for operation in generated.operations() {
+        operation.kind().for_each_operand(|operand| {
+            assert!(!matches!(operand, bray_ir::MirOperand::Move(place) if place == resolved[0]));
+        });
+    }
 
     assert!(!generated.operations().iter().any(|operation| matches!(
         operation.kind(),

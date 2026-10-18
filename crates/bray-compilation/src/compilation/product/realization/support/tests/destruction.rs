@@ -855,11 +855,26 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place == payload
     )));
 
-    let MirTerminatorKind::ContinueCleanup(resolution) = broadcast.terminator().kind() else {
-        panic!("the complete broadcast precedes error quiescence");
+    let MirTerminatorKind::CheckCallOutcome {
+        completed: broadcast_complete,
+        panicked: broadcast_panic,
+        cancelled: broadcast_cancel,
+    } = broadcast.terminator().kind()
+    else {
+        panic!("broadcast failures must be collected before child resolution");
     };
 
-    let resolution = generated.block(resolution.edge().target()).unwrap();
+    let (resolution_id, resolution) = generated
+        .blocks_with_ids()
+        .find(|(_, block)| {
+            block.operations().iter().any(|id| {
+                matches!(
+                    generated.operation(*id).unwrap().kind(),
+                    MirOperationKind::Quiesce(place) if place == payload
+                )
+            })
+        })
+        .expect("retained error has a quiescence operation");
 
     assert!(resolution.operations().iter().any(|id| matches!(
         generated.operation(*id).unwrap().kind(),
@@ -913,27 +928,31 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     assert_eq!(requirements[0].len(), 1);
 
-    let reaches_transfer = |start| {
-        let mut pending = vec![start];
-        let mut visited = std::collections::BTreeSet::new();
+    let reachable = |start| {
+        bray_base::transitive_dependencies([start], |id| {
+            let mut successors = Vec::new();
 
-        while let Some(block) = pending.pop() {
-            if block == transfer_block {
-                return true;
-            }
+            generated
+                .block(*id)
+                .unwrap()
+                .terminator()
+                .kind()
+                .for_each_successor(|next| successors.push(next));
 
-            if visited.insert(block) {
-                generated
-                    .block(block)
-                    .unwrap()
-                    .terminator()
-                    .kind()
-                    .for_each_successor(|next| pending.push(next));
-            }
-        }
-
-        false
+            successors
+        })
     };
+
+    for start in [
+        broadcast_complete.target(),
+        broadcast_panic.target(),
+        broadcast_cancel.target(),
+    ] {
+        assert!(
+            reachable(start).contains(&resolution_id),
+            "every broadcast outcome proceeds through error quiescence"
+        );
+    }
 
     let MirTerminatorKind::CheckCallOutcome {
         completed,
@@ -950,17 +969,74 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         quiescence_cancel.target(),
     ] {
         assert!(
-            reaches_transfer(target),
+            reachable(target).contains(&transfer_block),
             "quiescence retains the payload on every outcome"
         );
     }
 
     for target in [panicked.target(), cancelled.target(), matched.target()] {
         assert!(
-            !reaches_transfer(target),
+            !reachable(target).contains(&transfer_block),
             "only a returned Error owns an incident payload"
         );
     }
+
+    let (destroy_id, destroyed, abandoned) = generated
+        .blocks_with_ids()
+        .find_map(|(id, block)| {
+            block.operations().iter().find_map(|operation| {
+                match generated.operation(*operation).unwrap().kind() {
+                    MirOperationKind::Destroy {
+                        place,
+                        abandoned: Some(abandoned),
+                    } if place.ty() == ty => Some((id, place, abandoned)),
+                    _ => None,
+                }
+            })
+        })
+        .expect("owner is destroyed after finalization");
+
+    let (pending, ordinary) = generated
+        .blocks()
+        .iter()
+        .find_map(|block| match block.terminator().kind() {
+            MirTerminatorKind::Branch {
+                then_edge,
+                else_edge,
+                ..
+            } if else_edge.target() == destroy_id => Some((then_edge.target(), else_edge.target())),
+            _ => None,
+        })
+        .expect("finalizer disposition selects abandonment");
+
+    assert_eq!(
+        ordinary, destroy_id,
+        "successful finalization proceeds directly to destruction"
+    );
+
+    assert_eq!(
+        abandoned,
+        &bray_ir::MirOperand::Value(generated.block(destroy_id).unwrap().parameters()[0]),
+        "each outcome passes its disposition into destruction"
+    );
+
+    let quiescence = generated
+        .blocks_with_ids()
+        .find_map(|(id, block)| {
+            block
+                .operations()
+                .iter()
+                .any(|operation| {
+                    matches!(generated.operation(*operation).unwrap().kind(),
+            MirOperationKind::Quiesce(place) if place == destroyed)
+                })
+                .then_some(id)
+        })
+        .expect("abandonment resolves the owner's current child graph");
+
+    assert!(reachable(pending).contains(&quiescence));
+    assert!(reachable(quiescence).contains(&destroy_id));
+    assert!(!reachable(ordinary).contains(&quiescence));
 
     assert!(success.operations().iter().all(|id| !matches!(
         generated.operation(*id).unwrap().kind(),

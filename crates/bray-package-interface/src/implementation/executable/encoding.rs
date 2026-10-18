@@ -2383,7 +2383,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 runtime,
             } => {
                 self.wire.write_u32(8);
-                self.operand(task)?;
+                self.place(task)?;
                 self.run_result_variants(*variants)?;
                 self.runtime_reference(*runtime);
             }

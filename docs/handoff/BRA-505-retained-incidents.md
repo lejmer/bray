@@ -52,7 +52,7 @@ The governing designs already state this boundary: `docs/design/composed-async-e
 and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
 alignment, not permission to invent another runtime architecture.
 
-Latest pushed checkpoint before finalizer-wrapper removal: `14f53f28`, PR #612. The previous reviewed checkpoint is
+Latest pushed checkpoint before current-graph quiescence: `be00becb`, PR #612. The previous reviewed checkpoint is
 `216886091c2734aa5cb835c468ab3e163193c776`.
 Independent review 5560583230 found no actionable checkpoint findings. Native acceptance
 remains unfinished. Human architectural feedback is now the active review.
@@ -95,6 +95,29 @@ The 166 selected compilation, host/static/codegen, MIR and interface checks pass
 `bra-505-inline-finalization-format.log`. The generated async call override and
 current-graph quiescence remain unfinished, as do native acceptance
 and BRA-619. Do not treat this removal as completion of shared resumable cleanup.
+
+
+Current-graph quiescence checkpoint: both source and generated finalizer outcome collection
+now cancel and resolve the current owner graph on abandonment, before destruction. The
+existing incident path shares that sequence and collects broadcast failures before advancing.
+Successful finalization goes directly to ordinary destruction. MIR resolution now retains a
+`MirPlace` for the task control record instead of claiming to move it. Its result is consumed
+once, while terminal destruction owns the later handle retirement. Encoding, traversal,
+remapping, inspection and LLVM observation consume that same contract. No runtime frame,
+allocation, language feature or ABI version change was introduced.
+
+All 166 selected compilation, MIR and interface checks pass in
+`bra-505-current-graph-tests.log`, including a finalizer that replaces a child task. The first
+batch exposed an invalid fixture spelling and a block-local MIR value used across an edge.
+Both were corrected in their producers. The compiler batch rebuilt in 59.52 seconds and the
+tests took about 17 seconds. Native quiescence still uses the existing blocking implementation,
+so this checkpoint does not complete resumable cleanup or native acceptance. Task ownership
+migration remains assigned to BRA-560. The generated async invocation override remains open.
+Rustfmt, mutating structural style and Bray formatting pass in
+`bra-505-current-graph-format.log`. Repository-wide searches cover resolution ownership,
+place traversal/remapping/encoding, storage observation and both finalizer consumers.
+The added branch preserves current-graph cleanup on failure without adding successful-path
+allocation or a competing cleanup outcome. Existing module-size warnings remain unchanged.
 
 Boundary deduction to preserve: a destructor body and its checked tail are synchronous.
 Do not make a destructor call async. Whole owner resolution may await finalizers and child
