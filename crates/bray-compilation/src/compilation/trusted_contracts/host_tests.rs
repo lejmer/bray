@@ -15,6 +15,9 @@ fn production_report_consumers_check_their_callback_protocol() {
         "consume_segment",
         "install",
         "compose",
+        "exchange_record",
+        "pop_record_value",
+        "retain_primary",
     ]
     .map(|name| {
         source_function_body_key(&compilation, name)
@@ -112,6 +115,71 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
         checked.diagnostics(),
         DiagnosticKind::CheckingTrustedObligationNotProven,
     );
+}
+
+#[test]
+fn retained_incident_values_require_the_exact_ownership_witness() {
+    for (body, valid) in [
+        (
+            "let value = trusted bray.runtime.bootstrap.report.incident.read_record(pointer);",
+            true,
+        ),
+        (
+            "let value = bray.runtime.bootstrap.ReportValue.Error(forged);",
+            false,
+        ),
+        (
+            r#"
+            let original = trusted bray.runtime.bootstrap.report.incident.read_record(pointer);
+            let value = match consume original
+            {
+                case Panic(primary) { yield bray.runtime.bootstrap.ReportValue.Panic(primary); }
+                case Error(record) { yield bray.runtime.bootstrap.ReportValue.Error(record); }
+            };
+            "#,
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.report.incident.Record>,
+                pos forged: bray.runtime.bootstrap.report.incident.Record,
+            ) -> u32
+                requires(
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.report.incident.owned(pointer = pointer),
+                )
+            {{
+                {body}
+                return trusted bray.runtime.bootstrap.consume_values(
+                    value,
+                    bray.runtime.bootstrap.empty_records(),
+                    0
+                );
+            }}
+            "#,
+        ));
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .expect("retained incident probe must lower");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            checked.diagnostics(),
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }
 
 #[test]

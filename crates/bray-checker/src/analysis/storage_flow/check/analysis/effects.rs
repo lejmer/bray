@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::Effect;
-use bray_bound_tree::{StorageIdentity, StorageInvalidation, StoragePath};
+use bray_bound_tree::{StorageIdentity, StorageInvalidation, StoragePath, StorageProjection};
 use bray_symbols::{
     DependencyMutationKind, DependencyStorageEffect, DependencySubject, DependencySubjectRoot,
     SymbolOrdinal, TypeData,
@@ -502,11 +502,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         });
 
         if matches!(identity, StorageIdentity::Parameter(_))
-            && path.projections.is_empty()
+            && identity.is_invocation_owned(self.storage.kind())
             && !borrowed
-            && kind != DependencyMutationKind::Escape
+            && !path.projections.contains(&StorageProjection::OwnedTarget)
         {
-            // A by-value parameter slot belongs to this invocation, not to its caller.
+            // Inline parameter storage belongs to this invocation, including projected
+            // fields and exposed addresses. References and owned targets remain shared.
             return None;
         }
 

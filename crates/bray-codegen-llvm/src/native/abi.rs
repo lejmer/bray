@@ -643,3 +643,32 @@ pub(crate) fn call_void_intrinsic<'context>(
 
     Ok(())
 }
+
+pub(crate) fn declare_callback<'context>(
+    module: &inkwell::module::Module<'context>,
+    name: &str,
+    block_name: &str,
+    ty: FunctionType<'context>,
+    target: &CodegenTarget,
+) -> FunctionValue<'context> {
+    let callback = module.add_function(name, ty, None);
+
+    callback.set_linkage(inkwell::module::Linkage::WeakODR);
+
+    callback
+        .as_global_value()
+        .set_visibility(inkwell::GlobalVisibility::Hidden);
+
+    crate::comdat::attach_any(
+        module,
+        callback.as_global_value(),
+        name,
+        target.machine().object_format(),
+    );
+
+    module
+        .get_context()
+        .append_basic_block(callback, block_name);
+
+    callback
+}

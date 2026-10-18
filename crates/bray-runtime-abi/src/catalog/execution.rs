@@ -572,10 +572,10 @@ macro_rules! runtime_role_catalog {
             }
             CleanupIncidentTransfer {
                 "Transfer ownership of one cleanup incident.", "cleanup_incident_transfer",
-                native: (),
+                native: (CLEANUP_INCIDENT_TRANSFER_SYMBOL = "bray_runtime_cleanup_incident_transfer", [Pointer, Pointer] -> Void),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("report.incident.retain"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }

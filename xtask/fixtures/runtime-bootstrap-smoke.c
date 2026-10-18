@@ -2293,6 +2293,133 @@ static int check_cleanup_bundle(void)
     return 0;
 }
 
+typedef struct CleanupIncident CleanupIncident;
+
+struct CleanupIncident
+{
+    uintptr_t payload;
+    unsigned char identity[32];
+    SourceAnchor source;
+    uint32_t (*report)(uintptr_t, RunOutcome*);
+    void (*destroy)(CleanupIncident*, RunOutcome*, RunOutcome*);
+    CleanupLease backing;
+};
+
+extern void bray_runtime_cleanup_incident_transfer(const CleanupIncident*, ActivationRecords*);
+
+static const CleanupShape incident_shape = { { 77 }, sizeof(unsigned), _Alignof(unsigned) };
+static unsigned incident_destructions;
+static unsigned incident_depth;
+static unsigned incident_max_depth;
+static uint32_t incident_outcome;
+
+static ActivationRecords retain_test_incident(unsigned remaining);
+
+static uint32_t report_test_incident(uintptr_t payload, RunOutcome* outcome)
+{
+    *outcome = (RunOutcome){ 0 };
+
+    return *(unsigned*)payload == 0 ? 3 : 0;
+}
+
+static void destroy_test_incident(CleanupIncident* incident, RunOutcome* destruction, RunOutcome* release)
+{
+    *destruction = (RunOutcome){ 0 };
+    *release = (RunOutcome){ 0 };
+    incident_depth += 1;
+
+    if (incident_depth > incident_max_depth)
+        incident_max_depth = incident_depth;
+
+    unsigned remaining = *(unsigned*)incident->payload;
+
+    if (incident->payload != incident->backing.address || remaining == 0 ||
+        bray_runtime_cleanup_storage_release(&incident->backing) != 0)
+        abort();
+
+    incident_destructions += 1;
+
+    if (remaining > 1)
+    {
+        ActivationRecords next = retain_test_incident(remaining - 1);
+
+        destruction->state = incident_outcome;
+        destruction->report.head = next.head;
+        destruction->report.tail = next.tail;
+        destruction->report.count = next.count;
+    }
+
+    incident_depth -= 1;
+}
+
+static ActivationRecords retain_test_incident(unsigned remaining)
+{
+    CleanupLease backing = { 0 };
+
+    bray_runtime_cleanup_storage_claim(&incident_shape, &backing);
+    *(unsigned*)backing.address = remaining;
+
+    CleanupIncident incident = {
+        .payload = backing.address,
+        .identity = { 77 },
+        .report = report_test_incident,
+        .destroy = destroy_test_incident,
+        .backing = backing
+    };
+
+    ActivationRecords records = { 0 };
+
+    bray_runtime_cleanup_incident_transfer(&incident, &records);
+
+    return records;
+}
+
+static int check_retained_incidents(unsigned count, uint32_t outcome)
+{
+    CleanupShape shapes[2] = { incident_shape, incident_shape };
+    CleanupBundle bundle = { 2, shapes, 2 };
+    RunOutcome admission = { 0 };
+
+    bray_runtime_outgoing_admission(&bundle, &admission);
+
+    if (admission.state != 0)
+        return 120;
+
+    incident_outcome = outcome;
+    incident_destructions = 0;
+    incident_depth = 0;
+    incident_max_depth = 0;
+
+    unsigned attempts = atomic_load(&allocation_attempts);
+
+    atomic_store(&reject_allocations, 1);
+
+    ActivationRecords records = retain_test_incident(count);
+
+    if (count == 1)
+        bray_runtime_outgoing_discharge(&bundle);
+
+    PanicReport report = {
+        .head = records.head,
+        .tail = records.tail,
+        .count = records.count
+    };
+
+    uint32_t status = bray_runtime_panic_report_destruction(&report);
+
+    if (count != 1)
+        bray_runtime_outgoing_discharge(&bundle);
+
+    atomic_store(&reject_allocations, 0);
+
+    if (status != (count == 1 || outcome == 0 ? 0u : 5u) || incident_destructions != count ||
+        incident_max_depth != 1 || incident_depth != 0 ||
+        atomic_load(&allocation_attempts) != attempts)
+        return 121;
+
+    return 0;
+}
+
 int main(void)
 {
     int attachment_status = check_primitive_attachment();
@@ -2364,6 +2491,17 @@ int main(void)
 
     int bundle_status = check_cleanup_bundle();
     if (bundle_status != 0) return bundle_status;
+    int incident_status = check_retained_incidents(1, 0);
+
+    if (incident_status == 0)
+        incident_status = check_retained_incidents(2048, 2);
+
+    if (incident_status == 0)
+        incident_status = check_retained_incidents(2048, 0);
+
+    if (incident_status != 0)
+        return incident_status;
+
     int backing_status = check_cleanup_backing();
 
     if (backing_status != 0)

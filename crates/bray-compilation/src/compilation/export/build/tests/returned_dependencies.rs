@@ -2046,3 +2046,106 @@ fn unresolved_assignment_retains_stored_reference_capture() {
         );
     }
 }
+
+#[test]
+fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
+    let declarations = r#"
+        module api;
+
+        @copy
+        struct Metadata
+        {
+            value: bool;
+        }
+
+        extern func expose(pos value: &bool);
+
+        func scalar(pos value: bool)
+        {
+            expose(&value);
+        }
+
+        func aggregate(pos value: Metadata)
+        {
+            expose(&value.value);
+        }
+
+        func reference(pos value: &Metadata)
+        {
+            expose(&value.value);
+        }
+    "#;
+
+    let provider = compilation(declarations);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    for imported in [false, true] {
+        for (name, argument) in [
+            ("scalar", "value.value"),
+            ("aggregate", "value"),
+            ("reference", "&value"),
+        ] {
+            let body = format!(
+                r#"
+                func caller(pos value: Metadata)
+                {{
+                    {name}({argument});
+                }}
+                "#
+            );
+
+            let consumer = if imported {
+                let body = body
+                    .replace("Metadata", "example.package.api.Metadata")
+                    .replace(&format!("{name}("), &format!("example.package.api.{name}("));
+
+                execution_consumer(
+                    &provider,
+                    &format!(
+                        "module app; using example.package.api.Metadata; using example.package.api.{name}; {body}"
+                    ),
+                )
+            } else {
+                compilation(&format!("{declarations}\n{body}"))
+            };
+
+            let contracts = consumer
+                .dependency_contracts(source_function_body_key(&consumer, "caller"))
+                .unwrap();
+
+            assert!(
+                !contracts.diagnostics().has_errors(),
+                "{:?}",
+                contracts.diagnostics()
+            );
+
+            let calls = contracts.value().calls();
+
+            assert_eq!(calls.len(), 1);
+
+            let effects = calls.values().next().unwrap().effects();
+
+            assert!(
+                !effects.iter().any(|effect| matches!(
+                    effect,
+                    bray_symbols::DependencyStorageEffect::Direct { .. }
+                )),
+                "a copied parameter's inline storage does not belong to its caller: imported={imported}, {name}: {effects:?}"
+            );
+
+            assert_eq!(
+                effects.iter().any(|effect| matches!(
+                    effect,
+                    bray_symbols::DependencyStorageEffect::Indirect {
+                        kind: bray_symbols::DependencyMutationKind::Escape,
+                        ..
+                    }
+                )),
+                name == "reference",
+                "borrowed referent escapes must remain visible: imported={imported}, {name}: {effects:?}"
+            );
+        }
+    }
+}

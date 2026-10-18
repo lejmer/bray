@@ -3,7 +3,7 @@ use bray_codegen::{
     CodegenTarget,
 };
 use inkwell::module::{Linkage, Module};
-use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
+use inkwell::types::{BasicTypeEnum, PointerType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{GlobalVisibility, IntPredicate};
 
@@ -513,7 +513,7 @@ fn declare_static_lifecycle_phase<'context>(
         return Ok(callback);
     }
 
-    let callback = declare_static_callback_with_type(
+    let callback = crate::native::declare_callback(
         module,
         name,
         block_name,
@@ -524,7 +524,7 @@ fn declare_static_lifecycle_phase<'context>(
             ],
             false,
         ),
-        types,
+        types.target(),
     );
 
     let builder = types.context().create_builder();
@@ -617,42 +617,13 @@ fn declare_static_callback<'context>(
     block_name: &str,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> FunctionValue<'context> {
-    declare_static_callback_with_type(
+    crate::native::declare_callback(
         module,
         name,
         block_name,
         types.context().void_type().fn_type(&[], false),
-        types,
+        types.target(),
     )
-}
-
-pub(super) fn declare_static_callback_with_type<'context>(
-    module: &Module<'context>,
-    name: &str,
-    block_name: &str,
-    ty: FunctionType<'context>,
-    types: &LlvmTypeMappings<'context, '_>,
-) -> FunctionValue<'context> {
-    let callback = module.add_function(name, ty, None);
-
-    callback.set_linkage(Linkage::WeakODR);
-
-    callback
-        .as_global_value()
-        .set_visibility(GlobalVisibility::Hidden);
-
-    crate::comdat::attach_any(
-        module,
-        callback.as_global_value(),
-        name,
-        types.target().machine().object_format(),
-    );
-
-    module
-        .get_context()
-        .append_basic_block(callback, block_name);
-
-    callback
 }
 
 pub(super) fn pointer_type<'context>(

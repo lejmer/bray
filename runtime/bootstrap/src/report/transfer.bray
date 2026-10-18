@@ -135,51 +135,48 @@ trusted internal func suppress_report(
 // chain follows that primary, preserving order without allocating another node.
 trusted internal func retain_report(pos report: PanicReportData) -> ReportRecords
     requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_report_callbacks(report = &report))
-    uses(intrinsic)
 {
-    if report.primary_present == 0
-    {
-        trusted recycle_reservation(report.reserved);
-
-        return
-        {
-            head = report.outgoing_head,
-            tail = report.outgoing_tail,
-            count = report.outgoing_count
-        };
-    }
-
-    let handle: usize = report.reserved;
-
-    let mut incident_records: ReportRecords =
-    {
-        head = handle,
-        tail = handle,
-        count = 1
-    };
-
-    let mut later: ReportRecords =
+    let remaining: ReportRecords =
     {
         head = report.outgoing_head,
         tail = report.outgoing_tail,
         count = report.outgoing_count
     };
 
-    let mut value: ReportPrimary = report_primary_value(report);
+    let reserved = report.reserved;
+    let primary = trusted stored_primary(report_primary_value(report));
 
-    value = trusted exchange_primary(handle, value);
+    return trusted retain_primary(primary, remaining, reserved);
+}
 
-    let (released, _) = trusted release_primary(&value, trusted primary_release(&value));
-
-    if released != RUN_COMPLETED
+trusted internal func retain_primary(
+    pos primary: StoredReportPrimary,
+    pos mut remaining: ReportRecords,
+    pos reserved: usize
+) -> ReportRecords
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    if primary.primary_present == 0
     {
-        trusted core.target.abort();
+        trusted recycle_reservation(reserved);
+        return remaining;
     }
 
+    let mut records: ReportRecords =
+    {
+        head = reserved,
+        tail = reserved,
+        count = 1
+    };
+
+    let old = trusted exchange_record(reserved, trusted panic_record(primary));
+
+    trusted recycle_value(old);
+
     trusted report_records_append(
-        std.memory.address_of_mut<ReportRecords>(&mut incident_records),
-        std.memory.address_of_mut<ReportRecords>(&mut later)
+        std.memory.address_of_mut<ReportRecords>(&mut records),
+        std.memory.address_of_mut<ReportRecords>(&mut remaining)
     );
 
-    return incident_records;
+    return records;
 }

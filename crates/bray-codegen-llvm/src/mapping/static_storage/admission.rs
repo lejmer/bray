@@ -12,14 +12,14 @@ pub(super) fn declare<'context>(
     let context = types.context();
     let pointer = context.ptr_type(inkwell::AddressSpace::default());
 
-    let callback = super::storage::declare_static_callback_with_type(
+    let callback = crate::native::declare_callback(
         module,
         &format!("{}.admission", mapping.symbol().as_str()),
         "static.admission",
         context
             .void_type()
             .fn_type(&[context.i32_type().into(), pointer.into()], false),
-        types,
+        types.target(),
     );
 
     let builder = context.create_builder();

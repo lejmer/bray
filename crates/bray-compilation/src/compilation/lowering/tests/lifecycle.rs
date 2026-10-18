@@ -1875,3 +1875,50 @@ fn inactive_future_cleanup_composes_without_result_storage() {
         assert_eq!(composed, committed);
     }
 }
+
+#[test]
+fn destructor_nested_callable_does_not_inherit_receiver_abandonment() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Owner
+        {
+            destruct()
+            {
+                let identity = lambda(pos value: bool) -> bool
+                {
+                    return value;
+                };
+                let value = identity(true);
+            }
+        }
+        "#,
+    );
+
+    let key = compilation
+        .declared_unit_keys_for_test()
+        .unwrap()
+        .into_iter()
+        .find(|key| {
+            key.kind() == BoundUnitKind::CallableBody
+                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+        })
+        .unwrap();
+
+    let bound = compilation.bound_unit(key.clone()).unwrap();
+    let nested = bound.value().nested_units().first().unwrap().clone();
+
+    for (key, abandonment) in [(key, true), (nested, false)] {
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&lowered);
+
+        assert_eq!(
+            mir.storages()
+                .iter()
+                .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(1))),
+            abandonment,
+            "only the destructor receives the hidden abandonment argument"
+        );
+    }
+}

@@ -672,6 +672,7 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
             }
 
             static RESOURCE: Resource = { value = 42 };
+            static SECOND: Resource = { value = 43 };
             func main() {}
         "#
         .replace("DESTRUCTOR", destructor);
@@ -683,6 +684,22 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
             &plan,
             bray_codegen::BackendArtifactKind::BackendIr,
         );
+
+        for artifact in &artifacts {
+            let ir = String::from_utf8_lossy(artifact);
+
+            for name in [".incident.destroy", "__bray_incident_report_identity"] {
+                let definitions = ir
+                    .lines()
+                    .filter(|line| line.starts_with("define ") && line.contains(name))
+                    .count();
+
+                assert!(
+                    definitions <= 1,
+                    "owners with the same cleanup share {name}: {ir}"
+                );
+            }
+        }
 
         let ir = artifacts
             .iter()
@@ -701,7 +718,11 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
             .expect("LLVM function has a closing brace")
             .0;
 
-        let (before_cleanup, _) = callback
+        let (_, body) = callback
+            .split_once("{\n")
+            .expect("LLVM callback has a body");
+
+        let (before_cleanup, _) = body
             .split_once("@bray_lifecycle_")
             .expect("incident destructor invokes the selected cleanup");
 

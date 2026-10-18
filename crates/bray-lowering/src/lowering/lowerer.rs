@@ -138,7 +138,10 @@ impl<'unit> Lowerer<'unit> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        if self.input.unit().key().declared_owner().kind() == bray_symbols::SymbolKind::Destructor {
+        if self.input.unit().key().kind() == bray_bound_tree::BoundUnitKind::CallableBody
+            && self.input.unit().key().declared_owner().kind()
+                == bray_symbols::SymbolKind::Destructor
+        {
             let boolean =
                 self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
 

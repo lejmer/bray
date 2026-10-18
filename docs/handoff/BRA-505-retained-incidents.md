@@ -149,6 +149,76 @@ new error payloads, rather than adding per-caller repairs. Waiting for readiness
 an outcome are distinct operations. Started-task ownership is already assigned to open
 BRA-560, so do not silently duplicate that subsystem inside BRA-505.
 
+## Active retained-report batch, 2026-10-18
+
+Latest pushed checkpoint is `4bdb5884`. Its ordinary async finalizer and inactive-capture
+native emission checks also pass in `bra-505-ordinary-inactive-native-emission.log`.
+Those are emission checks, not retained-incident execution acceptance.
+
+The current uncommitted batch replaces the panic-only pool value with `ReportValue`,
+stores ABI-qualified callbacks in typed incident records, and uses one iterative report
+drain for panic and typed-error callback outcomes. `retained_report_value` records exact
+payload/backing ownership across pool transfer. Visible field reconstruction does not
+establish this witness. Native `CleanupIncidentTransfer` now selects the Bray retention
+boundary, but LLVM payload construction and context delivery remain unfinished. Do not
+claim the MIR operation is implemented merely because its native symbol now exists.
+
+The C bootstrap fixture now includes denied-allocation disposal after original-owner
+discharge and a 2,048-incident callback-produced chain. These native tests have NOT run.
+No runtime Rust owner or frame was added. Pool records grow to hold the typed alternative.
+Measure that cost and justify it before acceptance, independently of LLVM optimization.
+
+The production checker failure was an incorrect exported effect: exposing inline storage
+of a copied parameter was treated as exposing the caller's original field. Effect publication
+now excludes inline by-value parameter storage, including projections and address escape.
+Borrowed provider inputs, referents and owned indirection retain their effects. This is a
+correction at the owning analysis, with no downstream validation or runtime work.
+The temporary trace was removed. All seven batched checks pass in
+`bra-505-parameter-effects.log`, including source/imported parameter effects, production
+report consumers and storage boundaries, forged/reconstructed owner rejection, and consuming
+guard reference effects. Compilation took 45.71 seconds, tests 60.42 seconds.
+Native verification then exposed two incomplete consumers of established identities.
+Destructor-only lowering now checks CallableBody as well as the declaration owner, so
+nested lambdas do not receive a destructor receiver or abandonment parameter. Liveness
+construction now validates the exact execution-site node for cleanup suspension, removing
+the obsolete await-expression-only accessor. The 57-test boundary batch passed 56 tests
+and exposed the latter defect. All 10 focused liveness, imported-task and nested-destructor
+checks now pass in `bra-505-cleanup-boundary-liveness.log`. The unused import reported there
+was removed. No diagnostics or fallback replaced either invariant.
+
+Native tooling: installed stable Rust 1.99 produces LLVM 23.1.1 bitcode, incompatible with
+this checkout's LLVM 22.1.8. Installed Rust 1.98.1 uses LLVM 22.1.8. Use the freshly built
+xtask executable with process-local RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-msvc for
+native provider builds. Do not change the global toolchain or rebuild the compiler under
+that toolchain merely to select the provider producer. The compatible verified native run now passes standard-library planning. LLVM emission
+then reaches the unfinished CleanupIncidentTransfer consumer, which still supplies one
+argument to the two-argument retention boundary. Do not rerun that known failure until
+the compiler transfer is connected. The native C fixture has not executed. Current log:
+`bra-505-retained-native-verified.log`. Earlier toolchain evidence remains in
+`bra-505-retained-native.log` and `bra-505-retained-native-compatible.log`.
+
+Shared LLVM incident construction now owns admitted payload claims, record layout and
+callbacks. Static emission uses it and shares the identity reporter and per-cleanup destroyer.
+Source provenance and native callback declaration use their existing domain modules.
+The previous static-only implementations are removed. The 16 static/lifecycle emission
+checks pass in `bra-505-shared-incident-emission.log`.
+
+Both report consumers now retain callback-produced reports on successful completion as well
+as panic. They share outcome retention, and the C fixture covers successful callback chains
+alongside panic chains. The 16 production-consumer and emission tests pass in
+`bra-505-report-outcomes.log`. Rustfmt, mutating structural style and Bray formatting pass
+in `bra-505-report-outcomes-format.log`. Existing module-size warnings remain.
+Retained native temporary products are confined to `target/native/bra-505` in the shared
+main-checkout target. No test process remains active.
+
+Follow-on delivery inspection: every synchronous Bray callable already receives the hidden
+outcome destination. Frame bodies own their existing activation header and incident chain.
+Do not invent another Rust frame or TLS ownership layer to connect typed incidents. The
+current output-context code handles reports only on panic, so normal/cancelled returns and
+catch boundaries need one coherent ownership transport before connecting TransferCleanupIncident.
+Inspect this producer/consumer boundary completely before changing it. This is an investigation,
+not an accepted implementation or a claim that outcome transport is finished.
+
 ## Active agreement
 
 Complete BRA-505, then BRA-619, with one independently reviewed stacked PR per issue.

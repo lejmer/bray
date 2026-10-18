@@ -179,7 +179,6 @@ trusted internal func release_primary(
 }
 
 trusted internal func recycle_reservation(pos handle: usize)
-    uses(intrinsic)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     if handle == 0
@@ -194,15 +193,30 @@ trusted internal func recycle_reservation(pos handle: usize)
         count = 1
     };
 
-    let (_, stored) = trusted pop_record_value(reserved);
-    let callback = stored.release_message;
-    let primary = trusted serialized_primary(stored);
-    let (state, _) = trusted release_primary(&primary, callback);
+    let (_, value) = trusted pop_record_value(reserved);
 
-    if state != RUN_COMPLETED
+    trusted recycle_value(value);
+}
+
+trusted internal func recycle_value(pos value: ReportValue)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted retained_report_value(value = &value))
+    uses(intrinsic)
+{
+    match value
     {
-        trusted core.target.abort();
-    }
+        case Panic(stored)
+        {
+            let callback = stored.release_message;
+            let primary = trusted serialized_primary(&stored);
+            let (state, _) = trusted release_primary(&primary, callback);
+
+            if state != RUN_COMPLETED
+            {
+                trusted core.target.abort();
+            }
+        }
+        case Error(_) { trusted core.target.abort(); }
+    };
 }
 
 @abi(c)
@@ -226,7 +240,7 @@ trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, p
     };
 
     let reserved: usize = owned.reserved;
-    let primary: ReportPrimary = report_primary_value(owned);
+    let primary = trusted stored_primary(report_primary_value(owned));
 
     return trusted consume_primary(primary, remaining, reserved, reporting);
 }
@@ -241,94 +255,82 @@ trusted internal func consume_record_values(pos remaining: ReportRecords, pos re
 
     let (tail, primary) = trusted pop_record_value(remaining);
 
-    return trusted consume_primary(trusted serialized_primary(primary), tail, 0, reporting);
+    return trusted consume_values(primary, tail, reporting);
 }
 
 trusted internal func consume_primary(
-    pos mut primary: ReportPrimary,
-    pos mut remaining: ReportRecords,
+    pos primary: StoredReportPrimary,
+    pos remaining: ReportRecords,
     pos reserved: usize,
     pos reporting: u32
 ) -> u32
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted native_primary_callbacks(primary = &primary)
-    )
-    uses(intrinsic)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    let (initial_copy, initial_release) = trusted primary_callbacks(&primary);
-    let mut callback = initial_release;
-    let mut copy = initial_copy;
-
     trusted recycle_reservation(reserved);
 
+    return trusted consume_values(trusted panic_record(primary), remaining, reporting);
+}
+
+trusted internal func consume_values(
+    pos mut current: ReportValue,
+    pos mut remaining: ReportRecords,
+    pos reporting: u32
+) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted retained_report_value(value = &current))
+{
     let mut status: u32 = STATUS_SUCCESS;
 
     loop
     {
-        if reporting != 0 && primary.primary_present != 0
-        {
-            let found: u32 = trusted bray.runtime.bootstrap.report.output.primary(&primary, copy);
+        let (found, mut incidents) = trusted bray.runtime.bootstrap.report.incident.dispose_value(current, reporting);
 
-            if status == STATUS_SUCCESS
-            {
-                status = found;
-            }
+        if status == STATUS_SUCCESS
+        {
+            status = found;
         }
 
-        let (release_state, report) = trusted release_primary(&primary, callback);
+        trusted report_records_append(
+            std.memory.address_of_mut<ReportRecords>(&mut incidents),
+            std.memory.address_of_mut<ReportRecords>(&mut remaining)
+        );
 
-        if release_state == RUN_PANICKED
+        if incidents.count == 0
         {
-            if status == STATUS_SUCCESS
-            {
-                status = STATUS_PANICKED;
-            }
-
-            let mut incidents: ReportRecords =
-            {
-                head = report.outgoing_head,
-                tail = report.outgoing_tail,
-                count = report.outgoing_count
-            };
-
-            let reservation: usize = report.reserved;
-
-            primary = trusted report_primary_value(report);
-
-            let (next_copy, next_release) = trusted primary_callbacks(&primary);
-
-            callback = next_release;
-            copy = next_copy;
-            trusted recycle_reservation(reservation);
-
-            trusted report_records_append(
-                std.memory.address_of_mut<ReportRecords>(&mut incidents),
-                std.memory.address_of_mut<ReportRecords>(&mut remaining)
-            );
-
-            remaining = incidents;
+            return status;
         }
-        else
-        {
-            if release_state != RUN_COMPLETED
-            {
-                trusted core.target.abort();
-            }
 
-            if remaining.count == 0
-            {
-                return status;
-            }
+        let (tail, next) = trusted pop_record_value(incidents);
 
-            let (tail, next) = trusted pop_record_value(remaining);
-
-            remaining = tail;
-            callback = next.release_message;
-            copy = next.copy_message;
-            primary = trusted serialized_primary(next);
-        }
+        remaining = tail;
+        current = next;
     }
+}
+
+trusted internal func consume_panic(pos stored: &StoredReportPrimary, pos reporting: u32) -> (u32, ReportRecords)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic)
+{
+    let copy = stored.copy_message;
+    let callback = stored.release_message;
+    let primary = trusted serialized_primary(stored);
+    let mut status: u32 = STATUS_SUCCESS;
+
+    if reporting != 0 && primary.primary_present != 0
+    {
+        status = trusted bray.runtime.bootstrap.report.output.primary(&primary, copy);
+    }
+
+    let (state, report) = trusted release_primary(&primary, callback);
+
+    let value = trusted bray.runtime.bootstrap.report.incident.prepare_value(state, report);
+    let (released, records) = trusted bray.runtime.bootstrap.report.incident.retain_outcome(value);
+
+    if status == STATUS_SUCCESS
+    {
+        status = released;
+    }
+
+    return (status, records);
 }
 
 @abi(c)
@@ -390,7 +392,7 @@ trusted internal func consume_segment(
     let reserved = report.reserved;
     let primary = trusted stored_primary(trusted report_primary_value(report));
     let output = trusted bray.runtime.bootstrap.report.output.segment(&metadata_value);
-    let disposal = trusted consume_primary(trusted serialized_primary(primary), remaining, reserved, 1);
+    let disposal = trusted consume_primary(primary, remaining, reserved, 1);
 
     if output != STATUS_SUCCESS
     {

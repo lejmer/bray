@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::sorted_unique_shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId,
-    BoundUnitKind, StorageIdentityId,
+    AnyBoundNodeId, BoundBlockId, BoundDependencySubject, BoundUnitId, BoundUnitKind,
+    StorageIdentityId,
 };
 
 /// A subject's final ordinary use on every continuation from that operation.
@@ -83,7 +83,7 @@ impl LiveAcrossScope {
     }
 }
 
-/// A subject retained while one direct await can suspend the current run.
+/// A subject retained while one operation or cleanup phase can suspend the current run.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveAcrossSuspension {
     occurrence: crate::BoundExecutionSite,
@@ -130,13 +130,6 @@ impl LiveAcrossSuspension {
             occurrence: occurrence.into(),
             subject,
         }
-    }
-
-    /// Returns the direct-await expression that can suspend.
-    pub const fn await_expression(self) -> BoundExpressionId {
-        self.occurrence
-            .expression()
-            .expect("suspension has an expression owner")
     }
 
     /// Returns the exact suspension phase.
@@ -211,7 +204,7 @@ impl Liveness {
                     || !entry.subject().is_valid_for(unit)
             })
             || live_across_suspensions.iter().any(|entry| {
-                entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
+                entry.occurrence().node().unit() != unit || !entry.subject().is_valid_for(unit)
             })
             || owner_retentions.iter().any(|retention| {
                 retention.occurrence().node().unit() != unit
@@ -270,7 +263,7 @@ impl Liveness {
         &self.live_across_scopes
     }
 
-    /// Returns normalized subjects retained across direct-await suspension points.
+    /// Returns normalized subjects retained across operation and cleanup suspension points.
     pub fn live_across_suspensions(&self) -> &[LiveAcrossSuspension] {
         &self.live_across_suspensions
     }
@@ -378,13 +371,21 @@ mod tests {
         let live_across_scope = LiveAcrossScope::new(scope, expression.into(), subject);
         let live_across_suspension = LiveAcrossSuspension::new(expression, subject);
 
+        let cleanup =
+            LiveAcrossSuspension::new(crate::BoundExecutionSite::Cleanup(scope.into()), subject);
+
         let Ok(liveness) = Liveness::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [last_use, last_use],
             [],
             [live_across_scope, live_across_scope],
-            [live_across_suspension, live_across_suspension],
+            [
+                live_across_suspension,
+                cleanup,
+                live_across_suspension,
+                cleanup,
+            ],
             [
                 OwnerRetention::new(expression, subject),
                 OwnerRetention::new(expression, subject),
@@ -399,7 +400,7 @@ mod tests {
 
         assert_eq!(
             liveness.live_across_suspensions(),
-            &[live_across_suspension]
+            &[live_across_suspension, cleanup]
         );
 
         assert!(liveness.is_last_use(expression, subject));
@@ -412,6 +413,7 @@ mod tests {
         ));
 
         assert!(liveness.is_live_across_suspension(expression, subject));
+        assert!(liveness.is_live_across_suspension(cleanup.occurrence(), subject));
         assert_eq!(liveness.owner_retained_subjects(), &[subject]);
         assert!(liveness.is_owner_retained(subject));
         assert!(liveness.is_owner_retained_by(expression, subject));

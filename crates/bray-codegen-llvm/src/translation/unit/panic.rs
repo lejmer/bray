@@ -1,5 +1,5 @@
 use bray_codegen::{CodegenCallableSignature, CodegenFailure, CodegenResultMapping};
-use bray_ir::{MirEdge, MirOperand, MirOperation, MirSourceAnchor};
+use bray_ir::{MirEdge, MirOperand, MirOperation};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::core::UnitTranslator;
@@ -40,41 +40,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("translated instance must have a package compatibility")
             .source_namespace();
 
-        let source = match source {
-            MirSourceAnchor::Source(origin) => {
-                let anchor = origin.source_anchor();
-                let syntax = anchor.syntax();
-                let range = syntax.full_range();
-
-                bray_runtime_abi::NativeSourceAnchor::new(
-                    namespace,
-                    syntax.source_id().raw(),
-                    range.start().bytes(),
-                    range.end().bytes(),
-                    anchor.source_version().raw(),
-                )
-            }
-            MirSourceAnchor::ImportedSource {
-                namespace,
-                span,
-                version,
-                ..
-            } => bray_runtime_abi::NativeSourceAnchor::new(
-                *namespace,
-                span.source_id().raw(),
-                span.start().bytes(),
-                span.end().bytes(),
-                version.raw(),
-            ),
-            MirSourceAnchor::ExecutableHost(_)
-            | MirSourceAnchor::GeneratedLifecycle(_)
-            | MirSourceAnchor::CompilerProvidedCallable(_)
-            | MirSourceAnchor::ImportedExecutable(_) => {
-                bray_runtime_abi::NativeSourceAnchor::unavailable()
-            }
-        };
-
-        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
+        Ok(
+            crate::native::mir_source_anchor_value(self.types.context(), namespace, Some(source))
+                .into(),
+        )
     }
 
     pub(super) fn translate_panic_propagation(

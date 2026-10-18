@@ -1,32 +1,21 @@
-use bray_codegen::{CodegenFailure, CodegenMappings, CodegenStaticStorageMapping};
+use bray_codegen::{CodegenCleanupRequirement, CodegenFailure, CodegenSymbolMapping};
 use inkwell::builder::Builder;
 use inkwell::module::Module;
 use inkwell::types::{PointerType, StructType};
 use inkwell::values::{FunctionValue, PointerValue, StructValue};
 use inkwell::{AddressSpace, IntPredicate};
 
-use super::super::storage::declare_static_callback_with_type;
 use crate::mapping::LlvmTypeMappings;
+use crate::native::declare_callback;
 
-pub(super) fn claim_storage<'context>(
+pub(crate) fn claim_storage<'context>(
     module: &Module<'context>,
     builder: &Builder<'context>,
-    mapping: &CodegenStaticStorageMapping,
-    finalization: &bray_codegen::CodegenStaticFinalization,
+    requirement: &CodegenCleanupRequirement,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(StructValue<'context>, PointerValue<'context>), CodegenFailure> {
     let context = types.context();
     let pointer = context.ptr_type(AddressSpace::default());
-
-    let selected = finalization
-        .selected()
-        .expect("fallible finalization must retain its selected source callable");
-
-    let requirement = mapping
-        .outgoing_requirements()
-        .iter()
-        .find(|requirement| requirement.callable() == selected)
-        .expect("fallible finalization must retain its admitted requirement");
 
     let descriptor = crate::mapping::cleanup::descriptors(
         module,
@@ -66,30 +55,29 @@ pub(super) fn claim_storage<'context>(
         .into_int_value();
 
     let payload = builder
-        .build_int_to_ptr(address, pointer, "static.finalize.incident.payload")
+        .build_int_to_ptr(address, pointer, "incident.payload")
         .map_err(CodegenFailure::backend_library)?;
 
     Ok((backing, payload))
 }
 
-pub(super) fn declare_static_incident_reporter<'context>(
+pub(crate) fn declare_reporter<'context>(
     module: &Module<'context>,
-    mapping: &CodegenStaticStorageMapping,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = format!("{}.incident.report", mapping.finalize_name());
+    let name = "__bray_incident_report_identity";
 
-    if let Some(callback) = module.get_function(&name) {
+    if let Some(callback) = module.get_function(name) {
         return Ok(callback);
     }
 
     let context = types.context();
     let usize = crate::native::pointer_integer_type(context, types.target());
 
-    let callback = declare_static_callback_with_type(
+    let callback = declare_callback(
         module,
-        &name,
-        "static.finalize.incident.report",
+        name,
+        "incident.report",
         context.i32_type().fn_type(
             &[
                 usize.into(),
@@ -97,20 +85,20 @@ pub(super) fn declare_static_incident_reporter<'context>(
             ],
             false,
         ),
-        types,
+        types.target(),
     );
 
     let builder = context.create_builder();
 
     let entry = callback
         .get_first_basic_block()
-        .expect("static incident reporter has an entry block");
+        .expect("incident reporter has an entry block");
 
     builder.position_at_end(entry);
 
     let outcome = callback
         .get_nth_param(1)
-        .expect("static incident reporter receives its outcome")
+        .expect("incident reporter receives its outcome")
         .into_pointer_value();
 
     builder
@@ -128,13 +116,12 @@ pub(super) fn declare_static_incident_reporter<'context>(
     Ok(callback)
 }
 
-pub(super) fn declare_static_incident_destroyer<'context>(
+pub(crate) fn declare_destroyer<'context>(
     module: &Module<'context>,
-    mappings: &CodegenMappings,
-    mapping: &CodegenStaticStorageMapping,
+    cleanup: &CodegenSymbolMapping,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = format!("{}.incident.destroy", mapping.finalize_name());
+    let name = format!("{}.incident.destroy", cleanup.name().as_str());
 
     if let Some(callback) = module.get_function(&name) {
         return Ok(callback);
@@ -144,21 +131,21 @@ pub(super) fn declare_static_incident_destroyer<'context>(
     let usize = crate::native::pointer_integer_type(context, types.target());
     let pointer = context.ptr_type(AddressSpace::default());
 
-    let callback = declare_static_callback_with_type(
+    let callback = declare_callback(
         module,
         &name,
-        "static.finalize.incident.destroy",
+        "incident.destroy",
         context
             .void_type()
             .fn_type(&[pointer.into(), pointer.into(), pointer.into()], false),
-        types,
+        types.target(),
     );
 
     let builder = context.create_builder();
 
     let entry = callback
         .get_first_basic_block()
-        .expect("static-storage realization requires an established mapping or value");
+        .expect("incident destruction requires its checked cleanup mapping");
 
     let incident = callback
         .get_first_param()
@@ -167,7 +154,7 @@ pub(super) fn declare_static_incident_destroyer<'context>(
 
     builder.position_at_end(entry);
 
-    let incident_type = static_incident_type(context, usize, pointer, types.target());
+    let incident_type = record_type(context, usize, pointer, types.target());
 
     let payload_address = builder
         .build_struct_gep(incident_type, incident, 0, "incident.payload.slot")
@@ -183,7 +170,7 @@ pub(super) fn declare_static_incident_destroyer<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     let payload_pointer = builder
-        .build_int_to_ptr(payload, pointer, "static.finalize.incident.pointer")
+        .build_int_to_ptr(payload, pointer, "incident.pointer")
         .map_err(CodegenFailure::backend_library)?;
 
     let destruction_outcome = callback
@@ -207,23 +194,14 @@ pub(super) fn declare_static_incident_destroyer<'context>(
             .map_err(CodegenFailure::backend_library)?;
     }
 
-    let cleanup = mapping
-        .finalization()
-        .and_then(bray_codegen::CodegenStaticFinalization::incident_cleanup)
-        .expect("static-storage realization requires an established mapping or value");
-
-    let symbol = mappings
-        .instance_symbol(cleanup)
-        .expect("static-storage realization requires an established mapping or value");
-
     let function = module
-        .get_function(symbol.name().as_str())
-        .expect("static-storage realization requires an established mapping or value");
+        .get_function(cleanup.name().as_str())
+        .expect("incident destruction requires its checked cleanup mapping");
 
     crate::mapping::invoke_with_outcome(
         &builder,
         function,
-        symbol.signature(),
+        cleanup.signature(),
         &[payload_pointer.into()],
         destruction_outcome,
         "",
@@ -285,11 +263,11 @@ pub(super) fn declare_static_incident_destroyer<'context>(
     Ok(callback)
 }
 
-pub(super) fn static_incident_value<'context>(
+pub(crate) fn record_value<'context>(
     builder: &Builder<'context>,
-    mapping: &CodegenStaticStorageMapping,
-    finalization: &bray_codegen::CodegenStaticFinalization,
-    payload: PointerValue<'context>,
+    identity: [u8; 32],
+    source: StructValue<'context>,
+    storage: (StructValue<'context>, PointerValue<'context>),
     report: FunctionValue<'context>,
     destroy: FunctionValue<'context>,
     types: &LlvmTypeMappings<'context, '_>,
@@ -298,67 +276,39 @@ pub(super) fn static_incident_value<'context>(
     let usize = crate::native::pointer_integer_type(context, types.target());
     let pointer = context.ptr_type(AddressSpace::default());
 
-    let identity = finalization
-        .error_type_identity()
-        .expect("static-storage realization requires an established mapping or value");
+    let (backing, payload) = storage;
 
-    let identity = crate::native::identity_value(context, identity);
+    let address = builder
+        .build_ptr_to_int(payload, usize, "incident.address")
+        .map_err(CodegenFailure::backend_library)?;
 
-    let namespace = types
-        .mappings()
-        .unit()
-        .compatibility(mapping.owner())
-        .expect("static storage owner must have a partition compatibility")
-        .source_namespace();
+    let fields: [inkwell::values::BasicValueEnum<'context>; 6] = [
+        address.into(),
+        crate::native::identity_value(context, identity).into(),
+        source.into(),
+        report.as_global_value().as_pointer_value().into(),
+        destroy.as_global_value().as_pointer_value().into(),
+        backing.into(),
+    ];
 
-    let source = native_source_anchor_value(context, namespace, finalization.source());
-    let incident_type = static_incident_type(context, usize, pointer, types.target());
-    let incident = incident_type.const_zero();
+    let mut incident = record_type(context, usize, pointer, types.target()).const_zero();
 
-    let incident = builder
-        .build_insert_value(
-            incident,
-            builder
-                .build_ptr_to_int(payload, usize, "static.finalize.incident.address")
-                .map_err(CodegenFailure::backend_library)?,
-            0,
-            "static.finalize.incident.payload",
-        )
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
+    for (index, field) in fields.into_iter().enumerate() {
+        incident = builder
+            .build_insert_value(
+                incident,
+                field,
+                u32::try_from(index).expect("incident field ordinal fits its native record"),
+                "incident.field",
+            )
+            .map_err(CodegenFailure::backend_library)?
+            .into_struct_value();
+    }
 
-    let incident = builder
-        .build_insert_value(incident, identity, 1, "static.finalize.incident.type")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
-
-    let incident = builder
-        .build_insert_value(incident, source, 2, "static.finalize.incident.source")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
-
-    let incident = builder
-        .build_insert_value(
-            incident,
-            report.as_global_value().as_pointer_value(),
-            3,
-            "static.finalize.incident.report",
-        )
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
-
-    builder
-        .build_insert_value(
-            incident,
-            destroy.as_global_value().as_pointer_value(),
-            4,
-            "static.finalize.incident.destroy",
-        )
-        .map_err(CodegenFailure::backend_library)
-        .map(inkwell::values::AggregateValueEnum::into_struct_value)
+    Ok(incident)
 }
 
-fn static_incident_type<'context>(
+fn record_type<'context>(
     context: &'context inkwell::context::Context,
     usize: inkwell::types::IntType<'context>,
     pointer: PointerType<'context>,
@@ -375,47 +325,4 @@ fn static_incident_type<'context>(
         ],
         false,
     )
-}
-
-fn native_source_anchor_value<'context>(
-    context: &'context inkwell::context::Context,
-    namespace: [u8; 32],
-    source: Option<&bray_ir::MirSourceAnchor>,
-) -> StructValue<'context> {
-    let source = match source {
-        Some(bray_ir::MirSourceAnchor::Source(origin)) => {
-            let anchor = origin.source_anchor();
-            let syntax = anchor.syntax();
-            let range = syntax.full_range();
-
-            bray_runtime_abi::NativeSourceAnchor::new(
-                namespace,
-                syntax.source_id().raw(),
-                range.start().bytes(),
-                range.end().bytes(),
-                anchor.source_version().raw(),
-            )
-        }
-        Some(bray_ir::MirSourceAnchor::ImportedSource {
-            namespace,
-            span,
-            version,
-            ..
-        }) => bray_runtime_abi::NativeSourceAnchor::new(
-            *namespace,
-            span.source_id().raw(),
-            span.start().bytes(),
-            span.end().bytes(),
-            version.raw(),
-        ),
-        Some(
-            bray_ir::MirSourceAnchor::ExecutableHost(_)
-            | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)
-            | bray_ir::MirSourceAnchor::CompilerProvidedCallable(_)
-            | bray_ir::MirSourceAnchor::ImportedExecutable(_),
-        )
-        | None => bray_runtime_abi::NativeSourceAnchor::unavailable(),
-    };
-
-    crate::native::source_anchor_value(context, source)
 }
