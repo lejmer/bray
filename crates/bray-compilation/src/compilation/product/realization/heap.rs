@@ -219,6 +219,8 @@ mod tests {
             ("storage: i32 = 7", "42, storage = 1", true),
             ("pos storage: i32", "42, 1", true),
             ("pos storage: i32", "42, storage = 1", true),
+            ("storage: i32?", "42, storage = supplied()", true),
+            ("storage: i32? = none", "42", true),
             ("storage: i32", "42", false),
             ("storage: i32", "42, 1", false),
             ("storage: i32", "42, unknown = 1", false),
@@ -247,6 +249,7 @@ mod tests {
                     trusted static func release(pos storage: Self) {{ loop {{}} }}
                 }}
 
+                func supplied() -> i32 {{ return 7; }}
                 func make() {{ let value = box[Policy]({arguments}); }}
                 "#
             );
@@ -415,7 +418,13 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
                 if block.operations().iter().any(|id| {
                     matches!(
                         mir.operation(*id).map(|operation| operation.kind()),
-                        Some(MirOperationKind::Destroy { .. } | MirOperationKind::Cleanup { .. })
+                        Some(
+                            MirOperationKind::Destroy { .. }
+                                | MirOperationKind::Cleanup {
+                                    collection: None,
+                                    ..
+                                }
+                        )
                     )
                 }) {
                     assert!(
@@ -429,6 +438,14 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             }
 
             if member == "StorageCreate" {
+                assert!(mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Cleanup {
+                        collection: Some(_),
+                        ..
+                    }
+                )));
+
                 assert!(mir.blocks().iter().any(|block| matches!(
                     block.terminator().kind(),
                     MirTerminatorKind::CheckCallOutcome { .. }

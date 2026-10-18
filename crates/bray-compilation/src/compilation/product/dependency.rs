@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget,
-    SelectedImplementationWitness, SelectedIterationSource, SelectedOperation, SemanticSelection,
+    BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind, ConstructionTarget,
+    ConversionTarget, IndexTarget, OperatorTarget, SelectedImplementationWitness,
+    SelectedIterationSource, SelectedOperation, SemanticSelection,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticBag;
@@ -529,32 +529,18 @@ fn push_construction_dependencies(
     for input in construction.inputs() {
         match input {
             bray_bound_tree::SelectedConstructionInput::Explicit { input, .. } => {
-                push_construction_input(*input, dependencies);
+                dependencies.push(input.symbol());
             }
             bray_bound_tree::SelectedConstructionInput::Default {
                 input, provider, ..
             } => {
-                push_construction_input(*input, dependencies);
-                push_construction_default(*provider, dependencies);
+                dependencies.push(input.symbol());
+                dependencies.push(provider.symbol());
             }
         }
     }
 
     Ok(internal)
-}
-
-fn push_construction_input(input: ConstructionInputId, dependencies: &mut Vec<AnySymbolId>) {
-    let symbol = match input {
-        ConstructionInputId::StructField(symbol) => symbol.into(),
-        ConstructionInputId::UnionPayloadField(symbol) => symbol.into(),
-        ConstructionInputId::CallableParameter(symbol) => symbol.into(),
-    };
-
-    dependencies.push(symbol);
-}
-
-fn push_construction_default(provider: DefaultValueProvider, dependencies: &mut Vec<AnySymbolId>) {
-    dependencies.push(provider.symbol());
 }
 
 fn push_conversion_dependencies(

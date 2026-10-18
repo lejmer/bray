@@ -3920,3 +3920,56 @@ fn yielded_generic_ownership_does_not_destroy_the_returned_value() {
 
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 }
+
+#[test]
+fn construction_inputs_preserve_authority_without_forgery_or_repairing_pairs() {
+    for (left, right, valid) in [
+        ("left", "right", true),
+        ("Owner { value = left.value }", "right", false),
+        ("left", "other_right", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ value: u32; }}
+            struct Pending {{ left: Owner?; right: Owner?; }}
+            trusted predicate paired(left: &Owner, right: &Owner);
+            trusted func produce() -> (Owner, Owner)
+                ensures(trusted paired(left = &result.0, right = &result.1))
+            {{ return (Owner {{ value = 1 }}, Owner {{ value = 2 }}); }}
+            func observe(pos left: &Owner, pos right: &Owner)
+                requires(trusted paired(left = left, right = right)) {{}}
+            func caller() {{
+                let (left, right) = produce();
+                let (_, other_right) = produce();
+                let pending = Pending {{ left = {left}, right = {right} }};
+                let held_left = match consume pending.left {{
+                    case ?value {{ yield value; }}
+                    case none {{ panic("missing left"); }}
+                }};
+                let held_right = match consume pending.right {{
+                    case ?value {{ yield value; }}
+                    case none {{ panic("missing right"); }}
+                }};
+                observe(&held_left, &held_right);
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}\n{diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

@@ -6,7 +6,6 @@ use bray_bound_tree::{
 };
 use bray_symbols::CallablePosition;
 
-use crate::type_check::numeric_literal_accepts_type;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::{ConstructionInputSurface, SelectionConstructionInputRejection};
@@ -115,10 +114,14 @@ where
 
         let surface = surfaces[surface_index];
 
-        if !actual.is_recovered()
-            && actual.ty() != surface.ty()
-            && !numeric_literal_accepts_type(request, input.expression, surface.ty())
-        {
+        let conversion = super::conversion::implicit_input_conversion(
+            request,
+            input.expression,
+            actual.ty(),
+            surface.ty(),
+        );
+
+        if !actual.is_recovered() && conversion.is_none() {
             return ConstructionInputMapping::Rejected(SelectionConstructionInputRejection::Type {
                 name: input.name.map(|name| name.as_str().to_owned()),
                 ordinal: source_ordinal,
@@ -132,7 +135,13 @@ where
         values.push(SelectedConstructionInput::Explicit {
             expression: input.expression,
             input: surface.input(),
-            ty: surface.ty(),
+            conversion: conversion.unwrap_or_else(|| {
+                bray_bound_tree::SelectedConversion::new(
+                    actual.ty(),
+                    surface.ty(),
+                    bray_bound_tree::ConversionTarget::Identity,
+                )
+            }),
             ordinal: surface.ordinal(),
         });
     }

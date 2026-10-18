@@ -35,7 +35,10 @@ impl ValueInputs {
             {
                 for input in construction.inputs() {
                     if let SelectedConstructionInput::Explicit {
-                        expression, input, ..
+                        expression,
+                        input,
+                        conversion,
+                        ..
                     } = input
                     {
                         let projection = match input {
@@ -48,10 +51,21 @@ impl ValueInputs {
                             ConstructionInputId::CallableParameter(_) => continue,
                         };
 
+                        let suffix = match conversion.target() {
+                            bray_bound_tree::ConversionTarget::NullablePresent => {
+                                Some(DependencyProjection::NullableValue)
+                            }
+                            bray_bound_tree::ConversionTarget::Identity
+                            | bray_bound_tree::ConversionTarget::BuiltInScalar => None,
+                            target => panic!(
+                                "implicit construction input has unexpected conversion {target:?}"
+                            ),
+                        };
+
                         self.projections
                             .entry(id)
                             .or_default()
-                            .insert(projection, *expression);
+                            .insert(projection, (*expression, suffix));
                     }
                 }
             }
@@ -63,7 +77,7 @@ impl ValueInputs {
                     if let Ok(ordinal) = u32::try_from(ordinal) {
                         self.projections.entry(id).or_default().insert(
                             DependencyProjection::TupleElement(SymbolOrdinal::new(ordinal)),
-                            *child,
+                            (*child, None),
                         );
                     }
                 }
@@ -250,13 +264,17 @@ impl ValueInputs {
                 break;
             }
 
-            if let Some(child) = self
+            if let Some((child, suffix)) = self
                 .projections
                 .get(&expression)
                 .and_then(|fields| fields.get(projection))
             {
+                let Some(remaining) = rest.strip_prefix(suffix.as_slice()) else {
+                    break;
+                };
+
                 expression = *child;
-                path = rest;
+                path = remaining;
             } else if let Some(initializer) = self.initializers.get(&expression) {
                 if self
                     .writes

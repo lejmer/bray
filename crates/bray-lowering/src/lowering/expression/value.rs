@@ -168,7 +168,7 @@ impl Lowerer<'_> {
                             expression,
                             input,
                             ordinal,
-                            ..
+                            ref conversion,
                         } => {
                             let lowered = self.lower_expression(expression, block)?;
 
@@ -182,6 +182,14 @@ impl Lowerer<'_> {
                                     value = expression
                                 );
                             };
+
+                            let (continuation, value) = self.convert_operand(
+                                id,
+                                continuation,
+                                Self::retained_source(&source),
+                                value,
+                                conversion,
+                            )?;
 
                             block = continuation;
 

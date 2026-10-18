@@ -15,7 +15,13 @@ pub(crate) struct ValueInputs {
     pub(super) pattern_subjects: BTreeMap<bray_bound_tree::BoundPatternId, BoundExpressionId>,
     pub(super) projections: BTreeMap<
         BoundExpressionId,
-        BTreeMap<bray_symbols::DependencyProjection, BoundExpressionId>,
+        BTreeMap<
+            bray_symbols::DependencyProjection,
+            (
+                BoundExpressionId,
+                Option<bray_symbols::DependencyProjection>,
+            ),
+        >,
     >,
     pub(super) initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) borrowed: BTreeMap<
@@ -221,12 +227,18 @@ impl ValueInputs {
     pub(crate) fn constructed_fields(
         &self,
         expression: BoundExpressionId,
-    ) -> impl Iterator<Item = (bray_symbols::DependencyProjection, BoundExpressionId)> + '_ {
+    ) -> impl Iterator<
+        Item = (
+            bray_symbols::DependencyProjection,
+            BoundExpressionId,
+            &[bray_symbols::DependencyProjection],
+        ),
+    > + '_ {
         self.projections
             .get(&expression)
             .into_iter()
             .flatten()
-            .map(|(projection, operand)| (*projection, *operand))
+            .map(|(projection, (operand, suffix))| (*projection, *operand, suffix.as_slice()))
     }
 
     pub(crate) fn projected_operands(

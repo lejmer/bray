@@ -253,7 +253,7 @@ where
             if let ConstructionTarget::Struct(structure) = target {
                 let representation = match request.declared_type_representation(structure.into()) {
                     Ok(representation) => representation,
-                    Err(crate::CheckerQueryError::Cancelled) => {
+                    Err(CheckerQueryError::Cancelled) => {
                         return Err(CheckerQueryError::Cancelled);
                     }
                     Err(CheckerQueryError::Upstream(error)) => {
@@ -641,7 +641,11 @@ mod tests {
                 SelectedConstructionInput::Explicit {
                     expression: fixture.value,
                     input: ConstructionInputId::StructField(second),
-                    ty: fixture.value_type,
+                    conversion: SelectedConversion::new(
+                        fixture.value_type,
+                        fixture.value_type,
+                        ConversionTarget::Identity,
+                    ),
                     ordinal: 1,
                 },
                 SelectedConstructionInput::Default {

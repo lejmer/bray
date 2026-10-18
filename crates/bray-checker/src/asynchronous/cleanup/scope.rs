@@ -160,10 +160,7 @@ where
                 cleanup_shapes.requirement(construction.result_type())?;
 
                 for input in construction.inputs() {
-                    let (bray_bound_tree::SelectedConstructionInput::Explicit { ty, .. }
-                    | bray_bound_tree::SelectedConstructionInput::Default { ty, .. }) = input;
-
-                    cleanup_shapes.requirement(*ty)?;
+                    cleanup_shapes.requirement(input.ty())?;
                 }
             }
             bray_bound_tree::SemanticSelection::Call(call) => {

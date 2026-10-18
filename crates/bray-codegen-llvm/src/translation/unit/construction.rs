@@ -12,12 +12,6 @@ use bray_ir::{
 };
 use inkwell::values::BasicValueEnum;
 
-#[derive(Clone, Copy)]
-struct EvaluatedConstructionInput<'context> {
-    value: BasicValueEnum<'context>,
-    ty: bray_symbols::TypeId,
-}
-
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_aggregate(
         &mut self,
@@ -129,9 +123,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             ConstructionTarget::TypeForm { callable, .. } => {
                 let helper = next_helper(&mut helpers, &MirHelperReference::TypeForm(callable));
-                let input_values = inputs.iter().map(|input| input.value).collect::<Vec<_>>();
-
-                let value = self.invoke_operation_helper(operation_id, helper, &input_values)?;
+                let value = self.invoke_operation_helper(operation_id, helper, &inputs)?;
                 let value = self.materialize_call_result(value, result)?;
 
                 if helpers.next().is_some() {
@@ -148,17 +140,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn evaluate_construction_inputs(
         &mut self,
         construction: &MirConstruction,
-    ) -> Result<Vec<EvaluatedConstructionInput<'context>>, CodegenFailure> {
+    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
         let mut values = BTreeMap::new();
 
         for input in construction.inputs() {
-            let ty = self.operand_type(input.value());
             let value = self.operand(input.value())?;
 
-            if values
-                .insert(input.ordinal(), EvaluatedConstructionInput { value, ty })
-                .is_some()
-            {
+            if values.insert(input.ordinal(), value).is_some() {
                 panic!(
                     "checked MIR construction translation violated an established compiler contract"
                 );
@@ -182,7 +170,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         result: bray_symbols::TypeId,
         construction: &MirConstruction,
-        inputs: &[EvaluatedConstructionInput<'context>],
+        inputs: &[BasicValueEnum<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self.type_mapping(result).expect(
             "checked MIR construction translation requires an established mapping or value",
@@ -225,13 +213,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR construction translation requires an established mapping or value",
                 );
 
-            let input_value =
-                self.convert(input_value.value, input_value.ty, fields[index].ty())?;
-
             value = insert_value(
                 &self.builder,
                 value,
-                input_value,
+                *input_value,
                 crate::conversion::resource_limit::<usize, _>(
                     self.aggregate_element(&fields, index)?,
                     "aggregate_element_index",
@@ -247,7 +232,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         result: bray_symbols::TypeId,
         variant: bray_symbols::UnionVariantSymbolId,
         construction: &MirConstruction,
-        inputs: &[EvaluatedConstructionInput<'context>],
+        inputs: &[BasicValueEnum<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self.type_mapping(result).expect(
             "checked MIR construction translation requires an established mapping or value",
@@ -293,9 +278,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             );
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
-            let input_value = self.convert(input_value.value, input_value.ty, layout.ty())?;
 
-            llvm(self.builder.build_store(destination, input_value))?;
+            llvm(self.builder.build_store(destination, *input_value))?;
         }
 
         llvm(

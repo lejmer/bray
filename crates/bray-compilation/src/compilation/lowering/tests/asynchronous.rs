@@ -36,6 +36,11 @@ fn construction_inputs_survive_a_later_await() {
             "Value { first = Guard {}, second = await pending }",
             "Value",
         ),
+        (
+            "Guard?",
+            "Value { first = Guard {}, second = await pending }",
+            "Value",
+        ),
         ("i32", "(17, await pending)", "(i32, i32)"),
         ("Guard", "(Guard {}, await pending)", "(Guard, i32)"),
         ("i32", "[17, await pending]", "[i32; 2]"),

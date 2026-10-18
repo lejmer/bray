@@ -213,3 +213,90 @@ fn box_construction_selection_retains_the_storage_implementation() {
         selections.diagnostics()
     );
 }
+
+#[test]
+fn construction_inputs_retain_identity_and_one_nullable_insertion() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Holder { value: i32?; }
+        struct Nested { value: (i32?)?; }
+        union Choice { Some(value: i32?); None; }
+
+        func main(pos value: i32, pos optional: i32?)
+        {
+            let direct = Holder { value = value };
+            let identity = Holder { value = optional };
+            let nested = Nested { value = optional };
+            let variant: Choice = Some(value = value);
+        }
+        "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let selections = application
+        .semantic_selections(source_callable_body_key(&application))
+        .unwrap();
+
+    let conversions = selections
+        .value()
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            let SemanticSelection::Operation(SelectedOperation::Construction(construction)) =
+                entry.selection()
+            else {
+                return None;
+            };
+
+            Some(
+                construction
+                    .inputs()
+                    .iter()
+                    .filter_map(|input| match input {
+                        bray_bound_tree::SelectedConstructionInput::Explicit {
+                            conversion, ..
+                        } => Some(conversion.target()),
+                        _ => None,
+                    }),
+            )
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        conversions,
+        vec![
+            &bray_bound_tree::ConversionTarget::NullablePresent,
+            &bray_bound_tree::ConversionTarget::Identity,
+            &bray_bound_tree::ConversionTarget::NullablePresent,
+            &bray_bound_tree::ConversionTarget::NullablePresent,
+        ]
+    );
+}
+
+#[test]
+fn construction_inputs_reject_nullable_extraction_and_scalar_coercion() {
+    for (source, target) in [("i32?", "i32"), ("u32", "i32?"), ("i32", "i64")] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ value: {target}; }}
+            func main(pos value: {source}) {{ let holder = Holder {{ value = value }}; }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert_goal_state_diagnostic_kind(
+            application.check_diagnostics(),
+            DiagnosticKind::CheckingIncompatibleCandidate,
+        );
+    }
+}

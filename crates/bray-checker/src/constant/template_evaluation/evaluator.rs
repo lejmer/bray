@@ -237,7 +237,7 @@ where
                     .symbol(variant)
                     .expect("checked variant declaration resolves");
 
-                let bray_symbols::AnySymbolId::UnionVariant(variant) = variant else {
+                let AnySymbolId::UnionVariant(variant) = variant else {
                     panic!("checked variant test retains its union variant");
                 };
 
@@ -723,6 +723,12 @@ where
 
         if data.ty() == target {
             return Ok(value);
+        }
+
+        if matches!(self.context.semantic_values().type_data(target).as_ref(),
+            bray_symbols::TypeData::Nullable(contained) if *contained == data.ty())
+        {
+            return Ok(self.intern_value(target, ConstantValueKind::NullablePresent(value)));
         }
 
         let Some(representation) = type_representation_for_context(self.context, target) else {

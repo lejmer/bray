@@ -144,6 +144,16 @@ fn returned_assignments_and_errors_survive_interfaces() {
                 return result;
             }
 
+            struct OptionalHolder
+            {
+                value: (&bool)?;
+            }
+
+            func wrap(pos value: &bool) -> OptionalHolder
+            {
+                return { value = value };
+            }
+
             func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
             {
                 let value = try input;
@@ -157,6 +167,10 @@ fn returned_assignments_and_errors_survive_interfaces() {
         (
             "example.package.api.Holder",
             "example.package.api.replace(caller, argument)",
+        ),
+        (
+            "example.package.api.OptionalHolder",
+            "example.package.api.wrap(argument)",
         ),
         (
             "Result<bool, &bool>",

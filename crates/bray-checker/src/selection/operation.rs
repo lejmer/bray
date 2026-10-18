@@ -10,6 +10,7 @@ pub use built_in::{
     built_in_operation_result_type, built_in_operator_supported, built_in_trait_constraint_outcome,
 };
 pub(crate) use conversion::c_variadic_promotion_target;
+pub(super) use conversion::implicit_input_conversion;
 pub use conversion::{
     built_in_conversion_plan, built_in_conversion_plan_for_context,
     callable_contract_conversion_is_valid, composite_conversion_children,

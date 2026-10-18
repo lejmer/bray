@@ -581,29 +581,18 @@ where
             ConstructionTarget::UnionVariant(variant) => {
                 self.evaluate_union_construction(expression, ty, variant, &inputs)
             }
-            ConstructionTarget::TypeForm { callable, .. } => {
-                let mut inputs = inputs
-                    .iter()
-                    .map(|input| match input {
-                        SelectedConstructionInput::Explicit {
-                            expression,
-                            ordinal,
-                            ..
-                        } => Ok((*ordinal, *expression)),
-                        SelectedConstructionInput::Default { .. } => {
-                            Err(EvaluationFailure::invalid_expression(expression))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+            ConstructionTarget::TypeForm {
+                callable, witness, ..
+            } => {
+                let inputs = self.evaluate_construction_inputs(expression, &inputs)?;
 
-                inputs.sort_unstable_by_key(|(ordinal, _)| *ordinal);
-
-                let inputs = inputs
-                    .into_iter()
-                    .map(|(_, input)| input)
-                    .collect::<Vec<_>>();
-
-                self.evaluate_call(expression, callable, None, &inputs, ty)
+                self.evaluate_call_terms(
+                    expression,
+                    callable,
+                    Some(witness),
+                    inputs.into_iter().map(|(_, value, ty)| (value, ty)),
+                    ty,
+                )
             }
         }
     }
@@ -617,7 +606,7 @@ where
         let inputs = self.evaluate_construction_inputs(expression, inputs)?;
         let mut fields = Vec::with_capacity(inputs.len());
 
-        for (input, value) in inputs {
+        for (input, value, _) in inputs {
             let ConstructionInputId::StructField(field) = input else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
@@ -641,7 +630,7 @@ where
         let inputs = self.evaluate_construction_inputs(expression, inputs)?;
         let mut fields = Vec::with_capacity(inputs.len());
 
-        for (input, value) in inputs {
+        for (input, value, _) in inputs {
             let ConstructionInputId::UnionPayloadField(field) = input else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
@@ -661,7 +650,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         inputs: &[SelectedConstructionInput],
-    ) -> Result<Vec<(ConstructionInputId, ConstantTermId)>, EvaluationFailure> {
+    ) -> Result<Vec<(ConstructionInputId, ConstantTermId, TypeId)>, EvaluationFailure> {
         let mut evaluated = Vec::with_capacity(inputs.len());
 
         for input in inputs {
@@ -669,20 +658,23 @@ where
                 expression: value,
                 input,
                 ordinal,
-                ..
+                ref conversion,
             } = *input
             else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            evaluated.push((ordinal, input, self.evaluate(value)?));
+            let term = self.evaluate(value)?;
+            let term = self.apply_selected_conversion(value, conversion, term)?;
+
+            evaluated.push((ordinal, input, term, conversion.target_type()));
         }
 
-        evaluated.sort_unstable_by_key(|(ordinal, _, _)| *ordinal);
+        evaluated.sort_unstable_by_key(|(ordinal, ..)| *ordinal);
 
         Ok(evaluated
             .into_iter()
-            .map(|(_, input, value)| (input, value))
+            .map(|(_, input, value, ty)| (input, value, ty))
             .collect())
     }
 
