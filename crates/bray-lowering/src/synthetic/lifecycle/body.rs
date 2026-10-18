@@ -102,9 +102,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                 let return_value = if let bray_bound_tree::LifecycleAction::Call(callable) = action
                 {
-                    let returns_void = callable.execution
+                    let returns_void = callable.result.execution()
                         == bray_symbols::CallableExecution::Synchronous
-                        && self.is_void_result(callable.result);
+                        && self.is_void_result(callable.result.ty());
 
                     let (completed, value) = self.push_checked_lifecycle_call(
                         &mut builder,

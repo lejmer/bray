@@ -118,7 +118,7 @@ impl Lowerer<'_> {
             && !completed
             && phase == MirCleanupPhase::LifecycleResolution
             && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
-            && callable.execution == bray_symbols::CallableExecution::Asynchronous
+            && callable.result.execution() == bray_symbols::CallableExecution::Asynchronous
         {
             return self.push_async_finalizer(block, source, place, callable);
         }
@@ -209,10 +209,7 @@ impl Lowerer<'_> {
             None => self.create_cleanup_outcome(block, source)?,
         };
 
-        let invocation = callable.invocation_result(
-            self.input.semantic_values(),
-            self.input.available_compiler_known_symbols(),
-        )?;
+        let invocation = callable.result;
 
         let receiver = self.input.semantic_values().type_data(callable.receiver);
 
@@ -237,7 +234,7 @@ impl Lowerer<'_> {
         let awaited = self.lower_awaited_frame(
             occurrence,
             MirOperand::Value(value),
-            Some(callable.result),
+            Some(callable.result.completion_type()),
             block,
             Self::retained_source(source),
         )?;
@@ -253,7 +250,7 @@ impl Lowerer<'_> {
         let payloads = crate::operand::result_payloads(
             self.input.semantic_values(),
             self.input.available_compiler_known_symbols(),
-            callable.result,
+            callable.result.completion_type(),
         );
 
         let (block, abandoned) = outcome.retain_finalizer_result(

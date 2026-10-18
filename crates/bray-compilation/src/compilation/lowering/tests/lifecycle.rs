@@ -1184,10 +1184,13 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
             .any(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
     );
 
-    assert!(checked.value().cleanup_types().iter().any(|ty| {
-        ty.finalizer()
-            .is_some_and(|call| call.execution == bray_symbols::CallableExecution::Asynchronous)
-    }));
+    let selected = checked
+        .value()
+        .cleanup_types()
+        .iter()
+        .filter_map(|ty| ty.finalizer())
+        .find(|call| matches!(call.result, bray_bound_tree::BoundCallResult::LazyFuture(_)))
+        .expect("cleanup checking retains the selected async finalizer");
 
     let lowered = compilation.lowered_unit(key).unwrap();
     let mir = lowered_mir(&lowered);
@@ -1196,6 +1199,24 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         mir.is_valid(),
         "ordinary async cleanup must obey MIR ownership and suspension contracts"
     );
+
+    let invocation = mir
+        .operations()
+        .iter()
+        .find_map(|operation| match operation.kind() {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference)
+            if reference.instance() == selected.callable) =>
+            {
+                Some(call.result())
+            }
+            _ => None,
+        })
+        .expect("lowering constructs the selected finalizer's inactive frame");
+
+    assert_eq!(invocation, selected.result);
 
     let awaited = mir
         .operations()

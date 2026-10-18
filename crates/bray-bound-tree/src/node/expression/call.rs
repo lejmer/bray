@@ -133,6 +133,45 @@ pub enum BoundCallResult {
 }
 
 impl BoundCallResult {
+    /// Retains the result representation selected from a callable's execution mode.
+    pub fn from_execution(
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+        execution: bray_symbols::CallableExecution,
+        completion: TypeId,
+    ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
+        Ok(match execution {
+            bray_symbols::CallableExecution::Synchronous => Self::Immediate(completion),
+            bray_symbols::CallableExecution::Asynchronous => {
+                let future = symbols
+                    .unary_representation_type(
+                        values,
+                        bray_compiler_known::RepresentationRole::Future,
+                        completion,
+                    )?
+                    .expect("checked asynchronous invocation retains its Future representation");
+
+                Self::LazyFuture(BoundFutureConstruction::new(completion, future))
+            }
+        })
+    }
+
+    /// Returns the callable's completion type, after any deferred execution.
+    pub const fn completion_type(self) -> TypeId {
+        match self {
+            Self::Immediate(ty) => ty,
+            Self::LazyFuture(construction) => construction.completion_type(),
+        }
+    }
+
+    /// Returns the execution mode established by invocation selection.
+    pub const fn execution(self) -> bray_symbols::CallableExecution {
+        match self {
+            Self::Immediate(_) => bray_symbols::CallableExecution::Synchronous,
+            Self::LazyFuture(_) => bray_symbols::CallableExecution::Asynchronous,
+        }
+    }
+
     /// Returns the source-visible type produced by the call expression.
     pub const fn ty(self) -> TypeId {
         match self {

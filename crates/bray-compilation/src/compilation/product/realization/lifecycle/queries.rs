@@ -34,14 +34,32 @@ impl Compilation {
             return Ok(None);
         };
 
-        let mut selected = LifecycleCallable::from_signature(values, *callable, signature)
-            .map_err(crate::fact::FactQueryError::SemanticValueStore)?;
+        let mut selected = LifecycleCallable::from_signature(
+            values,
+            self.available_compiler_known_symbols(),
+            *callable,
+            signature,
+        )
+        .map_err(crate::fact::FactQueryError::SemanticValueStore)?;
 
         selected.receiver =
             self.concrete_codegen_type(selected.receiver, Some(*substitution), None, cancellation)?;
 
-        selected.result =
-            self.concrete_codegen_type(selected.result, Some(*substitution), None, cancellation)?;
+        let concrete = |ty| self.concrete_codegen_type(ty, Some(*substitution), None, cancellation);
+
+        selected.result = match selected.result {
+            bray_bound_tree::BoundCallResult::Immediate(ty) => {
+                bray_bound_tree::BoundCallResult::Immediate(concrete(ty)?)
+            }
+            bray_bound_tree::BoundCallResult::LazyFuture(future) => {
+                bray_bound_tree::BoundCallResult::LazyFuture(
+                    bray_bound_tree::BoundFutureConstruction::new(
+                        concrete(future.completion_type())?,
+                        concrete(future.future_type())?,
+                    ),
+                )
+            }
+        };
 
         Ok(Some(selected))
     }
@@ -99,8 +117,7 @@ impl Compilation {
             callable: *callable,
             abi: callable_type.abi(),
             receiver: parameter.ty(),
-            result: signature.result(),
-            execution: bray_symbols::CallableExecution::Synchronous,
+            result: bray_bound_tree::BoundCallResult::Immediate(signature.result()),
         })
     }
 }

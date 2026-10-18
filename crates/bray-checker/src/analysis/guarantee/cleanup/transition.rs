@@ -407,7 +407,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let completes = normal
                     || lifecycle.contract.completes
-                    || ((lifecycle.call.execution == bray_symbols::CallableExecution::Synchronous)
+                    || ((lifecycle.call.result.execution()
+                        == bray_symbols::CallableExecution::Synchronous)
                         && self.request.target_cannot_unwind(
                             bray_bound_tree::BoundCallableTarget::Declaration(
                                 lifecycle.call.callable,

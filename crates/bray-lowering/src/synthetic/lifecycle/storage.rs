@@ -20,23 +20,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         target: TypeId,
         borrow: bray_bound_tree::LifecycleCallable,
     ) -> Result<(bray_ir::MirBlockId, MirPlace), C::Error> {
-        let borrowed = self.push_selected_call(
-            builder,
-            block,
-            source,
-            storage_place,
-            borrow,
-            BoundCallResult::Immediate(borrow.result),
-        )?;
+        let borrowed =
+            self.push_selected_call(builder, block, source, storage_place, borrow, borrow.result)?;
 
         let (block, borrowed) =
-            self.check_lifecycle_value(builder, block, source, borrowed, borrow.result)?;
+            self.check_lifecycle_value(builder, block, source, borrowed, borrow.result.ty())?;
 
         let temporary = builder
-            .push_storage(source.clone(), MirStorageKind::Temporary, borrow.result)
+            .push_storage(
+                source.clone(),
+                MirStorageKind::Temporary,
+                borrow.result.ty(),
+            )
             .map_err(|cause| self.capacity_error(cause))?;
 
-        let pointer = MirPlace::new(temporary, [], borrow.result);
+        let pointer = MirPlace::new(temporary, [], borrow.result.ty());
 
         self.push_lifecycle_operation(
             builder,
@@ -385,7 +383,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             storage_place,
             release,
-            BoundCallResult::Immediate(release.result),
+            release.result,
         )?;
 
         let block = outcome

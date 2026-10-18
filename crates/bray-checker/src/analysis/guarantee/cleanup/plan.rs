@@ -139,7 +139,7 @@ impl Plan {
                     .lifecycles
                     .get(&(*ty, TypeAssociatedLifecycleSlot::Finalizer))?;
 
-                (lifecycle.call.execution != bray_symbols::CallableExecution::Synchronous)
+                (lifecycle.call.result.execution() != bray_symbols::CallableExecution::Synchronous)
                     .then_some(lifecycle.call.callable)
             })
     }
@@ -153,7 +153,8 @@ impl Plan {
         if self.inactive.is_empty()
             && !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
                 *slot == TypeAssociatedLifecycleSlot::Finalizer
-                    && lifecycle.call.execution == bray_symbols::CallableExecution::Asynchronous
+                    && lifecycle.call.result.execution()
+                        == bray_symbols::CallableExecution::Asynchronous
             })
         {
             return;
@@ -464,8 +465,13 @@ impl Plan {
                     continue;
                 };
 
-                let lifecycle = lifecycle(request.semantic_values(), *callable, signature)
-                    .expect("selected lifecycle contract uses checked semantic terms");
+                let lifecycle = lifecycle(
+                    request.semantic_values(),
+                    request.available_compiler_known_symbols(),
+                    *callable,
+                    signature,
+                )
+                .expect("selected lifecycle contract uses checked semantic terms");
 
                 prepared.lifecycles.insert((ty, slot), lifecycle);
             }
@@ -477,6 +483,7 @@ impl Plan {
 
 fn lifecycle(
     values: &bray_symbols::SemanticValueStore,
+    symbols: &bray_symbols::AvailableCompilerKnownSymbols,
     target: CallableInstanceData,
     signature: &bray_symbols::CallableSignature,
 ) -> Result<Lifecycle, bray_symbols::SemanticValueStoreError> {
@@ -540,7 +547,9 @@ fn lifecycle(
     }
 
     Ok(Lifecycle {
-        call: bray_bound_tree::LifecycleCallable::from_signature(values, target, signature)?,
+        call: bray_bound_tree::LifecycleCallable::from_signature(
+            values, symbols, target, signature,
+        )?,
         receiver: BoundReferenceTarget::Surface(
             signature
                 .receiver()

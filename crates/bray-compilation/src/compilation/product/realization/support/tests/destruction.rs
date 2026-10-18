@@ -431,7 +431,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
                 panic!("local cleanup has a selected target");
             };
 
-            Some((reference.instance(), call.result().ty()))
+            Some((reference.instance(), call.result()))
         })
         .collect::<Vec<_>>();
 

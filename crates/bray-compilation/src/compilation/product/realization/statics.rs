@@ -682,11 +682,9 @@ impl Compilation {
                         None,
                     ))
                 },
-                |bray_bound_tree::LifecycleCallable {
-                     result, execution, ..
-                 }| {
-                    self.static_finalizer_result(result, cancellation)
-                        .map(|(result, identity)| (execution, result, identity))
+                |callable| {
+                    self.static_finalizer_result(callable.result.completion_type(), cancellation)
+                        .map(|(result, identity)| (callable.result.execution(), result, identity))
                 },
             )?;
 

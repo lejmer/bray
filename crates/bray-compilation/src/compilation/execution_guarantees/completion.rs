@@ -53,7 +53,7 @@ impl Compilation {
         for (ty, finalizer) in prepared.result().value().finalizers() {
             if self.finalizer_is_complete(
                 finalizer.callable,
-                finalizer.result,
+                finalizer.result.completion_type(),
                 None,
                 cancellation,
             )? {

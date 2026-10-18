@@ -51,7 +51,7 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
             && let bray_bound_tree::LifecycleAction::Call(callable) = action
             && self.compilation.finalizer_is_complete(
                 callable.callable,
-                callable.result,
+                callable.result.completion_type(),
                 None,
                 self.cancellation,
             )?

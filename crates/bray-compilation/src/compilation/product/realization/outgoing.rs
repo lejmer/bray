@@ -97,12 +97,8 @@ impl Compilation {
             .callable_instance()
             .expect("selected invocation has a concrete callable instance");
 
-        let (execution, result) = match result {
-            bray_bound_tree::BoundCallResult::Immediate(ty) => (CallableExecution::Synchronous, ty),
-            bray_bound_tree::BoundCallResult::LazyFuture(future) => {
-                (CallableExecution::Asynchronous, future.completion_type())
-            }
-        };
+        let execution = result.execution();
+        let result = result.completion_type();
 
         let result =
             self.concrete_codegen_type(result, owner.substitution(), Some(owner), cancellation)?;
@@ -159,8 +155,8 @@ impl Compilation {
             for call in action.local_calls() {
                 if self.call_requires_outgoing(
                     call.callable,
-                    call.execution,
-                    call.result,
+                    call.result.execution(),
+                    call.result.completion_type(),
                     cancellation,
                 )? {
                     let callee = self.concrete_codegen_callable_data(
@@ -170,7 +166,11 @@ impl Compilation {
                         cancellation,
                     )?;
 
-                    requirements.push((callee, call.result, call.execution));
+                    requirements.push((
+                        callee,
+                        call.result.completion_type(),
+                        call.result.execution(),
+                    ));
                 }
             }
         }

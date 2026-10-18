@@ -2,8 +2,10 @@
 
 ## Resume after every context compaction
 
-Read this section and the active agreement before resuming work after compaction or
-an application restart. These are explicit user requirements, reaffirmed 2026-10-18.
+Re-read AGENTS.md, its applicable coding and crate rules, this section and the active
+agreement before resuming after every context compaction or application restart.
+The user explicitly requires this repeated reading. These requirements were reaffirmed
+2026-10-18. A summary of the rules is not a substitute for reading them.
 
 - The project is moving the runtime entirely to Bray. Runtime ownership, activation,
   waiting, retirement and lifecycle policy belong in Bray. Do not add or extend a Rust
@@ -22,15 +24,18 @@ an application restart. These are explicit user requirements, reaffirmed 2026-10
   its existing consumers and the code to remove. Unexpected layers or scope growth require
   reconsidering that design, not adding another exception. No new language features.
 
-Current correction: pause further implementation additions while examining the actual
-phase boundaries. The earlier proposed extra Rust owner-waiter slot was withdrawn. It is
+Current correction: replace the competing compiler contracts identified below without
+adding runtime ownership machinery. The earlier proposed extra Rust owner-waiter slot was withdrawn. It is
 not an accepted solution. Do not revive it after compaction.
 
 Confirmed implementation conflicts, not new language requirements:
 
-- `LifecycleCallable` retains completion type and execution separately; generated
-  `push_lifecycle_call` constructs an Immediate result even for an async selection.
-  Source cleanup instead creates and awaits the checked Future.
+- The pushed code retains lifecycle completion type and execution separately. The current
+  selected-invocation checkpoint replaces those fields with the existing BoundCallResult and uses its
+  selection constructor for ordinary calls too. Source lowering, outgoing admission and
+  static signatures consume it. Generated push_lifecycle_call still forces Immediate.
+  Removing that override requires completing the shared continuation path, not merely
+  changing the field type. Do not claim the representation batch completes this repair.
 - `MirUnitKind::GeneratedLifecycle` mixes provenance with execution classification and
   excludes a frame descriptor. `MirSourceOrigin` already retains generated provenance.
   Merely changing the enum does not complete shared resumable cleanup.
@@ -46,7 +51,8 @@ The governing designs already state this boundary: `docs/design/composed-async-e
 and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
 alignment, not permission to invent another runtime architecture.
 
-Latest pushed checkpoint: `216886091c2734aa5cb835c468ab3e163193c776`, PR #612.
+Latest pushed checkpoint: `d9a16a86`, PR #612. The previous reviewed checkpoint is
+`216886091c2734aa5cb835c468ab3e163193c776`.
 Independent review 5560583230 found no actionable checkpoint findings. Native acceptance
 remains unfinished. Human architectural feedback is now the active review.
 The report-pool simplification removes the C pop wrapper and retains typed callbacks across
@@ -57,6 +63,24 @@ role inventory. All three are corrected. Logs are in the shared target directory
 `bra-505-report-boundary-tests.log` and `bra-505-report-inventory-tests.log`.
 Rust formatting, mutating structural style and Bray formatting completed successfully.
 Style reports existing module-size warnings. Native acceptance remains unfinished.
+
+Selected-invocation verification: all 47 source, static and generated lifecycle tests pass
+in `bra-505-selected-invocation-correction.log`. The initial compile failure identified
+missed completion and outgoing-admission consumers, all corrected in the same batch.
+The existing source regression now compares the exact selected invocation with emitted
+MIR. The storage-policy regression compares complete invocation results too. Rustfmt,
+mutating structural style and Bray formatting pass in `bra-505-selected-invocation-format.log`.
+No test/build session remains active. Generated async completion and native acceptance
+remain unfinished. No Rust runtime source was changed.
+
+Boundary deduction to preserve: a destructor body and its checked tail are synchronous.
+Do not make a destructor call async. Whole owner resolution may await finalizers and child
+runs before reaching that boundary. A failed finalizer may have changed the current child
+graph. Cancellation broadcast over its earlier graph alone cannot justify terminal-task
+destruction. Check current-graph quiescence at the shared abandonment transition, including
+new error payloads, rather than adding per-caller repairs. Waiting for readiness and consuming
+an outcome are distinct operations. Started-task ownership is already assigned to open
+BRA-560, so do not silently duplicate that subsystem inside BRA-505.
 
 ## Active agreement
 

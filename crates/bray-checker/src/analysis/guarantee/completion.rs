@@ -65,8 +65,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 // Different control-flow exits own independently mutable premises.
                                 .or_insert_with(|| crate::ExecutionCleanup {
                                     callable: lifecycle.call.callable,
-                                    result: lifecycle.call.result,
-                                    synchronous: (lifecycle.call.execution
+                                    result: lifecycle.call.result.completion_type(),
+                                    synchronous: (lifecycle.call.result.execution()
                                         == bray_symbols::CallableExecution::Synchronous),
                                     whole,
                                     evidence: evidence.clone(),
@@ -76,7 +76,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                         // Whole-value completion can omit an async finalizer without
                         // constructing its future. Invocation certification still distinguishes
                         // synchronous execution from deferred execution.
-                        if lifecycle.call.execution != bray_symbols::CallableExecution::Synchronous
+                        if lifecycle.call.result.execution()
+                            != bray_symbols::CallableExecution::Synchronous
                         {
                             return;
                         }

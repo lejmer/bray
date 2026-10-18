@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallableAbi, CallableExecution, CallableInstanceData, ConstantTermId, TypeId,
-    UnionVariantSymbolId,
+    CallableAbi, CallableInstanceData, ConstantTermId, TypeId, UnionVariantSymbolId,
 };
 
 /// The ownership operation whose implementation is selected by checking.
@@ -43,41 +42,15 @@ pub struct LifecycleCallable {
     pub abi: CallableAbi,
     /// Receiver argument type, including its borrow mode.
     pub receiver: TypeId,
-    /// Completion type of the invocation.
-    pub result: TypeId,
-    /// Whether invoking the implementation creates an inactive future.
-    pub execution: CallableExecution,
+    /// Checked immediate result or inactive future produced by the invocation.
+    pub result: crate::BoundCallResult,
 }
 
 impl LifecycleCallable {
-    /// Returns the immediate value or inactive future created by this invocation.
-    pub fn invocation_result(
-        self,
-        values: &bray_symbols::SemanticValueStore,
-        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
-    ) -> Result<crate::BoundCallResult, bray_symbols::SemanticValueStoreError> {
-        Ok(match self.execution {
-            CallableExecution::Synchronous => crate::BoundCallResult::Immediate(self.result),
-            CallableExecution::Asynchronous => {
-                let future = symbols
-                    .unary_representation_type(
-                        values,
-                        bray_compiler_known::RepresentationRole::Future,
-                        self.result,
-                    )?
-                    .expect("checked asynchronous lifecycle retains its Future representation");
-
-                crate::BoundCallResult::LazyFuture(crate::BoundFutureConstruction::new(
-                    self.result,
-                    future,
-                ))
-            }
-        })
-    }
-
     /// Retains a checked lifecycle selection without resolving its signature again.
     pub fn from_signature(
         values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
         callable: CallableInstanceData,
         signature: &bray_symbols::CallableSignature,
     ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
@@ -95,8 +68,12 @@ impl LifecycleCallable {
             callable,
             abi: selected.abi(),
             receiver: receiver.mode().input_type(values, receiver.ty())?,
-            result: signature.result(),
-            execution: selected.execution(),
+            result: crate::BoundCallResult::from_execution(
+                values,
+                symbols,
+                selected.execution(),
+                signature.result(),
+            )?,
         })
     }
 }

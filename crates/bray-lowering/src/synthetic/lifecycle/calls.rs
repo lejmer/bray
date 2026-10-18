@@ -1,7 +1,7 @@
 use bray_ir::{MirOperationKind, MirPlace, MirSourceAnchor, MirUnitBuilder};
 use bray_symbols::{CallableExecution, TypeData};
 
-use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
+use super::super::{SyntheticLowerer, SyntheticLoweringContext};
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(super) fn push_lifecycle_operation(
@@ -113,13 +113,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             place,
             callable,
-            bray_bound_tree::BoundCallResult::Immediate(callable.result),
+            bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),
         )?;
 
         let payloads = crate::operand::result_payloads(
             self.context.semantic_values(),
             self.context.compiler_known_symbols(),
-            callable.result,
+            callable.result.completion_type(),
         );
 
         let (completed, abandoned) = outcome
@@ -130,7 +130,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 bray_ir::MirOperand::Value(value),
                 (
                     bray_ir::MirCallableReference::new(callable.callable, callable.abi),
-                    bray_bound_tree::BoundCallResult::Immediate(callable.result),
+                    bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),
                 ),
                 payloads,
             )
@@ -155,17 +155,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         callable: bray_bound_tree::LifecycleCallable,
     ) -> Result<(bray_ir::MirBlockId, bray_ir::MirValueId), C::Error> {
-        let result = callable
-            .invocation_result(
-                self.context.semantic_values(),
-                self.context.compiler_known_symbols(),
-            )
-            .map_err(SyntheticLoweringError::SemanticValue)?;
+        let result = callable.result;
 
         let value = self.push_selected_call(builder, block, source, place, callable, result)?;
 
-        if callable.execution == CallableExecution::Synchronous {
-            self.check_lifecycle_value(builder, block, source, value, callable.result)
+        if callable.result.execution() == CallableExecution::Synchronous {
+            self.check_lifecycle_value(builder, block, source, value, callable.result.ty())
         } else {
             Ok((block, value))
         }
