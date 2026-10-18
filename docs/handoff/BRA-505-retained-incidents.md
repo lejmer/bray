@@ -119,6 +119,27 @@ place traversal/remapping/encoding, storage observation and both finalizer consu
 The added branch preserves current-graph cleanup on failure without adding successful-path
 allocation or a competing cleanup outcome. Existing module-size warnings remain unchanged.
 
+Source finalization checkpoint after `534cf0c5`: synchronous and asynchronous finalizers
+now use the same source cleanup outcome and exact selected invocation. Cancellation, like
+quiescence, retains the task place until terminal destruction. Every MIR producer, visitor,
+remapper, codec, inspector and LLVM consumer uses that ownership contract. No runtime frame
+or runtime implementation was added.
+
+The combined regression batch passes 555 tests in `bra-505-source-finalization-verified.log`
+(491 compilation, 28 MIR, 36 interface). It rebuilt in 27.18 seconds and ran in about 51 seconds.
+Broader checks exposed a real same-scope catch bug: cleanup lowering asked for a scope exit
+that the catch never takes. It now checks reachability only for scopes actually exited.
+Cleanup analysis also reuses the existing compiler-owned representation predicate, restoring
+the literal-string empty mutation result. Stale fixture names and tests that confused candidate
+storage-flow cleanup points with selected suspensions are corrected. The generic generated
+async invocation override, shared resumable structural cleanup, incident transfer and native
+acceptance remain unfinished. Do not treat this checkpoint as BRA-505 completion.
+Rustfmt, mutating structural style and Bray formatting pass in
+`bra-505-source-finalization-format.log`. Existing size warnings remain. The code delta is
+8 net production lines and 153 net test lines, excluding preserved pre-existing runtime edits.
+The audit covers retained task ownership, exact invocation selection, cleanup classification,
+same-scope transfer reachability and all representation consumers. Human review remains active.
+
 Boundary deduction to preserve: a destructor body and its checked tail are synchronous.
 Do not make a destructor call async. Whole owner resolution may await finalizers and child
 runs before reaching that boundary. A failed finalizer may have changed the current child

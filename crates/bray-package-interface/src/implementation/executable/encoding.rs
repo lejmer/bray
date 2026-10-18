@@ -2369,7 +2369,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             Operation::RequestTaskCancellation { task, runtime } => {
                 self.wire.write_u32(6);
-                self.operand(task)?;
+                self.place(task)?;
                 self.runtime_reference(*runtime);
             }
             Operation::ObserveFrameCancellation => self.wire.write_u32(14),

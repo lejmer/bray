@@ -249,9 +249,11 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        if self.active_scopes.last().is_some_and(|scope| {
-            self.scope_cleanup_status(*scope, exit) == ScopeExitCleanupStatus::Unreachable
-        }) {
+        if scope_depth < self.active_scopes.len()
+            && self.active_scopes.last().is_some_and(|scope| {
+                self.scope_cleanup_status(*scope, exit) == ScopeExitCleanupStatus::Unreachable
+            })
+        {
             // Constant propagation can leave a syntactic branch with no checked exit.
             // Consume that reachability result before requesting its cleanup plan.
             self.set_terminator(

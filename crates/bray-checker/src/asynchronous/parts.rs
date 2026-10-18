@@ -277,7 +277,7 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         Ok(true)
     }
 
-    fn owns_hidden_cleanup(
+    pub(crate) fn owns_hidden_cleanup(
         &self,
         ty: TypeId,
         definition: bray_symbols::NamedTypeSymbolId,

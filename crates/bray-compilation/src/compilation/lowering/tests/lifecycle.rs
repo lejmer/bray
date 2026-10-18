@@ -1143,6 +1143,97 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
 }
 
 #[test]
+fn ordinary_finalizers_keep_selected_execution_in_the_enclosing_cleanup() {
+    for (execution, awaiting) in [("", ""), ("async ", "await ")] {
+        let source = format!(
+            r#"
+            module app;
+
+            extern {execution}func pause();
+
+            {execution}func caller(pos owner: Owner, pos fail: bool)
+            {{
+                if fail
+                {{
+                    panic("body");
+                }}
+            }}
+
+            struct Owner
+            {{
+                mut touched: bool;
+
+                {execution}finalize()
+                {{
+                    {awaiting}pause();
+                    self.touched = true;
+                }}
+            }}
+            "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{source}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "caller");
+        let checked = compilation.async_analysis(key.clone()).unwrap();
+
+        let selected = checked
+            .value()
+            .cleanup_types()
+            .iter()
+            .find_map(|ty| ty.finalizer())
+            .unwrap();
+
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.is_valid(), "{source}");
+
+        let invocations = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call)
+                | MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                    initializer: bray_ir::MirFrameInitializer::Callable(call),
+                    ..
+                }) if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference)
+                if reference.instance() == selected.callable) =>
+                {
+                    Some(call.result())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            !invocations.is_empty(),
+            "source cleanup invokes the checked finalizer directly"
+        );
+
+        assert!(
+            invocations
+                .iter()
+                .all(|invocation| *invocation == selected.result)
+        );
+
+        assert_eq!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )),
+            !execution.is_empty()
+        );
+    }
+}
+
+#[test]
 fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
     let compilation = compilation(
         r#"
@@ -1633,7 +1724,7 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
 
     let compilation = compilation(source);
 
-    // Select the destructor containing the local owner; the empty Child destructor has no such storage.
+    // Select the destructor containing the local owner. The empty Child destructor has no such storage.
     let candidates = compilation
         .declared_unit_keys_for_test()
         .unwrap()
@@ -1671,8 +1762,14 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
         .filter_map(|operation| match operation.kind() {
             MirOperationKind::Destroy {
                 place,
-                abandoned: Some(_),
-            } => Some(place.storage()),
+                abandoned: Some(bray_ir::MirOperand::Copy(argument)),
+            } if matches!(
+                mir.storage(argument.storage()).unwrap().kind(),
+                bray_ir::MirStorageKind::Parameter(1)
+            ) =>
+            {
+                Some(place.storage())
+            }
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -1689,7 +1786,7 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
             .any(|operation| match operation.kind() {
                 MirOperationKind::Destroy {
                     place,
-                    abandoned: None,
+                    abandoned: None | Some(bray_ir::MirOperand::Value(_)),
                 }
                 | MirOperationKind::Cleanup { place, .. } => !inherited.contains(&place.storage()),
                 _ => false,

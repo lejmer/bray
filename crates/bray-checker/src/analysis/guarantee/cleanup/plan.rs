@@ -404,8 +404,8 @@ impl Plan {
                     }
 
                     let source_lifecycle = match request.semantic_values().type_data(ty).as_ref() {
-                        TypeData::Named { definition, substitution } => request.context()
-                            .raw_buffer_element(*definition, *substitution)?.is_none(),
+                        TypeData::Named { definition, substitution } =>
+                            !cleanup_shapes.owns_hidden_cleanup(ty, *definition, *substitution)?,
                         _ => false,
                     };
 

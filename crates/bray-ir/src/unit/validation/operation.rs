@@ -890,7 +890,7 @@ fn validate_async_operation(
             validate_runtime_role(unit, *start, RuntimeAbiRole::TaskStart)?;
         }
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
-            validate_operand(unit, task, block, Some(operation_id))?;
+            validate_place(unit, task, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCancellationRequest)?;
         }
         MirAsyncOperation::ObserveFrameCancellation => {

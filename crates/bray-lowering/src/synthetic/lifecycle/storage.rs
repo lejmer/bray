@@ -317,7 +317,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         block,
                         source,
                         MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation {
-                            task: MirOperand::Move(place.clone()),
+                            task: place.clone(),
                             runtime: MirRuntimeReference::new(
                                 RuntimeAbiRole::TaskCancellationRequest,
                                 runtime_abi,

@@ -1875,7 +1875,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 start: self.runtime_reference()?,
             }),
             6 => Ok(Operation::RequestTaskCancellation {
-                task: self.operand()?,
+                task: self.place()?,
                 runtime: self.runtime_reference()?,
             }),
             7 => Ok(Operation::ObserveCurrentRunCancellation {

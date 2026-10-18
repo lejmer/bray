@@ -118,9 +118,8 @@ impl Lowerer<'_> {
             && !completed
             && phase == MirCleanupPhase::LifecycleResolution
             && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
-            && callable.result.execution() == bray_symbols::CallableExecution::Asynchronous
         {
-            return self.push_async_finalizer(block, source, place, callable);
+            return self.push_finalizer(block, source, place, callable);
         }
 
         if let Some(release) = release {
@@ -190,17 +189,13 @@ impl Lowerer<'_> {
         }
     }
 
-    pub(super) fn push_async_finalizer(
+    fn push_finalizer(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: LifecycleCallable,
     ) -> Result<MirBlockId, LoweringError> {
-        let occurrence = self
-            .cleanup_occurrence
-            .expect("async finalization retains its ownership-end occurrence");
-
         let local = self.cleanup_outcome.is_none();
 
         let outcome = match &self.cleanup_outcome {
@@ -231,21 +226,31 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let awaited = self.lower_awaited_frame(
-            occurrence,
-            MirOperand::Value(value),
-            Some(callable.result.completion_type()),
-            block,
-            Self::retained_source(source),
-        )?;
+        let (block, value) = match invocation {
+            bray_bound_tree::BoundCallResult::Immediate(_) => (block, MirOperand::Value(value)),
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
+                let occurrence = self
+                    .cleanup_occurrence
+                    .expect("async finalization retains its ownership-end occurrence");
 
-        let block = awaited
-            .block
-            .expect("shielded finalization resumes cleanup");
+                let awaited = self.lower_awaited_frame(
+                    occurrence,
+                    MirOperand::Value(value),
+                    Some(invocation.completion_type()),
+                    block,
+                    Self::retained_source(source),
+                )?;
 
-        let value = awaited
-            .value
-            .expect("shielded finalization publishes its completion result");
+                (
+                    awaited
+                        .block
+                        .expect("shielded finalization resumes cleanup"),
+                    awaited
+                        .value
+                        .expect("shielded finalization publishes its completion result"),
+                )
+            }
+        };
 
         let payloads = crate::operand::result_payloads(
             self.input.semantic_values(),
@@ -266,7 +271,7 @@ impl Lowerer<'_> {
             payloads,
         )?;
 
-        // Keep the owner broadcastable throughout the awaited mutation. Destruction
+        // Keep the owner broadcastable throughout finalizer mutation. Destruction
         // retires its guard only after every finalizer outcome has reached this point.
         self.push_operation(
             block,

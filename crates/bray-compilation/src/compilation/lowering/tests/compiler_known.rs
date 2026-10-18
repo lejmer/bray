@@ -447,19 +447,19 @@ fn standard_run_utilities_lower_to_current_run_operations() {
 fn standard_testing_failure_lowers_to_structured_failure_control() {
     let compilation = standard_text_compilation(&[
         include_str!("../../../../../../standard-library/std/src/testing.bray"),
-        concat!(
-            "module std.testing;\n",
-            "\n",
-            "func exercise(pos message: &string) -> never\n",
-            "{\n",
-            "    fail(message);\n",
-            "}\n",
-            "\n",
-            "func catch_failure(pos message: &string) -> Result<never, PanicReport>\n",
-            "{\n",
-            "    return catch fail(message);\n",
-            "}\n",
-        ),
+        r#"
+        module std.testing;
+
+        func exercise(pos message: &string) -> never
+        {
+            fail(message);
+        }
+
+        func catch_failure(pos message: &string) -> Result<never, PanicReport>
+        {
+            return catch fail(message);
+        }
+        "#,
     ]);
 
     assert!(
@@ -499,11 +499,23 @@ fn standard_testing_failure_lowers_to_structured_failure_control() {
 
     assert!(caught.diagnostics().is_empty());
 
+    let caught = lowered_mir(&caught);
+
+    assert!(caught.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::PanicReport(MirPanicCause::ExplicitTestFailure(_))
+    )));
+
+    assert!(caught.blocks().iter().any(|block| matches!(
+        block.terminator().kind(),
+        MirTerminatorKind::Return(Some(_))
+    )));
+
     assert!(
-        lowered_mir(&caught)
+        caught
             .blocks()
             .iter()
-            .any(|block| { matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. }) })
+            .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. }))
     );
 }
 

@@ -96,13 +96,16 @@ fn async_analysis_respects_anonymous_callable_execution_modes() {
 
 #[test]
 fn opaque_future_parameters_do_not_imply_recovery() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "async func main(pending: Future<i32>) -> i32\n",
-        "{\n",
-        "    await pending\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+        module app;
+
+        async func main(pending: Future<i32>) -> i32
+        {
+            await pending
+        }
+    "#,
+    );
 
     let key = source_callable_body_key(&compilation);
 
@@ -110,8 +113,20 @@ fn opaque_future_parameters_do_not_imply_recovery() {
         .async_analysis(key)
         .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
 
-    let [suspension] = analysis.value().suspensions() else {
-        panic!("the direct await must publish one suspension point");
+    let awaits = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .filter(|point| {
+            matches!(
+                point.kind(),
+                bray_bound_tree::AsyncSuspensionKind::Await { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let [suspension] = awaits.as_slice() else {
+        panic!("the direct await must publish one await suspension point");
     };
 
     assert!(suspension.deferred_calls().is_empty());
@@ -120,13 +135,16 @@ fn opaque_future_parameters_do_not_imply_recovery() {
 
 #[test]
 fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "async func main(pending: Future<i32>) -> i32\n",
-        "{\n",
-        "    await pending\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+        module app;
+
+        async func main(pending: Future<i32>) -> i32
+        {
+            await pending
+        }
+    "#,
+    );
 
     let key = source_callable_body_key(&compilation);
 
@@ -138,8 +156,20 @@ fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
         .dependency_contracts(key)
         .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
 
-    let [suspension] = analysis.value().suspensions() else {
-        panic!("the direct await must publish one suspension point");
+    let awaits = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .filter(|point| {
+            matches!(
+                point.kind(),
+                bray_bound_tree::AsyncSuspensionKind::Await { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let [suspension] = awaits.as_slice() else {
+        panic!("the direct await must publish one await suspension point");
     };
 
     let contract = suspension
@@ -410,12 +440,9 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
             .collect::<Vec<_>>();
 
         if execution.is_empty() {
+            // The started future is already moved. Potential storage-flow cleanup
+            // points do not require a suspension after checked owner selection.
             assert!(cleanup.is_empty());
-
-            assert!(flow.value().suspensions().iter().all(|state| !matches!(
-                state.occurrence(),
-                bray_bound_tree::BoundExecutionSite::Cleanup(_)
-            )));
 
             continue;
         }

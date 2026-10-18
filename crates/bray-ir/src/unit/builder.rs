@@ -1225,7 +1225,7 @@ mod tests {
             Err(error) => panic!("test task storage must be valid: {error:?}"),
         };
 
-        let task = MirOperand::Move(MirPlace::new(storage, [], ty));
+        let task = MirPlace::new(storage, [], ty);
 
         let runtime =
             MirRuntimeReference::new(RuntimeAbiRole::TaskStart, RuntimeAbiVersion::new(1, 0));

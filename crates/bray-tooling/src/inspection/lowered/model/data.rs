@@ -1501,7 +1501,7 @@ fn async_operation(
         }
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
             runtime_reference("runtime", *runtime, parts);
-            parts.operand("task", task, context)?;
+            parts.place("task", task, context)?;
 
             "request_task_cancellation"
         }

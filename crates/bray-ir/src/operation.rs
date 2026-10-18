@@ -541,10 +541,10 @@ pub enum MirAsyncOperation {
         /// Selected private task-start ABI role.
         start: MirRuntimeReference,
     },
-    /// Request cancellation of an owned task.
+    /// Request cancellation without consuming the task or its result.
     RequestTaskCancellation {
-        /// Owned task control state.
-        task: MirOperand,
+        /// Task storage retained for resolution and terminal destruction.
+        task: MirPlace,
         /// Selected private cancellation ABI role.
         runtime: MirRuntimeReference,
     },

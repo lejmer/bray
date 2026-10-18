@@ -514,7 +514,7 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
 }
 
 #[test]
-fn incident_quiescence_retains_terminal_task_ownership() {
+fn cancellation_and_quiescence_retain_terminal_task_ownership() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
     let values = compilation.semantic_value_store().unwrap();
@@ -529,36 +529,46 @@ fn incident_quiescence_retains_terminal_task_ownership() {
         .unwrap()
         .unwrap();
 
-    let generated =
-        generated_lifecycle(&compilation, &target, MirHelperReference::Quiesce(task), 92);
+    for reference in [
+        MirHelperReference::Quiesce(task),
+        MirHelperReference::Cleanup {
+            phase: bray_ir::MirCleanupPhase::TaskCancellation,
+            ty: task,
+        },
+    ] {
+        let generated = generated_lifecycle(&compilation, &target, reference, 92);
 
-    let resolved = generated
-        .operations()
-        .iter()
-        .filter_map(|operation| match operation.kind() {
-            MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { task, .. }) => {
-                Some(task)
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+        let resolved = generated
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Async(
+                    bray_ir::MirAsyncOperation::ResolveTask { task, .. }
+                    | bray_ir::MirAsyncOperation::RequestTaskCancellation { task, .. },
+                ) => Some(task),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(resolved[0].ty(), task);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].ty(), task);
 
-    for operation in generated.operations() {
-        operation.kind().for_each_operand(|operand| {
-            assert!(!matches!(operand, bray_ir::MirOperand::Move(place) if place == resolved[0]));
-        });
+        for operation in generated.operations() {
+            operation.kind().for_each_operand(|operand| {
+                assert!(
+                    !matches!(operand, bray_ir::MirOperand::Move(place) if place == resolved[0])
+                );
+            });
+        }
+
+        assert!(!generated.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyTerminalTask { .. })
+                | MirOperationKind::DischargeOutgoing { .. }
+        )));
+
+        assert!(generated.is_valid());
     }
-
-    assert!(!generated.operations().iter().any(|operation| matches!(
-        operation.kind(),
-        MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyTerminalTask { .. })
-            | MirOperationKind::DischargeOutgoing { .. }
-    )));
-
-    assert!(generated.is_valid());
 }
 
 #[test]

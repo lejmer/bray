@@ -577,7 +577,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(Some(task.into()))
             }
             MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
-                let task = self.operand(task)?;
+                let task = self.observed_place(task)?;
 
                 let status = self.invoke_runtime(*runtime, &[task])?.expect(
                     "checked MIR effect translation requires an established mapping or value",
