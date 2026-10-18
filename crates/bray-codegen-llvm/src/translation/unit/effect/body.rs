@@ -186,7 +186,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 self.translate_lifecycle_helper(
                     id,
-                    MirHelperReference::Destroy(place.ty()),
+                    MirHelperReference::Destroy(
+                        place.ty(),
+                        bray_ir::MirDestructionDisposition::from_argument(abandoned.as_ref()),
+                    ),
                     place,
                     abandoned.as_ref(),
                 )?;
@@ -444,7 +447,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut arguments = vec![self.place(place)?.into()];
 
-        if matches!(expected, MirHelperReference::Destroy(_)) {
+        if matches!(
+            expected,
+            MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+        ) {
             arguments.push(match abandoned {
                 Some(value) => self.operand(value)?,
                 None => self.types.context().bool_type().const_zero().into(),

@@ -204,7 +204,11 @@ pub(crate) fn declare_destroyer<'context>(
 
         let mut arguments = vec![payload_pointer.into()];
 
-        if role == bray_ir::MirGeneratedLifecycleRole::Destroy {
+        if role
+            == bray_ir::MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Dynamic,
+            )
+        {
             arguments.push(context.bool_type().const_int(1, false).into());
         }
 

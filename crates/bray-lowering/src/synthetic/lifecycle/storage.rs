@@ -307,7 +307,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     return self
                         .finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
                 }
-                bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                bray_ir::MirGeneratedLifecycleRole::Destroy(_) => {
                     self.push_lifecycle_operation(
                         builder,
                         block,

@@ -13,7 +13,15 @@ pub(crate) trait MirLocalIdMapping {
     fn storage(&self, old: MirStorageId) -> MirStorageId;
     fn value(&self, old: MirValueId) -> MirValueId;
 
+    fn storage_place(&self, _old: MirStorageId) -> Option<&crate::MirPlace> {
+        None
+    }
+
     fn ty(&self, old: TypeId) -> TypeId {
+        old
+    }
+
+    fn callable(&self, old: crate::MirCallableReference) -> crate::MirCallableReference {
         old
     }
 

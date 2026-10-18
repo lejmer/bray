@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod block;
+mod continuation;
 mod control;
 mod frame;
 mod helper;
@@ -25,6 +26,7 @@ pub use bray_bound_tree::{
     BoundUnitKey, ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation,
     PatternPredicate, PatternProjection, SelectedConversion,
 };
+pub use continuation::{MirCleanupContinuation, MirCleanupEntry};
 pub use control::{
     MirCallFailureEdge, MirCleanupCollection, MirCleanupEdge, MirCleanupPhase, MirCleanupState,
     MirEdge, MirInlineAssemblyTerminator, MirPatternPredicate, MirRunResultEdges,
@@ -33,7 +35,7 @@ pub use control::{
 pub use frame::{
     MirFrameComposition, MirFrameDescriptor, MirFrameReference, MirFrameRetention, MirFrameState,
 };
-pub use helper::{MirHelperReference, MirStandardLibraryHelper};
+pub use helper::{MirDestructionDisposition, MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use nullable::{MirNullableQuery, MirNullableQueryKind};
 pub use operation::{
@@ -53,7 +55,11 @@ pub use target::MirTargetContract;
 pub use unit::{
     MirCapacityError, MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
     MirImportedExecutableKey, MirReconstructionMappings, MirUnit, MirUnitBuilder, MirUnitKey,
-    MirUnitKind, inline_scalar_call, reconstruct_reachable, reconstruct_with_edits,
+    MirUnitKind, append_cleanup_continuation, inline_scalar_call, reachable_blocks,
+    reconstruct_reachable, reconstruct_with_edits,
 };
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};
-pub use walk::{MirVisitControl, MirVisitor, walk_mir_unit};
+pub use walk::{
+    MirVisitControl, MirVisitor, for_each_operation_storage, for_each_terminator_storage,
+    walk_mir_unit,
+};

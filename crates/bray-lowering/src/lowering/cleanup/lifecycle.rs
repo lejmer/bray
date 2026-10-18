@@ -1,7 +1,7 @@
 use bray_bound_tree::LifecycleCallable;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCallableReference, MirCleanupPhase, MirEdge, MirOperand,
-    MirOperationKind, MirPlace, MirSourceAnchor, MirTerminatorKind,
+    MirBlockId, MirCallableReference, MirCleanupPhase, MirEdge, MirOperand, MirOperationKind,
+    MirPlace, MirSourceAnchor,
 };
 
 use crate::cleanup_outcome::CleanupOutcome;
@@ -18,72 +18,39 @@ impl Lowerer<'_> {
         release: Option<bray_bound_tree::StorageProtocolCall>,
         completed: bool,
     ) -> Result<MirBlockId, LoweringError> {
-        let inherited = self
-            .destruction_argument
+        if let Some(abandoned) = self
+            .receiver_cleanup
             .as_ref()
-            .filter(|(receiver, _)| {
-                phase == MirCleanupPhase::LifecycleResolution
-                    && release.is_none()
-                    && matches!(
-                        self.cleanup_occurrence,
-                        Some(bray_bound_tree::BoundExecutionSite::Cleanup(_))
-                    )
-                    && self.storages.get(receiver) == Some(&place.storage())
-            })
-            .map(|(_, argument)| argument.clone());
+            .and_then(|receiver| receiver.mode)
+        {
+            if phase == MirCleanupPhase::LifecycleResolution && release.is_none() {
+                let operation = if abandoned
+                    || completed
+                    || self.input.type_finalizer_is_complete(place.ty())
+                {
+                    MirOperationKind::Destroy {
+                        collection: None,
+                        place,
+                        abandoned: Some(MirOperand::Immediate {
+                            value: bray_ir::MirImmediateValue::Boolean(abandoned),
+                            ty: self.representation_type(
+                                bray_compiler_known::RepresentationRole::ScalarBool,
+                            )?,
+                        }),
+                    }
+                } else {
+                    MirOperationKind::Cleanup {
+                        phase,
+                        place,
+                        collection: None,
+                    }
+                };
 
-        let Some(inherited) = inherited else {
-            return self
-                .push_ordinary_cleanup_action(block, source, phase, place, release, completed);
-        };
-
-        let abandoned = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::LifecycleResolution,
-        )?;
-
-        let ordinary = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::LifecycleResolution,
-        )?;
-
-        let continuation = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::LifecycleResolution,
-        )?;
-
-        self.set_terminator(
-            block,
-            Self::retained_source(source),
-            MirTerminatorKind::Branch {
-                condition: inherited.clone(),
-                then_edge: MirEdge::new(abandoned, []),
-                else_edge: MirEdge::new(ordinary, []),
-            },
-        )?;
-
-        let abandoned = self.resolve_structural_cleanup(
-            abandoned,
-            source,
-            MirOperationKind::Destroy {
-                collection: None,
-                place: Self::retained_place(&place),
-                abandoned: Some(inherited),
-            },
-        )?;
-
-        let ordinary =
-            self.push_ordinary_cleanup_action(ordinary, source, phase, place, release, completed)?;
-
-        for end in [abandoned, ordinary] {
-            self.set_terminator(
-                end,
-                Self::retained_source(source),
-                MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
-            )?;
+                return self.resolve_structural_cleanup(block, source, operation);
+            }
         }
 
-        Ok(continuation)
+        self.push_ordinary_cleanup_action(block, source, phase, place, release, completed)
     }
 
     fn push_ordinary_cleanup_action(

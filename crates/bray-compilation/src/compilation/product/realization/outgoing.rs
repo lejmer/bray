@@ -138,7 +138,7 @@ impl Compilation {
 
         for helper in [
             MirHelperReference::StaticFinalize(ty),
-            MirHelperReference::Destroy(ty),
+            MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,
                 ty,

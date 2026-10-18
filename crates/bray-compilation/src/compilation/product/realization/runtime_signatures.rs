@@ -51,7 +51,10 @@ impl Compilation {
 
         let mut parameters = vec![CodegenParameterMapping::direct(pointer, None, [])];
 
-        if matches!(reference, MirHelperReference::Destroy(_)) {
+        if matches!(
+            reference,
+            MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+        ) {
             parameters.push(CodegenParameterMapping::direct(
                 self.codegen_representation_type(RepresentationRole::ScalarBool)?,
                 None,

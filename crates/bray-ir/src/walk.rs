@@ -374,7 +374,8 @@ fn visit_place_operands(place: &MirPlace, visit: &mut impl FnMut(&MirOperand)) {
     }
 }
 
-pub(crate) fn for_each_operation_storage(
+/// Visits every storage retained by an operation, including destinations and projection operands.
+pub fn for_each_operation_storage(
     operation: &MirOperationKind,
     mut visit: impl FnMut(MirStorageId),
 ) {
@@ -472,7 +473,8 @@ pub(crate) fn for_each_operation_storage(
     }
 }
 
-pub(crate) fn for_each_terminator_storage(
+/// Visits every storage retained by a terminator and its outgoing edge arguments.
+pub fn for_each_terminator_storage(
     terminator: &MirTerminatorKind,
     mut visit: impl FnMut(MirStorageId),
 ) {

@@ -215,6 +215,10 @@ pub(in crate::compilation) struct CompilationState {
         (bray_codegen::CodegenInstanceKey, bray_ir::MirUnitId),
         Result<Arc<bray_ir::MirUnit>, crate::compilation::CodegenPreparationError>,
     >,
+    pub(in crate::compilation) destruction_bodies: FactCellMap<
+        bray_codegen::CodegenInstanceKey,
+        Result<Arc<bray_lowering::DestructionBody>, crate::compilation::CodegenPreparationError>,
+    >,
     pub(in crate::compilation) optimized_mir: FactCellMap<
         crate::fact::OptimizedMirQueryKey,
         Result<Arc<bray_ir::MirUnit>, crate::compilation::CodegenPreparationError>,

@@ -1,16 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind,
-    DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
-    DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
+    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{TypeData, TypeId};
 
 use super::template::{TemplateResolution, resolve_type_template};
-use crate::representation::representation_type;
-use crate::type_check::{SessionProgress, intrinsic_representation_role};
+use crate::type_check::SessionProgress;
 use crate::{
     CheckerQueryError, CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence,
     ExpressionTypeExpectation, ExpressionTypeInput,
@@ -92,25 +90,7 @@ where
         components.insert(evidence.term());
     }
 
-    for constraint in declared
-        .constraints()
-        .iter()
-        .filter(|constraint| constraint.kind() != DeclaredValueTypeConstraintKind::Initializer)
-    {
-        if request.is_cancelled() {
-            return Ok(SessionProgress::Cancelled);
-        }
-
-        components.union(constraint.left(), constraint.right());
-    }
-
-    let mut initializer_expectations = Vec::new();
-
-    for constraint in declared
-        .constraints()
-        .iter()
-        .filter(|constraint| constraint.kind() == DeclaredValueTypeConstraintKind::Initializer)
-    {
+    for constraint in declared.constraints() {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -118,76 +98,7 @@ where
         components.insert(constraint.left());
         components.insert(constraint.right());
 
-        let (expression, target) = match (constraint.left(), constraint.right()) {
-            (DeclaredValueTypeTerm::Expression(expression), target) => (expression, target),
-            (target, DeclaredValueTypeTerm::Expression(expression)) => (expression, target),
-            _ => {
-                components.union(constraint.left(), constraint.right());
-
-                continue;
-            }
-        };
-
-        let target = components.representative(target);
-        let mut initializer_type = intrinsic_initializer_type(request, expression)?;
-
-        if initializer_type.is_none() {
-            let initializer =
-                components.representative(DeclaredValueTypeTerm::Expression(expression));
-
-            let mut candidates = BTreeSet::new();
-
-            for evidence in declared
-                .evidence()
-                .iter()
-                .chain(supplemental)
-                .filter(|evidence| components.representative(evidence.term()) == initializer)
-            {
-                if let TemplateResolution::Resolved(ty) =
-                    resolve_type_template(request, evidence.template(), &mut diagnostics)?
-                {
-                    candidates.insert(ty);
-                }
-            }
-
-            if candidates.len() == 1 {
-                initializer_type = candidates.into_iter().next();
-            }
-        }
-
-        let mut nullable_present_type = None;
-
-        for evidence in declared
-            .evidence()
-            .iter()
-            .filter(|evidence| components.representative(evidence.term()) == target)
-        {
-            let TemplateResolution::Resolved(declared_type) =
-                resolve_type_template(request, evidence.template(), &mut diagnostics)?
-            else {
-                continue;
-            };
-
-            let data = request.semantic_values().type_data(declared_type);
-
-            let TypeData::Nullable(contained) = data.as_ref() else {
-                continue;
-            };
-
-            let initializes_nullable_from_present = initializer_type == Some(*contained)
-                || is_contextual_present_initializer(request, expression)
-                || is_contextual_numeric_literal(request, expression);
-
-            if initializes_nullable_from_present {
-                nullable_present_type = Some(*contained);
-
-                break;
-            }
-        }
-
-        if let Some(contained) = nullable_present_type {
-            initializer_expectations.push((expression, contained));
-        } else {
+        if constraint.kind() != DeclaredValueTypeConstraintKind::Initializer {
             components.union(constraint.left(), constraint.right());
         }
     }
@@ -215,9 +126,73 @@ where
         }
     }
 
+    let mut expectations = Vec::new();
+    let mut inferred_initializers = Vec::new();
+
+    // Nullable destinations admit a present initializer without changing its type.
+    // Identity-only destinations and inferred aliases keep their equality constraints.
+    for constraint in declared
+        .constraints()
+        .iter()
+        .filter(|constraint| constraint.kind() == DeclaredValueTypeConstraintKind::Initializer)
+    {
+        if request.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
+        }
+
+        let (expression, target) = match (constraint.left(), constraint.right()) {
+            (DeclaredValueTypeTerm::Expression(expression), target) => (expression, target),
+            (target, DeclaredValueTypeTerm::Expression(expression)) => (expression, target),
+            _ => {
+                inferred_initializers.push((constraint.left(), constraint.right()));
+                continue;
+            }
+        };
+
+        let target = components.representative(target);
+
+        if let Some(types) = component_types.get(&target)
+            && types.iter().any(|ty| {
+                matches!(
+                    request.semantic_values().type_data(*ty).as_ref(),
+                    TypeData::Nullable(_)
+                )
+            })
+        {
+            expectations.extend(
+                types
+                    .iter()
+                    .copied()
+                    .map(|ty| ExpressionTypeExpectation::new(expression, ty)),
+            );
+        } else {
+            inferred_initializers.push((constraint.left(), constraint.right()));
+        }
+    }
+
+    for (left, right) in inferred_initializers {
+        components.union(left, right);
+    }
+
+    // Close inferred aliases once, reusing the types already resolved above.
+    let mut inferred_types = BTreeMap::<DeclaredValueTypeTerm, BTreeSet<TypeId>>::new();
+
+    for (term, types) in component_types {
+        inferred_types
+            .entry(components.representative(term))
+            .or_default()
+            .extend(types);
+    }
+
+    let component_types = inferred_types;
+
+    let unsupported = unsupported
+        .into_iter()
+        .map(|term| components.representative(term))
+        .collect::<BTreeSet<_>>();
+
     let mut deferred = BTreeSet::new();
     let mut evidence = Vec::new();
-    let mut expectations = Vec::new();
     let mut box_storage_policies = Vec::new();
 
     for term in components.terms() {
@@ -260,10 +235,6 @@ where
         );
     }
 
-    for (expression, contained) in initializer_expectations {
-        expectations.push(ExpressionTypeExpectation::new(expression, contained));
-    }
-
     let mut input = ExpressionTypeInput::new()
         .with_evidence(evidence)
         .with_box_storage_policies(box_storage_policies)
@@ -286,81 +257,6 @@ where
         unsupported_callable_result,
         diagnostics,
     }))
-}
-
-fn is_contextual_present_initializer<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match request.view().expression(expression) {
-        Some(BoundExpression::StructConstruction(_)) => true,
-        Some(BoundExpression::Structured(expression)) => matches!(
-            expression.kind(),
-            BoundStructuredExpressionKind::Tuple
-                | BoundStructuredExpressionKind::Array
-                | BoundStructuredExpressionKind::RepeatedArray
-        ),
-        _ => false,
-    }
-}
-
-fn intrinsic_initializer_type<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let Some(expression) = request.view().expression(expression) else {
-        panic!(
-            "expression {:?} must have a committed node and inference input",
-            expression
-        );
-    };
-
-    if let Some(ty) = expression.ty() {
-        return Ok(Some(ty));
-    }
-
-    if let BoundExpression::Conversion(conversion) = expression {
-        return Ok(conversion.target_type());
-    }
-
-    Ok(intrinsic_representation_role(expression).map(|role| representation_type(request, role)))
-}
-
-fn is_contextual_numeric_literal<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match request.view().expression(expression) {
-        Some(BoundExpression::Literal(literal)) => matches!(
-            literal.kind(),
-            bray_bound_tree::BoundLiteralKind::Integer
-                | bray_bound_tree::BoundLiteralKind::Real
-                | bray_bound_tree::BoundLiteralKind::Imaginary
-        ),
-        Some(BoundExpression::Unary(unary))
-            if matches!(
-                unary.operator(),
-                bray_bound_tree::BoundOperator::Add
-                    | bray_bound_tree::BoundOperator::Subtract
-                    | bray_bound_tree::BoundOperator::BitwiseNot
-            ) =>
-        {
-            unary
-                .operands()
-                .first()
-                .is_some_and(|operand| is_contextual_numeric_literal(request, *operand))
-        }
-        _ => false,
-    }
 }
 
 pub(super) fn defer_return_operands<C>(

@@ -857,3 +857,107 @@ fn imported_nested_template_address(
         })
         .unwrap_or_else(|| panic!("imported generic callable must reference a nested template"))
 }
+
+#[test]
+fn imported_generic_destructors_retain_their_receiver_continuations() {
+    let dependency = generic_dependency_from_fixture(
+        true,
+        false,
+        GenericDependencyFixture {
+            source: r#"
+            module templates;
+
+            public struct Owner<T>
+            {
+                value: T;
+
+                destruct() {}
+            }
+
+            public struct Child
+            {
+                finalize() {}
+            }
+
+            public func make() -> Owner<Child>
+            {
+                return { value = Child {} };
+            }
+        "#,
+            runtime_frames: None,
+            executable_templates: 3,
+            platform_service: None,
+        },
+    );
+
+    let consumer = generic_consumer_for_target_with_source(
+        dependency,
+        SelectedTarget::baseline(),
+        r#"
+        module app;
+        using example.dependency.templates;
+
+        func main()
+        {
+            let owner = example.dependency.templates.make();
+        }
+    "#,
+    );
+
+    let cancellation = CancellationToken::new();
+
+    let target = consumer
+        .selected_target()
+        .target()
+        .codegen_target()
+        .unwrap();
+
+    let semantics = consumer.product_semantics().unwrap();
+
+    let roots = consumer
+        .product_root_instances(semantics.value(), None, &target, &cancellation)
+        .unwrap();
+
+    let reachability = consumer
+        .codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            false,
+            &cancellation,
+        )
+        .unwrap();
+
+    let destructor = reachability
+        .graph()
+        .instances()
+        .iter()
+        .find(|instance| {
+            matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+                && instance.mir().storages().iter().any(|storage| {
+                    matches!(
+                        storage.kind(),
+                        bray_ir::MirStorageKind::BorrowedParameter(0)
+                    )
+                })
+        })
+        .expect("the imported consuming body remains one shared callable");
+
+    let template = consumer
+        .codegen_mir_for_plan(
+            destructor.key(),
+            bray_ir::MirUnitId::new(0),
+            None,
+            &cancellation,
+        )
+        .unwrap();
+
+    assert!(template.is_valid());
+    assert!(template.cleanup_continuation().is_some());
+
+    assert!(
+        destructor.mir().cleanup_continuation().is_none(),
+        "native body excludes the externally resumed receiver tail"
+    );
+}

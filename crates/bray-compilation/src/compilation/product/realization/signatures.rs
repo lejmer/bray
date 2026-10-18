@@ -174,7 +174,7 @@ impl Compilation {
             .into());
         };
 
-        let receiver = signature
+        let mut receiver = signature
             .receiver()
             .map(|receiver| {
                 let receiver_ty = self.concrete_codegen_type(
@@ -206,7 +206,14 @@ impl Compilation {
             .collect::<Result<Vec<_>, _>>()?;
 
         if definition.callable_symbol().kind() == bray_symbols::SymbolKind::Destructor {
-            parameter_types.push(self.codegen_representation_type(RepresentationRole::ScalarBool)?);
+            let (consumed, context) = self.destructor_input_types(
+                instance,
+                receiver.expect("a checked destructor has its consuming receiver"),
+                cancellation,
+            )?;
+
+            receiver = Some(consumed);
+            parameter_types.extend(context);
         }
 
         let parameters = receiver
@@ -255,6 +262,46 @@ impl Compilation {
             template.value().invocation(),
             callable.execution(),
         ))
+    }
+
+    fn destructor_input_types(
+        &self,
+        instance: &ConcreteCodegenInstance,
+        receiver: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<(TypeId, Option<TypeId>), CodegenPreparationError> {
+        let receiver = self
+            .semantic_value_store()?
+            .intern_type(TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Mutable,
+                target: receiver,
+            })
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        let unit = self.codegen_mir_for_plan(
+            instance.key(),
+            bray_ir::MirUnitId::new(0),
+            None,
+            cancellation,
+        )?;
+
+        let context = unit
+            .cleanup_continuation()
+            .map(|continuation| {
+                let context = unit
+                    .storage(continuation.context())
+                    .expect("checked destructor context exists");
+
+                self.concrete_codegen_type(
+                    context.ty(),
+                    instance.substitution(),
+                    Some(instance),
+                    cancellation,
+                )
+            })
+            .transpose()?;
+
+        Ok((receiver, context))
     }
 
     pub(super) fn codegen_static_initializer_signature(

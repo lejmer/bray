@@ -227,7 +227,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .mappings()
                     .symbol(key)
                     .expect("typed incident destruction has its concrete symbol"),
-                MirGeneratedLifecycleRole::Destroy,
+                MirGeneratedLifecycleRole::from_reference(helper.reference())
+                    .expect("incident destruction has a selected lifecycle role"),
             )
         });
 

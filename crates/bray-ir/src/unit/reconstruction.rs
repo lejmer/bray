@@ -140,7 +140,6 @@ fn retained_blocks(
     terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
     omitted_operations: &BTreeSet<MirOperationId>,
 ) -> Vec<bool> {
-    let mut retained = vec![false; unit.blocks().len()];
     let mut pending = vec![unit.entry()];
 
     if let Some(descriptor) = unit.frame_descriptor() {
@@ -151,6 +150,60 @@ fn retained_blocks(
                 .flat_map(|state| [state.entry(), state.retention().broadcast()]),
         );
     }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        pending.extend(
+            continuation
+                .entries()
+                .iter()
+                .flat_map(|entry| [entry.handoff(), entry.ordinary(), entry.abandoned()]),
+        );
+    }
+
+    reachable_with_edits(
+        unit,
+        pending,
+        terminators,
+        omitted_operations,
+        &BTreeMap::new(),
+    )
+}
+
+/// Returns the closed MIR blocks reachable from explicit entries and established handoff edges.
+/// Additional edges belong to the same unit and do not change operation effects.
+pub fn reachable_blocks(
+    unit: &MirUnit,
+    entries: impl IntoIterator<Item = MirBlockId>,
+    handoffs: &BTreeMap<MirBlockId, Vec<MirBlockId>>,
+) -> BTreeSet<MirBlockId> {
+    reachable_with_edits(
+        unit,
+        entries.into_iter().collect(),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+        handoffs,
+    )
+    .into_iter()
+    .enumerate()
+    .filter_map(|(index, retained)| {
+        retained.then(|| {
+            MirBlockId::from_slot(
+                unit.unit(),
+                u32::try_from(index).expect("allocated block slot fits u32"),
+            )
+        })
+    })
+    .collect()
+}
+
+fn reachable_with_edits(
+    unit: &MirUnit,
+    mut pending: Vec<MirBlockId>,
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+    omitted_operations: &BTreeSet<MirOperationId>,
+    handoffs: &BTreeMap<MirBlockId, Vec<MirBlockId>>,
+) -> Vec<bool> {
+    let mut retained = vec![false; unit.blocks().len()];
 
     while let Some(block) = pending.pop() {
         let index = local_index(
@@ -166,6 +219,10 @@ fn retained_blocks(
         }
 
         retained[index] = true;
+
+        if let Some(successors) = handoffs.get(&block) {
+            pending.extend(successors);
+        }
 
         for operation in unit
             .block(block)
@@ -291,6 +348,11 @@ fn retained_storages(
                 retain_storage(unit, &mut retained, *storage);
             }
         }
+    }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        retain_storage(unit, &mut retained, continuation.context());
+        retain_storage(unit, &mut retained, continuation.selector().storage());
     }
 
     retained
@@ -468,6 +530,14 @@ fn rebuild_unit(
 
         descriptor.remap_local_ids(mappings);
         builder.set_frame_descriptor(descriptor);
+    }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        // The rebuilt artifact owns its descriptor while sharing immutable paths.
+        let mut continuation = continuation.clone();
+
+        continuation.remap_local_ids(mappings);
+        builder.set_cleanup_continuation(continuation);
     }
 
     Ok(builder.finish(MirLocalIdMapping::block(mappings, unit.entry())))

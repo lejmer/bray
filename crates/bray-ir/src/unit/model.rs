@@ -17,7 +17,7 @@ pub enum MirGeneratedLifecycleRole {
     /// Runs semantic finalization while preserving its completion.
     StaticFinalize,
     /// Runs semantic destruction.
-    Destroy,
+    Destroy(crate::MirDestructionDisposition),
     /// Runs one checked cleanup phase.
     Cleanup(MirCleanupPhase),
 }
@@ -29,7 +29,7 @@ impl MirGeneratedLifecycleRole {
 
         match self {
             MirGeneratedLifecycleRole::StaticFinalize => LifecyclePhase::Finalize,
-            MirGeneratedLifecycleRole::Destroy => LifecyclePhase::Destroy,
+            MirGeneratedLifecycleRole::Destroy(_) => LifecyclePhase::Destroy,
             MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 LifecyclePhase::Cancel
@@ -45,7 +45,7 @@ impl MirGeneratedLifecycleRole {
         match reference {
             MirHelperReference::Quiesce(_) => Some(Self::Quiesce),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
-            MirHelperReference::Destroy(_) => Some(Self::Destroy),
+            MirHelperReference::Destroy(_, disposition) => Some(Self::Destroy(*disposition)),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -84,7 +84,10 @@ mod tests {
         let finalize =
             MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::StaticFinalize, identity);
 
-        let destroy = MirGeneratedLifecycleKey::new(MirGeneratedLifecycleRole::Destroy, identity);
+        let destroy = MirGeneratedLifecycleKey::new(
+            MirGeneratedLifecycleRole::Destroy(crate::MirDestructionDisposition::Dynamic),
+            identity,
+        );
 
         let cleanup = MirGeneratedLifecycleKey::new(
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution),
@@ -217,6 +220,7 @@ pub struct MirUnit {
     pub(super) target: MirTargetContract,
     pub(super) kind: MirUnitKind,
     pub(super) frame_descriptor: Option<MirFrameDescriptor>,
+    pub(super) cleanup_continuation: Option<crate::MirCleanupContinuation>,
     pub(super) entry: MirBlockId,
     pub(super) blocks: Arc<[MirBlock]>,
     pub(super) operations: Arc<[MirOperation]>,
@@ -260,6 +264,21 @@ impl MirUnit {
         self.frame_descriptor.as_ref()
     }
 
+    /// Returns receiver cleanup that resumes in the caller's owning continuation.
+    pub const fn cleanup_continuation(&self) -> Option<&crate::MirCleanupContinuation> {
+        self.cleanup_continuation.as_ref()
+    }
+
+    /// Retains only the synchronous body after its cleanup entries have been handed to callers.
+    pub fn synchronous_body(&self) -> Result<Self, super::MirCapacityError> {
+        // Node tables remain shared until reconstruction removes the external tail roots.
+        let mut body = self.clone();
+
+        body.cleanup_continuation = None;
+
+        super::reconstruction::reconstruct_reachable(&body).map(|(body, _)| body)
+    }
+
     /// Realizes callback execution requirements without changing control flow or identity.
     pub fn with_frame_execution_requirements(
         mut self,
@@ -284,7 +303,9 @@ impl MirUnit {
     }
 
     /// Iterates blocks with their unit-local identities.
-    pub fn blocks_with_ids(&self) -> impl ExactSizeIterator<Item = (MirBlockId, &MirBlock)> {
+    pub fn blocks_with_ids(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (MirBlockId, &MirBlock)> + Clone {
         self.blocks.iter().enumerate().map(|(index, block)| {
             let slot = u32::try_from(index).unwrap_or(u32::MAX);
 

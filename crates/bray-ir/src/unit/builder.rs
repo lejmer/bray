@@ -30,6 +30,7 @@ pub struct MirUnitBuilder {
     target: MirTargetContract,
     kind: MirUnitKind,
     frame_descriptor: Option<MirFrameDescriptor>,
+    cleanup_continuation: Option<crate::MirCleanupContinuation>,
     blocks: Vec<MirBlockBuilder>,
     operations: Vec<MirOperation>,
     removed_operations: Vec<MirOperationId>,
@@ -38,6 +39,9 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    pub(in crate::unit) fn retain_checked_sources(&mut self) {
+        self.allow_foreign_sources = true;
+    }
     pub(super) fn for_reconstruction(unit: &MirUnit) -> Self {
         // Reconstructed bodies may carry source anchors from checked inlined callees.
         // The reconstructed unit keeps its caller's semantic identity and target contract.
@@ -49,6 +53,7 @@ impl MirUnitBuilder {
             target: unit.target.clone(),
             kind: unit.kind.clone(),
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -63,6 +68,7 @@ impl MirUnitBuilder {
         let mut builder = Self::for_reconstruction(unit);
 
         // Expansion owns the node tables while immutable paths and descriptors remain shared.
+        builder.cleanup_continuation = unit.cleanup_continuation().cloned();
         builder.storages = unit.storages().to_vec();
         builder.values = unit.values().to_vec();
         builder.operations = unit.operations().to_vec();
@@ -86,6 +92,25 @@ impl MirUnitBuilder {
     /// Returns blocks already allocated, including blocks introduced by expansion.
     pub fn block_count(&self) -> usize {
         self.blocks.len()
+    }
+
+    /// Returns the number of allocated SSA definitions before appending a checked region.
+    pub fn value_count(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Returns the established type of storage in this builder.
+    pub fn storage_type(&self, storage: MirStorageId) -> TypeId {
+        assert_eq!(
+            storage.unit(),
+            self.unit,
+            "storage belongs to this MIR builder"
+        );
+
+        self.storages[storage
+            .to_index()
+            .expect("allocated storage has a local slot")]
+        .ty()
     }
 
     /// Returns the last operation of a block, when present.
@@ -144,6 +169,7 @@ impl MirUnitBuilder {
             target,
             kind: MirUnitKind::Synchronous,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -167,6 +193,7 @@ impl MirUnitBuilder {
             target,
             kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -194,6 +221,7 @@ impl MirUnitBuilder {
             target,
             kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -219,6 +247,7 @@ impl MirUnitBuilder {
             target,
             kind: MirUnitKind::ExecutableHost(host),
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -243,6 +272,7 @@ impl MirUnitBuilder {
             target,
             kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
             removed_operations: Vec::new(),
@@ -491,6 +521,64 @@ impl MirUnitBuilder {
         false
     }
 
+    /// Redirects established storage roots into caller-owned places without changing operations.
+    pub fn substitute_places(
+        &mut self,
+        replacements: &std::collections::BTreeMap<MirStorageId, crate::MirPlace>,
+    ) {
+        for operation in &mut self.operations {
+            let mut kind = operation.kind().clone();
+
+            kind.substitute_places(replacements);
+            *operation = MirOperation::new(operation.source().clone(), kind, operation.result());
+        }
+
+        for block in &mut self.blocks {
+            if let Some(terminal) = &mut block.terminator {
+                let mut kind = terminal.kind().clone();
+
+                kind.substitute_places(replacements);
+                *terminal = MirTerminator::new(terminal.source().clone(), kind);
+            }
+        }
+    }
+
+    /// Materializes crossing values only in the selected continuation block.
+    pub fn substitute_block_values(
+        &mut self,
+        block: MirBlockId,
+        replacements: &std::collections::BTreeMap<MirValueId, crate::MirOperand>,
+    ) {
+        let index = self.block_index(block);
+
+        for id in &self.blocks[index].operations {
+            let operation =
+                &mut self.operations[id.to_index().expect("allocated operation has its slot")];
+
+            let mut kind = operation.kind().clone();
+
+            kind.substitute_values(replacements);
+            *operation = MirOperation::new(operation.source().clone(), kind, operation.result());
+        }
+
+        if let Some(terminal) = &mut self.blocks[index].terminator {
+            let mut kind = terminal.kind().clone();
+
+            kind.substitute_values(replacements);
+            *terminal = MirTerminator::new(terminal.source().clone(), kind);
+        }
+    }
+
+    /// Installs the selected receiver cleanup entries produced with this body.
+    pub fn set_cleanup_continuation(&mut self, continuation: crate::MirCleanupContinuation) {
+        assert!(
+            self.cleanup_continuation.is_none(),
+            "cleanup continuation is installed once"
+        );
+
+        self.cleanup_continuation = Some(continuation);
+    }
+
     /// Completes the MIR unit after its producers have established their contracts.
     pub fn finish(mut self, entry: MirBlockId) -> MirUnit {
         self.compact_removed_effects();
@@ -535,6 +623,7 @@ impl MirUnitBuilder {
             target: self.target,
             kind: self.kind,
             frame_descriptor: self.frame_descriptor,
+            cleanup_continuation: self.cleanup_continuation,
             entry,
             blocks: blocks.into(),
             operations: self.operations.into(),

@@ -566,6 +566,23 @@ impl CleanupOutcome {
         Ok((completed, value, continuation))
     }
 
+    /// Joins an explicitly propagated tail report through the same checked-call policy.
+    pub(crate) fn retain_report(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        completed: MirBlockId,
+        incoming: MirCleanupState,
+        report: MirOperand,
+    ) -> Result<(), MirCapacityError> {
+        let slot = self.incoming_report(builder, source)?;
+
+        self.store(builder, block, source, &slot, report)?;
+
+        self.retain_failure(builder, block, source, completed, incoming)
+    }
+
     fn retain_failure(
         &self,
         builder: &mut MirUnitBuilder,

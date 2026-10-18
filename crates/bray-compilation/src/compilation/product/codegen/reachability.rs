@@ -177,21 +177,32 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let optimized = match options.optimization() {
-                    OptimizationLevel::None => self
-                        .expand_lifecycle_mir(realization, raw, cancellation)
-                        .map(|expanded| expanded.unwrap_or_else(|| raw.clone())),
-                    OptimizationLevel::Basic => self
-                        .expand_lifecycle_mir(realization, raw, cancellation)
-                        .and_then(|expanded| {
-                            self.simplify_concrete_mir(
-                                realization,
-                                expanded.as_ref().unwrap_or(raw),
-                                cancellation,
-                            )
-                        }),
+                    OptimizationLevel::None | OptimizationLevel::Basic => {
+                        let synchronous = raw
+                            .cleanup_continuation()
+                            .map(|_| raw.synchronous_body())
+                            .transpose()
+                            .map_err(CodegenPreparationError::MirCapacity);
+
+                        synchronous.and_then(|synchronous| {
+                            let raw = synchronous.as_ref().unwrap_or(raw);
+
+                            self.expand_lifecycle_mir(realization, raw, cancellation)
+                                .and_then(|expanded| {
+                                    let raw = expanded.as_ref().unwrap_or(raw);
+
+                                    if options.optimization() == OptimizationLevel::Basic {
+                                        self.simplify_concrete_mir(realization, raw, cancellation)
+                                    } else {
+                                        Ok(raw.clone())
+                                    }
+                                })
+                        })
+                    }
                     OptimizationLevel::Full => {
                         let basic = options.with_optimization(OptimizationLevel::Basic);
 
+                        // Preparation belongs to the shared Basic query, keyed by the original template.
                         self.optimized_mir_for_plan(realization, raw, basic, target, cancellation)
                             .and_then(|base| {
                                 self.inline_concrete_mir(

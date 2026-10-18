@@ -13,12 +13,54 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Option<()> {
     }
 
     validate_frame_descriptor(unit)?;
+    validate_cleanup_continuation(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
     validate_host_sequence(unit)?;
 
     Some(())
 }
+fn validate_cleanup_continuation(unit: &MirUnit) -> Option<()> {
+    let Some(continuation) = unit.cleanup_continuation() else {
+        return Some(());
+    };
+
+    if !matches!(unit.kind(), crate::MirUnitKind::Synchronous)
+        || !matches!(
+            unit.storage(continuation.context())?.kind(),
+            crate::MirStorageKind::Parameter(1)
+        )
+        || continuation.selector().storage() != continuation.context()
+        || !matches!(continuation.selector().projections(), [first, second]
+            if matches!(first.kind(), crate::MirProjectionKind::Dereference)
+                && matches!(second.kind(), crate::MirProjectionKind::TupleField(_)))
+        || continuation.entries().is_empty()
+    {
+        return None;
+    }
+
+    let mut entries = std::collections::BTreeSet::new();
+
+    for cleanup in continuation.entries() {
+        if !matches!(
+            unit.block(cleanup.handoff())?.terminator().kind(),
+            crate::MirTerminatorKind::Return(None)
+        ) {
+            return None;
+        }
+
+        for entry in cleanup.targets() {
+            unit.block(entry)?;
+
+            if entry == unit.entry() || !entries.insert(entry) {
+                return None;
+            }
+        }
+    }
+
+    Some(())
+}
+
 fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
     let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
         return Some(());

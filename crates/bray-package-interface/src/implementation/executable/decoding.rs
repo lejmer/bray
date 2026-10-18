@@ -178,6 +178,7 @@ pub fn decode_executable_template(
     }
 
     let frame = decoder.frame_descriptor()?;
+    let cleanup_continuation = decoder.cleanup_continuation()?;
 
     let mut seen_parameters = decoder.derived_items(values.len())?;
 
@@ -195,84 +196,15 @@ pub fn decode_executable_template(
     validate_block_parameters(&block_records, &values, seen_parameters)?;
 
     let operation_owners = operation_owners(&block_records, operation_owner_slots)?;
-    let mut next_operation = 0;
 
-    for (value_slot, value) in values.iter().enumerate() {
-        match value.origin {
-            ValueRecordOrigin::Block(block_slot) => {
-                let block = item(&blocks, block_slot)?;
-
-                let id = builder
-                    .push_block_parameter(block, source.clone(), value.ty)
-                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
-
-                require_slot(id.slot(), value_slot)?;
-            }
-            ValueRecordOrigin::Operation(operation_slot) => {
-                let operation_index = index(operation_slot)?;
-
-                while next_operation < operation_index {
-                    push_operation(
-                        &mut builder,
-                        source.clone(),
-                        &blocks,
-                        &operation_owners,
-                        &operations,
-                        next_operation,
-                        None,
-                    )?;
-
-                    next_operation += 1;
-                }
-
-                if operation_index != next_operation
-                    || operations
-                        .get(operation_index)
-                        .and_then(|operation| operation.result)
-                        != Some(
-                            u32::try_from(value_slot)
-                                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
-                        )
-                {
-                    return Err(ExecutableTemplateDecodeError::Malformed);
-                }
-
-                let commit = push_operation(
-                    &mut builder,
-                    source.clone(),
-                    &blocks,
-                    &operation_owners,
-                    &operations,
-                    next_operation,
-                    Some(value.ty),
-                )?;
-
-                require_slot(
-                    commit
-                        .result()
-                        .ok_or(ExecutableTemplateDecodeError::Malformed)?
-                        .slot(),
-                    value_slot,
-                )?;
-
-                next_operation += 1;
-            }
-        }
-    }
-
-    while next_operation < operations.len() {
-        push_operation(
-            &mut builder,
-            source.clone(),
-            &blocks,
-            &operation_owners,
-            &operations,
-            next_operation,
-            None,
-        )?;
-
-        next_operation += 1;
-    }
+    push_values_and_operations(
+        &mut builder,
+        &source,
+        &blocks,
+        &operation_owners,
+        &operations,
+        &values,
+    )?;
 
     for ((block, terminator), record) in blocks.iter().copied().zip(terminators).zip(&block_records)
     {
@@ -289,6 +221,10 @@ pub fn decode_executable_template(
         }
 
         builder.set_frame_descriptor(frame);
+    }
+
+    if let Some(continuation) = cleanup_continuation {
+        builder.set_cleanup_continuation(continuation);
     }
 
     let entry = item(&blocks, entry_slot)?;
@@ -467,6 +403,97 @@ fn validate_block_parameters(
         .any(|(value, seen)| matches!(value.origin, ValueRecordOrigin::Block(_)) != seen)
     {
         return Err(ExecutableTemplateDecodeError::Malformed);
+    }
+
+    Ok(())
+}
+
+// Values and operations share construction order because SSA definitions can be block inputs.
+fn push_values_and_operations(
+    builder: &mut MirUnitBuilder,
+    source: &MirSourceAnchor,
+    blocks: &[MirBlockId],
+    operation_owners: &[u32],
+    operations: &[OperationRecord],
+    values: &[ValueRecord],
+) -> Result<(), ExecutableTemplateDecodeError> {
+    let mut next_operation = 0;
+
+    for (value_slot, value) in values.iter().enumerate() {
+        match value.origin {
+            ValueRecordOrigin::Block(block_slot) => {
+                let block = item(blocks, block_slot)?;
+
+                let id = builder
+                    .push_block_parameter(block, source.clone(), value.ty)
+                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
+
+                require_slot(id.slot(), value_slot)?;
+            }
+            ValueRecordOrigin::Operation(operation_slot) => {
+                let operation_index = index(operation_slot)?;
+
+                while next_operation < operation_index {
+                    push_operation(
+                        builder,
+                        source.clone(),
+                        blocks,
+                        operation_owners,
+                        operations,
+                        next_operation,
+                        None,
+                    )?;
+
+                    next_operation += 1;
+                }
+
+                if operation_index != next_operation
+                    || operations
+                        .get(operation_index)
+                        .and_then(|operation| operation.result)
+                        != Some(
+                            u32::try_from(value_slot)
+                                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
+                        )
+                {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                }
+
+                let commit = push_operation(
+                    builder,
+                    source.clone(),
+                    blocks,
+                    operation_owners,
+                    operations,
+                    next_operation,
+                    Some(value.ty),
+                )?;
+
+                require_slot(
+                    commit
+                        .result()
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?
+                        .slot(),
+                    value_slot,
+                )?;
+
+                next_operation += 1;
+            }
+        }
+    }
+
+    while next_operation < operations.len() {
+        push_operation(
+            builder,
+            source.clone(),
+            blocks,
+            operation_owners,
+            operations,
+            next_operation,
+            None,
+        )?;
+
+        next_operation += 1;
     }
 
     Ok(())
@@ -2224,6 +2251,41 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             0 => Ok(ExecutionLaneRequirement::Blocking),
             1 => Ok(ExecutionLaneRequirement::Compute),
             2 => Ok(ExecutionLaneRequirement::MainThread),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn cleanup_continuation(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCleanupContinuation>, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(None),
+            1 => {
+                let context = self.storage_id()?;
+                let selector = self.place()?;
+                let count = self.count()?;
+                let mut entries = self.items(count)?;
+
+                for _ in 0..count {
+                    let handoff = self.block_id()?;
+                    let ordinary = self.block_id()?;
+                    let abandoned = self.block_id()?;
+
+                    let initial = match read_u32(&mut self.reader)? {
+                        0 => false,
+                        1 => true,
+                        _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                    };
+
+                    entries.push(bray_ir::MirCleanupEntry::new(
+                        handoff, ordinary, abandoned, initial,
+                    ));
+                }
+
+                Ok(Some(bray_ir::MirCleanupContinuation::new(
+                    context, selector, entries,
+                )))
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

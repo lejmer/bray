@@ -432,7 +432,7 @@ impl Lowerer<'_> {
         clippy::too_many_arguments,
         reason = "cleanup construction requires the resolved place and its checked context"
     )]
-    pub(super) fn push_cleanup_place(
+    pub(in crate::lowering) fn push_cleanup_place(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
@@ -442,6 +442,22 @@ impl Lowerer<'_> {
         completed: bool,
         value: Option<(bray_ir::MirValueId, TypeId)>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        if phase == MirCleanupPhase::LifecycleResolution
+            && self.receiver_cleanup.as_ref().is_some_and(|receiver| {
+                receiver.mode.is_none()
+                    && self.storages.get(&receiver.identity) == Some(&place.storage())
+            })
+        {
+            assert!(
+                value.is_none(),
+                "implicit receiver cleanup has no pending expression result"
+            );
+
+            return self
+                .defer_receiver_cleanup(block, source, access, place, completed)
+                .map(|block| (block, None));
+        }
+
         let cleanup_source = self.cleanup_source(access);
         let state = self.initialization_guards.get(&place.storage());
         let guard = state.map(|state| Self::retained_place(&state.guard));

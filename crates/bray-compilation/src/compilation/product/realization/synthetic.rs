@@ -101,6 +101,107 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         self.compilation
             .standard_library_helper_callable(helper, self.cancellation)
     }
+
+    fn destruction_body(
+        &self,
+        callable: CallableInstanceData,
+    ) -> Result<std::sync::Arc<bray_lowering::DestructionBody>, Self::Error> {
+        let target = self
+            .compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("selected cleanup target supports native realization");
+
+        let instance = match self.realization {
+            Some(owner) => self.compilation.concrete_codegen_callable_data(
+                owner,
+                &callable,
+                &target,
+                self.cancellation,
+            )?,
+            None => self.compilation.concrete_codegen_callable(
+                callable,
+                [],
+                &target,
+                self.cancellation,
+            )?,
+        };
+
+        let key = instance.key().clone();
+
+        let cell = self
+            .compilation
+            .state
+            .destruction_bodies
+            .cell(key.clone())?;
+
+        let result = cell.get_or_compute_requested(
+            &self.compilation.state.fact_runtime,
+            crate::fact::CompilationFactKey::DestructionBody(key),
+            self.cancellation,
+            |cancellation| {
+                let prepared = (|| {
+                    let unit = self.compilation.codegen_mir_for_plan(
+                        instance.key(),
+                        bray_ir::MirUnitId::new(0),
+                        None,
+                        cancellation,
+                    )?;
+
+                    let types = unit
+                        .referenced_types()
+                        .into_iter()
+                        .map(|ty| {
+                            self.compilation
+                                .concrete_codegen_type(
+                                    ty,
+                                    instance.substitution(),
+                                    Some(&instance),
+                                    cancellation,
+                                )
+                                .map(|concrete| (ty, concrete))
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    let binding = self.compilation.binding_context(cancellation)?;
+
+                    let contextual_self =
+                        super::codegen_instance_contextual_self(&binding, &instance)?;
+
+                    let callables = bray_codegen::demanded_callable_instances_for_mir(&unit)
+                        .into_iter()
+                        .map(|demand| {
+                            let reference = demand.reference();
+
+                            super::substitute_callable_instance(
+                                self.values,
+                                reference.instance(),
+                                instance.substitution(),
+                                contextual_self,
+                            )
+                            .map(|callable| {
+                                (
+                                    reference,
+                                    bray_ir::MirCallableReference::new(callable, reference.abi()),
+                                )
+                            })
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    Ok::<_, CodegenPreparationError>(bray_lowering::DestructionBody {
+                        unit,
+                        types,
+                        callables,
+                    })
+                })();
+
+                Ok(prepared.map(std::sync::Arc::new))
+            },
+        )?;
+
+        result.as_ref().cloned().map_err(Clone::clone)
+    }
 }
 
 impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringContext<'_> {

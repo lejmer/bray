@@ -15,6 +15,87 @@ use crate::compilation::substitution::named_type;
 use crate::test_support::compilation;
 
 #[test]
+fn known_abandoned_destruction_excludes_async_receiver_cleanup() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Owner
+        {
+            pending: Future<unit>;
+
+            destruct() {}
+        }
+
+        func main() {}
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let symbols = compilation.symbol_graph().unwrap();
+
+    let definition = symbols
+        .structures()
+        .iter()
+        .find(|value| value.origin() == SymbolOrigin::Source)
+        .unwrap();
+
+    let ty = named_type(
+        compilation.semantic_value_store().unwrap(),
+        NamedTypeSymbolId::Struct(definition.id()),
+    )
+    .unwrap();
+
+    let target = codegen_target(&compilation);
+
+    let destroyed = generated_lifecycle(
+        &compilation,
+        &target,
+        MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Abandoned),
+        192,
+    );
+
+    assert!(destroyed.is_valid());
+
+    assert!(destroyed.operations().iter().all(|operation| !matches!(
+        operation.kind(),
+        MirOperationKind::Cleanup {
+            phase: MirCleanupPhase::LifecycleResolution,
+            ..
+        } | MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+    )));
+
+    assert!(
+        destroyed
+            .blocks()
+            .iter()
+            .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. }))
+    );
+
+    assert_eq!(
+        destroyed
+            .operations()
+            .iter()
+            .filter(|operation| matches!(operation.kind(),
+        MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_))))
+            .count(),
+        1,
+        "the source destructor body remains one shared invocation"
+    );
+
+    assert!(destroyed.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Destroy { place, abandoned: Some(bray_ir::MirOperand::Immediate {
+            value: bray_ir::MirImmediateValue::Boolean(true), .. }), .. }
+            if compilation.available_compiler_known_symbols().unary_representation_argument(
+                compilation.semantic_value_store().unwrap(), RepresentationRole::Future, place.ty()).is_some())));
+}
+
+#[test]
 fn generated_destruction_composes_parts_in_reverse_order() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
@@ -23,16 +104,19 @@ fn generated_destruction_composes_parts_in_reverse_order() {
         .semantic_value_store()
         .expect("semantic values must resolve");
 
-    let leaf = values
-        .intern_type(TypeData::tuple([]))
-        .expect("leaf type must intern");
+    let leaf = compilation
+        .compiler_known_type(RepresentationRole::PanicReport)
+        .expect("the represented members have real destruction obligations");
 
     let aggregate = values
         .intern_type(TypeData::tuple([leaf, leaf]))
         .expect("aggregate type must intern");
 
     let instance = compilation
-        .concrete_codegen_lifecycle(MirHelperReference::Destroy(aggregate), &target)
+        .concrete_codegen_lifecycle(
+            MirHelperReference::Destroy(aggregate, bray_ir::MirDestructionDisposition::Dynamic),
+            &target,
+        )
         .expect("destruction instance must realize");
 
     let reference = instance
@@ -95,7 +179,7 @@ fn generated_panic_report_destruction_uses_the_non_reporting_runtime_role() {
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(report),
+        MirHelperReference::Destroy(report, bray_ir::MirDestructionDisposition::Dynamic),
         78,
     );
 
@@ -126,9 +210,9 @@ fn nullable_lifecycle_resolves_only_the_present_payload() {
         .semantic_value_store()
         .expect("semantic values must resolve");
 
-    let payload = values
-        .intern_type(TypeData::tuple([]))
-        .expect("payload type must intern");
+    let payload = compilation
+        .compiler_known_type(RepresentationRole::PanicReport)
+        .expect("the nullable payload has a real destruction obligation");
 
     let nullable = values
         .intern_type(TypeData::Nullable(payload))
@@ -137,7 +221,7 @@ fn nullable_lifecycle_resolves_only_the_present_payload() {
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(nullable),
+        MirHelperReference::Destroy(nullable, bray_ir::MirDestructionDisposition::Dynamic),
         78,
     );
 
@@ -185,9 +269,10 @@ fn union_lifecycle_resolves_only_the_active_variant_payload() {
         "module app;\n",
         "union Choice\n",
         "{\n",
-        "    Value(value: i32);\n",
+        "    Value(value: Child);\n",
         "    Empty;\n",
         "}\n",
+        "struct Child { destruct() {} }\n",
         "func main() {}\n",
     ));
 
@@ -197,7 +282,7 @@ fn union_lifecycle_resolves_only_the_active_variant_payload() {
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(union),
+        MirHelperReference::Destroy(union, bray_ir::MirDestructionDisposition::Dynamic),
         79,
     );
 
@@ -276,7 +361,7 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(generator),
+        MirHelperReference::Destroy(generator, bray_ir::MirDestructionDisposition::Dynamic),
         80,
     );
 
@@ -317,12 +402,15 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ty: element,
             },
-            MirHelperReference::Destroy(element),
+            MirHelperReference::Destroy(element, bray_ir::MirDestructionDisposition::Dynamic),
         ]
     );
 
     let owner = compilation
-        .concrete_codegen_lifecycle(MirHelperReference::Destroy(generator), &target)
+        .concrete_codegen_lifecycle(
+            MirHelperReference::Destroy(generator, bray_ir::MirDestructionDisposition::Dynamic),
+            &target,
+        )
         .expect("outer generator lifecycle instance must realize");
 
     let dependencies = compilation
@@ -342,7 +430,10 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     assert_eq!(
         references,
         [
-            Some(&MirHelperReference::Destroy(element)),
+            Some(&MirHelperReference::Destroy(
+                element,
+                bray_ir::MirDestructionDisposition::Dynamic
+            )),
             Some(&MirHelperReference::Cleanup {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ty: element,
@@ -385,7 +476,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(owned),
+        MirHelperReference::Destroy(owned, bray_ir::MirDestructionDisposition::Dynamic),
         81,
     );
 
@@ -398,7 +489,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
         2
     );
 
-    let reference = MirHelperReference::Destroy(owned);
+    let reference = MirHelperReference::Destroy(owned, bray_ir::MirDestructionDisposition::Dynamic);
 
     let instance = compilation
         .concrete_codegen_lifecycle(reference.clone(), &target)
@@ -641,8 +732,12 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
             )));
         }
 
-        let destroyed =
-            generated_lifecycle(&compilation, &target, MirHelperReference::Destroy(ty), 191);
+        let destroyed = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
+            191,
+        );
 
         assert_eq!(destroyed.operations().iter().filter(|operation|
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), 1);
@@ -672,7 +767,8 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
     )
     .unwrap();
 
-    let reference = MirHelperReference::Destroy(storage);
+    let reference =
+        MirHelperReference::Destroy(storage, bray_ir::MirDestructionDisposition::Dynamic);
 
     let instance = compilation
         .concrete_codegen_lifecycle(reference.clone(), &target)
@@ -880,14 +976,34 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         panic!("the newly returned error broadcasts cancellation before waiting");
     };
 
-    let broadcast = generated.block(broadcast.edge().target()).unwrap();
+    let mut broadcast_id = broadcast.edge().target();
+    let broadcast = generated.block(broadcast_id).unwrap();
 
     assert!(broadcast.operations().iter().any(|id| matches!(
         generated.operation(*id).unwrap().kind(),
         MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place == payload
     )));
 
-    let MirTerminatorKind::ContinueCleanup(broadcast_complete) = broadcast.terminator().kind()
+    let mut seen = std::collections::BTreeSet::new();
+
+    while let MirTerminatorKind::Goto(next) =
+        generated.block(broadcast_id).unwrap().terminator().kind()
+    {
+        assert!(
+            seen.insert(broadcast_id),
+            "the completed broadcast cannot cycle before child resolution"
+        );
+
+        broadcast_id = next.target();
+
+        assert_eq!(
+            generated.block(broadcast_id).unwrap().kind(),
+            bray_ir::MirBlockKind::CleanupBroadcast
+        );
+    }
+
+    let MirTerminatorKind::ContinueCleanup(broadcast_complete) =
+        generated.block(broadcast_id).unwrap().terminator().kind()
     else {
         panic!("shared broadcast collection proceeds directly to child resolution");
     };

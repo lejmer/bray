@@ -527,6 +527,8 @@ pub(crate) enum CompilationFactKey {
     OptimizedMir(Arc<OptimizedMirQueryKey>),
     /// Generated execution and local requirements for an exact lifecycle specialization.
     GeneratedLifecycle(CodegenInstanceKey, bray_ir::MirUnitId),
+    /// Checked receiver cleanup and concrete substitutions shared by its consuming call sites.
+    DestructionBody(CodegenInstanceKey),
     /// The complete native product for exact product and host selections.
     NativeProduct(Arc<NativeProductQueryKey>),
     /// Source-declared value type templates and equality constraints for one bound unit.
@@ -694,6 +696,7 @@ impl CompilationFactKey {
             | Self::CodegenArtifact(_)
             | Self::OptimizedMir(_)
             | Self::GeneratedLifecycle(..)
+            | Self::DestructionBody(..)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph

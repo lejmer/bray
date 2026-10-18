@@ -78,7 +78,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
-    pub(super) destruction_argument: Option<(StorageIdentityId, MirOperand)>,
+    pub(super) receiver_cleanup: Option<super::receiver::ReceiverCleanup>,
     pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
@@ -123,7 +123,7 @@ impl<'unit> Lowerer<'unit> {
             capture_cleanup: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
-            destruction_argument: None,
+            receiver_cleanup: None,
             cleanup_occurrence: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
@@ -140,33 +140,7 @@ impl<'unit> Lowerer<'unit> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        if self.input.unit().key().kind() == bray_bound_tree::BoundUnitKind::CallableBody
-            && self.input.unit().key().declared_owner().kind()
-                == bray_symbols::SymbolKind::Destructor
-        {
-            let boolean =
-                self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
-
-            let argument = self.builder.push_storage(
-                Self::retained_source(&source),
-                MirStorageKind::Parameter(1),
-                boolean,
-            )?;
-
-            let receiver = self
-                .input
-                .storage_plan()
-                .identity_entries()
-                .find_map(|(id, identity)| {
-                    matches!(identity, StorageIdentity::Receiver(_)).then_some(id)
-                })
-                .expect("a checked destructor retains its receiver identity");
-
-            self.destruction_argument = Some((
-                receiver,
-                MirOperand::Copy(MirPlace::new(argument, [], boolean)),
-            ));
-        }
+        self.initialize_receiver_cleanup(&source)?;
 
         self.initialize_cleanup_guards(entry, &source)?;
 
@@ -310,7 +284,15 @@ impl<'unit> Lowerer<'unit> {
                 .set_frame_descriptor(descriptor.with_capture_cleanup(self.capture_cleanup));
         }
 
-        Ok(self.builder.finish(entry))
+        let receiver_cleanup = self.receiver_cleanup.take();
+        let unit = self.builder.finish(entry);
+
+        super::receiver::finish_receiver_cleanup(
+            &self.input,
+            unit,
+            receiver_cleanup,
+            &self.storages,
+        )
     }
 
     pub(in crate::lowering) fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {

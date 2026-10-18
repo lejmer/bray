@@ -23,7 +23,7 @@ fn string_release_collects_deallocation_failure_before_returning() {
     let generated = generated_lifecycle(
         &compilation,
         &target,
-        MirHelperReference::Destroy(string),
+        MirHelperReference::Destroy(string, bray_ir::MirDestructionDisposition::Dynamic),
         79,
     );
 
@@ -61,9 +61,15 @@ fn nullable_cancellation_branches_within_the_cleanup_phase() {
         .semantic_value_store()
         .expect("semantic values must resolve");
 
-    let payload = values
-        .intern_type(TypeData::tuple([]))
-        .expect("payload type must intern");
+    let unit = compilation
+        .compiler_known_type(RepresentationRole::Unit)
+        .unwrap();
+
+    let payload = compilation
+        .available_compiler_known_symbols()
+        .unary_representation_type(values, RepresentationRole::Future, unit)
+        .unwrap()
+        .unwrap();
 
     let nullable = values
         .intern_type(TypeData::Nullable(payload))
@@ -314,7 +320,7 @@ fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
     let cleanup = generated_lifecycle(
         &compilation,
         &codegen_target(&compilation),
-        MirHelperReference::Destroy(ty),
+        MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
         83,
     );
 
@@ -376,7 +382,7 @@ fn imported_standard_buffer_cleanup_uses_structural_allowance() {
     let cleanup = generated_lifecycle(
         &compilation,
         &codegen_target(&compilation),
-        MirHelperReference::Destroy(ty),
+        MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
         84,
     );
 

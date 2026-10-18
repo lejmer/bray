@@ -45,9 +45,7 @@ pub(super) fn add_intrinsic_constraints(
     inference.add_evidence(variable, ty, expression_id);
 }
 
-pub(crate) fn intrinsic_representation_role(
-    expression: &BoundExpression,
-) -> Option<RepresentationRole> {
+fn intrinsic_representation_role(expression: &BoundExpression) -> Option<RepresentationRole> {
     match expression {
         BoundExpression::Assignment(_) | BoundExpression::Generator(_) => {
             Some(RepresentationRole::Unit)
@@ -435,20 +433,33 @@ where
             });
 
         let data = request.semantic_values().type_data(expectation.ty());
-
-        if is_contextual_numeric_literal(request, expectation.expression())
-            && let TypeData::Nullable(contained) = data.as_ref()
-        {
-            inference.add_expectation(variable, *contained, expectation.expression());
-
-            continue;
-        }
+        let contextual_variant = is_contextual_variant(request, expectation.expression());
 
         if let TypeData::Nullable(contained) = data.as_ref() {
             inference.add_implicit_compatibility(expectation.ty(), *contained);
+
+            let present = contextual_variant
+                || matches!(expression, BoundExpression::StructConstruction(_))
+                || matches!(expression, BoundExpression::Structured(expression)
+                    if matches!(expression.kind(), BoundStructuredExpressionKind::Tuple
+                        | BoundStructuredExpressionKind::Array | BoundStructuredExpressionKind::RepeatedArray))
+                || is_contextual_numeric_literal(request, expectation.expression());
+
+            if present {
+                pending.push(ExpressionTypeExpectation::new(
+                    expectation.expression(),
+                    *contained,
+                ));
+
+                continue;
+            }
         }
 
         inference.add_expectation(variable, expectation.ty(), expectation.expression());
+
+        if contextual_variant {
+            inference.add_evidence(variable, expectation.ty(), expectation.expression());
+        }
 
         match (expression, data.as_ref()) {
             (BoundExpression::Name(name), TypeData::Callable(_))
@@ -529,6 +540,22 @@ where
     }
 
     Some(())
+}
+
+fn is_contextual_variant<C>(request: CheckerUnitView<'_, C>, expression: BoundExpressionId) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match request.view().expression(expression) {
+        Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_)) => {
+            true
+        }
+        Some(BoundExpression::Call(call)) => matches!(
+            request.view().expression(call.callee()),
+            Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_))
+        ),
+        _ => false,
+    }
 }
 
 fn is_contextual_numeric_literal<C>(

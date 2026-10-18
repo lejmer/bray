@@ -459,7 +459,7 @@ mod tests {
         let cancellation = CancellationToken::new();
 
         for reference in [
-            MirHelperReference::Destroy(report),
+            MirHelperReference::Destroy(report, bray_ir::MirDestructionDisposition::Dynamic),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
                 ty: report,
@@ -534,14 +534,20 @@ mod tests {
 
         assert!(
             compilation
-                .codegen_lifecycle_is_trivial(&MirHelperReference::Destroy(leaf), &cancellation,)
+                .codegen_lifecycle_is_trivial(
+                    &MirHelperReference::Destroy(leaf, bray_ir::MirDestructionDisposition::Dynamic),
+                    &cancellation,
+                )
                 .unwrap_or_else(|error| panic!("leaf lifecycle must resolve: {error:?}"))
         );
 
         assert!(
             !compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Destroy(container),
+                    &MirHelperReference::Destroy(
+                        container,
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    ),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("container lifecycle must resolve: {error:?}"))
@@ -602,7 +608,10 @@ mod tests {
         assert!(
             !compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Destroy(resource),
+                    &MirHelperReference::Destroy(
+                        resource,
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    ),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("resource destruction must resolve: {error:?}"))

@@ -34,7 +34,7 @@ fn lifecycle_helpers_use_distinct_type_aware_instance_dependencies() {
     let references = [
         MirHelperReference::StaticFinalize(aggregate),
         MirHelperReference::Quiesce(aggregate),
-        MirHelperReference::Destroy(aggregate),
+        MirHelperReference::Destroy(aggregate, bray_ir::MirDestructionDisposition::Dynamic),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
             ty: aggregate,
@@ -122,14 +122,14 @@ fn lifecycle_identity_is_stable_and_payload_remains_compilation_local() {
 
     let first = first
         .concrete_codegen_lifecycle(
-            MirHelperReference::Destroy(first_type),
+            MirHelperReference::Destroy(first_type, bray_ir::MirDestructionDisposition::Dynamic),
             &codegen_target(&first),
         )
         .expect("first lifecycle instance must realize");
 
     let second = second
         .concrete_codegen_lifecycle(
-            MirHelperReference::Destroy(second_type),
+            MirHelperReference::Destroy(second_type, bray_ir::MirDestructionDisposition::Dynamic),
             &codegen_target(&second),
         )
         .expect("second lifecycle instance must realize");
@@ -138,12 +138,18 @@ fn lifecycle_identity_is_stable_and_payload_remains_compilation_local() {
 
     assert_eq!(
         first.generated_lifecycle_reference(),
-        Some(&MirHelperReference::Destroy(first_type))
+        Some(&MirHelperReference::Destroy(
+            first_type,
+            bray_ir::MirDestructionDisposition::Dynamic
+        ))
     );
 
     assert_eq!(
         second.generated_lifecycle_reference(),
-        Some(&MirHelperReference::Destroy(second_type))
+        Some(&MirHelperReference::Destroy(
+            second_type,
+            bray_ir::MirDestructionDisposition::Dynamic
+        ))
     );
 }
 
@@ -165,7 +171,7 @@ fn lifecycle_payload_must_match_the_stable_key_role() {
     assert!(
         ConcreteCodegenInstance::try_generated_lifecycle(
             finalize.key().clone(),
-            MirHelperReference::Destroy(ty),
+            MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
         )
         .is_none()
     );

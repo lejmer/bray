@@ -7,6 +7,19 @@ use crate::{
 };
 
 impl CheckedDependencyContracts {
+    /// Returns the established transitive storage dependencies of pending lifecycle consumers.
+    /// Guarded dependencies remain retained until their consuming cleanup has completed.
+    pub fn retained_lifecycle_storage<'a>(
+        &'a self,
+        consumers: &'a BTreeSet<StorageIdentityId>,
+    ) -> impl Iterator<Item = StorageIdentityId> + 'a {
+        self.lifecycle_consumers
+            .iter()
+            .filter_map(move |(dependency, owners)| {
+                (!owners.is_disjoint(consumers)).then_some(*dependency)
+            })
+    }
+
     /// Orders lifecycle consumers before the storage they depend on.
     ///
     /// Input order breaks ties between independent values. Guarded requirements are retained

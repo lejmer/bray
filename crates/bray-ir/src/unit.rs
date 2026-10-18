@@ -16,6 +16,6 @@ pub use model::{
     MirImportedExecutableKey, MirUnit, MirUnitKey,
 };
 pub use reconstruction::{
-    MirReconstructionMappings, reconstruct_reachable, reconstruct_with_edits,
+    MirReconstructionMappings, reachable_blocks, reconstruct_reachable, reconstruct_with_edits,
 };
-pub use splice::inline_scalar_call;
+pub use splice::{append_cleanup_continuation, inline_scalar_call};

@@ -158,7 +158,11 @@ impl MirPlace {
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
-        self.storage = mappings.storage(self.storage);
+        let replacement = mappings.storage_place(self.storage);
+
+        self.storage =
+            replacement.map_or_else(|| mappings.storage(self.storage), MirPlace::storage);
+
         self.ty = mappings.ty(self.ty);
 
         for projection in Arc::make_mut(&mut self.projections) {
@@ -183,6 +187,16 @@ impl MirPlace {
                 | MirProjectionKind::NullableValue
                 | MirProjectionKind::OwnedStorage => {}
             }
+        }
+
+        if let Some(replacement) = replacement {
+            // Each instruction owns its complete path into the caller's shared record.
+            self.projections = replacement
+                .projections()
+                .iter()
+                .cloned()
+                .chain(self.projections.iter().cloned())
+                .collect();
         }
     }
 

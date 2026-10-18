@@ -274,7 +274,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .expect("buffer destruction has a boolean abandonment argument");
 
             Some((
-                next_helper(&mut helpers, &MirHelperReference::Destroy(element)),
+                next_helper(
+                    &mut helpers,
+                    &MirHelperReference::Destroy(
+                        element,
+                        bray_ir::MirDestructionDisposition::Dynamic,
+                    ),
+                ),
                 condition,
             ))
         } else {

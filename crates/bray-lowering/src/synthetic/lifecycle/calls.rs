@@ -254,6 +254,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         callable: bray_bound_tree::LifecycleCallable,
     ) -> Result<(bray_ir::MirBlockId, bray_ir::MirValueId), C::Error> {
+        if callable.callable.definition().callable_symbol().kind()
+            == bray_symbols::SymbolKind::Destructor
+        {
+            return self.push_destruction_body(builder, block, source, place, callable);
+        }
+
         let result = callable.result;
 
         let value = self.push_selected_call(builder, block, source, place, callable, result)?;
@@ -288,13 +294,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             borrow,
             result,
             true,
-            if callable.callable.definition().callable_symbol().kind()
-                == bray_symbols::SymbolKind::Destructor
-            {
-                self.abandoned.clone()
-            } else {
-                None
-            },
+            None,
             |operation, result| builder.push_operation(block, source.clone(), operation, result),
         )
         .map_err(|cause| self.capacity_error(cause))

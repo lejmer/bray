@@ -84,7 +84,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                             runtime_abi,
                         ),
                     },
-                    bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                    bray_ir::MirGeneratedLifecycleRole::Destroy(_) => {
                         bray_ir::MirAsyncOperation::DestroyInactiveFrame {
                             frame: MirOperand::Move(place),
                             runtime: MirRuntimeReference::new(
@@ -138,19 +138,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 );
 
                 let operation = match role {
-                    bray_ir::MirGeneratedLifecycleRole::Destroy => MirGeneratorOperation::Destroy {
-                        destination: place,
-                        element,
-                        collection,
-                        abandoned: self
-                            .abandoned
-                            .clone()
-                            .expect("generator destruction retains its invocation argument"),
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::GeneratorDestruction,
-                            runtime_abi,
-                        ),
-                    },
+                    bray_ir::MirGeneratedLifecycleRole::Destroy(_) => {
+                        MirGeneratorOperation::Destroy {
+                            destination: place,
+                            element,
+                            collection,
+                            abandoned: self
+                                .abandoned
+                                .clone()
+                                .expect("generator destruction retains its invocation argument"),
+                            runtime: MirRuntimeReference::new(
+                                RuntimeAbiRole::GeneratorDestruction,
+                                runtime_abi,
+                            ),
+                        }
+                    }
                     bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::TaskCancellation,
                     ) => MirGeneratorOperation::CleanupBroadcast {
@@ -356,7 +358,23 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 place: child,
                 collection: None,
             },
-            bray_ir::MirGeneratedLifecycleRole::Destroy => {
+            bray_ir::MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Abandoned,
+            ) => MirOperationKind::Destroy {
+                place: child,
+                collection: None,
+                abandoned: self.abandoned.clone(),
+            },
+            bray_ir::MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Ordinary,
+            ) => MirOperationKind::Cleanup {
+                collection: None,
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place: child,
+            },
+            bray_ir::MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Dynamic,
+            ) => {
                 let inherited = self
                     .abandoned
                     .as_ref()

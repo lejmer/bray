@@ -78,23 +78,40 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ty,
         );
 
-        if matches!(reference, MirHelperReference::Destroy(_)) {
+        if let MirHelperReference::Destroy(_, disposition) = reference {
             let boolean = self
                 .context
                 .representation_type(RepresentationRole::ScalarBool)?;
 
-            let argument = builder
-                .push_storage(source.clone(), MirStorageKind::Parameter(1), boolean)
-                .map_err(|cause| self.capacity_error(cause))?;
+            self.abandoned = Some(match disposition {
+                bray_ir::MirDestructionDisposition::Dynamic => {
+                    let argument = builder
+                        .push_storage(source.clone(), MirStorageKind::Parameter(1), boolean)
+                        .map_err(|cause| self.capacity_error(cause))?;
 
-            self.abandoned = Some(MirOperand::Copy(MirPlace::new(argument, [], boolean)));
+                    MirOperand::Copy(MirPlace::new(argument, [], boolean))
+                }
+                disposition => MirOperand::Immediate {
+                    value: bray_ir::MirImmediateValue::Boolean(
+                        *disposition == bray_ir::MirDestructionDisposition::Abandoned,
+                    ),
+                    ty: boolean,
+                },
+            });
         }
 
         if !matches!(reference, MirHelperReference::StaticFinalize(_)) {
             self.collection = Some(self.borrow_collection(
                 &mut builder,
                 &source,
-                if self.abandoned.is_some() { 2 } else { 1 },
+                if matches!(
+                    reference,
+                    MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+                ) {
+                    2
+                } else {
+                    1
+                },
             )?);
         }
 
@@ -154,7 +171,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirTerminatorKind::Return(return_value),
                 );
             }
-            MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_) => {
+            MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_, _) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
                     entry,
@@ -184,7 +201,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         }
 
-        if let MirHelperReference::Destroy(ty) = reference {
+        if let MirHelperReference::Destroy(ty, _) = reference {
             super::outgoing::discharge_owner(&mut builder, *ty)
                 .map_err(|cause| self.capacity_error(cause))?;
         }
@@ -372,6 +389,13 @@ mod tests {
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
         }
+
+        fn destruction_body(
+            &self,
+            _: CallableInstanceData,
+        ) -> Result<std::sync::Arc<crate::DestructionBody>, Self::Error> {
+            panic!("tuple lowering does not select source destructors");
+        }
     }
 
     #[test]
@@ -397,10 +421,11 @@ mod tests {
                 })
                 .unwrap();
 
-            let reference = MirHelperReference::Destroy(array);
+            let reference =
+                MirHelperReference::Destroy(array, bray_ir::MirDestructionDisposition::Dynamic);
 
             let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
-                MirGeneratedLifecycleRole::Destroy,
+                MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::Dynamic),
                 [9; 32],
             ));
 
@@ -450,10 +475,11 @@ mod tests {
             .intern_type(TypeData::tuple([leaf, leaf]))
             .unwrap();
 
-        let reference = MirHelperReference::Destroy(pair);
+        let reference =
+            MirHelperReference::Destroy(pair, bray_ir::MirDestructionDisposition::Dynamic);
 
         let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
-            MirGeneratedLifecycleRole::Destroy,
+            MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::Dynamic),
             [4; 32],
         ));
 

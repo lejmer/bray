@@ -1,6 +1,7 @@
 mod aggregate;
 mod body;
 mod calls;
+mod destruction;
 mod expansion;
 mod outcome;
 mod outgoing;

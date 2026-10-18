@@ -166,12 +166,12 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
 
             assert!(memory.abandoned_cleanup().is_some());
 
-            assert!(
-                operation
-                    .kind()
-                    .helper_references()
-                    .contains(&bray_ir::MirHelperReference::Destroy(element))
-            );
+            assert!(operation.kind().helper_references().contains(
+                &bray_ir::MirHelperReference::Destroy(
+                    element,
+                    bray_ir::MirDestructionDisposition::Dynamic
+                )
+            ));
 
             observed += 1;
         }
@@ -236,7 +236,12 @@ fn replacement_cleanup_helpers_emit_checked_outcomes() {
 
             assert_eq!(
                 signature.parameters().len(),
-                if lifecycle.role() == bray_ir::MirGeneratedLifecycleRole::Destroy {
+                if matches!(
+                    lifecycle.role(),
+                    bray_ir::MirGeneratedLifecycleRole::Destroy(
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    )
+                ) {
                     4
                 } else {
                     3

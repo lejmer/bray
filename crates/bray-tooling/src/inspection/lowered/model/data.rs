@@ -2641,7 +2641,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
     match reference {
         MirHelperReference::Quiesce(_) => Some("quiesce"),
         MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
-        MirHelperReference::Destroy(_) => Some("destroy"),
+        MirHelperReference::Destroy(_, _) => Some("destroy"),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
             ..
@@ -2671,7 +2671,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
     match role {
         bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
-        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::Destroy(_) => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"
         }

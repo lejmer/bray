@@ -49,7 +49,7 @@ pub(super) fn push_mir_helper(
                 mir_standard_library_helper(*helper),
             ));
         }
-        Helper::Quiesce(ty) | Helper::StaticFinalize(ty) | Helper::Destroy(ty) => {
+        Helper::Quiesce(ty) | Helper::StaticFinalize(ty) | Helper::Destroy(ty, _) => {
             fields.push(identity_field("helper_type", ty));
         }
         Helper::Cleanup { phase, ty } => {
@@ -110,7 +110,7 @@ pub(in crate::compilation) const fn mir_helper_kind(
         Helper::StandardLibrary(_) => "standard_library",
         Helper::Quiesce(_) => "quiesce",
         Helper::StaticFinalize(_) => "static_finalize",
-        Helper::Destroy(_) => "destroy",
+        Helper::Destroy(_, _) => "destroy",
         Helper::Cleanup { .. } => "cleanup",
         Helper::CreateFrame(_) => "create_frame",
         Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",

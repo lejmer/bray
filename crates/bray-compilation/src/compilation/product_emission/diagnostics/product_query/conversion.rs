@@ -554,7 +554,7 @@ const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'stati
     match role {
         bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
-        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::Destroy(_) => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"
         }

@@ -237,7 +237,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ty: element,
             })
-            || destroy.reference() != &MirHelperReference::Destroy(element)
+            || destroy.reference()
+                != &MirHelperReference::Destroy(
+                    element,
+                    bray_ir::MirDestructionDisposition::Dynamic,
+                )
         {
             panic!("checked MIR translation violated an established compiler contract");
         }

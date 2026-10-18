@@ -247,6 +247,7 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
     }
 
     encoder.frame_descriptor(unit)?;
+    encoder.cleanup_continuation(unit)?;
 
     Ok(Arc::from(encoder.wire.into_bytes()))
 }
@@ -1363,6 +1364,31 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         self.constant_value(case.value())?;
 
         self.edge(case.edge())
+    }
+
+    fn cleanup_continuation(
+        &mut self,
+        unit: &MirUnit,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        let Some(continuation) = unit.cleanup_continuation() else {
+            self.wire.write_u32(0);
+
+            return Ok(());
+        };
+
+        self.wire.write_u32(1);
+        self.wire.write_u32(continuation.context().slot());
+        self.place(continuation.selector())?;
+        write_count(&mut self.wire, continuation.entries().len());
+
+        for entry in continuation.entries() {
+            self.wire.write_u32(entry.handoff().slot());
+            self.wire.write_u32(entry.ordinary().slot());
+            self.wire.write_u32(entry.abandoned().slot());
+            self.wire.write_u32(u32::from(entry.is_initial()));
+        }
+
+        Ok(())
     }
 
     fn frame_descriptor(

@@ -295,6 +295,11 @@ fn push_fact_context(
 
             "generated_lifecycle"
         }
+        Fact::DestructionBody(instance) => {
+            fields.push(identity_field("codegen_instance", instance));
+
+            "destruction_body"
+        }
         Fact::OptimizedMir(key) => {
             fields.extend([
                 identity_field("codegen_instance", key.instance()),

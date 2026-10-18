@@ -11,6 +11,7 @@ extern trusted func deny_allocation() -> u32
 extern trusted func restore_allocation(pos before: u32) -> u32
     uses(foreign_call);
 
+using std.memory;
 using std.task;
 
 internal static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
@@ -152,9 +153,9 @@ struct FailingOwner
     {
         await std.task.yield_now();
 
-        let pending = std.memory.replace_value<Future<unit>?>(&mut self.pending, none);
+        let stored: Future<unit>? = std.memory.replace_value(&mut self.pending, none);
 
-        match consume pending
+        match consume stored
         {
             case ?pending
             {
@@ -180,9 +181,17 @@ struct FailingOwner
 trusted async func fail()
     uses(foreign_call)
 {
+    let captured = retained_body(
+        RetainedCapture
+        {
+        }
+    );
+
+    let pending: Future<unit>? = captured;
+
     let owner = FailingOwner
     {
-        pending = retained_body(RetainedCapture {})
+        pending = pending
     };
 
     core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());

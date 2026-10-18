@@ -740,10 +740,18 @@ impl Compilation {
         .transpose()?;
 
         let destroy = (!self.codegen_lifecycle_is_trivial(
-            &bray_ir::MirHelperReference::Destroy(ty),
+            &bray_ir::MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
             cancellation,
         )?)
-        .then(|| self.concrete_codegen_lifecycle(bray_ir::MirHelperReference::Destroy(ty), target))
+        .then(|| {
+            self.concrete_codegen_lifecycle(
+                bray_ir::MirHelperReference::Destroy(
+                    ty,
+                    bray_ir::MirDestructionDisposition::Dynamic,
+                ),
+                target,
+            )
+        })
         .transpose()?;
 
         let evaluated = self.evaluate_static_initializer(

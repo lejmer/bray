@@ -449,6 +449,7 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CodegenArtifact(_) => "codegen_artifact",
         Value::OptimizedMir(_) => "optimized_mir",
         Value::GeneratedLifecycle(..) => "generated_lifecycle",
+        Value::DestructionBody(..) => "destruction_body",
         Value::NativeProduct(_) => "native_product",
         Value::DeclaredValueTypeTemplates(_) => "declared_value_type_templates",
         Value::ExpressionSemantics(_) => "expression_semantics",

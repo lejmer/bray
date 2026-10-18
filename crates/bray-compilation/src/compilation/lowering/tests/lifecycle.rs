@@ -1871,33 +1871,34 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
         })
         .expect("the represented receiver tail retains abandonment");
 
-    let inherited = mir
-        .operations()
-        .iter()
-        .filter_map(|operation| match operation.kind() {
-            MirOperationKind::Destroy {
-                place,
-                abandoned: Some(bray_ir::MirOperand::Copy(argument)),
-                ..
-            } if matches!(
-                mir.storage(argument.storage()).unwrap().kind(),
-                bray_ir::MirStorageKind::Parameter(1)
-            ) =>
-            {
-                Some(place.storage())
-            }
-            _ => None,
+    let receiver = mir
+        .storages_with_ids()
+        .find_map(|(id, storage)| {
+            matches!(
+                storage.kind(),
+                bray_ir::MirStorageKind::BorrowedParameter(0)
+            )
+            .then_some(id)
         })
-        .collect::<BTreeSet<_>>();
+        .expect("the consuming body borrows the caller's receiver storage");
 
-    assert_eq!(
-        inherited.len(),
-        1,
-        "only receiver storage inherits abandonment"
-    );
+    let tail = mir
+        .cleanup_continuation()
+        .expect("receiver cleanup is a caller-owned tail");
+
+    let body = mir.synchronous_body().unwrap();
+
+    assert!(mir.is_valid());
+    assert!(body.is_valid());
+    assert!(body.cleanup_continuation().is_none());
+    assert!(tail.entries().iter().any(|entry| entry.is_initial()));
+
+    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Destroy { place, abandoned: Some(bray_ir::MirOperand::Immediate {
+            value: bray_ir::MirImmediateValue::Boolean(true), .. }), .. } if place.storage() == receiver)));
 
     assert!(
-        mir.operations()
+        body.operations()
             .iter()
             .any(|operation| match operation.kind() {
                 MirOperationKind::Destroy {
@@ -1905,10 +1906,13 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
                     abandoned: None | Some(bray_ir::MirOperand::Value(_)),
                     ..
                 }
-                | MirOperationKind::Cleanup { place, .. } => !inherited.contains(&place.storage()),
+                | MirOperationKind::Cleanup { place, .. } => !matches!(
+                    body.storage(place.storage()).unwrap().kind(),
+                    bray_ir::MirStorageKind::BorrowedParameter(0)
+                ),
                 _ => false,
             }),
-        "ordinary local cleanup remains independent"
+        "ordinary local cleanup stays in the synchronous source body"
     );
 }
 
@@ -1999,8 +2003,15 @@ fn destructor_nested_callable_does_not_inherit_receiver_abandonment() {
         r#"
         module app;
 
+        struct Child
+        {
+            finalize() {}
+        }
+
         struct Owner
         {
+            child: Child;
+
             destruct()
             {
                 let identity = lambda(pos value: bool) -> bool
@@ -2026,16 +2037,14 @@ fn destructor_nested_callable_does_not_inherit_receiver_abandonment() {
     let bound = compilation.bound_unit(key.clone()).unwrap();
     let nested = bound.value().nested_units().first().unwrap().clone();
 
-    for (key, abandonment) in [(key, true), (nested, false)] {
+    for (key, receiver_cleanup) in [(key, true), (nested, false)] {
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered_mir(&lowered);
 
         assert_eq!(
-            mir.storages()
-                .iter()
-                .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(1))),
-            abandonment,
-            "only the destructor receives the hidden abandonment argument"
+            mir.cleanup_continuation().is_some(),
+            receiver_cleanup,
+            "only the destructor publishes receiver cleanup entries"
         );
     }
 }

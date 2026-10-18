@@ -264,7 +264,7 @@ impl Compilation {
             }
             MirHelperReference::Quiesce(_)
             | MirHelperReference::StaticFinalize(_)
-            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Destroy(_, _)
             | MirHelperReference::Cleanup { .. } => {
                 if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
                     return Ok(None);
@@ -300,8 +300,9 @@ impl Compilation {
             MirHelperReference::StaticFinalize(ty) => MirHelperReference::StaticFinalize(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),
-            MirHelperReference::Destroy(ty) => MirHelperReference::Destroy(
+            MirHelperReference::Destroy(ty, disposition) => MirHelperReference::Destroy(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+                *disposition,
             ),
             MirHelperReference::Cleanup { phase, ty } => MirHelperReference::Cleanup {
                 phase: *phase,

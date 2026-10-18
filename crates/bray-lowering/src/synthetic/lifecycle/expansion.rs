@@ -92,8 +92,16 @@ fn selected_cleanup(
             (MirGeneratedLifecycleRole::Quiesce, place, collection)
         }
         MirOperationKind::Destroy {
-            place, collection, ..
-        } => (MirGeneratedLifecycleRole::Destroy, place, collection),
+            place,
+            collection,
+            abandoned,
+        } => (
+            MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::from_argument(
+                abandoned.as_ref(),
+            )),
+            place,
+            collection,
+        ),
         _ => return None,
     };
 
@@ -155,7 +163,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let (role, place, collection) =
             selected_cleanup(&kind).expect("selected structural cleanup retains its collection");
 
-        let finish = if role == MirGeneratedLifecycleRole::Destroy {
+        let finish = if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
             builder
                 .push_block(source.clone(), builder.block_kind(block))
                 .map_err(|cause| self.capacity_error(cause))?
@@ -198,7 +206,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let end =
             self.expand_lifecycle_action(builder, block, source, role, place.clone(), abi, action)?;
 
-        if role == MirGeneratedLifecycleRole::Destroy {
+        if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
             builder.set_terminator(
                 end,
                 source.clone(),
@@ -221,7 +229,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.capacity_error(cause))?;
         }
 
-        let completed = if role == MirGeneratedLifecycleRole::Destroy {
+        let completed = if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
             finish
         } else {
             end

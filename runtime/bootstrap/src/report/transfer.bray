@@ -108,7 +108,7 @@ trusted internal func suppress_report(pos report: PanicReportData, pos suppresse
     )
     ensures(trusted native_report_callbacks(report = &result))
 {
-    let (mut primary, mut chain, mut incident_records) = if report.primary_present == 0
+    let (primary, mut chain, mut incident_records) = if report.primary_present == 0
     {
         let earlier = trusted retain_report(report);
 
@@ -140,10 +140,7 @@ trusted internal func suppress_report(pos report: PanicReportData, pos suppresse
         std.memory.address_of_mut<ReportRecords>(&mut incident_records)
     );
 
-    primary.outgoing_head = chain.head;
-    primary.outgoing_tail = chain.tail;
-    primary.outgoing_count = chain.count;
-    return primary;
+    return trusted with_report_records(primary, chain);
 }
 
 // Transfer one owned report into its preadmitted record. Its existing incident
@@ -216,11 +213,22 @@ trusted internal func append_report_records(
         std.memory.address_of_mut<ReportRecords>(&mut records)
     );
 
-    report.outgoing_head = existing.head;
-    report.outgoing_tail = existing.tail;
-    report.outgoing_count = existing.count;
+    return trusted with_report_records(report, existing);
+}
 
-    if existing.count != 0 && report.consumer == 0
+// Install a complete incident chain while preserving the native callback contract.
+trusted internal func with_report_records(
+    pos mut report: PanicReportData,
+    pos records: ReportRecords
+) -> PanicReportData
+    requires(trusted native_report_callbacks(report = &report))
+    ensures(trusted native_report_callbacks(report = &result))
+{
+    report.outgoing_head = records.head;
+    report.outgoing_tail = records.tail;
+    report.outgoing_count = records.count;
+
+    if records.count != 0 && report.consumer == 0
     {
         report.consumer = trusted consume_address();
     }

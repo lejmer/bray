@@ -294,16 +294,19 @@ func main() -> (i32, i32)
     let output = formatted(source);
 
     assert!(output.text().contains("yield (2, 0);"), "{}", output.text());
+
     assert!(
         output.text().contains("break (value.0, value.1);"),
         "{}",
         output.text()
     );
+
     assert!(
         output.text().contains("return identity(result);"),
         "{}",
         output.text()
     );
+
     assert_valid_and_idempotent(&output);
 }
 
