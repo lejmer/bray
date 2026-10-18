@@ -267,6 +267,23 @@ implementation is claimed. BRA-505 still must finish ordinary shared continuatio
 Future integration and retained-payload native acceptance. Do not count synchronous MIR tests
 as proof of those paths.
 
+## Source allocation-denial acceptance
+
+The ordinary-finalization native fixture now denies backing allocation after FailingOwner
+admission and keeps denial active through suspension, typed-error retention, owner destruction
+and report disposal. Development and release pass with zero attempted backing allocations,
+the 2 KiB-aligned payload intact, its finalizer skipped and exactly one payload destruction.
+The shared C probe is also used by the existing bootstrap reentry and allocation checks.
+This observes the Bray allocator boundary, not every allocator used by the process.
+
+The fixture raises an empty-message panic. A debugger trace of the earlier nonempty message
+showed one 16-byte request for the panic message snapshot, before the requested panic was
+raised. That source operation follows the existing catchable allocation-failure contract.
+It is not evidence of allocation by mandatory incident transfer. No runtime implementation
+was changed for this acceptance check. Full native smoke passes in
+`bra-505-allocation-native.log`, including started tasks in both profiles. Retained errors
+with child work and generated resumable traversal remain outstanding.
+
 ## Remaining implementation and acceptance
 
 | Obligation | Owner and required work |

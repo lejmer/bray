@@ -1,8 +1,21 @@
-module ordinary_finalization;
+@link(name = "bray_allocation_probe")
+trusted module ordinary_finalization;
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_begin")
+extern trusted func deny_allocation() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_end")
+extern trusted func restore_allocation(pos before: u32) -> u32
+    uses(foreign_call);
 
 using std.task;
 
 internal static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static ALLOCATIONS: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
 internal static ERRORS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
@@ -135,25 +148,28 @@ struct FailingOwner
     }
 }
 
-async func fail()
+trusted async func fail()
+    uses(foreign_call)
 {
     let owner = FailingOwner
     {
     };
 
-    panic("original failure");
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+    panic("");
 }
 
-async func handle_failure()
+trusted async func handle_failure()
 {
     let _ = catch
     {
-        await fail();
+        await trusted fail();
         yield unit;
     };
 }
 
-async func main()
+trusted async func main()
+    uses(foreign_call)
 {
     await ordinary();
     assert(core.atomic.load<usize, 1>(&COUNT) == 4, "ordinary ownership ends did not finalize exactly once");
@@ -161,6 +177,10 @@ async func main()
     await inactive();
     assert(core.atomic.load<usize, 1>(&COUNT) == 7, "inactive captures did not finalize exactly once");
 
-    await handle_failure();
+    await trusted handle_failure();
+
+    let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+
+    assert(attempts == 0, "mandatory cleanup requested fresh backing after admission");
     assert(core.atomic.load<usize, 1>(&ERRORS) == 2, "retained error was not destroyed");
 }

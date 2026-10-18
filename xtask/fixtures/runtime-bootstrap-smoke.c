@@ -16,10 +16,6 @@
 #include <sched.h>
 #endif
 
-static atomic_bool reject_allocations;
-static atomic_uint allocation_attempts;
-static atomic_uint live_allocations;
-static atomic_size_t allocated_bytes;
 static atomic_bool reenter_allocation;
 static atomic_bool reenter_deallocation;
 static unsigned deallocation_reentries;
@@ -95,10 +91,8 @@ extern uint32_t bray_runtime_thread_attachment_mark_main(void);
 extern uint64_t bray_runtime_current_native_thread_identity(void);
 extern uint64_t bray_runtime_main_native_thread_identity(void);
 
-static void* allocate_report_memory(size_t bytes, size_t alignment)
+static void before_allocation(void)
 {
-    atomic_fetch_add(&allocation_attempts, 1);
-
     if (atomic_exchange(&reenter_allocation, 0))
     {
         uint32_t status = bray_runtime_thread_attachment_enter();
@@ -107,47 +101,13 @@ static void* allocate_report_memory(size_t bytes, size_t alignment)
         if (status == 0)
             atomic_store(&recursive_attachment_leave_status, bray_runtime_thread_attachment_leave());
     }
-
-    if (atomic_load(&reject_allocations))
-        return NULL;
-
-    if (alignment > _Alignof(max_align_t))
-        abort();
-
-    void* allocation = malloc(bytes);
-
-    if (allocation != NULL)
-    {
-        atomic_fetch_add(&live_allocations, 1);
-        atomic_fetch_add(&allocated_bytes, bytes);
-    }
-
-    return allocation;
 }
 
-#ifdef _WIN32
-void* _aligned_malloc(size_t bytes, size_t alignment)
+static void before_release(void)
 {
-    return allocate_report_memory(bytes, alignment);
+    if (atomic_exchange(&reenter_deallocation, 0))
+        reenter_pool_on_release();
 }
-
-void _aligned_free(void* memory)
-{
-    if (memory != NULL)
-    {
-        atomic_fetch_sub(&live_allocations, 1);
-        if (atomic_exchange(&reenter_deallocation, 0))
-            reenter_pool_on_release();
-    }
-
-    free(memory);
-}
-#else
-void* aligned_alloc(size_t alignment, size_t bytes)
-{
-    return allocate_report_memory(bytes, alignment);
-}
-#endif
 
 typedef struct ProductHostObservation
 {
@@ -2493,6 +2453,9 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
 
 int main(void)
 {
+    allocation_callback = before_allocation;
+    release_callback = before_release;
+
     int attachment_status = check_primitive_attachment();
 
     if (attachment_status != 0)
