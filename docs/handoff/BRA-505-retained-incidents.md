@@ -33,7 +33,7 @@ Base: feature/bra-561-compiler-described-activation, reviewed PR #611 at 7a25438
 BRA-619 recovery: 6bbcb4a3 on feature/bra-619-complete-selected-scope-native-cleanup.
 Preserve all branches and the user's main checkout. Do not replay older stack work.
 
-Current pushed checkpoint: b993157fd, including the body/tail implementation, audit fixes,
+Current pushed checkpoint: e31ab120e, including the body/tail implementation, audit fixes,
 initializer repair and the user's fixture formatting. PR comment records this checkpoint. Independent review 5560583230 preceded active human architectural
 review. Do not launch another review agent unless asked. PR #612 stays draft and BRA-505
 stays in progress until connected native acceptance and the remaining boundary audit pass.
@@ -229,7 +229,7 @@ under with_static_cleanup_context. Linked generated callbacks have process-image
 Finish exact origin/root and imported/native-provider acceptance. Do not add an attachment
 owner simply because Record stores only its backing lease.
 
-## Active receiver cleanup contract, uncommitted
+## Checked receiver cleanup contract
 
 The source destructor body remains synchronous. Its implicit remaining receiver parts execute
 in the consuming caller's established continuation. Ordinary locals and explicit operations
@@ -273,26 +273,53 @@ through imported type identities. Earlier current-semantic batches passed 204 sy
 query, 111 source trusted-contract, 18 lifecycle export and 11 native emission tests. Earlier
 production authority coverage passed all 257 cases in 844.89s. Do not repeat that unchanged
 expensive suite casually. The latest review batch passes all 11 native emission, 18 lifecycle export and 111 source
-contract cases. Rustfmt, release mutating style and Bray format also pass. The combined release build completed in 2m14s. Native smoke is running in exec session 99222. The preceding core/lifecycle test session 27581 finished.
+contract cases. Rustfmt, release mutating style and Bray format also pass. The combined release build completed in 2m14s. Full native smoke passed in both profiles. All build, test and debug sessions have finished.
 
 Logs use target/bra-505-review-*.log. Latest failing retained product is
 target/native/bra-505/bray-runtime-artifact-smoke-JEcyhL/ordinary-finalization-development.
 The operation trace is target/bra-505-operation-trace.log. Temporary Python debug-event scripts
 own only their native child, close handles and terminate it on bounded exit. No debug process
-remains. The active release native smoke includes the reachability fix.
+remains. The completed release native smoke includes the reachability fix and passes ordinary-finalization in both profiles. Successful products use normal xtask temporary cleanup. The retained JEcyhL directory above remains the previous failing product, not the passing executable.
 
-The latest isolated release standard-library planning time was 22.4s, emission 12.4s, total 38.9s.
-The preceding isolated run was 21.0s, versus baseline 18.6-19.1s. These do not show the debug-tool
-5-6x slowdown. Keep the measurable release overhead visible and do not claim identical cost.
-Native bootstrap passed its two invalid-exit checks, aligned cleanup backing, denied allocation,
-foreign entry and depth 2048 activation with bounded 4208-byte stack. Async-values passed both
-profiles. Ordinary-finalization failure stopped later smoke cases, which remain outstanding.
+The latest isolated release standard-library planning time is 19.7s, emission 10.5s, total 33.5s.
+This matches the user's usual 17-20s planning range. The full native smoke passes bootstrap,
+foreign entry, aligned cleanup backing, denied allocation, depth 2048 bounded-stack activation,
+async-values, ordinary-finalization and async-tasks in both development and release. Synchronous
+entry 100k took 0.191s, foreign 100k took 0.198s, depth 2048 step-stack 4208 bytes. No debug xtask was used.
 
-Root/provider acceptance remains the explicit audit above. Current actual LLVM root/foreign
-callbacks consume reports inside their entry. Static cleanup drains incidents before receiver
-and TLS retirement. Linked callback providers have process-image lifetime. Finish exact native
-and imported return-path evidence before claiming acceptance. Keep no hidden blocking root or
-new Rust frame. All current source changes remain uncommitted, latest pushed commit b993157fd.
+Current pushed checkpoint is e31ab120e. PR #612 remains draft during the final boundary audit.
+Human duplication findings are fixed and pushed. Review evidence is PR review 5560583230,
+followed by active human review. Do not start a fresh agent cycle unless the human asks.
+
+## Remaining native boundary audit
+
+Source-Future retained incident acceptance now passes end to end. Do not infer that every
+unmigrated native producer satisfies the new disposition from the simple task smoke.
+
+- Concrete open task finding: lower_call_operation creates a source-visible inactive join/cancel
+  Future using the existing Rust TaskObservation. Its resolve_lifecycle treats every non-completed
+  exit alike and resume consumes the completed payload through resolve_owned_task. That cannot
+  establish retained Quiescence followed by later destruction. It also allocates an Arc wake
+  callback while polling. The existing BRA-560 description now records this composition and
+  denied-allocation acceptance explicitly. Its migration owns this adapter and depends on the
+  shared BRA-505 cleanup. Do not extend a Rust frame or add a second cleanup mechanism to hide it.
+  Determine the coherent completion boundary before marking all BRA-505 quiescence accepted.
+- Current native readiness consumes an actual task lane while installed. Outside a task it
+  deliberately grants no workload/Main authority and checks origin through a live attachment.
+  Foreign entry must retain that restriction. Existing BRA-567 now records retaining genuine
+  root execution authority through post-terminal report destruction and restoring nested foreign
+  entry, without an always-ready bypass or inference from thread identity. Map actual callers
+  before treating this as proved for every root/provider family.
+- Exact provider order: synchronous and foreign generated callbacks consume reports inside their
+  entry. Async take_host_result consumes panic reports before resolve_host_result retires the
+  root, and native runtime retains its thread/attachment until shutdown. Product static cleanup
+  drains incidents before receiver and TLS retirement. Linked generated callbacks have process
+  image lifetime. Independently unloaded providers and suspending host fallback remain the
+  existing BRA-555/507 consumers, not new owners in this PR.
+
+Continue the authorized stack. BRA-626 is independent of these native adapter findings and
+must remove construction workarounds before BRA-619. Keep all acceptance and PR status honest.
+Do not mark BRA-505 Done or claim the native adapter audit complete solely from passing smoke.
 
 ## Efficient execution
 
