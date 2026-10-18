@@ -386,7 +386,7 @@ impl ControlFlowGraph {
         replacements: &std::collections::BTreeSet<BoundExpressionId>,
         inputs: &std::collections::BTreeMap<
             BoundExpressionId,
-            std::collections::BTreeSet<bray_symbols::CallableInstanceData>,
+            std::collections::BTreeSet<bray_bound_tree::BodyBehaviorCall>,
         >,
     ) {
         for operation in &mut self.operations {

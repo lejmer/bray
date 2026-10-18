@@ -10,11 +10,11 @@ use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
 use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, value};
 use crate::semantic::model::{
-    InterfaceConstantTerm, InterfaceConstantValueKind, InterfaceDependencyGuard,
-    InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceCallablePhaseBehavior, InterfaceConstantTerm, InterfaceConstantValueKind,
+    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticRecord,
-    InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceType,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfacePredicateSummary,
+    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceType,
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
@@ -327,6 +327,34 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
     }
 
+    fn include_predicate(&mut self, predicate: InterfacePredicateSummary) {
+        self.enqueue(PendingRecord::DependencyContract(
+            predicate.dependency_contract.raw(),
+        ));
+
+        if let Some(term) = predicate.condition {
+            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+        }
+    }
+
+    fn include_callable_behavior(&mut self, behavior: &InterfaceCallablePhaseBehavior) {
+        self.enqueue(PendingRecord::DependencyContract(
+            behavior.dependency_contract.raw(),
+        ));
+
+        for ty in &*behavior.receiver_cleanup {
+            self.enqueue(PendingRecord::Type(ty.raw()));
+        }
+
+        for predicate in behavior
+            .predicate_requirements
+            .iter()
+            .chain(behavior.predicate_guarantees.iter())
+        {
+            self.include_predicate(*predicate);
+        }
+    }
+
     fn include_callable_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let contract = self.tables.contracts.callables.decode(
             index,
@@ -348,13 +376,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         {
             match clause.value {
                 crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
-                    self.enqueue(PendingRecord::DependencyContract(
-                        predicate.dependency_contract.raw(),
-                    ));
-
-                    if let Some(term) = predicate.condition {
-                        self.enqueue(PendingRecord::ConstantTerm(term.raw()));
-                    }
+                    self.include_predicate(predicate);
                 }
                 crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
                     subject,
@@ -369,23 +391,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         for behavior in std::iter::once(&contract.invocation_behavior)
             .chain(contract.deferred_execution_behavior.iter())
         {
-            self.enqueue(PendingRecord::DependencyContract(
-                behavior.dependency_contract.raw(),
-            ));
-
-            for predicate in behavior
-                .predicate_requirements
-                .iter()
-                .chain(behavior.predicate_guarantees.iter())
-            {
-                self.enqueue(PendingRecord::DependencyContract(
-                    predicate.dependency_contract.raw(),
-                ));
-
-                if let Some(term) = predicate.condition {
-                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
-                }
-            }
+            self.include_callable_behavior(behavior);
         }
 
         self.records.callable_contracts.insert(index, contract);
@@ -500,13 +506,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         match constraint.kind {
             crate::InterfaceConstraintKind::Predicate(predicate) => {
-                self.enqueue(PendingRecord::DependencyContract(
-                    predicate.dependency_contract.raw(),
-                ));
-
-                if let Some(term) = predicate.condition {
-                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
-                }
+                self.include_predicate(predicate);
             }
             crate::InterfaceConstraintKind::TraitSatisfaction {
                 subject,
@@ -779,29 +779,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 for behavior in
                     std::iter::once(invocation_behavior).chain(deferred_execution_behavior.iter())
                 {
-                    for predicate in behavior
-                        .predicate_requirements
-                        .iter()
-                        .chain(behavior.predicate_guarantees.iter())
-                    {
-                        self.enqueue(PendingRecord::DependencyContract(
-                            predicate.dependency_contract.raw(),
-                        ));
-
-                        if let Some(term) = predicate.condition {
-                            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
-                        }
-                    }
-                }
-
-                self.enqueue(PendingRecord::DependencyContract(
-                    invocation_behavior.dependency_contract.raw(),
-                ));
-
-                if let Some(behavior) = deferred_execution_behavior {
-                    self.enqueue(PendingRecord::DependencyContract(
-                        behavior.dependency_contract.raw(),
-                    ));
+                    self.include_callable_behavior(behavior);
                 }
             }
             InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}

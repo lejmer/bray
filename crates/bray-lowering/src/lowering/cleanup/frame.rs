@@ -91,7 +91,7 @@ impl Lowerer<'_> {
             self.terminal_state_block(source, super::control::TerminalState::Cancelled)?;
 
         self.finish_abnormal_cleanup(
-            bray_ir::MirCleanupPhase::LifecycleResolution,
+            MirCleanupPhase::LifecycleResolution,
             entry,
             source,
             crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -144,7 +144,12 @@ impl Lowerer<'_> {
         } else {
             self.input
                 .suspension(occurrence)
-                .expect("suspended frame retains checked broadcast obligations")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "suspended frame retains checked broadcast obligations: occurrence={occurrence:?}, unit={:?}",
+                        self.input.unit().key()
+                    )
+                })
                 .cancellation_broadcast()
         };
 

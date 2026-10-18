@@ -33,8 +33,8 @@ Base: feature/bra-561-compiler-described-activation, reviewed PR #611 at 7a25438
 BRA-619 recovery: 6bbcb4a3 on feature/bra-619-complete-selected-scope-native-cleanup.
 Preserve all branches and the user's main checkout. Do not replay older stack work.
 
-Current pushed recovery checkpoint: 2463efb37. The subsequent body/tail implementation and
-audit fixes are UNCOMMITTED. Independent review 5560583230 preceded active human architectural
+Current pushed checkpoint: b993157fd, including the body/tail implementation, audit fixes,
+initializer repair and the user's fixture formatting. PR comment records this checkpoint. Independent review 5560583230 preceded active human architectural
 review. Do not launch another review agent unless asked. PR #612 stays draft and BRA-505
 stays in progress until connected native acceptance and the remaining boundary audit pass.
 
@@ -209,12 +209,15 @@ local constructors, payload calls, nullable construction and ordinary call argum
 
 Earlier directional checks passed 32 returned-value and 111 trusted-contract cases. The initial
 latest authority filter accidentally selected zero tests and supplies no evidence. The corrected
-compilation::trusted_contracts batch selects 257 tests, including production host fixtures,
-and is RUNNING in session64120. Keep its cost separate from the earlier 111-case subset.
+compilation::trusted_contracts batch passes all 257 tests, including production host fixtures,
+in 844.89s. Keep its cost separate from the earlier 111-case subset. Do not rerun this unchanged
+batch to repeat already-established evidence.
 
 The release rebuild completed in 3m47s. Rustfmt, release cargo xtask style and cargo xtask format
-pass. Logs use target/bra-505-contextual-*.log. Fresh native acceptance is RUNNING in session95216,
-log target/bra-505-contextual-native-smoke.log. Standard-library planning now passes in 30.8s
+pass. Logs use target/bra-505-contextual-*.log. Fresh native acceptance passed runtime construction,
+bootstrap C, foreign entry and async-values in both profiles, then panicked on missing checked
+broadcast obligations in lowering/cleanup/frame.rs. Log target/bra-505-contextual-native-smoke.log.
+Standard-library planning now passes in 30.8s
 while the production host authority suite runs concurrently. This is not an isolated cost sample.
 The prior native run at target/bra-505-directional-native-smoke.log failed contextual variants,
 channel authority and thread borrows before this narrowed repair. Do not treat it as current proof.
@@ -225,6 +228,71 @@ cleanup consumes finalizer incidents before receiver destruction and thread-stat
 under with_static_cleanup_context. Linked generated callbacks have process-image lifetime.
 Finish exact origin/root and imported/native-provider acceptance. Do not add an attachment
 owner simply because Record stores only its backing lease.
+
+## Active receiver cleanup contract, uncommitted
+
+The source destructor body remains synchronous. Its implicit remaining receiver parts execute
+in the consuming caller's established continuation. Ordinary locals and explicit operations
+retain their source execution context. The owning composite storage analysis records remaining
+receiver owner types after guarded moves and absence. CallablePhaseBehavior exports those types
+through existing semantic metadata, substitution, structural identity and native MIR. Caller
+completion checking consumes checked CallableContractsQuery results and existing lifecycle
+completion certification. No result-dependency adapter, runtime object or language addition.
+
+Pending input cleanup now uses resolved value types and preserves Invocation versus
+DeferredExecution. CleanupShapeResolver supplies the same cached structural requirements to
+execution, storage and async checking. Cohesive cleanup submodules replace the oversized root.
+
+Human review identified copied initializer and predicate traversals. BoundTree::local_initializers
+now owns the single binding/constant scan, used by dependency resolution and async checking.
+Selective interface decoding shares callable behavior and predicate edge traversal across
+callable contracts, callable types and constraints. No new traversal framework is introduced.
+
+## Native findings and verification, 2026-10-19
+
+Fresh release tools exposed two connected lowering defects and one publication defect.
+
+- Expected capture cancellation reached fixed-result panic propagation. set_destination now
+  publishes protected-frame terminal outcomes outside broadcasts. finish_panic and
+  finish_cancellation no longer duplicate this choice. Broadcast callbacks retain their protocol.
+- Staged PDB basenames differed from the name embedded by the linker. Per-artifact private
+  staging directories now preserve published basenames. All 113 emitter tests pass, and the
+  latest retained product resolves its PDB automatically without a copied sidecar.
+- The next native run crashed at retained error destruction, 0xc0000005. A bounded debugger
+  proved that the future was valid through quiescence, destroyed successfully, then visited
+  again after a normal tail reached Unreachable. Source MIR showed normal tail bb119 entering
+  bb61 Unreachable. Lowerer::is_reachable omitted deferred receiver handoffs, although it already
+  included pending abnormal-cleanup edges. It now includes those existing receiver edges too.
+  The regression checks normal completion through ordinary and abandoned receiver tails.
+  This fixes logical reachability in its owning lowering, without restoring consumed values,
+  weakening native authority, adding a validation pass or a runtime workaround.
+
+Current checks pass 124 bound-tree, 331 checker, 45 MIR, 38 lowering and 191 package-interface
+tests, plus all 30 lifecycle lowering cases. Nonempty receiver cleanup metadata round-trips
+through imported type identities. Earlier current-semantic batches passed 204 symbol, 312 source
+query, 111 source trusted-contract, 18 lifecycle export and 11 native emission tests. Earlier
+production authority coverage passed all 257 cases in 844.89s. Do not repeat that unchanged
+expensive suite casually. The latest review batch passes all 11 native emission, 18 lifecycle export and 111 source
+contract cases. Rustfmt, release mutating style and Bray format also pass. The combined release build completed in 2m14s. Native smoke is running in exec session 99222. The preceding core/lifecycle test session 27581 finished.
+
+Logs use target/bra-505-review-*.log. Latest failing retained product is
+target/native/bra-505/bray-runtime-artifact-smoke-JEcyhL/ordinary-finalization-development.
+The operation trace is target/bra-505-operation-trace.log. Temporary Python debug-event scripts
+own only their native child, close handles and terminate it on bounded exit. No debug process
+remains. The active release native smoke includes the reachability fix.
+
+The latest isolated release standard-library planning time was 22.4s, emission 12.4s, total 38.9s.
+The preceding isolated run was 21.0s, versus baseline 18.6-19.1s. These do not show the debug-tool
+5-6x slowdown. Keep the measurable release overhead visible and do not claim identical cost.
+Native bootstrap passed its two invalid-exit checks, aligned cleanup backing, denied allocation,
+foreign entry and depth 2048 activation with bounded 4208-byte stack. Async-values passed both
+profiles. Ordinary-finalization failure stopped later smoke cases, which remain outstanding.
+
+Root/provider acceptance remains the explicit audit above. Current actual LLVM root/foreign
+callbacks consume reports inside their entry. Static cleanup drains incidents before receiver
+and TLS retirement. Linked callback providers have process-image lifetime. Finish exact native
+and imported return-path evidence before claiming acceptance. Keep no hidden blocking root or
+new Rust frame. All current source changes remain uncommitted, latest pushed commit b993157fd.
 
 ## Efficient execution
 

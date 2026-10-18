@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
-    BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinements,
-    CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow, StoragePlan,
+    BodyBehaviorCall, BodyBehaviorPhase, BoundBlockItem, BoundCallResult, BoundCallableTarget,
+    BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedRefinements, CheckedSemanticSelections, Liveness,
+    SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -73,7 +73,7 @@ where
 
     let broadcast_owners = broadcast_owners(&storage_requirements, storage);
 
-    let local_initializers = local_initializers(request);
+    let local_initializers = request.unit().tree().local_initializers();
     let mut deferred_calls = BTreeMap::new();
     let mut active = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
@@ -224,7 +224,10 @@ where
         }
     }
 
-    if execution == Some(CallableExecution::Asynchronous) {
+    if execution == Some(CallableExecution::Asynchronous)
+        || (request.unit().key().kind() == bray_bound_tree::BoundUnitKind::CallableBody
+            && request.unit().key().declared_owner().kind() == bray_symbols::SymbolKind::Destructor)
+    {
         for suspension in cleanup_suspensions(
             cleanup_deferred_calls(&scope_exits, &replacements, cleanup),
             flow,
@@ -321,23 +324,11 @@ fn cleanup_deferred_calls(
     replacements: &[bray_bound_tree::StorageReplacementPlan],
     cleanup: &crate::analysis::guarantee::CleanupPlan,
 ) -> BTreeMap<bray_bound_tree::AnyBoundNodeId, BTreeSet<BodyBehaviorCall>> {
+    // Suspension entries own their call sets while the cleanup plan remains shared.
     let mut calls = cleanup
         .input_cleanup_calls
         .iter()
-        .map(|(expression, callees)| {
-            (
-                (*expression).into(),
-                callees
-                    .iter()
-                    .map(|callable| {
-                        BodyBehaviorCall::new(
-                            BoundCallableTarget::Declaration(*callable),
-                            BodyBehaviorPhase::DeferredExecution,
-                        )
-                    })
-                    .collect::<BTreeSet<_>>(),
-            )
-        })
+        .map(|(expression, calls)| ((*expression).into(), calls.clone()))
         .collect::<BTreeMap<_, _>>();
 
     let scope_accesses = plans.iter().flat_map(|plan| {
@@ -362,12 +353,7 @@ fn cleanup_deferred_calls(
 
         let selected = calls.entry(exit).or_default();
 
-        for callable in cleanup.asynchronous_finalizers(access) {
-            selected.insert(BodyBehaviorCall::new(
-                BoundCallableTarget::Declaration(callable),
-                BodyBehaviorPhase::DeferredExecution,
-            ));
-        }
+        selected.extend(cleanup.deferred_cleanup_calls(access));
     }
 
     calls
@@ -435,42 +421,6 @@ fn add_task_operation<C: CheckerRequestContext + ?Sized>(
 
     if task_operations.insert(expression, operation).is_none() {
         add_task_context_diagnostic(request, execution, expression, kind, diagnostics);
-    }
-}
-
-fn local_initializers<C>(
-    request: CheckerUnitView<'_, C>,
-) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut initializers = BTreeMap::new();
-
-    for (_, block) in request.unit().tree().blocks() {
-        collect_block_initializers(block, &mut initializers);
-    }
-
-    initializers
-}
-
-fn collect_block_initializers(
-    block: &BoundBlock,
-    initializers: &mut BTreeMap<AnyLocalSymbolId, BoundExpressionId>,
-) {
-    for item in block.items() {
-        match item {
-            BoundBlockItem::LocalBinding(binding) => {
-                for symbol in binding.bindings() {
-                    initializers.insert((*symbol).into(), binding.initializer());
-                }
-            }
-            BoundBlockItem::LocalConstant(constant) => {
-                if let Some(symbol) = constant.symbol() {
-                    initializers.insert(symbol.into(), constant.initializer());
-                }
-            }
-            BoundBlockItem::Expression(_) => {}
-        }
     }
 }
 

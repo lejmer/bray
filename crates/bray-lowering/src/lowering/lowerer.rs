@@ -300,6 +300,11 @@ impl<'unit> Lowerer<'unit> {
             self.abnormal_cleanup_machine
                 .iter()
                 .flat_map(move |machine| machine.pending_successors(block))
+                .chain(
+                    self.receiver_cleanup
+                        .iter()
+                        .flat_map(move |receiver| receiver.pending_successors(block)),
+                )
         })
     }
 

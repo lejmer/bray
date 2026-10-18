@@ -55,6 +55,31 @@ impl PreparedBodyAnalysis {
         self.cleanup.callees()
     }
 
+    /// Returns whether selected consuming-receiver cleanup can execute without suspension.
+    /// Completion certification comes from its owning execution-guarantee analysis.
+    pub fn destruction_is_synchronous<C, F>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        ty: TypeId,
+        completed: &mut F,
+    ) -> Result<bray_diagnostics::DiagnosticResult<bool>, crate::CheckerQueryError<C::UpstreamError>>
+    where
+        C: CheckerRequestContext
+            + crate::CheckerSemanticQueryProvider<bray_symbols::CallableContractsQuery>
+            + ?Sized,
+        F: FnMut(
+            bray_bound_tree::LifecycleCallable,
+        ) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>>,
+    {
+        let mut resolver = self.cleanup_shapes(request);
+        let synchronous = resolver.destruction_is_synchronous(ty, completed)?;
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            synchronous,
+            resolver.diagnostics,
+        ))
+    }
+
     pub(crate) const fn kind(&self) -> BoundUnitKind {
         self.kind
     }
@@ -107,22 +132,25 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let mut cleanup =
-        match super::guarantee::CleanupPlan::prepare(&mut cleanup_shapes, request, storage) {
-            Ok(result) => {
-                let (cleanup, diagnostics) = result.into_parts();
+    let cleanup = match super::guarantee::CleanupPlan::prepare(
+        &mut cleanup_shapes,
+        request,
+        storage,
+        expressions,
+        &graph,
+    ) {
+        Ok(result) => {
+            let (cleanup, diagnostics) = result.into_parts();
 
-                cleanup_shapes.diagnostics.add_range(diagnostics);
+            cleanup_shapes.diagnostics.add_range(diagnostics);
 
-                cleanup
-            }
-            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(crate::CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
-
-    cleanup.select_input_cleanup(request.unit(), storage, &graph);
+            cleanup
+        }
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     graph.select_cleanup_suspensions(
         &cleanup.asynchronous_scopes(storage),

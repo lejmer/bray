@@ -209,6 +209,13 @@ pub(super) fn encode_callable_behavior(
     encoder.write_u32(behavior.dependency_contract.raw());
     encoder.write_u32(behavior.current_run_cancellation.to_wire());
     encoder.write_u32(u32::from(behavior.may_unwind));
+
+    write_count(encoder, behavior.receiver_cleanup.len());
+
+    for ty in &*behavior.receiver_cleanup {
+        encoder.write_u32(ty.raw());
+    }
+
     write_count(encoder, behavior.execution_properties.len());
 
     for property in &*behavior.execution_properties {

@@ -739,7 +739,20 @@ mod tests {
 
     #[test]
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
-        let (surface, semantics) = fixture();
+        let (surface, mut semantics) = fixture();
+
+        let mut types = semantics.types.to_vec();
+
+        let InterfaceType::Callable {
+            deferred_execution_behavior: Some(behavior),
+            ..
+        } = &mut types[3]
+        else {
+            panic!("fixture retains its deferred callable phase");
+        };
+
+        behavior.receiver_cleanup = vec![InterfaceTypeId::new(0), InterfaceTypeId::new(2)].into();
+        semantics.types = types.into();
 
         let limits = InterfaceValidationLimits::default();
 
@@ -839,6 +852,11 @@ mod tests {
         );
 
         assert_eq!(deferred.execution_requirements().len(), 1);
+
+        assert_eq!(
+            deferred.receiver_cleanup(),
+            [imported.types()[0], imported.types()[2]]
+        );
     }
 
     #[test]

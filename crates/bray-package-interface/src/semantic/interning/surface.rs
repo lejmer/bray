@@ -323,6 +323,16 @@ impl InternState {
             dependency,
             input.current_run_cancellation,
         )
+        .with_receiver_cleanup(
+            input
+                .receiver_cleanup
+                .iter()
+                .map(|ty| {
+                    self.type_id(*ty)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
         .with_may_unwind(input.may_unwind)
         .with_execution_properties(input.execution_properties.iter().copied())
         .with_predicates(

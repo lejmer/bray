@@ -7,12 +7,16 @@ Physical backing, entry authority and incident consumption landed in
 [#608](https://github.com/lejmer/bray/pull/608), [#609](https://github.com/lejmer/bray/pull/609)
 and [#610](https://github.com/lejmer/bray/pull/610).
 BRA-561 is implemented and independently reviewed in [#611](https://github.com/lejmer/bray/pull/611).
-Continue BRA-505 in [#612](https://github.com/lejmer/bray/pull/612), then BRA-619,
+Continue BRA-505 in [#612](https://github.com/lejmer/bray/pull/612), then [BRA-626](https://linear.app/bray-lang/issue/BRA-626), then BRA-619,
 with one reviewed stacked PR per issue. Do not merge without user approval.
 
 Use [the active BRA-505 record](BRA-505-retained-incidents.md) for the branch,
 requirements, evidence and next work. [BRA-619 acceptance](BRA-619-remaining-work.md)
-remains required after the shared incident prerequisite. Its earlier selected-scope
+remains required after the shared incident prerequisite and the BRA-626 construction-conversion repair.
+BRA-626 blocks BRA-619 in Linear. Its acceptance includes a repo-wide audit and removal of construction
+conversion workarounds, including the prepared nullable local in ordinary-finalization.bray.
+Keep deliberate ownership and witness boundaries. Do not finish BRA-619 while any identified workaround remains.
+Its earlier selected-scope
 implementation is already included. Do not replay the old stack.
 
 ## Contracts and issue ownership
@@ -30,7 +34,7 @@ revalidation is authorized. Discuss a language gap before adding a feature.
 
 Keep only documents used by unfinished work. Completed issue records and superseded proposals
 are removed. Their evidence remains in Git and PR history. Delete the BRA-505 record after its
-acceptance and review are complete, carrying only BRA-619's remaining inputs into its active record.
+acceptance and review are complete, carrying only the remaining BRA-626 and BRA-619 inputs into their active records.
 Delete the BRA-619 record when that issue's implementation, review and fixes are pushed.
 Before finishing the stack, remove its remaining handoffs. Preserve any still-needed architectural
 contract in its owning design documentation and any broader initiative work in its open Linear
@@ -38,7 +42,7 @@ issues, then remove this temporary execution guide, proof, coverage plan and inv
 
 ## Later initiative work
 
-Beyond the current BRA-505/BRA-619 stack, follow the existing issue dependencies, one PR per issue.
+Beyond the current BRA-505/BRA-626/BRA-619 stack, follow the existing issue dependencies, one PR per issue.
 The later sequence includes synchronous teardown/TLS BRA-556/557, synchronous checkpoint BRA-608,
 providers BRA-555, represented owners BRA-506/508/484, task/wait/lane/event/deadline work
 BRA-560/562/563/564/565, workers BRA-566, roots BRA-567, fallback BRA-507 and child test hosts BRA-559.

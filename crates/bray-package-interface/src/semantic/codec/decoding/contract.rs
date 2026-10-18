@@ -110,7 +110,7 @@ pub(super) fn decode_dependency_contract(
 
     for _ in 0..count {
         carriers.push(bray_symbols::DependencyWitnessCarrier::new(
-            crate::InterfaceConstantTermId::new(read_u32(reader)?),
+            InterfaceConstantTermId::new(read_u32(reader)?),
             decode_dependency_projections(reader, limits, context)?,
         ));
     }
@@ -326,6 +326,13 @@ pub(super) fn decode_callable_behavior(
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut receiver_cleanup = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        receiver_cleanup.push(crate::InterfaceTypeId::new(read_u32(reader)?));
+    }
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut execution_properties = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
@@ -341,7 +348,8 @@ pub(super) fn decode_callable_behavior(
         dependency_contract,
         current_run_cancellation,
     )
-    .with_may_unwind(may_unwind);
+    .with_may_unwind(may_unwind)
+    .with_receiver_cleanup(receiver_cleanup);
 
     behavior.predicate_guarantees = predicate_sets
         .pop()

@@ -427,6 +427,14 @@ fn remap_behavior(
     behavior: &mut crate::InterfaceCallablePhaseBehavior,
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
+    behavior.receiver_cleanup = bray_base::sorted_unique_shared_slice(
+        behavior
+            .receiver_cleanup
+            .iter()
+            .map(|ty| maps.type_id(*ty))
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+
     for predicates in [
         &mut behavior.predicate_requirements,
         &mut behavior.predicate_guarantees,

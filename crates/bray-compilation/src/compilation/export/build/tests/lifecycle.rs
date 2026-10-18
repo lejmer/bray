@@ -1653,3 +1653,67 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
         "the exported cleanup retains its incident producer"
     );
 }
+
+#[test]
+fn imported_generic_destructor_tails_retain_their_execution_context() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func pause();
+        struct Child
+        {
+            async finalize()
+            {
+                await pause();
+            }
+        }
+        struct Owner<T>
+        {
+            child: T;
+            destruct()
+            {
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (execution, valid) in [("async ", true), ("", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            {execution}func root(pos owner: example.package.api.Owner<example.package.api.Child>)
+            {{
+            }}
+        "#
+            ),
+        );
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let lowered = consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap();
+
+            assert!(lowered.value().as_ref().unwrap().mir().unwrap().is_valid());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}

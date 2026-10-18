@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
-use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData};
+use bray_symbols::TypeData;
 
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
@@ -53,12 +53,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             operation => operation.node(),
                         };
 
-                        if slot == TypeAssociatedLifecycleSlot::Finalizer {
+                        {
                             let normal = operation.kind().is_normal_cleanup();
 
                             candidate
                                 .cleanup
-                                .entry((node, access, part, normal))
+                                .entry((node, access, part, slot, normal))
                                 .and_modify(|previous| {
                                     previous.evidence.intersect(evidence);
                                 })
@@ -66,8 +66,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .or_insert_with(|| crate::ExecutionCleanup {
                                     callable: lifecycle.call.callable,
                                     result: lifecycle.call.result.completion_type(),
-                                    synchronous: (lifecycle.call.result.execution()
-                                        == bray_symbols::CallableExecution::Synchronous),
+                                    synchronous: lifecycle.call.result.execution()
+                                        == bray_symbols::CallableExecution::Synchronous,
+                                    caller_continuation: self.domain.storage.is_root_access(access)
+                                        && self.domain.storage.root_identity(access).is_some_and(|identity| {
+                                            bray_bound_tree::storage_identity_is_destructor_receiver(
+                                                self.domain.request.unit(), self.domain.storage, identity,
+                                            )
+                                        })
+                                        && matches!(operation.kind(), super::super::model::AnalysisOperationKind::ScopeExit { .. }),
                                     whole,
                                     evidence: evidence.clone(),
                                 });

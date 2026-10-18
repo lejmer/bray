@@ -254,6 +254,7 @@ where
             .with_carriers(carriers)
             .with_returned_input(returned_input),
     )
+    .with_receiver_cleanup(collector.receiver_cleanup)
     .with_cleanup_mutations(collector.cleanup_mutations)
     .with_completions(collector.completions);
 
@@ -366,6 +367,7 @@ where
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
+    pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
     pub(super) has_normal_effects: bool,
@@ -480,6 +482,7 @@ where
             cleanup_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
             effects: BTreeSet::new(),
+            receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
             has_normal_effects: false,
@@ -781,7 +784,7 @@ where
         let observations = if !matches!(
             kind,
             AnalysisOperationKind::Call {
-                phase: crate::analysis::model::AnalysisCallPhase::Attempt,
+                phase: AnalysisCallPhase::Attempt,
                 ..
             }
         ) {
@@ -862,10 +865,8 @@ where
                     .and_then(|path| self.input.variant_payloads.get(path))
             {
                 for payload in payloads {
-                    if let Some(bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                        variant,
-                        ..
-                    }) = payload.projections.last()
+                    if let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
+                        payload.projections.last()
                         && (*variant == active) != value
                     {
                         // The absent variant is an ownership fact even when its payload has no source binding.
@@ -903,7 +904,7 @@ where
 
             if let Some(payload) = access.and_then(|access| {
                 self.storage
-                    .projected_access(access, &[bray_bound_tree::StorageProjection::NullableValue])
+                    .projected_access(access, &[StorageProjection::NullableValue])
             }) {
                 state.mark_absent(payload, StorageAbsence::NoPayload, self.storage);
             }
@@ -954,9 +955,9 @@ where
 
         if let AnalysisOperationKind::Call { invocation, phase } = operation.kind() {
             match invocation {
-                bray_bound_tree::BoundExecutionSite::Node(
-                    bray_bound_tree::AnyBoundNodeId::Expression(_),
-                ) if phase == AnalysisCallPhase::Attempt => {
+                bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(_))
+                    if phase == AnalysisCallPhase::Attempt =>
+                {
                     return None;
                 }
                 bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
@@ -1018,7 +1019,7 @@ where
                     .storage
                     .root_identity(plan.access())
                     .and_then(|identity| self.storage.identity(identity))
-                    .is_some_and(bray_bound_tree::StorageIdentity::is_iteration_storage)
+                    .is_some_and(StorageIdentity::is_iteration_storage)
             {
                 continue;
             }
@@ -1032,9 +1033,7 @@ where
             self.apply_memory_operation(state, operation.kind().node(), refinements.clone())
         };
 
-        if memory_status
-            .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
-        {
+        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
             if let Some(expression) = awaited {
                 if let Some(source) = state
                     .execution

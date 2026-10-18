@@ -20,6 +20,7 @@ pub(in crate::analysis) type Observer<'a> = dyn FnMut(
     ) + 'a;
 
 pub(in crate::analysis) struct LifecycleInvocation<'a> {
+    pub(in crate::analysis) ty: bray_symbols::TypeId,
     pub(in crate::analysis) access: StorageAccessId,
     pub(in crate::analysis) lifecycle: &'a Lifecycle,
     pub(in crate::analysis) completes: bool,
@@ -461,6 +462,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state,
                         mutation,
                         CleanupMutation::Lifecycle(LifecycleInvocation {
+                            ty: *ty,
                             access,
                             lifecycle,
                             completes: always && established && completes,

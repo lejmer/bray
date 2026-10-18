@@ -306,6 +306,7 @@ pub struct StorageFlow {
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
+    receiver_cleanup: Arc<[bray_symbols::TypeId]>,
     cleanup_mutations:
         std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
@@ -416,6 +417,7 @@ impl StorageFlow {
             checked_memory_operations: Arc::from([]),
             assignment_targets: std::collections::BTreeMap::new(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
+            receiver_cleanup: Arc::from([]),
             cleanup_mutations: Default::default(),
             completions: Default::default(),
             replacements: Arc::from([]),
@@ -463,6 +465,21 @@ impl StorageFlow {
         mutation: crate::StorageMutation,
     ) -> Option<&crate::StorageCompletion> {
         self.completions.get(&mutation)
+    }
+
+    /// Publishes represented owners that may remain in a consuming receiver's caller-owned tail.
+    pub fn with_receiver_cleanup(
+        mut self,
+        types: impl IntoIterator<Item = bray_symbols::TypeId>,
+    ) -> Self {
+        self.receiver_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns the checked residual receiver owners, including every reachable cleanup outcome.
+    pub fn receiver_cleanup(&self) -> &[bray_symbols::TypeId] {
+        &self.receiver_cleanup
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.

@@ -86,6 +86,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             })
                 });
 
+                if publish && inherited_tail {
+                    let ty = match &mutation {
+                        CleanupMutation::Opaque { ty, .. } => *ty,
+                        CleanupMutation::Lifecycle(call) => call.ty,
+                        CleanupMutation::Unchanged | CleanupMutation::Recovery => {
+                            unreachable!("receiver tail has a selected cleanup operation")
+                        }
+                    };
+
+                    self.receiver_cleanup.insert(ty);
+                }
+
                 // Remaining receiver parts use the selected tail disposition. Their
                 // ordinary finalizers execute after the body, while abandonment omits them.
                 if !inherited_tail {

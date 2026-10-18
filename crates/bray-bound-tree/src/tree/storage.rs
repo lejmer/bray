@@ -1,8 +1,12 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bray_symbols::AnyLocalSymbolId;
+
 use crate::{
-    BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId, BoundExpression,
-    BoundExpressionId, BoundPattern, BoundPatternId, BoundUnitId, BoundUnitKey, BoundUnitView,
+    BoundBlock, BoundBlockId, BoundBlockItem, BoundCallableBody, BoundCallableBodyId,
+    BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId, BoundUnitId, BoundUnitKey,
+    BoundUnitView,
 };
 
 /// Immutable bound nodes for one checked semantic unit.
@@ -78,6 +82,31 @@ impl BoundTree {
     /// Returns blocks with their unit-local identities.
     pub fn blocks(&self) -> impl ExactSizeIterator<Item = (BoundBlockId, &BoundBlock)> {
         unit_entries(self.unit, &self.blocks, BoundBlockId::from_slot)
+    }
+
+    /// Returns the initializer of each local binding and named local constant.
+    pub fn local_initializers(&self) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId> {
+        let mut initializers = BTreeMap::new();
+
+        for block in self.blocks.iter() {
+            for item in block.items() {
+                match item {
+                    BoundBlockItem::LocalBinding(binding) => {
+                        for symbol in binding.bindings() {
+                            initializers.insert((*symbol).into(), binding.initializer());
+                        }
+                    }
+                    BoundBlockItem::LocalConstant(constant) => {
+                        if let Some(symbol) = constant.symbol() {
+                            initializers.insert(symbol.into(), constant.initializer());
+                        }
+                    }
+                    BoundBlockItem::Expression(_) => {}
+                }
+            }
+        }
+
+        initializers
     }
 
     /// Returns the callable body identified within this tree, when present.

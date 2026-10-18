@@ -76,6 +76,7 @@ pub struct ExecutionCandidate {
             AnyBoundNodeId,
             bray_bound_tree::StorageAccessId,
             usize,
+            bray_symbols::TypeAssociatedLifecycleSlot,
             bool,
         ),
         ExecutionCleanup,
@@ -104,7 +105,7 @@ impl ExecutionCandidate {
         self.call_evidence(occurrence)
     }
 
-    /// Returns selected finalizers with their receiver facts. The key retains the
+    /// Returns selected lifecycle actions with their receiver facts. The key retains the
     /// exit node, owner, selected part and whether this is a normal ownership end.
     /// Each entry still requires execution and completion-dependency certification.
     pub fn cleanup_candidates(
@@ -115,6 +116,7 @@ impl ExecutionCandidate {
                 AnyBoundNodeId,
                 bray_bound_tree::StorageAccessId,
                 usize,
+                bray_symbols::TypeAssociatedLifecycleSlot,
                 bool,
             ),
             &ExecutionCleanup,
@@ -152,15 +154,17 @@ impl ExecutionCandidate {
     }
 }
 
-/// Selected finalization and receiver evidence at one implicit cleanup boundary.
+/// Selected lifecycle execution and receiver evidence at one implicit cleanup boundary.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutionCleanup {
-    /// The selected, substituted finalizer.
+    /// The selected, substituted lifecycle callable.
     pub callable: bray_symbols::CallableInstanceData,
     /// Its completion result, before asynchronous wrapping.
     pub result: bray_symbols::TypeId,
     /// Whether invocation can complete without driving a future.
     pub synchronous: bool,
+    /// Whether the implicit receiver tail executes in the consuming caller.
+    pub caller_continuation: bool,
     /// Whether this action finalizes the complete owner rather than a represented part.
     pub whole: bool,
     /// Facts available immediately before this invocation.

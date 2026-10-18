@@ -10,7 +10,8 @@ in [contract reasoning](../language/contracts-and-trust/contract-reasoning.md),
 
 Steps 1-4 are complete in [PR #607](https://github.com/lejmer/bray/pull/607).
 The backing, entry and incident prerequisites are merged. BRA-561 is reviewed.
-The active sequence is BRA-505, then BRA-619. The rule map below remains the
+The active sequence is BRA-505, then BRA-626, then BRA-619. BRA-626 blocks BRA-619 and includes
+removing construction-conversion workarounds throughout the tracked Bray source. The rule map below remains the
 implementation contract for unfinished consumers. Earlier baseline findings are
 not current status or new authorization.
 

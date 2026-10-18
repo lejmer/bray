@@ -43,7 +43,14 @@ impl Compilation {
         let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
         let mut diagnostics = prepared.result().diagnostics().clone();
 
-        if prepared.result().value().finalizers().next().is_none() || diagnostics.has_errors() {
+        if prepared
+            .result()
+            .value()
+            .lifecycle_callees()
+            .next()
+            .is_none()
+            || diagnostics.has_errors()
+        {
             return Ok(bray_diagnostics::DiagnosticResult::new(
                 completed,
                 diagnostics,
@@ -87,28 +94,7 @@ impl Compilation {
             ));
         }
 
-        let mut dependencies_verified = true;
-
-        for dependency in candidate.completion_dependencies() {
-            let bray_bound_tree::BoundCallableTarget::Declaration(callable) = dependency.target
-            else {
-                dependencies_verified = false;
-                break;
-            };
-
-            if self
-                .verified_execution_obligation(
-                    callable,
-                    ExecutionObligation::Postcondition(dependency.source),
-                    candidate.call_evidence(dependency.node.into()),
-                    cancellation,
-                )?
-                .is_none()
-            {
-                dependencies_verified = false;
-                break;
-            }
-        }
+        let dependencies_verified = self.cleanup_dependencies_verified(candidate, cancellation)?;
 
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
@@ -123,7 +109,20 @@ impl Compilation {
         let mut whole = std::collections::BTreeMap::new();
         let mut outcomes = Vec::new();
 
-        for ((node, access, _, normal), cleanup) in candidate.cleanup_candidates() {
+        for ((node, access, _, slot, normal), cleanup) in candidate.cleanup_candidates() {
+            if slot == bray_symbols::TypeAssociatedLifecycleSlot::Destructor {
+                outcomes.push((
+                    node,
+                    access,
+                    normal,
+                    slot,
+                    cleanup,
+                    FinalizerCompletion::Infallible,
+                ));
+
+                continue;
+            }
+
             let evidence = dependencies_verified.then_some(&cleanup.evidence);
 
             let completion = self.finalizer_completion(
@@ -150,7 +149,7 @@ impl Compilation {
                 completion
             };
 
-            outcomes.push((node, access, normal, cleanup, completion));
+            outcomes.push((node, access, normal, slot, cleanup, completion));
 
             if cleanup.whole {
                 whole
@@ -164,7 +163,20 @@ impl Compilation {
             complete.then_some(CompletedFinalizer::Storage { exit, access })
         }));
 
-        for (node, access, normal, cleanup, completion) in outcomes {
+        let asynchronous = matches!(
+            bound.result().value().root(),
+            bray_bound_tree::BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            } | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            }
+        );
+
+        let mut destruction = std::collections::BTreeMap::new();
+
+        for (node, access, normal, slot, cleanup, completion) in outcomes {
             let completion = if completion == FinalizerCompletion::Completed
                 && cleanup.whole
                 && !completed.contains(&CompletedFinalizer::Storage { exit: node, access })
@@ -181,11 +193,42 @@ impl Compilation {
                 .expect("selected cleanup retains its checked storage")
                 .reached_type();
 
+            let mut synchronous = cleanup.synchronous;
+
+            if slot == bray_symbols::TypeAssociatedLifecycleSlot::Destructor
+                && !asynchronous
+                && !cleanup.caller_continuation
+            {
+                synchronous = if let Some(synchronous) = destruction.get(&ty) {
+                    *synchronous
+                } else {
+                    let result = prepared
+                        .result()
+                        .value()
+                        .destruction_is_synchronous(request, ty, &mut |call| {
+                            self.finalizer_is_complete(
+                                call.callable,
+                                call.result.completion_type(),
+                                None,
+                                cancellation,
+                            )
+                            .map_err(crate::compilation::checker::checker_query_error)
+                        })
+                        .map_err(FactQueryError::from)?;
+
+                    diagnostics.add_range(result.diagnostics().iter().cloned());
+                    destruction.insert(ty, *result.value());
+
+                    *result.value()
+                };
+            }
+
             bray_checker::check_implicit_finalization(
                 request,
                 node,
                 ty,
                 cleanup,
+                synchronous,
                 normal,
                 completion,
                 &mut diagnostics,
@@ -197,6 +240,33 @@ impl Compilation {
             completed,
             diagnostics,
         ))
+    }
+
+    fn cleanup_dependencies_verified(
+        &self,
+        candidate: &bray_checker::ExecutionCandidate,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        for dependency in candidate.completion_dependencies() {
+            let bray_bound_tree::BoundCallableTarget::Declaration(callable) = dependency.target
+            else {
+                return Ok(false);
+            };
+
+            if self
+                .verified_execution_obligation(
+                    callable,
+                    ExecutionObligation::Postcondition(dependency.source),
+                    candidate.call_evidence(dependency.node.into()),
+                    cancellation,
+                )?
+                .is_none()
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     pub(in crate::compilation) fn finalizer_is_complete(

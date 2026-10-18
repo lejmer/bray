@@ -205,9 +205,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         ),
         C::Error,
     > {
-        let parent = self
-            .frame
-            .expect("suspending cleanup expands into its owning protected frame");
+        let parent = self.frame.unwrap_or_else(|| {
+            panic!("suspending cleanup expands into its owning protected frame: source={source:?}")
+        });
 
         let collection = outcome.collection();
 

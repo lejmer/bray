@@ -2048,3 +2048,328 @@ fn destructor_nested_callable_does_not_inherit_receiver_abandonment() {
         );
     }
 }
+
+#[test]
+fn returned_error_owns_a_future_extracted_from_a_nullable_binding() {
+    let application = compilation(
+        r#"
+        module app;
+
+        extern async func pause();
+        extern func take(pos source: &mut (Future<unit>?)) -> Future<unit>?;
+
+        struct Failure
+        {
+            value: u64;
+            pending: Future<unit>;
+
+            finalize()
+            {
+                panic("retained error abandons finalization");
+            }
+
+            destruct()
+            {
+            }
+        }
+
+        struct Owner
+        {
+            mut pending: Future<unit>?;
+
+            async finalize() -> Result<unit, Failure>
+            {
+                await pause();
+
+                let stored: Future<unit>? = take(&mut self.pending);
+
+                match consume stored
+                {
+                    case ?pending
+                    {
+                        return Error(
+                            Failure
+                            {
+                                value = 17,
+                                pending = pending
+                            }
+                        );
+                    }
+                    case none
+                    {
+                        panic("missing capture");
+                    }
+                }
+            }
+
+            destruct()
+            {
+            }
+        }
+        "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let keys = application.declared_unit_keys_for_test().unwrap();
+
+    let finalizers = keys
+        .into_iter()
+        .filter(|key| {
+            key.kind() == BoundUnitKind::CallableBody
+                && key.declared_owner().kind() == bray_symbols::SymbolKind::Finalizer
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(finalizers.len(), 2);
+
+    for key in finalizers {
+        let lowered = application.lowered_unit(key).unwrap();
+
+        assert!(lowered_mir(&lowered).is_valid());
+    }
+}
+
+#[test]
+fn destructor_receiver_cleanup_uses_the_consuming_context() {
+    for (execution, completed, valid) in [
+        ("async ", false, true),
+        ("", false, false),
+        ("", true, true),
+    ] {
+        let finalizer = if completed {
+            "async finalize() executes(pure, total) {}"
+        } else {
+            "async finalize() { await pause(); }"
+        };
+
+        let application = compilation(&format!(
+            r#"
+            module app;
+            extern async func pause();
+            struct Child
+            {{
+                {finalizer}
+            }}
+            struct Owner
+            {{
+                child: Child;
+                destruct()
+                {{
+                }}
+            }}
+            {execution}func root(pos owner: Owner)
+            {{
+            }}
+        "#
+        ));
+
+        if valid {
+            assert!(
+                !application.check_diagnostics().has_errors(),
+                "{:?}",
+                application.check_diagnostics()
+            );
+
+            let lowered = application
+                .lowered_unit(source_function_body_key(&application, "root"))
+                .unwrap();
+
+            assert!(lowered_mir(&lowered).is_valid());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                application.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn destructor_receiver_cleanup_excludes_consumed_parts_and_preserves_local_context() {
+    for (finalizer, valid) in [
+        ("async finalize() executes(pure, total) {}", true),
+        ("async finalize() { await pause(); }", false),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            extern async func pause();
+            struct Child
+            {{
+                {finalizer}
+            }}
+            struct Owner
+            {{
+                child: Child;
+                destruct()
+                {{
+                    let local = self.child;
+                }}
+            }}
+            func root(pos owner: Owner)
+            {{
+            }}
+        "#
+        ));
+
+        if valid {
+            assert!(
+                !application.check_diagnostics().has_errors(),
+                "{:?}",
+                application.check_diagnostics()
+            );
+
+            let key = application
+                .declared_unit_keys_for_test()
+                .unwrap()
+                .into_iter()
+                .find(|key| {
+                    key.kind() == BoundUnitKind::CallableBody
+                        && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+                })
+                .unwrap();
+
+            let body = application
+                .body_semantics_with_cancellation(key, &crate::CancellationToken::new())
+                .unwrap();
+
+            assert!(
+                body.result()
+                    .value()
+                    .storage_flow()
+                    .receiver_cleanup()
+                    .is_empty(),
+                "consumed fields have no implicit receiver tail"
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                application.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn retained_capture_cleanup_publishes_frame_outcomes() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Capture
+        {
+            destruct()
+            {
+            }
+        }
+        async func pending(pos capture: Capture)
+        {
+            panic("inactive body");
+        }
+    "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let lowered = application
+        .lowered_unit(source_function_body_key(&application, "pending"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    assert!(mir.frame_descriptor().unwrap().capture_cleanup().is_some());
+
+    for block in mir.blocks() {
+        if block.kind() != bray_ir::MirBlockKind::CleanupBroadcast {
+            assert!(
+                !matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::PropagatePanic { .. }
+                        | MirTerminatorKind::PropagateCancellation { .. }
+                ),
+                "resumable capture cleanup returns through frame terminal publication: {:?}",
+                block.terminator()
+            );
+        }
+    }
+}
+
+#[test]
+fn destructor_receiver_tail_retains_normal_completion() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Owner
+        {
+            pending: Future<unit>;
+            destruct()
+            {
+                assert(true, "normal destructor body");
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let key = application
+        .declared_unit_keys_for_test()
+        .unwrap()
+        .into_iter()
+        .find(|key| {
+            key.kind() == BoundUnitKind::CallableBody
+                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+        })
+        .unwrap();
+
+    let lowered = application.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&lowered);
+    let tail = mir.cleanup_continuation().unwrap();
+
+    for abandoned in [false, true] {
+        let selected = |entry: &bray_ir::MirCleanupEntry| {
+            if abandoned {
+                entry.abandoned()
+            } else {
+                entry.ordinary()
+            }
+        };
+
+        let handoffs = tail
+            .entries()
+            .iter()
+            .map(|entry| (entry.handoff(), vec![selected(entry)]))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        let roots = tail
+            .entries()
+            .iter()
+            .filter(|entry| entry.is_initial())
+            .map(selected);
+
+        let reachable = bray_ir::reachable_blocks(mir, roots, &handoffs);
+
+        assert!(
+            reachable.into_iter().any(|id| {
+                !handoffs.contains_key(&id)
+                    && matches!(
+                        mir.block(id).unwrap().terminator().kind(),
+                        MirTerminatorKind::Return(None)
+                    )
+            }),
+            "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
+        );
+    }
+}

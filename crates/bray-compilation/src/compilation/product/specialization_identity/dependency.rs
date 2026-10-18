@@ -148,7 +148,7 @@ impl StructuralValueEncoder<'_, '_> {
         Ok(())
     }
 
-    fn unordered_identities(&mut self, mut identities: Vec<[u8; 32]>) {
+    pub(super) fn unordered_identities(&mut self, mut identities: Vec<[u8; 32]>) {
         identities.sort_unstable();
         self.length(identities.len());
 

@@ -137,13 +137,8 @@ impl Lowerer<'_> {
         scope_depth: usize,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let destination = match (catch, self.input.unit_kind().protected_frame()) {
-            (Some(catch), _) => CleanupDestination::Goto(catch),
-            (None, Some(_)) => CleanupDestination::Goto(
-                self.terminal_state_block(source, TerminalState::Panicked(report_type))?,
-            ),
-            (None, None) => CleanupDestination::PropagatePanic,
-        };
+        let destination =
+            catch.map_or(CleanupDestination::PropagatePanic, CleanupDestination::Goto);
 
         self.finish_cleanup(
             current,
@@ -171,18 +166,12 @@ impl Lowerer<'_> {
             ty: report_type,
         });
 
-        let destination = if self.input.unit_kind().protected_frame().is_some() {
-            CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
-        } else {
-            CleanupDestination::PropagateCancellation
-        };
-
         self.finish_cleanup(
             current,
             source,
             0,
             CleanupEntry::Cancellation(Self::retained_operand(&report)),
-            destination,
+            CleanupDestination::PropagateCancellation,
             Some((report, report_type)),
             exit,
         )
@@ -301,7 +290,7 @@ impl Lowerer<'_> {
         match entry {
             CleanupEntry::Panic(report) => {
                 return self.finish_abnormal_cleanup(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    MirCleanupPhase::TaskCancellation,
                     current,
                     source,
                     crate::cleanup_outcome::CleanupFailure::Panic(report),
@@ -312,7 +301,7 @@ impl Lowerer<'_> {
             }
             CleanupEntry::Cancellation(report) => {
                 return self.finish_abnormal_cleanup(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    MirCleanupPhase::TaskCancellation,
                     current,
                     source,
                     crate::cleanup_outcome::CleanupFailure::Cancellation(Some(report)),
@@ -723,6 +712,28 @@ impl Lowerer<'_> {
         destination: CleanupDestination,
         value: Option<MirOperand>,
     ) -> Result<(), LoweringError> {
+        let destination = if self.input.unit_kind().protected_frame().is_some()
+            && self.builder.block_kind(block) != MirBlockKind::CleanupBroadcast
+        {
+            match destination {
+                CleanupDestination::PropagatePanic => {
+                    let report = self.representation_type(
+                        bray_compiler_known::RepresentationRole::PanicReport,
+                    )?;
+
+                    CleanupDestination::Goto(
+                        self.terminal_state_block(source, TerminalState::Panicked(report))?,
+                    )
+                }
+                CleanupDestination::PropagateCancellation => CleanupDestination::Goto(
+                    self.terminal_state_block(source, TerminalState::Cancelled)?,
+                ),
+                CleanupDestination::Goto(_) | CleanupDestination::Return => destination,
+            }
+        } else {
+            destination
+        };
+
         let terminator = match destination {
             CleanupDestination::Goto(target) => {
                 MirTerminatorKind::Goto(MirEdge::new(target, value))

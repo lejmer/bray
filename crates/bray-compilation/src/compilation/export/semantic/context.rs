@@ -550,6 +550,13 @@ impl<'a> SemanticExporter<'a> {
             self.dependency_contract_id(behavior.dependency_contract())?,
             behavior.current_run_cancellation(),
         )
+        .with_receiver_cleanup(
+            behavior
+                .receiver_cleanup()
+                .iter()
+                .map(|ty| self.type_id(*ty))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
         .with_may_unwind(behavior.may_unwind())
         .with_execution_properties(behavior.execution_properties().iter().copied())
         .with_predicates(

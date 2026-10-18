@@ -394,7 +394,12 @@ impl InterfaceSemantics {
             validate_symbol(&requirement.capability, symbol_count, dependency_count)?;
         }
 
-        if !is_strictly_sorted(&behavior.lifecycle_obligations)
+        for ty in &*behavior.receiver_cleanup {
+            validate_index(ty.to_index(), self.types.len())?;
+        }
+
+        if !is_strictly_sorted(&behavior.receiver_cleanup)
+            || !is_strictly_sorted(&behavior.lifecycle_obligations)
             || !is_strictly_sorted(&behavior.execution_properties)
         {
             return Err(crate::semantic::codec::invalid_value(

@@ -18,9 +18,8 @@ pub(crate) struct Cleanup<'a> {
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
-        BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<CallableInstanceData>>,
-    inactive: BTreeSet<StorageAccessId>,
-    suspending_finalizers: BTreeSet<TypeId>,
+        BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
+    suspending: BTreeSet<StorageAccessId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -120,114 +119,48 @@ impl Plan {
     }
 
     pub(crate) fn requires_suspension(&self, access: StorageAccessId) -> bool {
-        self.inactive.contains(&access)
-            || self.steps.get(&access).into_iter().flatten().any(|step| {
-                matches!(step, Step::Lifecycle { ty, .. } if self.suspending_finalizers.contains(ty))
-            })
+        self.suspending.contains(&access)
     }
 
-    pub(crate) fn asynchronous_finalizers(
+    pub(crate) fn deferred_cleanup_calls(
         &self,
         access: StorageAccessId,
-    ) -> impl Iterator<Item = CallableInstanceData> + '_ {
+    ) -> impl Iterator<Item = bray_bound_tree::BodyBehaviorCall> + '_ {
         self.steps
             .get(&access)
             .into_iter()
             .flatten()
-            .filter_map(|step| {
-                let Step::Lifecycle { ty, .. } = step else {
-                    return None;
-                };
-
-                let lifecycle = self
-                    .lifecycles
-                    .get(&(*ty, TypeAssociatedLifecycleSlot::Finalizer))?;
-
-                (lifecycle.call.result.execution() != bray_symbols::CallableExecution::Synchronous)
-                    .then_some(lifecycle.call.callable)
+            .filter_map(|step| match step {
+                Step::Lifecycle { ty, .. } => Some(*ty),
+                Step::Opaque { .. } => None,
             })
+            .flat_map(|ty| self.lifecycle_calls(ty))
     }
 
-    pub(in crate::analysis) fn select_input_cleanup(
-        &mut self,
-        unit: &bray_bound_tree::BoundUnit,
-        storage: &StoragePlan,
-        graph: &crate::analysis::ControlFlowGraph,
-    ) {
-        if self.inactive.is_empty() && self.suspending_finalizers.is_empty() {
-            return;
-        }
+    fn lifecycle_calls(
+        &self,
+        ty: TypeId,
+    ) -> impl Iterator<Item = bray_bound_tree::BodyBehaviorCall> + '_ {
+        [
+            TypeAssociatedLifecycleSlot::Finalizer,
+            TypeAssociatedLifecycleSlot::Destructor,
+        ]
+        .into_iter()
+        .filter_map(move |slot| self.lifecycles.get(&(ty, slot)))
+        .map(|lifecycle| {
+            let phase = if lifecycle.call.result.execution()
+                == bray_symbols::CallableExecution::Asynchronous
+            {
+                bray_bound_tree::BodyBehaviorPhase::DeferredExecution
+            } else {
+                bray_bound_tree::BodyBehaviorPhase::Invocation
+            };
 
-        let exits = graph
-            .operations()
-            .iter()
-            .filter_map(|operation| match operation.kind() {
-                crate::analysis::AnalysisOperationKind::ScopeExit {
-                    exit: bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                    ..
-                } => Some(expression),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
-
-        let mut selected = BTreeMap::<_, BTreeSet<_>>::new();
-
-        for (expression, node) in unit.tree().expressions() {
-            if !matches!(
-                node,
-                bray_bound_tree::BoundExpression::Call(_)
-                    | bray_bound_tree::BoundExpression::StructConstruction(_)
-                    | bray_bound_tree::BoundExpression::BoxConstruction(_)
-            ) {
-                continue;
-            }
-
-            let mut pending = BTreeSet::new();
-            let mut suspends = false;
-
-            for input in node.child_expressions() {
-                // Earlier inputs remain owned while later inputs are evaluated.
-                if suspends {
-                    let walked = bray_bound_tree::walk_bound_tree(unit.tree(), input, |event| {
-                        if let bray_bound_tree::BoundWalkEvent::Enter(
-                            bray_bound_tree::AnyBoundNodeId::Expression(input),
-                        ) = event
-                            && exits.contains(&input)
-                        {
-                            selected
-                                .entry(input)
-                                .or_default()
-                                .extend(pending.iter().copied());
-                        }
-
-                        bray_bound_tree::BoundWalkControl::Continue
-                    });
-
-                    assert_eq!(
-                        walked,
-                        bray_bound_tree::BoundWalkOutcome::Completed,
-                        "pending input cleanup retains its complete bound subtree"
-                    );
-                }
-
-                for plan in storage.expression_plans(input).filter(|plan| {
-                    matches!(
-                        storage.effective_purpose(*plan),
-                        bray_bound_tree::StorageAccessPurpose::Move
-                            | bray_bound_tree::StorageAccessPurpose::ValueTransfer
-                    )
-                }) {
-                    suspends |= self.requires_suspension(plan.access());
-                    pending.extend(self.asynchronous_finalizers(plan.access()));
-                }
-            }
-
-            if suspends && exits.contains(&expression) {
-                selected.entry(expression).or_default().extend(pending);
-            }
-        }
-
-        self.input_cleanup_calls = selected;
+            bray_bound_tree::BodyBehaviorCall::new(
+                bray_bound_tree::BoundCallableTarget::Declaration(lifecycle.call.callable),
+                phase,
+            )
+        })
     }
 
     pub(in crate::analysis) fn represented_paths(
@@ -325,6 +258,8 @@ impl Plan {
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
+        graph: &crate::analysis::ControlFlowGraph,
     ) -> Result<DiagnosticResult<Self>, CheckerQueryError<C::UpstreamError>> {
         let mut prepared = Self::default();
 
@@ -373,6 +308,10 @@ impl Plan {
                 .replacements
                 .insert(access, cleanup_shapes.requirement(ty)?);
 
+            if cleanup_shapes.requires_suspension(ty)? {
+                prepared.suspending.insert(access);
+            }
+
             let expanded = crate::asynchronous::full_cleanup_parts(
                 cleanup_shapes,
                 ty,
@@ -395,21 +334,7 @@ impl Plan {
                 .map(|(ty, part)| {
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
 
-                    if crate::representation::type_representation(request, ty)
-                        == Some(bray_compiler_known::RepresentationRole::Future)
-                    {
-                        prepared.inactive.insert(access);
-                    }
-
-                    let source_lifecycle = match request.semantic_values().type_data(ty).as_ref() {
-                        TypeData::Named { definition, substitution } =>
-                            !cleanup_shapes.owns_hidden_cleanup(ty, *definition, *substitution)?,
-                        _ => false,
-                    };
-
-                    if part.as_ref().is_some_and(|part| {
-                        part.release().is_some() || !part.phases().includes_lifecycle()
-                    }) || !source_lifecycle {
+                    if !has_source_lifecycle(cleanup_shapes, request, ty, part.as_ref())? {
                         Ok(Step::Opaque { ty, path })
                     } else {
                         types.insert(ty);
@@ -446,6 +371,45 @@ impl Plan {
             prepared.steps.insert(access, steps);
         }
 
+        let input_parts = super::inputs::parts(
+            cleanup_shapes,
+            request,
+            expressions.types(),
+            &mut types,
+            &mut diagnostics,
+        )?;
+
+        prepared.prepare_lifecycles(request, types, &mut diagnostics)?;
+
+        let mut input_cleanup = BTreeMap::new();
+
+        for (ty, parts) in input_parts {
+            if cleanup_shapes.requires_suspension(ty)? {
+                let calls = parts
+                    .into_iter()
+                    .filter(|(_, projection)| {
+                        projection.as_ref().is_none_or(|part| {
+                            part.release().is_none() && part.phases().includes_lifecycle()
+                        })
+                    })
+                    .flat_map(|(part, _)| prepared.lifecycle_calls(part))
+                    .collect();
+
+                input_cleanup.insert(ty, calls);
+            }
+        }
+
+        prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
+
+        Ok(DiagnosticResult::new(prepared, diagnostics))
+    }
+
+    fn prepare_lifecycles<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        types: BTreeSet<TypeId>,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         for ty in types {
             for slot in [
                 TypeAssociatedLifecycleSlot::Finalizer,
@@ -471,29 +435,32 @@ impl Plan {
                 )
                 .expect("selected lifecycle contract uses checked semantic terms");
 
-                if slot == TypeAssociatedLifecycleSlot::Finalizer {
-                    // A synchronous finalizer can return an error containing child work.
-                    // Its completion still needs a retained cleanup continuation.
-                    let completion =
-                        cleanup_shapes.requirement(lifecycle.call.result.completion_type())?;
-
-                    let child_work = matches!(completion,
-                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(phases)
-                            if phases.includes_cancellation());
-
-                    if child_work
-                        || lifecycle.call.result.execution()
-                            == bray_symbols::CallableExecution::Asynchronous
-                    {
-                        prepared.suspending_finalizers.insert(ty);
-                    }
-                }
-
-                prepared.lifecycles.insert((ty, slot), lifecycle);
+                self.lifecycles.insert((ty, slot), lifecycle);
             }
         }
 
-        Ok(DiagnosticResult::new(prepared, diagnostics))
+        Ok(())
+    }
+}
+
+pub(super) fn has_source_lifecycle<C: CheckerRequestContext + ?Sized>(
+    cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    part: Option<&bray_bound_tree::StorageCleanupPart>,
+) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    if part.is_some_and(|part| part.release().is_some() || !part.phases().includes_lifecycle()) {
+        return Ok(false);
+    }
+
+    match request.semantic_values().type_data(ty).as_ref() {
+        TypeData::Named {
+            definition,
+            substitution,
+        } => cleanup_shapes
+            .owns_hidden_cleanup(ty, *definition, *substitution)
+            .map(|hidden| !hidden),
+        _ => Ok(false),
     }
 }
 
@@ -513,11 +480,14 @@ fn lifecycle(
 
     let references = signature
         .receiver()
-        .map(|receiver| bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into()))
+        .map(|receiver| BoundReferenceTarget::Surface(receiver.parameter().into()))
         .into_iter()
-        .chain(signature.parameters().iter().map(|parameter| {
-            bray_bound_tree::BoundReferenceTarget::Surface(parameter.parameter().into())
-        }))
+        .chain(
+            signature
+                .parameters()
+                .iter()
+                .map(|parameter| BoundReferenceTarget::Surface(parameter.parameter().into())),
+        )
         .collect::<Vec<_>>();
 
     let behavior = callable.phase_behaviors().invocation();
@@ -527,7 +497,7 @@ fn lifecycle(
         .deferred_execution()
         .unwrap_or(behavior);
 
-    let mut contract = crate::TrustedCallContract {
+    let mut contract = TrustedCallContract {
         // Failed finalizer attempts can still be followed by destruction.
         completes: callable.execution() == bray_symbols::CallableExecution::Synchronous
             && (!behavior.may_unwind()

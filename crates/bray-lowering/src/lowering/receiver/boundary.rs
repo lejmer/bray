@@ -15,6 +15,18 @@ pub(in crate::lowering) struct ReceiverCleanup {
     pub(in crate::lowering) mode: Option<bool>,
 }
 
+impl ReceiverCleanup {
+    pub(in crate::lowering) fn pending_successors(
+        &self,
+        block: MirBlockId,
+    ) -> impl Iterator<Item = MirBlockId> + '_ {
+        self.entries
+            .iter()
+            .filter(move |(handoff, _, _)| *handoff == block)
+            .flat_map(|(_, ordinary, abandoned)| [*ordinary, *abandoned])
+    }
+}
+
 impl Lowerer<'_> {
     pub(in crate::lowering) fn initialize_receiver_cleanup(
         &mut self,

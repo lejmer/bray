@@ -66,6 +66,10 @@ after the destructor returns.
 Any initialized represented parts remaining after the destructor returns are destroyed in the type's represented-part
 destruction order.
 
+The destructor body is synchronous. Remaining represented parts retain their own finalization requirements. Their
+implicit cleanup runs in the consuming context after the body, and that context must admit the required execution.
+Ordinary local owners and explicit operations inside the body retain the body's synchronous execution context.
+
 Destroying a fully initialized product value runs any whole-product destructor before field destruction.
 
 Destroying a fully initialized union value runs any whole-union destructor before active payload destruction.

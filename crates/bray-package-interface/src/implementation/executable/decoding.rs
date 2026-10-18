@@ -1168,6 +1168,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
+        let count = self.count()?;
+        let mut receiver_cleanup = self.items(count)?;
+
+        for _ in 0..count {
+            receiver_cleanup.push(self.ty()?);
+        }
+
         Ok(CallablePhaseBehavior::new(
             effects,
             capabilities,
@@ -1176,7 +1183,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             lifecycle_obligations,
             dependency_contract,
             cancellation,
-        ))
+        )
+        .with_receiver_cleanup(receiver_cleanup))
     }
 
     fn outgoing_owner(

@@ -528,6 +528,14 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         self.current_run_cancellation(behavior.current_run_cancellation());
         self.tag(u8::from(behavior.may_unwind()));
 
+        let cleanup = behavior
+            .receiver_cleanup()
+            .iter()
+            .map(|ty| Self::type_identity(self.values, self.binding_context, *ty))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.unordered_identities(cleanup);
+
         Ok(())
     }
 

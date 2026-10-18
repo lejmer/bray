@@ -428,10 +428,23 @@ fn nullable_destinations_do_not_become_async_initializer_evidence() {
     let compilation = compilation(
         r#"
         module app;
-        struct Capture { value: i32; }
-        async func body(pos capture: Capture) {}
-        func optional() -> Future<unit>? { return none; }
-        func main() {
+
+        struct Capture
+        {
+            value: i32;
+        }
+
+        async func body(pos capture: Capture)
+        {
+        }
+
+        func optional() -> Future<unit>?
+        {
+            return none;
+        }
+
+        func main()
+        {
             let pending: Future<unit>? = body(Capture { value = 1 });
             let inferred = body(Capture { value = 2 });
             let lifted: Future<unit>? = inferred;
@@ -453,8 +466,16 @@ fn nullable_initializers_do_not_satisfy_present_destinations() {
     let compilation = compilation(
         r#"
         module app;
-        func optional() -> Future<unit>? { return none; }
-        func main() { let required: Future<unit> = optional(); }
+
+        func optional() -> Future<unit>?
+        {
+            return none;
+        }
+
+        func main()
+        {
+            let required: Future<unit> = optional();
+        }
     "#,
     );
 
@@ -472,13 +493,24 @@ fn directional_initializers_preserve_contextual_variant_types() {
     let compilation = compilation(
         r#"
         module app;
-        union Choice { Empty; Value(value: i32); }
-        func receive(pos choice: Choice = Empty) {}
-        func main() {
+
+        union Choice
+        {
+            Empty;
+            Value(value: i32);
+        }
+
+        func receive(pos choice: Choice = Empty)
+        {
+        }
+
+        func main()
+        {
             let empty: Choice = Empty;
             let value: Choice = Value(value = 1);
             let dotted: Choice = .Value(value = 2);
             let optional: Choice? = Value(value = 3);
+
             receive(Value(value = 4));
             receive();
         }

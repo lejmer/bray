@@ -286,12 +286,17 @@ pub enum FinalizerCompletion {
 }
 
 /// Checks implicit finalization against its certified completion and current execution context.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "cleanup admission combines its selected action, certified execution context and completion proof"
+)]
 /// Abnormal exit permits unresolved fallible duties, but cannot create an async execution root.
 pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     node: bray_bound_tree::AnyBoundNodeId,
     ty: TypeId,
     cleanup: &crate::ExecutionCleanup,
+    synchronous: bool,
     normal: bool,
     completion: FinalizerCompletion,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
@@ -325,7 +330,7 @@ pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
 
     let kind = if normal && !unit_result && completion == FinalizerCompletion::Unresolved {
         DiagnosticKind::CheckingUnresolvedFinalization
-    } else if !cleanup.synchronous && !asynchronous {
+    } else if !synchronous && !asynchronous && !cleanup.caller_continuation {
         DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable
     } else {
         return Ok(());

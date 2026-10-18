@@ -1096,6 +1096,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 bray_symbols::CurrentRunCancellation::MayEnter => 1,
             });
 
+        write_count(&mut self.wire, behavior.receiver_cleanup().len());
+
+        for ty in behavior.receiver_cleanup() {
+            self.ty(*ty)?;
+        }
+
         Ok(())
     }
 

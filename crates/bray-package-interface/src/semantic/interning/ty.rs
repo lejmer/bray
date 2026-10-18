@@ -143,6 +143,10 @@ impl InternState {
                         self.dependency_contract_id(behavior.dependency_contract)
                             .is_none()
                             || behavior
+                                .receiver_cleanup
+                                .iter()
+                                .any(|ty| self.type_id(*ty).is_none())
+                            || behavior
                                 .predicate_requirements
                                 .iter()
                                 .chain(behavior.predicate_guarantees.iter())

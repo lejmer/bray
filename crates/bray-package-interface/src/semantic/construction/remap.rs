@@ -253,6 +253,14 @@ fn remap_callable_behavior(
         }
     }
 
+    behavior.receiver_cleanup = bray_base::sorted_unique_shared_slice(
+        behavior
+            .receiver_cleanup
+            .iter()
+            .map(|ty| remap.ty(*ty))
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+
     behavior.dependency_contract = remap.dependency_contract(behavior.dependency_contract)?;
 
     Ok(())

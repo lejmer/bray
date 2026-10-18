@@ -374,3 +374,115 @@ fn inactive_future_cleanup_emits_without_entering_child_body() {
 
     assert!(!generated_artifacts(&backend, &plan).is_empty());
 }
+
+#[test]
+fn retained_finalizer_errors_with_inactive_futures_emit_native_artifacts() {
+    let source = r#"
+        module app;
+
+        struct Capture
+        {
+            destruct()
+            {
+            }
+        }
+
+        async func body(pos capture: Capture)
+        {
+            panic("inactive body entered");
+        }
+
+        struct Failure
+        {
+            pending: Future<unit>;
+
+            finalize()
+            {
+                panic("retained error must abandon finalization");
+            }
+
+            destruct()
+            {
+            }
+        }
+
+        struct Owner
+        {
+            async finalize() -> Result<unit, Failure>
+            {
+                return Error(Failure { pending = body(Capture {}) });
+            }
+
+            destruct()
+            {
+            }
+        }
+
+        async func main()
+        {
+            let owner = Owner {};
+
+            panic("original failure");
+        }
+        "#;
+
+    let (backend, plan) = runtime_native_plan(source);
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn source_destructor_parts_reuse_the_owner_cleanup_continuation() {
+    for (execution, finalizer) in [
+        ("", "finalize() {}"),
+        ("async ", "async finalize() { await pause(); }"),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            async func pause()
+            {{
+            }}
+
+            struct Child
+            {{
+                value: u32;
+
+                {finalizer}
+            }}
+
+            struct Owner
+            {{
+                child: Child;
+
+                destruct()
+                {{
+                }}
+            }}
+
+            {execution}func main()
+            {{
+                let owner = Owner
+                {{
+                    child = Child {{ value = 1 }}
+                }};
+            }}
+            "#,
+        );
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        if execution.is_empty() {
+            assert!(
+                plan.units()
+                    .iter()
+                    .flat_map(|unit| unit.instances())
+                    .all(|instance| instance.mir().frame_descriptor().is_none()),
+                "synchronous destructor parts do not add an async frame"
+            );
+        }
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+}

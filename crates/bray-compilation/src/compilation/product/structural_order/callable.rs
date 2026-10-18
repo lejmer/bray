@@ -117,6 +117,14 @@ impl OrderEncoder<'_, '_> {
         let values = self.compilation.semantic_value_store()?;
         let dependencies = values.dependency_contract_template_data(phase.dependency_contract());
 
+        let mut cleanup = phase
+            .receiver_cleanup()
+            .iter()
+            .map(|ty| self.ty(*ty))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        cleanup.sort_unstable();
+
         Ok(term(
             "phase",
             [
@@ -144,6 +152,7 @@ impl OrderEncoder<'_, '_> {
                         .collect(),
                 )?,
                 sequence(lifecycle),
+                sequence(cleanup),
                 self.dependencies(dependencies.requirements())?,
                 vec![u8::from(
                     phase.current_run_cancellation() == CurrentRunCancellation::MayEnter,

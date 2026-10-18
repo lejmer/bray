@@ -241,6 +241,13 @@ impl SemanticValueStore {
                         .with_condition(predicate.condition().map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?, predicate.is_trusted()))
                 };
 
+                let phase_behaviors = phase_behaviors.with_receiver_cleanup(
+                    body.receiver_cleanup()
+                        .iter()
+                        .map(|ty| self.substitute_type_data(*ty, substitution))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+
                 let phase_behaviors = phase_behaviors.with_predicates(
                     callable
                         .phase_behaviors()
