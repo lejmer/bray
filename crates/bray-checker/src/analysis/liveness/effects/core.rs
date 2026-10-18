@@ -25,6 +25,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 pub(crate) struct OperationEffects {
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
+    iteration_definitions: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -140,6 +141,10 @@ impl OperationEffects {
 
             effects.universe.insert(subject);
 
+            if provenance.is_iteration_storage() {
+                effects.iteration_definitions.insert(subject);
+            }
+
             let Some(node) = provenance.definition_node() else {
                 continue;
             };
@@ -168,6 +173,14 @@ impl OperationEffects {
             effect.uses.insert(subject);
             effect.definitions.insert(subject);
             effects.universe.insert(subject);
+
+            if storage
+                .root_identity(plan.access())
+                .and_then(|identity| storage.identity(identity))
+                .is_some_and(bray_bound_tree::StorageIdentity::is_iteration_storage)
+            {
+                effects.iteration_definitions.insert(subject);
+            }
 
             let access = storage
                 .access(plan.access())
@@ -453,7 +466,11 @@ impl OperationEffects {
         use crate::analysis::model::AnalysisSuspensionKind;
 
         let phase = match operation.kind() {
-            AnalysisOperationKind::ScopeExit { .. }
+            AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Begin,
+                ..
+            }
+            | AnalysisOperationKind::ScopeExit { .. }
             | AnalysisOperationKind::Suspension {
                 kind: AnalysisSuspensionKind::ScopedCall,
                 ..
@@ -467,6 +484,10 @@ impl OperationEffects {
                 ..
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Call { phase, .. } => Some(phase),
+            AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Completion,
+                ..
+            } => Some(AnalysisCallPhase::Completion),
             AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::TaskOperation { .. }
@@ -484,10 +505,15 @@ impl OperationEffects {
             _ => None,
         };
 
+        let iteration_definitions =
+            matches!(operation.kind(), AnalysisOperationKind::Result { .. })
+                .then_some(&self.iteration_definitions);
+
         Some(OperationEffectView {
             effect,
             phase,
             result_definitions,
+            iteration_definitions,
             recovered: self.recovered_nodes.contains(&operation.kind().node()),
         })
     }
@@ -511,6 +537,7 @@ pub(in crate::analysis::liveness) struct OperationEffectView<'a> {
     effect: &'a OperationEffect,
     phase: Option<AnalysisCallPhase>,
     result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
+    iteration_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
     recovered: bool,
 }
 
@@ -529,6 +556,10 @@ impl<'a> OperationEffectView<'a> {
         self,
     ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
         self.effect.definitions.iter().filter(move |subject| {
+            if let Some(protocol) = self.iteration_definitions {
+                return !protocol.contains(subject);
+            }
+
             let is_result = self
                 .result_definitions
                 .is_some_and(|definitions| definitions.contains(subject));

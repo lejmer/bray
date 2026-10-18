@@ -163,7 +163,7 @@ trusted internal func abandon(pos header: &mut Header) -> usize
         return header.child;
     }
 
-    header.abandoned = 1;
+    header.disposition = bray.runtime.bootstrap.activation.composition.abandon(header.disposition);
 
     if header.phase == RUNNING
     {

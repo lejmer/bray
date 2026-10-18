@@ -349,9 +349,11 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
         | MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
+            collect_operand_value(frame, demands);
+        }
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
         | MirAsyncOperation::StartTask { value: frame, .. } => {
             collect_operand_value(frame, demands);

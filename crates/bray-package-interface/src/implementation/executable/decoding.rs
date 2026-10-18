@@ -1940,8 +1940,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 child: self.frame_reference()?,
                 resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                 frame: self.operand()?,
-                completion: read_optional(&mut self.reader, read_u32)?
-                    .map(|slot| MirStorageId::from_slot(self.unit, slot)),
+                composition: match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirFrameComposition::Completion(self.storage_id()?),
+                    1 => bray_ir::MirFrameComposition::Abandon,
+                    2 => bray_ir::MirFrameComposition::Quiesce,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
             }),
             4 => Ok(Operation::CommitAwaitedCompletion {
                 child: self.frame_reference()?,
@@ -1979,12 +1983,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     runtime: self.runtime_reference()?,
                 })
             }
-            10 => Ok(Operation::ExecuteCleanupBroadcast {
-                frame: self.frame_id()?,
+            10 => Ok(Operation::BroadcastInactiveFrame {
+                frame: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
-            11 => Ok(Operation::ExecuteLifecycleResolution {
-                frame: self.frame_id()?,
+            11 => Ok(Operation::DestroyInactiveFrame {
+                frame: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
             12 => Ok(Operation::TransferCleanupIncident {
@@ -2254,6 +2258,15 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
+                let capture_cleanup = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some((
+                        bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
+                        bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
+                    )),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
                 let state_count = self.count()?;
                 let mut states = self.items(state_count)?;
 
@@ -2267,6 +2280,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 let mut entries = BTreeSet::new();
 
                 if states.is_empty()
+                    || capture_cleanup.is_some_and(|(quiescence, destruction)| {
+                        quiescence == destruction
+                            || [quiescence, destruction]
+                                .into_iter()
+                                .any(|entry| !states.iter().any(|state| state.state() == entry))
+                    })
                     || completion_state.is_some_and(|completion| {
                         !states.iter().any(|state| state.state() == completion)
                     })
@@ -2286,7 +2305,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     completion_state,
                     states,
                 )
-                .map(Some)
+                .map(|descriptor| Some(descriptor.with_capture_cleanup(capture_cleanup)))
                 .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),

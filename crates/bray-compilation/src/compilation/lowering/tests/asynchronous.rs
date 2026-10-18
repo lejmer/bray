@@ -252,9 +252,22 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         "nested array flags must remain represented: {mir:?}"
     );
 
-    assert!(frame.states().len() > 1);
+    let resumptions = mir
+        .blocks()
+        .iter()
+        .filter_map(|block| match block.terminator().kind() {
+            MirTerminatorKind::Suspend { resume_state, .. } => Some(*resume_state),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
 
-    for state in frame.states().iter().skip(1) {
+    assert!(!resumptions.is_empty());
+
+    for state in frame
+        .states()
+        .iter()
+        .filter(|state| resumptions.contains(&state.state()))
+    {
         assert!(
             guards
                 .iter()
@@ -269,7 +282,7 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
     }) {
         assert!(block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(),
             MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-                frame: MirOperand::Move(place), completion: None, ..
+                frame: MirOperand::Move(place), composition: bray_ir::MirFrameComposition::Abandon, ..
             }) if mir.storage(place.storage()).unwrap().kind() == &bray_ir::MirStorageKind::Parameter(2))),
             "only pending-future disposal may suspend, not the array cleanup loop: {mir:?}");
     }

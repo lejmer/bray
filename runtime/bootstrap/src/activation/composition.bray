@@ -12,15 +12,16 @@ using std.memory;
 // parent-frame destination large enough for this exact child result. The parent
 // retains it until the transferred outcome is consumed before cancellation.
 //
-// Abandonment instead requires destination zero. It enters capture cleanup
-// before body execution and cannot transfer a result into the parent.
+// Abandonment and retained quiescence require destination zero and never enter
+// the body. Quiescence returns terminal capture ownership to the original future.
+// Its source slot and resident provider remain owned until synchronous destruction.
 trusted internal predicate authorized(
     parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
     token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
     state: u32,
     origin: u64,
     destination: usize,
-    abandoning: u8,
+    disposition: u8,
 );
 
 @abi(c)
@@ -30,18 +31,18 @@ trusted internal func compose(
     pos state: u32,
     pos origin: u64,
     pos destination: usize,
-    pos abandoning: u8,
+    pos disposition: u8,
     pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
 ) -> usize
     requires(
-        abandoning <= 1,
+        disposition <= 2,
         trusted authorized(
             parent = parent,
             token = token,
             state = state,
             origin = origin,
             destination = destination,
-            abandoning = abandoning
+            disposition = disposition
         ),
         trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -59,7 +60,7 @@ trusted internal func compose(
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
-        pos abandoning: u8,
+        pos disposition: u8,
     ) -> bray.runtime.bootstrap.activation.Inactive
         requires(
             trusted authorized(
@@ -68,7 +69,7 @@ trusted internal func compose(
                 state = state,
                 origin = origin,
                 destination = destination,
-                abandoning = abandoning
+                disposition = disposition
             ),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
         )
@@ -98,7 +99,7 @@ trusted internal func compose(
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
-        pos abandoning: u8,
+        pos disposition: u8,
     ) -> bray.runtime.bootstrap.activation.requirements.Execution?
         requires(
             trusted authorized(
@@ -107,7 +108,7 @@ trusted internal func compose(
                 state = state,
                 origin = origin,
                 destination = destination,
-                abandoning = abandoning
+                disposition = disposition
             ),
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -119,7 +120,7 @@ trusted internal func compose(
                 state = state,
                 origin = origin,
                 destination = destination,
-                abandoning = abandoning
+                disposition = disposition
             ),
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -147,17 +148,17 @@ trusted internal func compose(
 
     // Query before consuming the child. The source callback has not published
     // suspension yet, so use its explicit continuation rather than header.state.
-    let execution = match consume trusted query(parent, token, state, origin, destination, abandoning)
+    let execution = match consume trusted query(parent, token, state, origin, destination, disposition)
     {
         case ?execution { yield execution; }
         case none { return 0; }
     };
 
-    let value = trusted inspect(parent, token, state, origin, destination, abandoning);
+    let value = trusted inspect(parent, token, state, origin, destination, disposition);
 
     // Inactive abandonment enters cleanup directly. It cannot acquire authority
     // from the source body's requirements or execute that body to discover work.
-    let operation: u32 = if abandoning != 0
+    let operation: u32 = if disposition != 0
     {
         yield 3;
     }
@@ -166,7 +167,11 @@ trusted internal func compose(
         yield 0;
     };
 
-    let argument: usize = if abandoning != 0
+    let argument: usize = if disposition == 2
+    {
+        yield 4;
+    }
+    else if disposition != 0
     {
         yield 3;
     }
@@ -246,7 +251,7 @@ trusted internal func compose(
         pos execution: bray.runtime.bootstrap.activation.requirements.Execution,
         pos address: usize,
         pos destination: usize,
-        pos abandoning: bool,
+        pos disposition: u8,
     )
         ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
         uses(raw_memory, unchecked_init)
@@ -283,8 +288,9 @@ trusted internal func compose(
             );
 
             attached.destination = destination;
+            attached.disposition = disposition as u32;
 
-            if abandoning
+            if disposition != 0
             {
                 trusted bray.runtime.bootstrap.activation.abandon(attached);
             }
@@ -293,6 +299,20 @@ trusted internal func compose(
 
     let child = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
 
-    trusted connect(parent, child, execution, address, destination, abandoning != 0);
+    trusted connect(parent, child, execution, address, destination, disposition);
     return address;
+}
+
+// Abandonment cannot revoke the retained owner's later destruction obligation.
+internal func abandon(pos disposition: u32) -> u32
+    executes(pure, total)
+{
+    if disposition == 0
+    {
+        return 1;
+    }
+    else
+    {
+        return disposition;
+    }
 }

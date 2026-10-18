@@ -30,6 +30,42 @@ pub(crate) fn await_frame(
         .map(|ty| builder.push_storage(source.clone(), MirStorageKind::Temporary, ty))
         .transpose()?;
 
+    let composition = destination.map_or(
+        bray_ir::MirFrameComposition::Abandon,
+        bray_ir::MirFrameComposition::Completion,
+    );
+
+    compose_frame(
+        builder,
+        current,
+        source,
+        parent,
+        frame,
+        composition,
+        state,
+        cancellation,
+        completion,
+    )
+}
+
+/// Composes the checked child disposition using the enclosing continuation and collection.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "composition preserves the child ownership disposition and checked parent continuation"
+)]
+pub(crate) fn compose_frame(
+    builder: &mut MirUnitBuilder,
+    current: MirBlockId,
+    source: &MirSourceAnchor,
+    parent: ProtectedAsyncFrameId,
+    frame: MirOperand,
+    composition: bray_ir::MirFrameComposition,
+    state: &MirFrameState,
+    cancellation: MirCleanupEdge,
+    completion: Option<TypeId>,
+) -> Result<Option<MirValueId>, MirCapacityError> {
+    let destination = composition.completion();
+
     let child = MirFrameReference::Erased;
     let abi = builder.target().runtime_abi();
 
@@ -41,7 +77,7 @@ pub(crate) fn await_frame(
             child,
             resume_state: state.state(),
             frame,
-            completion: destination,
+            composition,
         }),
         None,
     )?;
@@ -100,23 +136,9 @@ pub(crate) fn check_call_outcome(
 
             let cancel_bridge = builder.push_block(source.clone(), kind)?;
 
-            builder.set_terminator(
-                panic_bridge,
-                source.clone(),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(panicked, []),
-                )),
-            );
+            transfer_cleanup(builder, panic_bridge, source, MirEdge::new(panicked, []));
 
-            builder.set_terminator(
-                cancel_bridge,
-                source.clone(),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(cancelled, []),
-                )),
-            );
+            transfer_cleanup(builder, cancel_bridge, source, MirEdge::new(cancelled, []));
 
             (panic_bridge, cancel_bridge)
         } else {
@@ -134,6 +156,27 @@ pub(crate) fn check_call_outcome(
     );
 
     Ok((completed, parameter.map(MirOperand::Value)))
+}
+
+/// Emits the explicit phase transition when a cleanup outcome enters resolution.
+pub(crate) fn transfer_cleanup(
+    builder: &mut MirUnitBuilder,
+    block: MirBlockId,
+    source: &MirSourceAnchor,
+    edge: MirEdge,
+) {
+    let next = if builder.block_kind(block) == MirBlockKind::CleanupBroadcast
+        && builder.block_kind(edge.target()) == MirBlockKind::LifecycleResolution
+    {
+        MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+            MirCleanupPhase::LifecycleResolution,
+            edge,
+        ))
+    } else {
+        MirTerminatorKind::Goto(edge)
+    };
+
+    builder.set_terminator(block, source.clone(), next);
 }
 
 pub(crate) fn forward_cleanup_result(

@@ -19,6 +19,27 @@ pub enum MirFrameReference {
     Erased,
 }
 
+/// Ownership disposition when a child joins its enclosing run.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirFrameComposition {
+    /// Transfer the completion into the parent's admitted destination, then retire the child.
+    Completion(MirStorageId),
+    /// Resolve inactive captures and retire the child without executing its body.
+    Abandon,
+    /// Resolve child work but retain capture storage for later synchronous destruction.
+    Quiesce,
+}
+
+impl MirFrameComposition {
+    /// Returns the admitted result destination, if this composition produces a value.
+    pub const fn completion(self) -> Option<MirStorageId> {
+        match self {
+            Self::Completion(storage) => Some(storage),
+            Self::Abandon | Self::Quiesce => None,
+        }
+    }
+}
+
 /// Checked retention shared by a source continuation and its structural cleanup expansion.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirFrameRetention {
@@ -159,6 +180,7 @@ pub struct MirFrameDescriptor {
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
     completion_state: Option<MirFrameStateId>,
+    capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     states: Arc<[MirFrameState]>,
 }
 
@@ -241,8 +263,39 @@ impl MirFrameDescriptor {
             frame_abi,
             result_type,
             completion_state,
+            capture_cleanup: None,
             states: shared_slice(states),
         })
+    }
+
+    /// Records quiescence and subsequent synchronous destruction of inactive captures.
+    /// Both entries retain the original capture storage. Quiescence never enters the body.
+    pub fn with_capture_cleanup(
+        mut self,
+        entries: Option<(MirFrameStateId, MirFrameStateId)>,
+    ) -> Self {
+        if let Some((quiescence, destruction)) = entries {
+            assert_ne!(
+                quiescence, destruction,
+                "capture quiescence and destruction are distinct entries"
+            );
+
+            for entry in [quiescence, destruction] {
+                assert!(
+                    self.states.iter().any(|state| state.state() == entry),
+                    "capture cleanup identifies a described frame state"
+                );
+            }
+        }
+
+        self.capture_cleanup = entries;
+
+        self
+    }
+
+    /// Returns the quiescence entry followed by the retained-capture destruction entry.
+    pub const fn capture_cleanup(&self) -> Option<(MirFrameStateId, MirFrameStateId)> {
+        self.capture_cleanup
     }
 
     /// Returns the stable protected-frame identity.

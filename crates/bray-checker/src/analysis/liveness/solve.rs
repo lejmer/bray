@@ -841,6 +841,12 @@ mod tests {
 
         let subject = BoundDependencySubject::Storage(identity);
 
+        let cursor = builder
+            .push_identity(StorageIdentity::IterationCursor(expression))
+            .unwrap();
+
+        let cursor = BoundDependencySubject::Storage(cursor);
+
         let effects = OperationEffects::from_storage_plan(
             &bound_unit,
             &builder.finish(),
@@ -880,6 +886,21 @@ mod tests {
             transfer_operation(&mut state, &completed, &effects, &effects.universe);
             assert!(state.is_empty(), "the result is born only on completion");
         }
+
+        let published = operation(AnalysisOperationKind::Result {
+            expression,
+            phase: crate::analysis::model::AnalysisResultPhase::Completion,
+        });
+
+        let mut state = BTreeSet::from([subject, cursor]);
+
+        transfer_operation(&mut state, &published, &effects, &effects.universe);
+
+        assert_eq!(
+            state,
+            BTreeSet::from([cursor]),
+            "result publication must not redefine iterator protocol storage"
+        );
 
         let suspended = operation(AnalysisOperationKind::Suspension {
             occurrence: expression.into(),

@@ -3764,3 +3764,159 @@ fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
         }
     }
 }
+
+#[test]
+fn yielded_owners_preserve_only_common_witnesses() {
+    for (expression, intervening, valid) in [
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "",
+            true,
+        ),
+        (
+            "if flag { let (owner, _) = produce(1); yield (owner, 0); } else { let (owner, _) = produce(2); yield (owner, 0); }",
+            "",
+            true,
+        ),
+        (
+            "{ yield if flag { yield produce(1); } else { yield produce(2); }; }",
+            "",
+            true,
+        ),
+        (
+            "loop { if flag { break produce(1); } break produce(2); }",
+            "",
+            true,
+        ),
+        (
+            "match flag { case true { yield produce(1); } case false { yield produce(2); } }",
+            "",
+            true,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield (Owner { value = 2 }, 0); }",
+            "",
+            false,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "owner.value = 3;",
+            false,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "let forged = Owner { value = owner.value }; observe(&forged);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ mut value: u32; }}
+            trusted predicate live(owner: &Owner);
+            trusted func produce(pos value: u32) -> (Owner, u32)
+                ensures(trusted live(owner = &result.0))
+            {{
+                return (Owner {{ value = value }}, 0);
+            }}
+            func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {{}}
+            func caller(pos flag: bool) {{
+                let (mut owner, _) = {expression};
+                {intervening}
+                observe(&owner);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn yielded_pairs_do_not_combine_unrelated_owner_authority() {
+    for (alternative, valid) in [
+        ("yield produce(2);", true),
+        (
+            "let (left, _) = produce(2); let (_, right) = produce(3); yield (left, right);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ value: u32; }}
+            trusted predicate paired(left: &Owner, right: &Owner);
+            trusted func produce(pos value: u32) -> (Owner, Owner)
+                ensures(trusted paired(left = &result.0, right = &result.1))
+            {{
+                return (Owner {{ value = value }}, Owner {{ value = value }});
+            }}
+            func observe(pos left: &Owner, pos right: &Owner)
+                requires(trusted paired(left = left, right = right)) {{}}
+            func caller(pos flag: bool) {{
+                let (left, right) = if flag {{ yield produce(1); }} else {{ {alternative} }};
+                observe(&left, &right);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn yielded_generic_ownership_does_not_destroy_the_returned_value() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        struct Owner { mut value: u32; }
+        trusted predicate live(owner: &Owner);
+        func take<T>(pos pending: T?) -> T {
+            return match consume pending {
+                case ?value { yield value; }
+                case none { panic("empty pending value"); }
+            };
+        }
+        func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {}
+        func caller<T>(pos pending: T?, pos owner: &Owner) -> T
+            requires(trusted live(owner = owner))
+        {
+            let value = take<T>(pending);
+            observe(owner);
+            return value;
+        }
+    "#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}

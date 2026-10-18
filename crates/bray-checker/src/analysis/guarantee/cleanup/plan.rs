@@ -20,6 +20,7 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<CallableInstanceData>>,
     inactive: BTreeSet<StorageAccessId>,
+    suspending_finalizers: BTreeSet<TypeId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -119,7 +120,10 @@ impl Plan {
     }
 
     pub(crate) fn requires_suspension(&self, access: StorageAccessId) -> bool {
-        self.inactive.contains(&access) || self.asynchronous_finalizers(access).next().is_some()
+        self.inactive.contains(&access)
+            || self.steps.get(&access).into_iter().flatten().any(|step| {
+                matches!(step, Step::Lifecycle { ty, .. } if self.suspending_finalizers.contains(ty))
+            })
     }
 
     pub(crate) fn asynchronous_finalizers(
@@ -150,13 +154,7 @@ impl Plan {
         storage: &StoragePlan,
         graph: &crate::analysis::ControlFlowGraph,
     ) {
-        if self.inactive.is_empty()
-            && !self.lifecycles.iter().any(|((_, slot), lifecycle)| {
-                *slot == TypeAssociatedLifecycleSlot::Finalizer
-                    && lifecycle.call.result.execution()
-                        == bray_symbols::CallableExecution::Asynchronous
-            })
-        {
+        if self.inactive.is_empty() && self.suspending_finalizers.is_empty() {
             return;
         }
 
@@ -472,6 +470,24 @@ impl Plan {
                     signature,
                 )
                 .expect("selected lifecycle contract uses checked semantic terms");
+
+                if slot == TypeAssociatedLifecycleSlot::Finalizer {
+                    // A synchronous finalizer can return an error containing child work.
+                    // Its completion still needs a retained cleanup continuation.
+                    let completion =
+                        cleanup_shapes.requirement(lifecycle.call.result.completion_type())?;
+
+                    let child_work = matches!(completion,
+                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(phases)
+                            if phases.includes_cancellation());
+
+                    if child_work
+                        || lifecycle.call.result.execution()
+                            == bray_symbols::CallableExecution::Asynchronous
+                    {
+                        prepared.suspending_finalizers.insert(ty);
+                    }
+                }
 
                 prepared.lifecycles.insert((ty, slot), lifecycle);
             }

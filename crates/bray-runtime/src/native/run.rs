@@ -27,18 +27,21 @@ pub(super) struct NativeRun {
     dispatching: AtomicBool,
     completion: Mutex<Option<crate::CancellationShield>>,
     execution: Mutex<FrameExecutionState>,
-    callback: Mutex<Option<(usize, u32)>>,
+    callback: Mutex<Option<(usize, bool)>>,
 }
 
-pub(super) struct CallbackScope<'a>(&'a NativeRun);
+pub(super) struct CallbackScope<'a> {
+    run: &'a NativeRun,
+    previous: Option<(usize, bool)>,
+}
 
 impl Drop for CallbackScope<'_> {
     fn drop(&mut self) {
-        self.0
+        *self
+            .run
             .callback
             .lock()
-            .expect("callback scope is available")
-            .take();
+            .expect("callback scope is available") = self.previous;
     }
 }
 
@@ -122,25 +125,29 @@ impl NativeRun {
     pub(super) fn enter_callback(
         &self,
         snapshot: &NativeActivationExecution,
-        operation: u32,
+        resumable: bool,
     ) -> CallbackScope<'_> {
-        assert!(
-            self.dispatching.load(Ordering::Acquire),
-            "callback entry retains the exclusive run claim"
-        );
+        let mut callback = self.callback.lock().expect("callback scope is available");
 
-        let previous = self
-            .callback
-            .lock()
-            .expect("callback scope is available")
-            .replace((snapshot.address, operation));
+        if resumable {
+            assert!(
+                self.dispatching.load(Ordering::Acquire),
+                "resumption retains the exclusive run claim"
+            );
 
-        assert!(
-            previous.is_none(),
-            "source callbacks cannot recursively dispatch this run"
-        );
+            assert!(
+                callback.is_none(),
+                "source callbacks cannot recursively dispatch this run"
+            );
+        }
 
-        CallbackScope(self)
+        // Synchronous actions can nest, but mask the parent's permission to compose.
+        let previous = callback.replace((snapshot.address, resumable));
+
+        CallbackScope {
+            run: self,
+            previous,
+        }
     }
 
     pub(super) fn compose(
@@ -148,14 +155,14 @@ impl NativeRun {
         token: &NativeInactiveFrame,
         state: u32,
         destination: usize,
-        abandoning: bool,
+        composition: bray_runtime_abi::NativeFrameComposition,
     ) -> NativeRuntimeStatus {
-        let Some((parent, operation)) = *self.callback.lock().expect("callback scope is available")
+        let Some((parent, resumable)) = *self.callback.lock().expect("callback scope is available")
         else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        if !matches!(operation, 0 | 1 | 3) {
+        if !resumable {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         }
 
@@ -170,7 +177,7 @@ impl NativeRun {
             state,
             origin,
             destination,
-            u8::from(abandoning),
+            composition.code(),
             super::activation::admission,
         );
 

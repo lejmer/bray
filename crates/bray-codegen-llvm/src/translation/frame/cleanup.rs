@@ -61,6 +61,66 @@ fn translate_failure_cleanup<'context>(
         })
         .expect("protected-frame translation requires an established mapping or value");
 
+    if let Some((quiescence, destruction)) = instance
+        .mir()
+        .frame_descriptor()
+        .expect("source frame has its descriptor")
+        .capture_cleanup()
+    {
+        let ordinary = types
+            .context()
+            .append_basic_block(resolve, "frame.failure.ordinary");
+
+        let mut cases = Vec::with_capacity(2);
+
+        for (exit_kind, entry) in [(4, quiescence), (5, destruction)] {
+            let capture = types
+                .context()
+                .append_basic_block(resolve, "frame.capture.cleanup");
+
+            cases.push((exit.get_type().const_int(exit_kind, false), capture));
+            builder.position_at_end(capture);
+
+            let context = integer_pointer(&builder, resolve, 1, types)?;
+
+            let state = builder
+                .build_struct_gep(context_type, context, 0, "frame.capture.state")
+                .map_err(CodegenFailure::backend_library)?;
+
+            builder
+                .build_store(
+                    state,
+                    types
+                        .context()
+                        .i32_type()
+                        .const_int(u64::from(entry.raw()), false),
+                )
+                .map_err(CodegenFailure::backend_library)?;
+
+            invoke_cleanup_entry(
+                module,
+                request,
+                instance,
+                types,
+                &builder,
+                resolve,
+                ProtectedFrameOperation::Resume,
+            )?;
+
+            builder
+                .build_unconditional_branch(done)
+                .map_err(CodegenFailure::backend_library)?;
+        }
+
+        builder.position_at_end(block);
+
+        builder
+            .build_switch(exit, ordinary, &cases)
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder.position_at_end(ordinary);
+    }
+
     let failed = builder
         .build_int_compare(
             inkwell::IntPredicate::EQ,
@@ -110,46 +170,15 @@ fn translate_failure_cleanup<'context>(
 
     // Abandonment resolves initialized state without entering an inactive body.
     // The selected cancellation entry also preserves a suspended cleanup result.
-    let cancel = frame_operation_function(
+    invoke_cleanup_entry(
         module,
         request,
         instance,
-        ProtectedFrameOperation::CancellationEntry,
-    );
-
-    let context = resolve
-        .get_nth_param(1)
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let frame = instance
-        .protected_frame_identity()
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let outcome = crate::native::invoke_function(
-        types.context(),
+        types,
         &builder,
-        request.target(),
-        &CodegenSymbolKey::ProtectedFrame {
-            frame,
-            operation: ProtectedFrameOperation::CancellationEntry,
-        },
-        cancel,
-        &[context.into()],
-        "frame.failure.cleanup",
-    )?
-    .expect("protected-frame translation requires an established mapping or value");
-
-    let destination = resolve
-        .get_first_param()
-        .and_then(|value| match value {
-            BasicValueEnum::PointerValue(value) => Some(value),
-            _ => None,
-        })
-        .expect("protected-frame translation requires an established mapping or value");
-
-    builder
-        .build_store(destination, outcome)
-        .map_err(CodegenFailure::backend_library)?;
+        resolve,
+        ProtectedFrameOperation::CancellationEntry,
+    )?;
 
     builder
         .build_unconditional_branch(done)
@@ -222,6 +251,48 @@ fn translate_completion_move<'context>(
 
     builder
         .build_return(None)
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
+}
+
+fn invoke_cleanup_entry<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    types: &LlvmTypeMappings<'context, '_>,
+    builder: &inkwell::builder::Builder<'context>,
+    resolve: inkwell::values::FunctionValue<'context>,
+    operation: ProtectedFrameOperation,
+) -> Result<(), CodegenFailure> {
+    let function = frame_operation_function(module, request, instance, operation);
+
+    let context = resolve
+        .get_nth_param(1)
+        .expect("resolution retains its frame context");
+
+    let frame = instance
+        .protected_frame_identity()
+        .expect("resolution retains its frame identity");
+
+    let outcome = crate::native::invoke_function(
+        types.context(),
+        builder,
+        request.target(),
+        &CodegenSymbolKey::ProtectedFrame { frame, operation },
+        function,
+        &[context.into()],
+        "frame.cleanup",
+    )?
+    .expect("frame cleanup publishes its progress");
+
+    let destination = resolve
+        .get_first_param()
+        .expect("resolution retains its progress destination")
+        .into_pointer_value();
+
+    builder
+        .build_store(destination, outcome)
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(())

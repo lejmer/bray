@@ -305,10 +305,13 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         }
         MirAsyncOperation::ResumeFrame { storage, .. } => *storage = mappings.storage(*storage),
         MirAsyncOperation::ComposeAwaitedFrame {
-            frame, completion, ..
+            frame, composition, ..
         } => {
             frame.remap_local_ids(mappings);
-            *completion = completion.map(|storage| mappings.storage(storage));
+
+            if let crate::MirFrameComposition::Completion(storage) = composition {
+                *storage = mappings.storage(*storage);
+            }
         }
         MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
             *completion = completion.map(|storage| mappings.storage(storage));
@@ -331,9 +334,9 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
             report.remap_local_ids(mappings);
         }
         MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => frame.remap_local_ids(mappings),
     }
 }
 

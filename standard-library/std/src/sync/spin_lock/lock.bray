@@ -74,7 +74,7 @@ struct SpinLock<T>
             let next = observed & 65535;
             let serving = observed >> 16;
 
-            if((next + 65536 - serving) & 65535) == 65535
+            if ((next + 65536 - serving) & 65535) == 65535
             {
                 trusted internal spin_loop();
                 observed = core.atomic.load<u32, 1>(&state.tickets);
@@ -98,7 +98,7 @@ struct SpinLock<T>
             observed = current;
         }
 
-        while(core.atomic.load<u32, 1>(&state.tickets) >> 16) != ticket
+        while (core.atomic.load<u32, 1>(&state.tickets) >> 16) != ticket
         {
             trusted internal spin_loop();
         }

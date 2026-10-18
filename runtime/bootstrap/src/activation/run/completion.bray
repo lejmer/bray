@@ -92,7 +92,7 @@ trusted internal func transfer(
 
         trusted bray.runtime.bootstrap.activation.execution.retain_incident(&mut updated.incidents, previous);
 
-        updated.abandoned = 1;
+        updated.disposition = bray.runtime.bootstrap.activation.composition.abandon(updated.disposition);
         updated.phase = bray.runtime.bootstrap.activation.CLEANUP;
     }
 

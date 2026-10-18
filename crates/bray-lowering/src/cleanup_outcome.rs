@@ -460,7 +460,15 @@ impl CleanupOutcome {
         source: &MirSourceAnchor,
     ) -> Result<MirBlockId, MirCapacityError> {
         if builder.borrow_cleanup_collection(block, &self.collection()) {
-            return Ok(block);
+            let continuation = builder.push_block(source.clone(), builder.block_kind(block))?;
+
+            builder.set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+            );
+
+            return Ok(continuation);
         }
 
         let (completed, _, continuation) = self.check_completion(builder, block, source, None)?;

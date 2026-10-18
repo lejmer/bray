@@ -65,7 +65,7 @@ func testing_not_completed_assertion_accepts_a_panicked_run()
 @test
 func testing_caught_panic_selects_a_conditional_branch()
 {
-    if match consume(catch
+    if match consume (catch
     {
         panic("expected panic");
         yield unit;

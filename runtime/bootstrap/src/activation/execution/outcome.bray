@@ -9,7 +9,7 @@ internal func broadcast_pending(pos header: &Snapshot) -> bool
     executes(pure, total)
 {
     return header.broadcasted == 0 && header.phase != bray.runtime.bootstrap.activation.COMMITTED && (header.kind !=
-        1 || header.abandoned != 0);
+        1 || header.disposition != 0);
 }
 
 internal func suspended(pos kind: u32) -> bool
@@ -125,7 +125,7 @@ trusted internal func accept_progress(
         if progress.kind == 3 && header.progress.kind != 4
         {
             header.progress = trusted merge_panic(&mut header.progress, progress);
-            header.abandoned = 1;
+            header.disposition = bray.runtime.bootstrap.activation.composition.abandon(header.disposition);
             header.phase = bray.runtime.bootstrap.activation.CLEANUP;
         }
         else
@@ -162,6 +162,7 @@ trusted internal func accept_progress(
 
         header.progress = progress;
         header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+
         return;
     }
 
@@ -171,7 +172,7 @@ trusted internal func accept_progress(
         trusted core.target.abort();
     }
 
-    let completed = header.progress.kind == 1 && header.abandoned == 0;
+    let completed = header.progress.kind == 1 && header.disposition == 0;
 
     if progress.kind == 3 && header.progress.kind != 4
     {
@@ -180,9 +181,10 @@ trusted internal func accept_progress(
         if completed
         {
             // The failed resolver left the completed value owned by this frame.
-            header.abandoned = 1;
+            header.disposition = bray.runtime.bootstrap.activation.composition.abandon(header.disposition);
 
             header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+
             return;
         }
     }
@@ -208,4 +210,54 @@ trusted internal func take_report(
         &mut progress.report,
         bray.runtime.bootstrap.empty_panic_report()
     );
+}
+
+// Taking a terminal outcome does not consume the frame's remaining action allowance.
+trusted internal func take_terminal(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor
+) -> (bray.runtime.bootstrap.ReportRecords, bray.runtime.bootstrap.activation.Progress,)
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1.report),
+    )
+    uses(intrinsic)
+{
+    let resident = trusted access(cursor);
+
+    if resident.incoming.kind != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let incidents = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+        &mut resident.incidents,
+        bray.runtime.bootstrap.empty_records()
+    );
+
+    let progress = std.memory.replace_value<bray.runtime.bootstrap.activation.Progress>(
+        &mut resident.progress,
+        bray.runtime.bootstrap.activation.empty_progress()
+    );
+
+    return (incidents, progress);
+}
+
+// Commit only a detached, already quiescent frame whose captures have been resolved.
+trusted internal func commit(pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor)
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted retiring(pointer = cursor.pointer),
+    )
+    uses(intrinsic)
+{
+    let header = trusted access(cursor);
+
+    if header.phase != bray.runtime.bootstrap.activation.RETAINED || header.parent != 0 || header.child != 0
+    {
+        trusted core.target.abort();
+    }
+
+    header.phase = bray.runtime.bootstrap.activation.COMMITTED;
 }

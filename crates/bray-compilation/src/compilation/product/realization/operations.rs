@@ -387,19 +387,21 @@ impl Compilation {
             crate::fact::CompilationFactKey::GeneratedLifecycle(query.0, query.1),
             cancellation,
             |cancellation| {
-                Ok(
-                    super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)
-                        .and_then(|context| {
-                            bray_lowering::lower_lifecycle(
-                                &context,
-                                instance.template().clone(),
-                                reference,
-                                unit,
-                                instance.target(),
-                            )
-                        })
-                        .map(std::sync::Arc::new),
+                Ok(super::synthetic::CompilationSyntheticLoweringContext::new(
+                    self,
+                    None,
+                    cancellation,
                 )
+                .and_then(|context| {
+                    bray_lowering::lower_lifecycle(
+                        &context,
+                        instance.template().clone(),
+                        reference,
+                        unit,
+                        instance.target(),
+                    )
+                })
+                .map(std::sync::Arc::new))
             },
         )?;
 

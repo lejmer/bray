@@ -122,6 +122,8 @@ pub enum LifecycleAction {
     DestroyReport,
     /// Resolve a task using the operation selected by the requested phase.
     Task,
+    /// Resolve an inactive computation through its described captured state.
+    Future,
 }
 
 impl LifecycleAction {
@@ -143,7 +145,8 @@ impl LifecycleAction {
             | Self::RawBuffer(_)
             | Self::ReleaseString
             | Self::DestroyReport
-            | Self::Task => [None; 2],
+            | Self::Task
+            | Self::Future => [None; 2],
         };
 
         calls.into_iter().flatten()

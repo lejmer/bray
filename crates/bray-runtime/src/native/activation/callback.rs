@@ -67,6 +67,16 @@ enum Operation {
     Destroy,
 }
 
+impl Operation {
+    fn is_resumable(&self) -> bool {
+        match self {
+            Self::Resume | Self::Cancel => true,
+            Self::Resolve(exit) => *exit != NativeFrameExit::RETAINED_DESTRUCTION,
+            Self::Broadcast | Self::Move(_) | Self::Destroy => false,
+        }
+    }
+}
+
 /// Invokes a producer callback with exclusive destinations supplied by the Bray dispatcher.
 /// The caller supplies the matching provider context and disjoint initialized
 /// output slots, with an empty destination report and exclusively owned records.
@@ -91,6 +101,8 @@ pub extern "C" fn bray_runtime_activation_callback(
             1 => NativeFrameExit::CANCELLED,
             2 => NativeFrameExit::PANICKED,
             3 => NativeFrameExit::RUNTIME_FAILURE,
+            4 => NativeFrameExit::QUIESCENCE,
+            5 => NativeFrameExit::RETAINED_DESTRUCTION,
             _ => panic!("unknown activation lifecycle exit {argument}"),
         }),
         4 => Operation::Move(argument),
@@ -120,11 +132,13 @@ pub extern "C" fn bray_runtime_activation_callback(
 
     let _scope = run
         .as_ref()
-        .map(|run| run.enter_callback(execution, operation));
+        .map(|run| run.enter_callback(execution, selected.is_resumable()));
 
     // Only producer execution may unwind into an owned source report. Invalid
     // dispatch ownership or execution context is a runtime invariant failure.
-    super::execution::with_execution(execution, || {
+    let resumable = selected.is_resumable();
+
+    let mut callback = || {
         invoke(destination, &mut outgoing, |destination| match selected {
             Operation::Resume => (descriptor.resume)(destination, context),
             Operation::Cancel => (descriptor.cancel)(destination, context),
@@ -133,7 +147,14 @@ pub extern "C" fn bray_runtime_activation_callback(
             Operation::Move(address) => (descriptor.move_completion)(context, address),
             Operation::Destroy => (descriptor.destroy)(context),
         });
-    });
+    };
+
+    if resumable || crate::context::current_task_execution_lane().is_some() {
+        super::execution::with_execution(execution, callback);
+    } else {
+        // Synchronous disposal inherits its native root. It cannot publish a task continuation.
+        callback();
+    }
 
     let (head, tail, count) = outgoing.into_parts();
 
@@ -228,7 +249,9 @@ mod tests {
                 calls.push((3, context, usize::from(exit == NativeFrameExit::PANICKED)))
             });
 
-            *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 9, 0);
+            if exit != NativeFrameExit::RETAINED_DESTRUCTION {
+                *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 9, 0);
+            }
         }
 
         extern "C-unwind" fn completion(context: usize, destination: usize) {
@@ -382,6 +405,34 @@ mod tests {
                     (5, 17, 0)
                 ]
             )
+        });
+
+        assert_eq!((records.head, records.tail, records.count), (0, 0, 0));
+
+        CALLS.with_borrow_mut(Vec::clear);
+
+        for (operation, argument) in [(2, 0), (3, 5), (4, 37), (5, 0)] {
+            let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+
+            super::bray_runtime_activation_callback(
+                &execution,
+                &descriptor,
+                17,
+                operation,
+                argument,
+                &mut progress,
+                &mut records,
+            );
+
+            assert_eq!(progress.kind(), NativeFrameProgressKind::COMPLETED);
+            assert!(crate::current_task_execution_context().is_none());
+        }
+
+        CALLS.with_borrow(|calls| {
+            assert_eq!(
+                calls.as_slice(),
+                [(2, 17, 0), (3, 17, 0), (4, 17, 37), (5, 17, 0)]
+            );
         });
 
         assert_eq!((records.head, records.tail, records.count), (0, 0, 0));

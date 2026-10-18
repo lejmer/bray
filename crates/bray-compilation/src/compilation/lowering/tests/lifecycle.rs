@@ -1966,11 +1966,11 @@ fn inactive_future_cleanup_composes_without_result_storage() {
         for operation in mir.operations() {
             match operation.kind() {
                 MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-                    completion,
+                    composition,
                     ..
                 }) => {
                     assert!(
-                        completion.is_none(),
+                        *composition == bray_ir::MirFrameComposition::Abandon,
                         "discarded future has no result destination"
                     );
 

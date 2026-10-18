@@ -316,9 +316,7 @@ where
         };
 
         match expression {
-            BoundExpression::Block(expression) => {
-                self.build_block_expression(id, *expression, current)
-            }
+            BoundExpression::Block(expression) => self.build_block_expression(*expression, current),
             BoundExpression::Binary(expression)
                 if matches!(
                     expression.operator(),
@@ -365,7 +363,6 @@ where
 
     fn build_block_expression(
         &mut self,
-        id: BoundExpressionId,
         expression: bray_bound_tree::BoundBlockExpression,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
@@ -389,8 +386,6 @@ where
                 None,
             );
         }
-
-        self.push_bound(completion, id.into());
 
         Some(Some(completion))
     }

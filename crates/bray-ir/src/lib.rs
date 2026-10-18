@@ -30,7 +30,9 @@ pub use control::{
     MirEdge, MirInlineAssemblyTerminator, MirPatternPredicate, MirRunResultEdges,
     MirRunResultVariants, MirSuspensionKind, MirSwitchCase, MirTerminator, MirTerminatorKind,
 };
-pub use frame::{MirFrameDescriptor, MirFrameReference, MirFrameRetention, MirFrameState};
+pub use frame::{
+    MirFrameComposition, MirFrameDescriptor, MirFrameReference, MirFrameRetention, MirFrameState,
+};
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use nullable::{MirNullableQuery, MirNullableQueryKind};

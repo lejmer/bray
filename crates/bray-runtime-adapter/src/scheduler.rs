@@ -168,3 +168,11 @@ native_adapter! {
         implementation::bray_runtime_activation_callback_admission(count, destination)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_activation_action_readiness(
+        execution: &bray_runtime_abi::NativeActivationExecution,
+    ) -> u32 {
+        implementation::bray_runtime_activation_action_readiness(execution)
+    }
+}

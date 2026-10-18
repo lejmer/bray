@@ -1397,6 +1397,15 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
+        match frame.capture_cleanup() {
+            Some((quiescence, destruction)) => {
+                self.wire.write_u32(1);
+                self.wire.write_u32(quiescence.raw());
+                self.wire.write_u32(destruction.raw());
+            }
+            None => self.wire.write_u32(0),
+        }
+
         write_count(&mut self.wire, frame.states().len());
 
         for state in frame.states() {
@@ -2373,7 +2382,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 child,
                 resume_state,
                 frame,
-                completion,
+                composition,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
@@ -2381,9 +2390,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(resume_state.raw());
                 self.operand(frame)?;
 
-                write_optional(&mut self.wire, *completion, |wire, storage| {
-                    wire.write_u32(storage.slot())
-                });
+                match composition {
+                    bray_ir::MirFrameComposition::Completion(storage) => {
+                        self.wire.write_u32(0);
+                        self.wire.write_u32(storage.slot());
+                    }
+                    bray_ir::MirFrameComposition::Abandon => self.wire.write_u32(1),
+                    bray_ir::MirFrameComposition::Quiesce => self.wire.write_u32(2),
+                }
             }
             Operation::CommitAwaitedCompletion { child, completion } => {
                 self.wire.write_u32(4);
@@ -2445,14 +2459,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
                 self.runtime_reference(*runtime);
             }
-            Operation::ExecuteCleanupBroadcast { frame, runtime } => {
+            Operation::BroadcastInactiveFrame { frame, runtime } => {
                 self.wire.write_u32(10);
-                self.wire.write_bytes(&frame.digest());
+                self.operand(frame)?;
                 self.runtime_reference(*runtime);
             }
-            Operation::ExecuteLifecycleResolution { frame, runtime } => {
+            Operation::DestroyInactiveFrame { frame, runtime } => {
                 self.wire.write_u32(11);
-                self.wire.write_bytes(&frame.digest());
+                self.operand(frame)?;
                 self.runtime_reference(*runtime);
             }
             Operation::TransferCleanupIncident {

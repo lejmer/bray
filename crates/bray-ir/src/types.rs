@@ -401,9 +401,11 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
         | MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
+            collect_operand_types(frame, types);
+        }
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
         | MirAsyncOperation::StartTask { value: frame, .. } => {
             collect_operand_types(frame, types);

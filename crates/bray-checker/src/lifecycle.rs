@@ -88,10 +88,12 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
                 });
             }
             Some(RepresentationRole::Task) => return Ok(LifecycleAction::Task),
-            Some(RepresentationRole::Future) if phase == LifecyclePhase::Quiesce => {
-                panic!(
-                    "inactive future {ty:?} quiescence requires its admitted capture-cleanup activation"
-                );
+            Some(RepresentationRole::Future) => {
+                return Ok(if phase == LifecyclePhase::Finalize {
+                    LifecycleAction::None
+                } else {
+                    LifecycleAction::Future
+                });
             }
             _ => {}
         }

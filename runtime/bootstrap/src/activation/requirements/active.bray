@@ -31,10 +31,9 @@ trusted internal func active(
     uses(intrinsic, layout_reinterpret)
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
-
     let descriptor = trusted bray.runtime.bootstrap.activation.execution.describe(cursor);
 
-    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 6)
     {
         return none;
     }

@@ -59,7 +59,7 @@ trusted internal func broadcast(
     {
         trusted descend(cursor);
 
-        if updated.abandoned != 0 || updated.phase == bray.runtime.bootstrap.activation.CLEANUP
+        if updated.disposition != 0 || updated.phase == bray.runtime.bootstrap.activation.CLEANUP
         {
             trusted abandon(cursor);
         }

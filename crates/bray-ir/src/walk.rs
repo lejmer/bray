@@ -291,9 +291,11 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
         | MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
+            visit_operand(frame, visit);
+        }
     }
 }
 
@@ -423,10 +425,14 @@ pub(crate) fn for_each_operation_storage(
             visit(destination.storage());
         }
         MirOperationKind::Async(MirAsyncOperation::ResumeFrame { storage, .. }) => visit(*storage),
-        MirOperationKind::Async(
-            MirAsyncOperation::ComposeAwaitedFrame { completion, .. }
-            | MirAsyncOperation::CommitAwaitedCompletion { completion, .. },
-        ) => {
+        MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame { composition, .. }) => {
+            if let Some(completion) = composition.completion() {
+                visit(completion);
+            }
+        }
+        MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion {
+            completion, ..
+        }) => {
             if let Some(completion) = completion {
                 visit(*completion);
             }

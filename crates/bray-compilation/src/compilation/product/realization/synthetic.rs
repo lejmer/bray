@@ -14,15 +14,18 @@ pub(super) struct CompilationSyntheticLoweringContext<'compilation> {
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
     values: &'compilation SemanticValueStore,
+    realization: Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
 }
 
 impl<'compilation> CompilationSyntheticLoweringContext<'compilation> {
     pub(super) fn new(
         compilation: &'compilation Compilation,
+        realization: Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
         cancellation: &'compilation CancellationToken,
     ) -> Result<Self, CodegenPreparationError> {
         Ok(Self {
             compilation,
+            realization,
             cancellation,
             values: compilation.semantic_value_store()?,
         })
@@ -45,6 +48,23 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         ty: TypeId,
         phase: bray_bound_tree::LifecyclePhase,
     ) -> Result<bray_bound_tree::LifecycleAction, Self::Error> {
+        let ty = match self.realization {
+            Some(realization) => self.compilation.concrete_codegen_type(
+                ty,
+                realization.substitution(),
+                Some(realization),
+                self.cancellation,
+            )?,
+            None => ty,
+        };
+
+        if self
+            .compilation
+            .codegen_lifecycle_phase_is_trivial(ty, phase, self.cancellation)?
+        {
+            return Ok(bray_bound_tree::LifecycleAction::None);
+        }
+
         let action = bray_checker::select_lifecycle_action(self, ty, phase)?;
 
         if phase == bray_bound_tree::LifecyclePhase::Finalize
@@ -159,7 +179,21 @@ impl Compilation {
             .lifecycle_type()
             .expect("selected lifecycle helper retains its concrete owner type");
 
-        CompilationSyntheticLoweringContext::new(self, cancellation)?
+        CompilationSyntheticLoweringContext::new(self, None, cancellation)?
             .lifecycle_action(ty, role.phase())
+    }
+}
+
+impl Compilation {
+    pub(in crate::compilation::product) fn expand_lifecycle_mir(
+        &self,
+        realization: &super::super::specialization::ConcreteCodegenInstance,
+        unit: &bray_ir::MirUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_ir::MirUnit>, CodegenPreparationError> {
+        let context =
+            CompilationSyntheticLoweringContext::new(self, Some(realization), cancellation)?;
+
+        bray_lowering::expand_lifecycle_continuations(&context, unit)
     }
 }

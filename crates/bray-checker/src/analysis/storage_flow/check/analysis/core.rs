@@ -179,13 +179,7 @@ where
                 reachable_exits.insert(StorageExitPoint::new(block, exit));
             }
 
-            occurrences
-                .entry(operation.kind().node())
-                .and_modify(|set| {
-                    set.intersect(&state.refinements);
-                })
-                // Each occurrence retains its converged entry facts while replay advances the state.
-                .or_insert_with(|| state.refinements.clone());
+            record_node_refinements(&mut occurrences, operation.kind(), &state.refinements);
 
             collector.apply_operation(&mut state, operation);
         }
@@ -282,6 +276,30 @@ where
     };
 
     CheckerOutcome::complete((analysis, published), collector.diagnostics)
+}
+
+fn record_node_refinements(
+    occurrences: &mut BTreeMap<AnyBoundNodeId, crate::analysis::refinement::RefinementSet>,
+    operation: AnalysisOperationKind,
+    refinements: &crate::analysis::refinement::RefinementSet,
+) {
+    if matches!(
+        operation,
+        AnalysisOperationKind::Result {
+            phase: crate::analysis::model::AnalysisResultPhase::Begin,
+            ..
+        }
+    ) {
+        return;
+    }
+
+    occurrences
+        .entry(operation.node())
+        .and_modify(|known| {
+            known.intersect(refinements);
+        })
+        // Each source occurrence owns its converged facts while replay advances.
+        .or_insert_with(|| refinements.clone());
 }
 
 struct StorageOperationOutcome {
@@ -516,6 +534,26 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
+        if matches!(
+            operation.kind(),
+            AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Begin,
+                ..
+            }
+        ) {
+            self.execution.transfer_operation(
+                state
+                    .execution
+                    .as_mut()
+                    .expect("reachable storage state has execution facts"),
+                operation.kind(),
+                None,
+                None,
+            );
+
+            return;
+        }
+
         if let AnalysisOperationKind::Suspension {
             occurrence,
             kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
@@ -545,7 +583,7 @@ where
 
         self.transfer_result_dependencies(state, kind);
 
-        if self.publish {
+        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
             self.trusted
                 .before_operation(self.execution, &execution, kind);
         }
@@ -558,7 +596,7 @@ where
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Completion,
                 ..
-            }
+            } | AnalysisOperationKind::Result { .. }
         );
 
         let assignment = (!completing)
@@ -700,6 +738,11 @@ where
             );
         }
 
+        if matches!(kind, AnalysisOperationKind::Result { .. }) {
+            self.execution
+                .transfer_operation(&mut execution, kind, None, None);
+        }
+
         self.memory_evidence = self
             .execution
             .trusted_memory_evidence(&execution, kind.occurrence());
@@ -757,7 +800,7 @@ where
                 .complete_operation(execution, kind, Some(&observations));
         }
 
-        if self.publish {
+        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
             self.trusted
                 .after_operation(self.execution, execution, kind, self.memory_evidence);
         }
@@ -897,6 +940,7 @@ where
                 phase: AnalysisCallPhase::Completion,
                 ..
             } | AnalysisOperationKind::ScopeExit { .. }
+                | AnalysisOperationKind::Result { .. }
         ) && let Some(invalidation) = invalidation.or_else(|| {
             self.refinements
                 .invalidation_at(operation.kind().occurrence())
@@ -966,14 +1010,27 @@ where
             return None;
         }
 
-        self.initialize_operation_storage(state, operation.kind().node());
+        self.initialize_operation_storage(state, operation.kind());
 
         for plan in self.storage.node_plans(operation.kind().node()) {
+            if matches!(operation.kind(), AnalysisOperationKind::Result { .. })
+                && self
+                    .storage
+                    .root_identity(plan.access())
+                    .and_then(|identity| self.storage.identity(identity))
+                    .is_some_and(bray_bound_tree::StorageIdentity::is_iteration_storage)
+            {
+                continue;
+            }
+
             self.apply_plan(state, plan, refinements.clone());
         }
 
-        let memory_status =
-            self.apply_memory_operation(state, operation.kind().node(), refinements.clone());
+        let memory_status = if matches!(operation.kind(), AnalysisOperationKind::Result { .. }) {
+            None
+        } else {
+            self.apply_memory_operation(state, operation.kind().node(), refinements.clone())
+        };
 
         if memory_status
             .is_none_or(|status| status == bray_bound_tree::MemoryOperationStatus::Valid)
@@ -1327,31 +1384,49 @@ where
             })
     }
 
-    fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
-        let definitions = self.input.definitions(node);
+    fn initialize_operation_storage(
+        &self,
+        state: &mut StorageFlowState,
+        operation: AnalysisOperationKind,
+    ) {
+        let definitions = self.input.definitions(operation.node());
 
-        for identity in definitions {
+        let included = |identity: &bray_bound_tree::StorageIdentityId| {
+            !matches!(operation, AnalysisOperationKind::Result { .. })
+                || !self
+                    .storage
+                    .identity(*identity)
+                    .expect("operation definition retains its storage identity")
+                    .is_iteration_storage()
+        };
+
+        let defines = |identity: &bray_bound_tree::StorageIdentityId| {
+            definitions.contains(identity) && included(identity)
+        };
+
+        for identity in definitions.iter().filter(|identity| included(identity)) {
             state.memory.begin(*identity);
         }
 
         state
             .observed_pattern_bindings
-            .retain(|identity| !definitions.contains(identity));
+            .retain(|identity| !defines(identity));
 
-        state
-            .moved
-            .retain(|path, _| !definitions.contains(&path.root));
+        state.moved.retain(|path, _| !defines(&path.root));
 
         state
             .definitely_absent
-            .retain(|path, _| !definitions.contains(&path.root));
+            .retain(|path, _| !defines(&path.root));
+
+        state.fully_moved.retain(|storage| !defines(storage));
 
         state
-            .fully_moved
-            .retain(|storage| !definitions.contains(storage));
+            .live
+            .extend(definitions.iter().copied().filter(included));
 
-        state.live.extend(definitions.iter().copied());
-        state.initialized.extend(definitions.iter().copied());
+        state
+            .initialized
+            .extend(definitions.iter().copied().filter(included));
     }
 
     fn moved_origins(

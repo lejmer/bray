@@ -1444,7 +1444,7 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-            completion: None,
+            composition: bray_ir::MirFrameComposition::Abandon,
             ..
         })
     )));
@@ -1452,7 +1452,7 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-            completion: Some(_),
+            composition: bray_ir::MirFrameComposition::Completion(_),
             ..
         })
     )));
@@ -1503,7 +1503,7 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
                 matches!(
                     operation.kind(),
                     MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-                        completion: None,
+                        composition: bray_ir::MirFrameComposition::Abandon,
                         ..
                     })
                 )

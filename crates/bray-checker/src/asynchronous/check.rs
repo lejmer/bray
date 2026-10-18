@@ -216,7 +216,8 @@ where
                 );
             }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
-            AnalysisOperationKind::Bound(_)
+            AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::ScopeExit { .. } => {}

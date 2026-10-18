@@ -1482,11 +1482,18 @@ fn async_operation(
             child,
             resume_state,
             frame,
-            completion,
+            composition,
         } => {
-            parts.attribute("abandoning", completion.is_none());
+            parts.attribute(
+                "composition",
+                match composition {
+                    bray_ir::MirFrameComposition::Completion(_) => "completion",
+                    bray_ir::MirFrameComposition::Abandon => "abandonment",
+                    bray_ir::MirFrameComposition::Quiesce => "quiescence",
+                },
+            );
 
-            if let Some(completion) = completion {
+            if let Some(completion) = composition.completion() {
                 parts.attribute("completion_storage", completion.slot());
             }
 
@@ -1557,17 +1564,17 @@ fn async_operation(
 
             "publish_terminal_state"
         }
-        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
-            parts.attribute("frame", digest_text(frame.digest()));
+        MirAsyncOperation::BroadcastInactiveFrame { frame, runtime } => {
+            parts.operand("frame", frame, context)?;
             runtime_reference("runtime", *runtime, parts);
 
-            "execute_cleanup_broadcast"
+            "broadcast_inactive_frame"
         }
-        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
-            parts.attribute("frame", digest_text(frame.digest()));
+        MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
+            parts.operand("frame", frame, context)?;
             runtime_reference("runtime", *runtime, parts);
 
-            "execute_lifecycle_resolution"
+            "destroy_inactive_frame"
         }
         MirAsyncOperation::TransferCleanupIncident {
             incident,

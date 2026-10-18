@@ -157,22 +157,19 @@ trusted internal func withdraw_waiter<T>(pos shared: &ChannelCore<T>, pos ticket
 
         yield match kind
         {
+            case WaiterKind.Sender when channel.rendezvous_belongs_to(ticket)
+            {
+                let mut result: T? = none;
+
+                result = trusted channel.take_committed_rendezvous(ticket);
+                yield result;
+            }
             case WaiterKind.Sender
             {
-                yield if channel.rendezvous_belongs_to(ticket)
-                {
-                    let mut result: T? = none;
+                let _: bool = channel.send_waiters.remove(ticket);
+                let result: T? = none;
 
-                    result = trusted channel.take_committed_rendezvous(ticket);
-                    yield result;
-                }
-                else
-                {
-                    let _: bool = channel.send_waiters.remove(ticket);
-                    let result: T? = none;
-
-                    yield result;
-                };
+                yield result;
             }
             case WaiterKind.Receiver
             {

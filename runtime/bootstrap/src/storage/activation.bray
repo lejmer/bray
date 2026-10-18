@@ -76,7 +76,7 @@ trusted internal func reserve_lease(pos pool: &mut bray.runtime.bootstrap.Report
 
             entry.epoch = epoch;
             entry.state = State.Reserved;
-            yield(next, entry.address);
+            yield (next, entry.address);
         };
 
         shape.free = next;
@@ -217,6 +217,13 @@ trusted internal func frame_address(
                 return 0;
             }
         }
+        case State.Retained(registered)
+        {
+            if dispatch || registered != identity
+            {
+                return 0;
+            }
+        }
         case _ { return 0; }
     }
 
@@ -226,6 +233,30 @@ trusted internal func frame_address(
     }
 
     return entry.address;
+}
+
+// Return a terminal frame to its surviving source owner without allowing resume.
+trusted internal func retain_frame(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos lease: &Lease,
+    pos descriptor: usize
+)
+    uses(intrinsic)
+{
+    if descriptor == 0 || !trusted matches_lease(pool, lease)
+    {
+        trusted core.target.abort();
+    }
+
+    let values = trusted shapes(pool);
+    let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
+
+    if !(entry.state matches State.Dispatched)
+    {
+        trusted core.target.abort();
+    }
+
+    entry.state = State.Retained(descriptor);
 }
 
 trusted internal func release_value(pos pool: &mut bray.runtime.bootstrap.ReportPool, pos lease: &Lease) -> bool

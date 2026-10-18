@@ -5,6 +5,7 @@ pub(crate) mod local_id_remap;
 mod model;
 pub(crate) mod reconstruction;
 mod splice;
+mod substitution;
 mod validation;
 
 pub use builder::MirUnitBuilder;

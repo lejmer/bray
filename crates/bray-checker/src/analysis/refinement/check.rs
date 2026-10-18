@@ -146,6 +146,11 @@ pub(crate) fn transfer_operation(
     discriminants: &BTreeMap<bray_bound_tree::StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
 ) {
     match operation.kind() {
+        AnalysisOperationKind::Result { expression, phase } => {
+            if phase == crate::analysis::model::AnalysisResultPhase::Completion {
+                universe.finish_operation(state, expression.into());
+            }
+        }
         AnalysisOperationKind::Recovery(_) => state.clear(),
         AnalysisOperationKind::PatternObservation(_) => {}
         AnalysisOperationKind::ScopeExit {

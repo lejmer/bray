@@ -75,6 +75,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) frame_states: Vec<MirFrameState>,
     pub(super) completion_cleanup: Option<bray_ir::MirPlace>,
     pub(super) initial_broadcast: Option<MirBlockId>,
+    pub(super) capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) destruction_argument: Option<(StorageIdentityId, MirOperand)>,
@@ -119,6 +120,7 @@ impl<'unit> Lowerer<'unit> {
             frame_states: Vec::new(),
             completion_cleanup: None,
             initial_broadcast: None,
+            capture_cleanup: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
             destruction_argument: None,
@@ -287,25 +289,10 @@ impl<'unit> Lowerer<'unit> {
                     )
                 });
 
-            let initial_storages = self.storages.iter().filter_map(|(identity, storage)| {
-                self.input
-                    .storage_plan()
-                    .identity(*identity)
-                    .expect("lowered storage retains its checked identity")
-                    .is_initialized_at_entry()
-                    .then_some(*storage)
-            });
-
             let initial = MirFrameState::new(
                 MirFrameStateId::new(0),
                 entry,
-                bray_ir::MirFrameRetention::new(
-                    self.initial_broadcast
-                        .expect("protected source frame retains its capture broadcast"),
-                    self.execution_lane_requirements(),
-                    initial_storages,
-                )
-                .with_affinity(self.frame_affinity()),
+                self.initial_frame_retention(),
             );
 
             let runtime_abi = self.input.target().runtime_abi();
@@ -319,7 +306,8 @@ impl<'unit> Lowerer<'unit> {
                 std::iter::once(initial).chain(self.frame_states),
             )?;
 
-            self.builder.set_frame_descriptor(descriptor);
+            self.builder
+                .set_frame_descriptor(descriptor.with_capture_cleanup(self.capture_cleanup));
         }
 
         Ok(self.builder.finish(entry))

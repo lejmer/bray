@@ -58,40 +58,40 @@ internal struct AttachmentExit
                     let mut anchor: HostAnchor = trusted host_anchor(&lease);
                     let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
 
-                    yield if let ?storage = host.storage
+                    let payload: &mut HostStorage = if let ?storage = host.storage
                     {
-                        let payload: &mut HostStorage = &mut storage;
-
-                        let record: RawPointer<Attachment> =
-                        {
-                            let row = trusted find_attachment(payload, identity, 0);
-
-                            yield match consume row
-                            {
-                                case ?entry
-                                {
-                                    if !entry.closing || entry.native_thread != native_thread
-                                    {
-                                        trusted core.target.abort();
-                                    }
-
-                                    yield std.memory.address_of_mut<Attachment>(entry);
-                                }
-                                case none { yield trusted core.target.abort(); }
-                            };
-                        };
-
-                        if payload.active == 0
-                        {
-                            trusted core.target.abort();
-                        }
-
-                        yield(record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
+                        yield &mut storage;
                     }
                     else
                     {
                         yield trusted core.target.abort();
                     };
+
+                    let record: RawPointer<Attachment> =
+                    {
+                        let row = trusted find_attachment(payload, identity, 0);
+
+                        yield match consume row
+                        {
+                            case ?entry
+                            {
+                                if !entry.closing || entry.native_thread != native_thread
+                                {
+                                    trusted core.target.abort();
+                                }
+
+                                yield std.memory.address_of_mut<Attachment>(entry);
+                            }
+                            case none { yield trusted core.target.abort(); }
+                        };
+                    };
+
+                    if payload.active == 0
+                    {
+                        trusted core.target.abort();
+                    }
+
+                    yield (record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
                 };
 
                 let (record, active, remaining_active): (RawPointer<Attachment>, RawPointer<usize>, usize) = pointers;

@@ -136,7 +136,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             // These operations do not dispose storage. Their explicit invocation
             // effects are handled by the ordinary operation transition.
-            AnalysisOperationKind::Bound(_)
+            AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::Suspension { .. }
@@ -285,7 +286,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             // These operations do not dispose storage. Their explicit invocation
             // effects are handled by the ordinary operation transition.
-            AnalysisOperationKind::Bound(_)
+            AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::Suspension { .. }

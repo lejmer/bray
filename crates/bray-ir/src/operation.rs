@@ -558,9 +558,8 @@ pub enum MirAsyncOperation {
         resume_state: MirFrameStateId,
         /// Inactive child frame value.
         frame: MirOperand,
-        /// Admitted parent storage receiving the child result before resumption.
-        /// Absence abandons the inactive child and resolves only its captures.
-        completion: Option<MirStorageId>,
+        /// Whether completion, complete abandonment or retained quiescence owns the child.
+        composition: crate::MirFrameComposition,
     },
     /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
@@ -611,17 +610,17 @@ pub enum MirAsyncOperation {
         /// Selected private publication ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Execute phase-one cancellation broadcast for a protected frame.
-    ExecuteCleanupBroadcast {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+    /// Broadcast cancellation through an inactive computation's captured owners.
+    BroadcastInactiveFrame {
+        /// Retained inactive owner whose captures receive cancellation.
+        frame: MirOperand,
         /// Selected private broadcast ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Execute phase-two lifecycle resolution for a protected frame.
-    ExecuteLifecycleResolution {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+    /// Destroy quiescent captures and release their inactive computation's storage.
+    DestroyInactiveFrame {
+        /// Quiescent owner consumed exactly once.
+        frame: MirOperand,
         /// Selected private lifecycle ABI role.
         runtime: MirRuntimeReference,
     },

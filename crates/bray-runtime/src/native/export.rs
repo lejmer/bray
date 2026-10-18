@@ -197,11 +197,12 @@ native_export! {
         frame: NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
-        abandoning: u8,
+        composition: u8,
     ) {
-        assert!(abandoning <= 1, "frame composition requires a valid abandonment flag");
+        let composition = bray_runtime_abi::NativeFrameComposition::from_code(composition)
+            .expect("frame composition requires a valid ownership disposition");
 
-        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination, abandoning != 0))
+        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination, composition))
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
@@ -2533,7 +2534,12 @@ mod tests {
         let child = move_conflicting_child(0);
 
         let status = super::with_runtime(|runtime| {
-            runtime.compose_awaited(&child, 1, super::super::fixtures::destination(), false)
+            runtime.compose_awaited(
+                &child,
+                1,
+                super::super::fixtures::destination(),
+                bray_runtime_abi::NativeFrameComposition::Completion,
+            )
         })
         .unwrap();
 
@@ -2602,7 +2608,7 @@ mod tests {
                 &child,
                 u32::MAX,
                 super::super::fixtures::destination(),
-                false,
+                bray_runtime_abi::NativeFrameComposition::Completion,
             )
         })
         .unwrap();
@@ -2612,7 +2618,12 @@ mod tests {
         assert_eq!(REJECTED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
         let accepted = super::with_runtime(|runtime| {
-            runtime.compose_awaited(&child, 1, super::super::fixtures::destination(), false)
+            runtime.compose_awaited(
+                &child,
+                1,
+                super::super::fixtures::destination(),
+                bray_runtime_abi::NativeFrameComposition::Completion,
+            )
         })
         .unwrap();
 

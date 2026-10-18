@@ -20,6 +20,9 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        frame: None,
+        frame_states: Vec::new(),
+        continuation: None,
     }
     .lower_lifecycle(key, reference, unit, target)
 }

@@ -92,7 +92,7 @@ impl NativeRuntime {
         frame: &NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
-        abandoning: bool,
+        composition: bray_runtime_abi::NativeFrameComposition,
     ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
@@ -100,7 +100,7 @@ impl NativeRuntime {
 
         self.with_started(parent, |task| {
             task.run
-                .compose(frame, resume_state, destination, abandoning)
+                .compose(frame, resume_state, destination, composition)
         })
         .unwrap_or_else(|status| status)
     }

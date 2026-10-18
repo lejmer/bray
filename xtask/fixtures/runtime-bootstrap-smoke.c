@@ -1033,7 +1033,7 @@ typedef struct
     ActivationRecords incidents, outgoing;
     uintptr_t destination;
     ActivationProgress incoming;
-    uint32_t abandoned;
+    uint32_t disposition;
 } ActivationHeader;
 
 typedef struct

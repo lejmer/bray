@@ -545,10 +545,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 child,
                 resume_state,
                 frame,
-                completion,
+                composition,
                 ..
             } => {
-                self.compose_awaited_frame(operation_id, *child, *resume_state, frame, *completion)
+                self.compose_awaited_frame(operation_id, *child, *resume_state, frame, *composition)
             }
             MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
                 let runtime = self.operation_runtime_helper(
@@ -680,9 +680,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
-            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {
-                self.invoke_runtime(*runtime, &[])
+            MirAsyncOperation::BroadcastInactiveFrame { frame, runtime }
+            | MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
+                self.cleanup_inactive_frame(frame, *runtime)?;
+
+                Ok(None)
             }
             MirAsyncOperation::TransferCleanupIncident {
                 incident,

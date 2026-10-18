@@ -41,6 +41,7 @@ internal union State
     Active;
     Inactive(pos descriptor: usize);
     Dispatched;
+    Retained(pos descriptor: usize);
 }
 
 internal struct Slot

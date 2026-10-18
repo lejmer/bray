@@ -144,17 +144,10 @@ trusted internal func reserve(
         case Error(capacity) { return Error(bray.runtime.bootstrap.pool.growth.Request.StorageSlabs(capacity)); }
     }
 
-    let ready = if let ?region = prepared.bytes
+    let ready = if let ?region = prepared.bytes && let ?entries = prepared.slots
     {
-        yield if let ?entries = prepared.slots
-        {
-            yield region.capacity >= bytes && entries.capacity >= additional && region.initialized == 0 &&
-                entries.initialized == 0;
-        }
-        else
-        {
-            yield false;
-        };
+        yield region.capacity >= bytes && entries.capacity >= additional && region.initialized == 0 &&
+            entries.initialized == 0;
     }
     else
     {

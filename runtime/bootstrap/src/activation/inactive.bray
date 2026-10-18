@@ -1,0 +1,290 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.inactive;
+
+using std.memory;
+using internal bray.runtime.bootstrap.activation;
+
+// The compiler-bound caller owns the exact inactive token and its disjoint empty
+// outcome slot. Its provider and captured dependencies remain live through return.
+// Destroy consumes a quiescent owner. Broadcast retains the complete owner.
+trusted internal predicate entry(
+    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+// The native caller retains this separate stack slot even after consuming the frame.
+// Only the entry-local issuer below can introduce this independent permission.
+trusted internal predicate destination(output: RawPointer<bray.runtime.bootstrap.ReportOutcome>);
+
+trusted internal func acquire(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+) -> bray.runtime.bootstrap.activation.run.Cursor
+    requires(
+        trusted entry(token = pointer, outcome = outcome),
+        trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result),
+        trusted entry(token = pointer, outcome = outcome),
+    )
+    uses(intrinsic)
+{
+    let read = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    ) -> bray.runtime.bootstrap.activation.Inactive
+        requires(
+            trusted entry(token = pointer, outcome = outcome),
+            trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.activation.producer(token = &result),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &result),
+        )
+    {
+        return trusted bray.runtime.bootstrap.activation.read_producer(pointer);
+    };
+
+    let token = trusted read(pointer, outcome);
+    let descriptor = trusted bray.runtime.bootstrap.activation.description(&token);
+    let address = trusted bray.runtime.bootstrap.activation.retained_address(&token, &descriptor);
+
+    if address == 0
+    {
+        trusted core.target.abort();
+    }
+
+    // The resident lookup establishes epoch and descriptor pairing. This local
+    // issuer also retains the caller's exclusive producer authority.
+    let selected = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos address: usize) ->
+        bray.runtime.bootstrap.activation.run.Cursor
+        requires(trusted bray.runtime.bootstrap.activation.producer(token = token))
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
+        uses(intrinsic)
+    {
+        let pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+            address = address
+        );
+
+        return
+        {
+            root = pointer,
+            pointer = pointer
+        };
+    };
+
+    return trusted selected(&token, address);
+}
+
+trusted internal func resolve(
+    pos mut cursor: bray.runtime.bootstrap.activation.run.Cursor,
+    pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+    pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+    pos destroying: bool,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+) -> bray.runtime.bootstrap.ReportOutcome
+    requires(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted destination(output = outcome),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+    )
+    uses(intrinsic)
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
+
+    if header.parent != 0 || header.child != 0 || (destroying && header.phase !=
+        bray.runtime.bootstrap.activation.RETAINED) || (!destroying && header.phase !=
+        bray.runtime.bootstrap.activation.INACTIVE && header.phase != bray.runtime.bootstrap.activation.RETAINED)
+    {
+        trusted core.target.abort();
+    }
+
+    if !destroying && (header.phase == bray.runtime.bootstrap.activation.RETAINED || header.broadcasted != 0)
+    {
+        return
+        {
+            state = 0,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        };
+    }
+
+    let (mut progress, status) = if destroying
+    {
+        yield trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(&mut cursor, callback, ready, 3, 5);
+    }
+    else
+    {
+        yield trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(&mut cursor, callback, ready, 2, 0);
+    };
+
+    if status != bray.runtime.bootstrap.STATUS_SUCCESS || progress.kind < 1 || progress.kind > 3
+    {
+        trusted core.target.abort();
+    }
+
+    let report = trusted bray.runtime.bootstrap.activation.execution.take_report(&mut progress);
+
+    if !destroying
+    {
+        let resident = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+        resident.broadcasted = 1;
+
+        return
+        {
+            state = progress.kind - 1,
+            payload = 0,
+            report = report
+        };
+    }
+
+    trusted bray.runtime.bootstrap.activation.execution.commit(&mut cursor);
+
+    let (mut released, remaining, mut incidents, release_status, consumed) =
+        trusted bray.runtime.bootstrap.activation.execution.invoke(&mut cursor, callback, ready, 5, 0);
+
+    // No header access follows consuming retirement, including failure handling.
+    if release_status != bray.runtime.bootstrap.STATUS_SUCCESS || released.kind < 1 || released.kind > 3 ||
+        consumed.kind != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let state: u32 = if progress.kind == 3 || released.kind == 3
+    {
+        yield 2;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let combined = trusted bray.runtime.bootstrap.suppress_report(
+        report,
+        trusted bray.runtime.bootstrap.activation.execution.take_report(&mut released)
+    );
+
+    let completed = trusted bray.runtime.bootstrap.append_report_records(combined, incidents);
+
+    // Reports own their used records and providers separately from unused reservations.
+    if trusted bray.runtime.bootstrap.consume_record_values(remaining, 0) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    return
+    {
+        state = state,
+        payload = 0,
+        report = completed
+    };
+}
+
+trusted internal func execute(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destroying: bool,
+)
+    requires(
+        trusted entry(token = pointer, outcome = outcome),
+        trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+            pointer = callback
+        ),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+    uses(layout_reinterpret, raw_memory, unchecked_init)
+{
+    // Establish the independent output before any action can consume frame storage.
+    let output = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    )
+        requires(trusted entry(token = pointer, outcome = outcome))
+        ensures(
+            trusted destination(output = outcome),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        )
+        executes(pure, total) {};
+
+    let invoke = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Invoke>(callback);
+    let admission = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
+    let cursor = trusted acquire(pointer, outcome);
+
+    trusted output(pointer, outcome);
+
+    let result = trusted resolve(cursor, invoke, admission, destroying, outcome);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);
+}
+
+@abi(c)
+trusted internal func broadcast(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+)
+    requires(
+        trusted entry(token = pointer, outcome = outcome),
+        trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+            pointer = callback
+        ),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+{
+    trusted execute(pointer, callback, ready, outcome, false);
+}
+
+@abi(c)
+trusted internal func destroy(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+)
+    requires(
+        trusted entry(token = pointer, outcome = outcome),
+        trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+            pointer = callback
+        ),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+{
+    trusted execute(pointer, callback, ready, outcome, true);
+}

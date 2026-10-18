@@ -144,7 +144,7 @@ impl Compilation {
         };
 
         let context =
-            super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)?;
+            super::synthetic::CompilationSyntheticLoweringContext::new(self, None, cancellation)?;
 
         bray_lowering::lower_heap_storage(
             &context,

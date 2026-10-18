@@ -62,23 +62,15 @@ impl Lowerer<'_> {
             },
         )?;
 
-        self.push_operation(
+        let abandoned = self.resolve_structural_cleanup(
             abandoned,
-            Self::retained_source(source),
+            source,
             MirOperationKind::Destroy {
                 collection: None,
                 place: Self::retained_place(&place),
                 abandoned: Some(inherited),
             },
-            None,
         )?;
-
-        let abandoned = if let Some(outcome) = &self.cleanup_outcome {
-            outcome.check(&mut self.builder, abandoned, source)?
-        } else {
-            self.check_ordinary_cleanup(abandoned, source, None, false, None)?
-                .0
-        };
 
         let ordinary =
             self.push_ordinary_cleanup_action(ordinary, source, phase, place, release, completed)?;
@@ -126,41 +118,68 @@ impl Lowerer<'_> {
         if let Some(release) = release {
             self.set_storage_initialized(block, source, &place, false)?;
             self.push_storage_protocol_call(block, source, &place, release, true)?;
-        } else {
-            self.push_operation(
-                block,
-                Self::retained_source(source),
-                if completed && phase == MirCleanupPhase::LifecycleResolution {
-                    MirOperationKind::Destroy {
-                        collection: None,
-                        place,
-                        abandoned: None,
-                    }
-                } else {
-                    MirOperationKind::Cleanup {
-                        phase,
-                        place,
-                        collection: None,
-                    }
-                },
-                None,
-            )?;
+
+            return if let Some(outcome) = &self.cleanup_outcome {
+                Ok(outcome.check(&mut self.builder, block, source)?)
+            } else {
+                Ok(self
+                    .check_ordinary_cleanup(block, source, Some(owner), false, None)?
+                    .0)
+            };
         }
 
-        if let Some(outcome) = self.cleanup_outcome.clone() {
-            let retention = if phase == MirCleanupPhase::LifecycleResolution {
-                self.cleanup_retention(source)?
+        self.resolve_structural_cleanup(
+            block,
+            source,
+            if completed && phase == MirCleanupPhase::LifecycleResolution {
+                MirOperationKind::Destroy {
+                    collection: None,
+                    place,
+                    abandoned: None,
+                }
             } else {
-                None
-            };
+                MirOperationKind::Cleanup {
+                    phase,
+                    place,
+                    collection: None,
+                }
+            },
+        )
+    }
 
-            let outcome = outcome.with_retention(retention);
+    fn resolve_structural_cleanup(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        operation: MirOperationKind,
+    ) -> Result<MirBlockId, LoweringError> {
+        let local = self.cleanup_outcome.is_none();
 
-            Ok(outcome.check(&mut self.builder, block, source)?)
+        let outcome = match &self.cleanup_outcome {
+            // Structural traversal borrows the existing collection's immutable storage identities.
+            Some(outcome) => outcome.clone(),
+            None => self.create_cleanup_outcome(block, source)?,
+        };
+
+        let retention = if matches!(
+            operation,
+            MirOperationKind::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ..
+            }
+        ) {
+            None
         } else {
-            Ok(self
-                .check_ordinary_cleanup(block, source, release.map(|_| owner), false, None)?
-                .0)
+            self.cleanup_retention(source)?
+        };
+
+        let outcome = outcome.with_retention(retention);
+        let completed = outcome.resolve(&mut self.builder, block, source, [operation])?;
+
+        if local {
+            self.finish_finalizer_outcome(completed, source, &outcome)
+        } else {
+            Ok(completed)
         }
     }
 
@@ -354,11 +373,12 @@ impl Lowerer<'_> {
                 None,
             )?;
 
-            self.set_terminator(
+            crate::continuation::transfer_cleanup(
+                &mut self.builder,
                 transfer,
-                Self::retained_source(source),
-                MirTerminatorKind::Goto(MirEdge::new(*target, [])),
-            )?;
+                source,
+                MirEdge::new(*target, []),
+            );
 
             *target = transfer;
         }

@@ -21,5 +21,5 @@ pub use lowering::{LoweringError, lower_execution_requirements, lower_unit};
 pub use result::{CompileTimeUnit, LoweredUnit};
 pub use synthetic::{
     HeapStorageLoweringInput, HeapStorageMethod, SyntheticLoweringContext, SyntheticLoweringError,
-    lower_heap_storage, lower_lifecycle,
+    expand_lifecycle_continuations, lower_heap_storage, lower_lifecycle,
 };

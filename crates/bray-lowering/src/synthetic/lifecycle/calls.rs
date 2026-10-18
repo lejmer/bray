@@ -86,8 +86,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             place.clone(),
             callable,
-            bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),
+            callable.result,
         )?;
+
+        let (block, value) = match callable.result {
+            bray_bound_tree::BoundCallResult::Immediate(_) => (block, value),
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => self.await_lifecycle_call(
+                builder,
+                block,
+                source,
+                value,
+                callable.result.completion_type(),
+                outcome,
+            )?,
+        };
 
         let payloads = crate::operand::result_payloads(
             self.context.semantic_values(),
@@ -104,13 +116,134 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 &place,
                 (
                     bray_ir::MirCallableReference::new(callable.callable, callable.abi),
-                    bray_bound_tree::BoundCallResult::Immediate(callable.result.completion_type()),
+                    callable.result,
                 ),
                 payloads,
             )
             .map_err(|cause| self.capacity_error(cause))?;
 
         Ok((completed, abandoned))
+    }
+
+    fn await_lifecycle_call(
+        &mut self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        value: bray_ir::MirValueId,
+        completion: bray_symbols::TypeId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<(bray_ir::MirBlockId, bray_ir::MirValueId), C::Error> {
+        let (parent, state, cancellation) =
+            self.cleanup_continuation(builder, block, source, outcome)?;
+
+        let value = crate::continuation::await_frame(
+            builder,
+            block,
+            source,
+            parent,
+            bray_ir::MirOperand::Value(value),
+            Some(completion),
+            &state,
+            cancellation,
+        )
+        .map_err(|cause| self.capacity_error(cause))?
+        .expect("awaited finalizer has a completion value");
+
+        let resume = state.entry();
+
+        self.frame_states.push(state);
+
+        Ok((resume, value))
+    }
+
+    pub(super) fn compose_cleanup_frame(
+        &mut self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        frame: bray_ir::MirOperand,
+        composition: bray_ir::MirFrameComposition,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let (parent, state, cancellation) =
+            self.cleanup_continuation(builder, block, source, outcome)?;
+
+        crate::continuation::compose_frame(
+            builder,
+            block,
+            source,
+            parent,
+            frame,
+            composition,
+            &state,
+            cancellation,
+            None,
+        )
+        .map_err(|cause| self.capacity_error(cause))?;
+
+        let resume = state.entry();
+
+        self.frame_states.push(state);
+
+        outcome
+            .check_abandonment(builder, resume, source)
+            .map_err(|cause| self.capacity_error(cause))
+    }
+
+    fn cleanup_continuation(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<
+        (
+            bray_runtime_interface::ProtectedAsyncFrameId,
+            bray_ir::MirFrameState,
+            bray_ir::MirCleanupEdge,
+        ),
+        C::Error,
+    > {
+        let parent = self
+            .frame
+            .expect("suspending cleanup expands into its owning protected frame");
+
+        let collection = outcome.collection();
+
+        let retention = collection
+            .retention()
+            .expect("suspending cleanup retains its established source contract");
+
+        let resume = builder
+            .push_block(source.clone(), builder.block_kind(block))
+            .map_err(|cause| self.capacity_error(cause))?;
+
+        let cancelled = builder
+            .push_block(source.clone(), bray_ir::MirBlockKind::CleanupBroadcast)
+            .map_err(|cause| self.capacity_error(cause))?;
+
+        builder.set_terminator(
+            cancelled,
+            source.clone(),
+            bray_ir::MirTerminatorKind::Unreachable,
+        );
+
+        let state = bray_ir::MirFrameState::new(
+            bray_ir::MirFrameStateId::new(u32::try_from(self.frame_states.len()).map_err(
+                |_| self.capacity_error(bray_ir::MirCapacityError::IdentityCapacityExceeded),
+            )?),
+            resume,
+            // Executable states reuse the checked cleanup contract's immutable slices.
+            retention.as_ref().clone(),
+        );
+
+        let cancellation = bray_ir::MirCleanupEdge::new(
+            bray_ir::MirCleanupPhase::TaskCancellation,
+            bray_ir::MirEdge::new(cancelled, []),
+        );
+
+        Ok((parent, state, cancellation))
     }
 
     pub(super) fn push_checked_lifecycle_call(

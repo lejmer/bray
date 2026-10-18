@@ -22,6 +22,11 @@ fn production_report_consumers_check_their_callback_protocol() {
         "accept_progress",
         "transfer",
         "retire",
+        "acquire",
+        "resolve",
+        "execute",
+        "invoke_retaining",
+        "retained_address",
     ];
 
     let symbols = compilation.symbol_graph().unwrap();
@@ -1754,6 +1759,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/run/step.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/inactive.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/composition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
@@ -2908,7 +2914,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted bray.runtime.bootstrap.activation.composition.authorized(
-                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}, abandoning = {abandoning}
+                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}, disposition = {abandoning}
                     ),
                 )
             {{
@@ -3044,4 +3050,115 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
+    for (authority, valid) in [
+        ("", false),
+        ("trusted entry(token = pointer, outcome = outcome),", true),
+        ("trusted entry(token = other, outcome = outcome),", false),
+        (
+            "trusted entry(token = pointer, outcome = other_outcome),",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.activation.inactive;
+            using std.memory;
+
+            func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+                pos other_outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+            )
+                requires(
+                    {authority}
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+                    trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                    trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                )
+            {{
+                let cursor = trusted acquire(pointer, outcome);
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn inactive_cleanup_retains_only_its_independent_native_destination() {
+    for (authority, valid) in [
+        ("", false),
+        ("trusted destination(output = outcome),", true),
+        ("trusted destination(output = other),", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.activation.inactive;
+            using std.memory;
+
+            func production_probe(
+                pos mut cursor: bray.runtime.bootstrap.activation.run.Cursor,
+                pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+                pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+                pos other: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+            )
+                requires(
+                    {authority}
+                    trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+                )
+            {{
+                let _ = trusted resolve(cursor, callback, ready, false, outcome);
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }

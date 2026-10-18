@@ -48,6 +48,48 @@ trusted internal func retire(
             trusted core.target.abort();
         }
 
+        if header.disposition == 2
+        {
+            if header.phase != bray.runtime.bootstrap.activation.COMMITTED || header.child != 0
+            {
+                trusted core.target.abort();
+            }
+
+            let (incidents, outcome) = trusted bray.runtime.bootstrap.activation.execution.take_terminal(&mut cursor);
+
+            {
+                let retained = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+                retained.phase = bray.runtime.bootstrap.activation.RETAINED;
+                retained.parent = 0;
+                retained.current = 0;
+                retained.retained_affinity = 0;
+                retained.retained_lanes = 0;
+                retained.retained_origin = 0;
+            }
+
+            {
+                let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+                trusted bray.runtime.bootstrap.storage.retain_frame(guard.get(), &header.lease, header.descriptor);
+            }
+
+            // The original future keeps this lease and its unused action records.
+            // Only its terminal outcome leaves the child. The same run owns the parent.
+            cursor.pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+                address = header.parent
+            );
+
+            return (
+                cursor,
+                bray.runtime.bootstrap.activation.empty_progress(),
+                bray.runtime.bootstrap.empty_records(),
+                incidents,
+                bray.runtime.bootstrap.STATUS_SUCCESS,
+                outcome
+            );
+        }
+
         let permit = trusted lambda(pos cursor: &mut Cursor)
             requires(trusted selected(cursor = &cursor))
             ensures(
@@ -102,7 +144,7 @@ trusted internal func retire(
         return second;
     };
 
-    let (retained, discarded) = trusted deliver(ancestor, before.abandoned, progress, outcome);
+    let (retained, discarded) = trusted deliver(ancestor, before.disposition, progress, outcome);
 
     // All header access has ended before report disposal can invoke native code.
     let mut incident = trusted retain(&mut incidents, discarded, retained);
@@ -117,7 +159,7 @@ trusted internal func retire(
 
 trusted internal func deliver(
     pos mut cursor: Cursor,
-    pos abandoned: u32,
+    pos disposition: u32,
     pos progress: bray.runtime.bootstrap.activation.Progress,
     pos incoming: bray.runtime.bootstrap.activation.Progress,
 ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.Progress)
@@ -145,7 +187,7 @@ trusted internal func deliver(
 
     // The returned reports are independent owners removed from the retired child.
     // Only the retained parent's empty delivery slot changes, without callbacks.
-    if abandoned != 0
+    if disposition != 0
     {
         if parent.phase == bray.runtime.bootstrap.activation.CLEANUP
         {
@@ -170,5 +212,6 @@ trusted internal func deliver(
     }
 
     parent.incoming = incoming;
+
     return (progress, bray.runtime.bootstrap.activation.empty_progress());
 }

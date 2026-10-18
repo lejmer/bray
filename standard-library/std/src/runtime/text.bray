@@ -132,9 +132,9 @@ trusted internal func scalar_slice(
     let start_offset: usize? = trusted scalar_offset(data, length = length, index = start);
     let end_offset: usize? = trusted scalar_offset(data, length = length, index = end);
 
-    match(start_offset, end_offset)
+    match (start_offset, end_offset)
     {
-        case(?start_byte, ?end_byte)
+        case (?start_byte, ?end_byte)
         {
             return trusted copy_text(
                 trusted scalar_slice_data(data, length = length, start = start_byte, end = end_byte),

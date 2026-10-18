@@ -165,6 +165,11 @@ impl StorageIdentity {
         )
     }
 
+    /// Whether this storage is an iteration cursor or its current element.
+    pub const fn is_iteration_storage(self) -> bool {
+        matches!(self, Self::IterationCursor(_) | Self::IterationElement(_))
+    }
+
     /// Returns the bound node that introduces this storage, when one exists.
     pub const fn definition_node(self) -> Option<AnyBoundNodeId> {
         match self {

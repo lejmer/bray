@@ -217,6 +217,20 @@ fn operation_runtime_references(
     match operation {
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
+        MirOperationKind::Async(
+            MirAsyncOperation::BroadcastInactiveFrame { runtime, .. }
+            | MirAsyncOperation::DestroyInactiveFrame { runtime, .. },
+        ) => [
+            Some(*runtime),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::ActivationCallback,
+                abi,
+            )),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::ActivationActionReadiness,
+                abi,
+            )),
+        ],
         MirOperationKind::Memory(operation) => {
             let mut roles = operation.runtime_roles();
 
@@ -275,9 +289,7 @@ fn operation_runtime_references(
             MirAsyncOperation::ResumeFrame { runtime, .. }
             | MirAsyncOperation::RequestTaskCancellation { runtime, .. }
             | MirAsyncOperation::ObserveCurrentRunCancellation { runtime }
-            | MirAsyncOperation::ResolveTask { runtime, .. }
-            | MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
-            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. },
+            | MirAsyncOperation::ResolveTask { runtime, .. },
         )
         | MirOperationKind::Host(
             MirHostOperation::InitializeRuntime { runtime }

@@ -169,11 +169,11 @@ pub(super) fn validate_operation(
 }
 fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -> Option<()> {
     let valid = match kind {
-        MirOperationKind::Async(MirAsyncOperation::ExecuteCleanupBroadcast { .. }) => {
+        MirOperationKind::Async(MirAsyncOperation::BroadcastInactiveFrame { .. }) => {
             block_kind == MirBlockKind::CleanupBroadcast
         }
-        MirOperationKind::Async(MirAsyncOperation::ExecuteLifecycleResolution { .. }) => {
-            block_kind == MirBlockKind::LifecycleResolution
+        MirOperationKind::Async(MirAsyncOperation::DestroyInactiveFrame { .. }) => {
+            block_kind != MirBlockKind::CleanupBroadcast
         }
         MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation { .. }) => {
             block_kind != MirBlockKind::LifecycleResolution
@@ -294,8 +294,8 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     }
                     | MirAsyncOperation::RequestTaskCancellation { .. }
                     | MirAsyncOperation::PublishTerminalState { .. }
-                    | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-                    | MirAsyncOperation::ExecuteLifecycleResolution { .. }
+                    | MirAsyncOperation::BroadcastInactiveFrame { .. }
+                    | MirAsyncOperation::DestroyInactiveFrame { .. }
                     | MirAsyncOperation::TransferCleanupIncident { .. }
                     | MirAsyncOperation::DestroyTerminalTask { .. }
             )
@@ -868,11 +868,11 @@ fn validate_async_operation(
             parent,
             resume_state,
             frame,
-            completion,
+            composition,
             ..
         } => {
-            if let Some(completion) = completion {
-                validate_storage_kind(unit, *completion, MirStorageKind::Temporary)?;
+            if let Some(completion) = composition.completion() {
+                validate_storage_kind(unit, completion, MirStorageKind::Temporary)?;
             }
 
             validate_current_frame(unit, *parent)?;
@@ -923,13 +923,13 @@ fn validate_async_operation(
             validate_terminal_state(unit, block, operation_id, state)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TerminalPublication)?;
         }
-        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
-            validate_current_frame(unit, *frame)?;
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameTaskBroadcast)?;
+        MirAsyncOperation::BroadcastInactiveFrame { frame, runtime } => {
+            validate_operand(unit, frame, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::InactiveFrameBroadcast)?;
         }
-        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
-            validate_current_frame(unit, *frame)?;
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
+        MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
+            validate_operand(unit, frame, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::InactiveFrameDestruction)?;
         }
         MirAsyncOperation::TransferCleanupIncident {
             incident,

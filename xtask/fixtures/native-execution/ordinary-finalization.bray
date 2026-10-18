@@ -109,10 +109,27 @@ async func inactive()
     );
 }
 
+struct RetainedCapture
+{
+    destruct()
+    {
+        let errors = core.atomic.load<usize, 1>(&ERRORS);
+
+        assert(errors == 2, "capture destroyed before its retained error or more than once");
+        core.atomic.store<usize, 4>(&ERRORS, 3);
+    }
+}
+
+async func retained_body(pos capture: RetainedCapture)
+{
+    panic("quiescence entered an inactive body");
+}
+
 @layout(stable, align = 2048)
 struct Failure
 {
     value: u64;
+    pending: Future<unit>;
 
     finalize()
     {
@@ -129,16 +146,28 @@ struct Failure
 
 struct FailingOwner
 {
+    mut pending: Future<unit>?;
+
     async finalize() -> Result<unit, Failure>
     {
         await std.task.yield_now();
 
-        return Error(
-            Failure
+        let pending = std.memory.replace_value<Future<unit>?>(&mut self.pending, none);
+
+        match consume pending
+        {
+            case ?pending
             {
-                value = 17
+                return Error(
+                    Failure
+                    {
+                        value = 17,
+                        pending = pending
+                    }
+                );
             }
-        );
+            case none { panic("finalizer consumed its prepared capture twice"); }
+        }
     }
 
     destruct()
@@ -153,6 +182,7 @@ trusted async func fail()
 {
     let owner = FailingOwner
     {
+        pending = retained_body(RetainedCapture {})
     };
 
     core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
@@ -182,5 +212,5 @@ trusted async func main()
     let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
 
     assert(attempts == 0, "mandatory cleanup requested fresh backing after admission");
-    assert(core.atomic.load<usize, 1>(&ERRORS) == 2, "retained error was not destroyed");
+    assert(core.atomic.load<usize, 1>(&ERRORS) == 3, "retained error and its inactive capture were not destroyed");
 }

@@ -32,6 +32,7 @@ pub struct MirUnitBuilder {
     frame_descriptor: Option<MirFrameDescriptor>,
     blocks: Vec<MirBlockBuilder>,
     operations: Vec<MirOperation>,
+    removed_operations: Vec<MirOperationId>,
     storages: Vec<MirStorage>,
     values: Vec<MirValue>,
 }
@@ -50,9 +51,78 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
+    }
+
+    /// Opens a checked unit for expansion at established control-flow boundaries.
+    /// Existing identities remain stable until `finish` compacts removed effect operations.
+    pub fn for_expansion(unit: &MirUnit) -> Self {
+        let mut builder = Self::for_reconstruction(unit);
+
+        // Expansion owns the node tables while immutable paths and descriptors remain shared.
+        builder.storages = unit.storages().to_vec();
+        builder.values = unit.values().to_vec();
+        builder.operations = unit.operations().to_vec();
+
+        // The expansion owner installs its completed descriptor once after adding states.
+        builder.blocks = unit
+            .blocks()
+            .iter()
+            .map(|block| MirBlockBuilder {
+                source: block.source().clone(),
+                kind: block.kind(),
+                parameters: block.parameters().to_vec(),
+                operations: block.operations().to_vec(),
+                terminator: Some(block.terminator().clone()),
+            })
+            .collect();
+
+        builder
+    }
+
+    /// Returns blocks already allocated, including blocks introduced by expansion.
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Returns the last operation of a block, when present.
+    pub fn last_operation(&self, block: MirBlockId) -> Option<&MirOperation> {
+        let operation = self.blocks[self.block_index(block)].operations.last()?;
+
+        self.operations
+            .get(operation.to_index().expect("operation has a local slot"))
+    }
+
+    /// Opens a closed block by removing its last effect and its continuation.
+    /// The effect must have no result. The caller replaces both before finishing the unit.
+    pub fn take_last_effect(&mut self, block: MirBlockId) -> (MirOperation, MirTerminator) {
+        let index = self.block_index(block);
+        let block = &mut self.blocks[index];
+
+        let operation = block
+            .operations
+            .pop()
+            .expect("expanded block has an effect");
+
+        let terminal = block
+            .terminator
+            .take()
+            .expect("expanded effect has a continuation");
+
+        let effect = &self.operations[operation.to_index().expect("effect has a local slot")];
+
+        assert!(
+            effect.result().is_none(),
+            "effect expansion cannot remove an SSA definition"
+        );
+
+        self.removed_operations.push(operation);
+
+        // The expansion consumes the effect while the original table awaits one final compaction.
+        (effect.clone(), terminal)
     }
 
     /// Returns the target contract retained by the body under construction.
@@ -76,6 +146,7 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -98,6 +169,7 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -124,6 +196,7 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -148,6 +221,7 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -171,6 +245,7 @@ impl MirUnitBuilder {
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -417,7 +492,9 @@ impl MirUnitBuilder {
     }
 
     /// Completes the MIR unit after its producers have established their contracts.
-    pub fn finish(self, entry: MirBlockId) -> MirUnit {
+    pub fn finish(mut self, entry: MirBlockId) -> MirUnit {
+        self.compact_removed_effects();
+
         assert_eq!(
             entry.unit(),
             self.unit,
@@ -466,6 +543,72 @@ impl MirUnitBuilder {
         };
 
         unit
+    }
+
+    fn compact_removed_effects(&mut self) {
+        if self.removed_operations.is_empty() {
+            return;
+        }
+
+        let mut removed = vec![false; self.operations.len()];
+
+        for operation in &self.removed_operations {
+            removed[operation
+                .to_index()
+                .expect("removed effect has a local slot")] = true;
+        }
+
+        let mut next = 0_u32;
+
+        let mappings = removed
+            .iter()
+            .map(|removed| {
+                if *removed {
+                    None
+                } else {
+                    let id = MirOperationId::from_slot(self.unit, next);
+
+                    next = next
+                        .checked_add(1)
+                        .expect("existing operation table fits compact identities");
+
+                    Some(id)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut index = 0;
+
+        self.operations.retain(|_| {
+            let keep = !removed[index];
+
+            index += 1;
+
+            keep
+        });
+
+        for block in &mut self.blocks {
+            for operation in &mut block.operations {
+                *operation = mappings[operation.to_index().expect("block effect has a local slot")]
+                    .expect("removed effect no longer belongs to a block");
+            }
+        }
+
+        for value in &mut self.values {
+            if let MirValueOrigin::Operation(operation) = value.origin() {
+                let mapped = mappings[operation
+                    .to_index()
+                    .expect("value producer has a local slot")]
+                .expect("effect removal preserves all value producers");
+
+                // Compaction preserves the value's independently owned immutable provenance.
+                *value = MirValue::new(
+                    value.source().clone(),
+                    value.ty(),
+                    MirValueOrigin::Operation(mapped),
+                );
+            }
+        }
     }
 
     fn assert_source(&self, source: &MirSourceAnchor) {

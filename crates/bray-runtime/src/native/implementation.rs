@@ -1,7 +1,8 @@
 //! Internal implementation surface consumed by link-isolated native adapters.
 
 pub use super::activation::{
-    bray_runtime_activation_callback, bray_runtime_activation_callback_admission,
+    bray_runtime_activation_action_readiness, bray_runtime_activation_callback,
+    bray_runtime_activation_callback_admission,
 };
 pub use super::callback::bray_runtime_native_thread_execution;
 pub use super::export::{

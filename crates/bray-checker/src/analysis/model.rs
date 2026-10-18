@@ -7,6 +7,10 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
     PatternObservation(BoundPatternId),
+    Result {
+        expression: BoundExpressionId,
+        phase: AnalysisResultPhase,
+    },
     Call {
         invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
@@ -36,6 +40,10 @@ impl AnalysisOperationKind {
                 preserves_exit_value: true,
                 ..
             } | Self::Bound(AnyBoundNodeId::Expression(_))
+                | Self::Result {
+                    phase: AnalysisResultPhase::Completion,
+                    ..
+                }
                 | Self::Call {
                     invocation: bray_bound_tree::BoundExecutionSite::Node(
                         AnyBoundNodeId::Expression(_)
@@ -59,10 +67,18 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
+            Self::TaskOperation { expression, .. } | Self::Result { expression, .. } => {
+                AnyBoundNodeId::Expression(expression)
+            }
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisResultPhase {
+    Begin,
+    Completion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

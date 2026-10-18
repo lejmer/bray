@@ -177,6 +177,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             let node = operation.kind().node();
 
             let preserves = match operation.kind() {
+                AnalysisOperationKind::Result { .. } => true,
                 AnalysisOperationKind::ScopeExit {
                     block, exit, phase, ..
                 } => super::cleanup::check_scope_cleanup(

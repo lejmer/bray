@@ -177,10 +177,18 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let optimized = match options.optimization() {
-                    OptimizationLevel::None => Ok(raw.clone()),
-                    OptimizationLevel::Basic => {
-                        self.simplify_concrete_mir(realization, raw, cancellation)
-                    }
+                    OptimizationLevel::None => self
+                        .expand_lifecycle_mir(realization, raw, cancellation)
+                        .map(|expanded| expanded.unwrap_or_else(|| raw.clone())),
+                    OptimizationLevel::Basic => self
+                        .expand_lifecycle_mir(realization, raw, cancellation)
+                        .and_then(|expanded| {
+                            self.simplify_concrete_mir(
+                                realization,
+                                expanded.as_ref().unwrap_or(raw),
+                                cancellation,
+                            )
+                        }),
                     OptimizationLevel::Full => {
                         let basic = options.with_optimization(OptimizationLevel::Basic);
 

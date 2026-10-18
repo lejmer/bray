@@ -980,6 +980,27 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            ActivationActionReadiness {
+                "Check a synchronous described action against its retained caller execution context.", "activation_action_readiness",
+                native: (ACTIVATION_ACTION_READINESS_SYMBOL = "bray_runtime_activation_action_readiness", [Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            InactiveFrameBroadcast {
+                "Broadcast cancellation to an inactive computation's captured owners.", "inactive_frame_broadcast",
+                native: (INACTIVE_FRAME_BROADCAST_SYMBOL = "bray_runtime_inactive_frame_broadcast", [Pointer, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.inactive.broadcast"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            InactiveFrameDestruction {
+                "Destroy quiescent captures and consume their inactive computation's backing.", "inactive_frame_destruction",
+                native: (INACTIVE_FRAME_DESTRUCTION_SYMBOL = "bray_runtime_inactive_frame_destruction", [Pointer, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.inactive.destroy"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
                 native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize, U8] -> Void),

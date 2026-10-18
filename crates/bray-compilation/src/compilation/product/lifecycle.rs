@@ -33,17 +33,13 @@ impl CodegenLifecycleNeeds {
         self.0 & other.0 != 0
     }
 
-    const fn requires(self, role: MirGeneratedLifecycleRole) -> bool {
-        let required = match role {
-            MirGeneratedLifecycleRole::StaticFinalize => Self::FINALIZE,
-            MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
-            MirGeneratedLifecycleRole::Quiesce => Self::QUIESCE,
-            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
-                Self::TASK_CANCELLATION
-            }
-            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
-                Self::LIFECYCLE_RESOLUTION
-            }
+    const fn requires(self, phase: bray_bound_tree::LifecyclePhase) -> bool {
+        let required = match phase {
+            bray_bound_tree::LifecyclePhase::Finalize => Self::FINALIZE,
+            bray_bound_tree::LifecyclePhase::Destroy => Self::DESTROY,
+            bray_bound_tree::LifecyclePhase::Quiesce => Self::QUIESCE,
+            bray_bound_tree::LifecyclePhase::Cancel => Self::TASK_CANCELLATION,
+            bray_bound_tree::LifecyclePhase::Resolve => Self::LIFECYCLE_RESOLUTION,
         };
 
         self.contains(required)
@@ -104,9 +100,18 @@ impl Compilation {
             .lifecycle_type()
             .expect("selected lifecycle helper retains its owner type");
 
+        self.codegen_lifecycle_phase_is_trivial(ty, role.phase(), cancellation)
+    }
+
+    pub(super) fn codegen_lifecycle_phase_is_trivial(
+        &self,
+        ty: TypeId,
+        phase: bray_bound_tree::LifecyclePhase,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
         Ok(!self
             .codegen_lifecycle_needs(ty, cancellation)?
-            .requires(role))
+            .requires(phase))
     }
 
     fn codegen_lifecycle_needs(
@@ -370,7 +375,7 @@ impl Compilation {
                 CodegenLifecycleNeeds::DESTROY.with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             ),
             RepresentationRole::Task => Some(CodegenLifecycleNeeds::ALL),
-            RepresentationRole::Future => Some(CodegenLifecycleNeeds::QUIESCE),
+            RepresentationRole::Future => Some(CodegenLifecycleNeeds::ALL),
             _ if super::super::representation::target_scalar(role).is_some()
                 || matches!(
                     role,

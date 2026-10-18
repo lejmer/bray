@@ -145,12 +145,12 @@ trusted internal func snapshot(
 
     let (operation, argument): (u32, usize) = if root_state.broadcast_next != 0
     {
-        yield(2, 0);
+        yield (2, 0);
     }
     else if header.phase == bray.runtime.bootstrap.activation.TERMINAL
     {
-        yield(
-            if header.kind == 1 && header.abandoned == 0
+        yield (
+            if header.kind == 1 && header.disposition == 0
             {
                 yield 4;
             }
@@ -163,7 +163,7 @@ trusted internal func snapshot(
     }
     else if header.phase == bray.runtime.bootstrap.activation.COMMITTED
     {
-        yield(5, 0);
+        yield (5, 0);
     }
     else
     {

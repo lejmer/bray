@@ -119,7 +119,7 @@ trusted internal func suppress_report(pos report: PanicReportData, pos suppresse
             count = suppressed.outgoing_count
         };
 
-        yield(suppressed, earlier, later);
+        yield (suppressed, earlier, later);
     }
     else
     {
@@ -132,7 +132,7 @@ trusted internal func suppress_report(pos report: PanicReportData, pos suppresse
 
         let later = trusted retain_report(suppressed);
 
-        yield(report, earlier, later);
+        yield (report, earlier, later);
     };
 
     trusted report_records_append(
@@ -194,4 +194,36 @@ trusted internal func retain_primary(
     );
 
     return records;
+}
+
+// Attach an already owned detached chain without creating another report owner.
+trusted internal func append_report_records(
+    pos mut report: PanicReportData,
+    pos mut records: ReportRecords
+) -> PanicReportData
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_report_callbacks(report = &report))
+    ensures(trusted native_report_callbacks(report = &result))
+{
+    let mut existing: ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut existing),
+        std.memory.address_of_mut<ReportRecords>(&mut records)
+    );
+
+    report.outgoing_head = existing.head;
+    report.outgoing_tail = existing.tail;
+    report.outgoing_count = existing.count;
+
+    if existing.count != 0 && report.consumer == 0
+    {
+        report.consumer = trusted consume_address();
+    }
+
+    return report;
 }

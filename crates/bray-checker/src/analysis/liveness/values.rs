@@ -143,6 +143,10 @@ fn transfers(
                 .expect("value liveness block retains its operation")
         }) {
             match operation.kind() {
+                AnalysisOperationKind::Result { expression, .. } => {
+                    transfer.generated.remove(&expression);
+                    transfer.killed.insert(expression);
+                }
                 AnalysisOperationKind::ScopeExit { .. } => {}
                 kind => {
                     if let Some(expression) = kind.occurrence().expression() {

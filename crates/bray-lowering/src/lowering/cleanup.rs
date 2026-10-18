@@ -1,3 +1,4 @@
+mod captures;
 mod control;
 mod frame;
 mod lifecycle;

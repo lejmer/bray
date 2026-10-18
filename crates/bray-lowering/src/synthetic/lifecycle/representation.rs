@@ -7,7 +7,6 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
-use super::support::lifecycle_operation_block_kind;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(super) fn push_generated_lifecycle_operations(
@@ -50,6 +49,59 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .push_checked_lifecycle_call(builder, block, source, place, callable)
                 .map(|(block, _)| block),
             LifecycleAction::Resolve => self.push_owner_resolution(builder, block, source, place),
+            LifecycleAction::Future => {
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
+                let operation = match role {
+                    bray_ir::MirGeneratedLifecycleRole::Quiesce => {
+                        return self.compose_cleanup_frame(
+                            builder,
+                            block,
+                            source,
+                            MirOperand::Copy(place),
+                            bray_ir::MirFrameComposition::Quiesce,
+                            &outcome,
+                        );
+                    }
+                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::LifecycleResolution,
+                    ) => {
+                        return self.compose_cleanup_frame(
+                            builder,
+                            block,
+                            source,
+                            MirOperand::Move(place),
+                            bray_ir::MirFrameComposition::Abandon,
+                            &outcome,
+                        );
+                    }
+                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::TaskCancellation,
+                    ) => bray_ir::MirAsyncOperation::BroadcastInactiveFrame {
+                        frame: MirOperand::Copy(place),
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::InactiveFrameBroadcast,
+                            runtime_abi,
+                        ),
+                    },
+                    bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                        bray_ir::MirAsyncOperation::DestroyInactiveFrame {
+                            frame: MirOperand::Move(place),
+                            runtime: MirRuntimeReference::new(
+                                RuntimeAbiRole::InactiveFrameDestruction,
+                                runtime_abi,
+                            ),
+                        }
+                    }
+                    bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+                        unreachable!("inactive computations have no whole-value finalizer")
+                    }
+                };
+
+                outcome
+                    .resolve(builder, block, source, [MirOperationKind::Async(operation)])
+                    .map_err(|cause| self.capacity_error(cause))
+            }
             LifecycleAction::Members(members) => {
                 let children = members.iter().copied().enumerate().map(|(index, ty)| {
                     let index = u32::try_from(index)
@@ -146,7 +198,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         target: TypeId,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role);
+        let kind = builder.block_kind(block);
 
         let present = builder
             .push_block(source.clone(), kind)
@@ -200,7 +252,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         variants: &[(bray_symbols::UnionVariantSymbolId, std::sync::Arc<[TypeId]>)],
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role);
+        let kind = builder.block_kind(block);
 
         let merge = builder
             .push_block(source.clone(), kind)
@@ -311,15 +363,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .expect("generated destruction retains its invocation argument");
 
                 let abandoned = builder
-                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .push_block(source.clone(), builder.block_kind(block))
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 let ordinary = builder
-                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .push_block(source.clone(), builder.block_kind(block))
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 let continuation = builder
-                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .push_block(source.clone(), builder.block_kind(block))
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 builder.set_terminator(

@@ -2,216 +2,328 @@
 
 ## Resume after every context compaction
 
-Re-read AGENTS.md, its applicable coding and crate rules, this section and the active
-agreement before resuming after every context compaction or application restart.
-The user explicitly requires this repeated reading. These requirements were reaffirmed
-2026-10-18. A summary of the rules is not a substitute for reading them.
+The user explicitly requires an actual reread of AGENTS.md, coding-conventions.md,
+crates.md and this task record after every compaction or restart. A summary is not a substitute.
 
-- The project is moving the runtime entirely to Bray. Runtime ownership, activation,
-  waiting, retirement and lifecycle policy belong in Bray. Do not add or extend a Rust
-  runtime frame to complete BRA-505. Existing Rust runtime machinery is a migration
-  target, not a foundation for another adapter. Rust compiler code is a separate concern.
-  All project-owned linked support belongs in Bray, except the pinned temporal provider.
-  Native system ABIs do not justify permanent project-owned Rust or C runtime shims.
-- Types and invariants must hold across the entire pipeline. Do not compensate for a
-  lost checked contract with consumer-specific adapters, repeated inference or validation.
-  Preserve the established result at its owning boundary and remove competing meanings.
-- Correctness is necessary but insufficient. Assess compiler time, generated execution,
-  binary size and maintenance independently. Do not rely on LLVM to remove avoidable work.
-  A helper extraction or file move is not simplification if competing mechanisms remain.
-- The user has repeatedly rejected growth through local repairs followed by another
-  architectural document. Before further implementation, identify the mechanism replaced,
-  its existing consumers and the code to remove. Unexpected layers or scope growth require
-  reconsidering that design, not adding another exception. No new language features.
+The user requested a pause after finishing the current readability/formatting correction
+and publishing a recovery checkpoint so they can restart the desktop application. Pause
+there until they resume. After resumption, continue BRA-505 through BRA-619 without stopping
+to answer questions or at checkpoints. No merge is authorized. Commit/push checkpoints are
+authorized. Delete temporary handoffs when their obligations are accepted. No handoff
+survives the stack.
 
-Current correction: replace the competing compiler contracts identified below without
-adding runtime ownership machinery. The earlier proposed extra Rust owner-waiter slot was withdrawn. It is
-not an accepted solution. Do not revive it after compaction.
+Runtime ownership, activation, waiting, retirement and lifecycle policy belong in Bray.
+Do not introduce or extend a Rust runtime frame, waiter owner, second scheduler or hidden
+blocking root. Existing Rust runtime ownership is a migration target. No new language
+feature, syntax, compatibility layer, ABI bump, post-failure allocation or downstream
+reproof of established compiler results. Preserve the user's C Allman formatting.
 
-Confirmed implementation conflicts, not new language requirements:
+Correctness is necessary but insufficient. Assess compiler time, generated execution,
+binary size and whole-system maintenance independently. Do not rely on LLVM to remove
+avoidable work. A helper extraction or file move does not remove competing mechanisms.
+Work top down: establish the whole producer/consumer contract, implement the connected
+path, then batch acceptance and fix defect classes. Do not organize work around local
+proof/test/format checkpoints. Name what each change replaces and remove that machinery.
 
-- The pushed code retains lifecycle completion type and execution separately. The current
-  selected-invocation checkpoint replaces those fields with the existing BoundCallResult and uses its
-  selection constructor for ordinary calls too. Source lowering, outgoing admission and
-  static signatures consume it. Generated push_lifecycle_call still forces Immediate.
-  Removing that override requires completing the shared continuation path, not merely
-  changing the field type. Do not claim the representation batch completes this repair.
-- The execution-kind checkpoint removes `MirUnitKind::GeneratedLifecycle`. Generated
-  provenance remains in `MirSourceOrigin` and `MirUnitKey`, while bodies use the ordinary
-  execution categories. Generated bodies still select synchronous execution until shared
-  resumable cleanup is connected. This removal alone does not complete that connection.
-- Native `TaskObservation` owns a separate Rust frame, cleanup sequence and failure
-  collection. Generated task cleanup uses blocking `resolve_task`. Native `observe`
-  consumes the outcome, so it is not a non-consuming readiness check. Reusing these
-  interfaces unchanged cannot preserve all quiescence and retained-owner invariants.
-- Existing Bray `activation.run` already owns composed execution and retirement.
-  Complete the compiler/Bray connection and remove superseded policy. Do not introduce
-  a replacement Rust observation frame or another cleanup scheduler.
+## Workspace and baseline
 
-The governing designs already state this boundary: `docs/design/composed-async-execution.md`
-and `docs/design/cleanup-storage-and-reports.md`. The deficiency is implementation
-alignment, not permission to invent another runtime architecture.
+Only edit C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray.
+Branch: feature/bra-505-admitted-ordinary-finalization. Draft PR #612.
+Base: feature/bra-561-compiler-described-activation, reviewed PR #611 at 7a254388.
+BRA-619 recovery remains at 6bbcb4a3 on feature/bra-619-complete-selected-scope-native-cleanup.
+Preserve branches and the user's main checkout. Do not replay older stack work.
 
-## Active agreement
+Previous pushed checkpoint: 9e4bfd5d9. This recovery checkpoint preserves the larger
+incomplete batch and must not be described as accepted or finished. Independent review
+5560583230 preceded active human architectural review. Do not launch another agent review
+unless asked. PR #612 remains draft and BRA-505 remains in progress.
 
-Complete BRA-505, then BRA-619, with one independently reviewed stacked PR per issue.
-BRA-561 is implemented and reviewed in PR #611 at `7a254388`.
-Work only in `C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray`, on
-`feature/bra-505-admitted-ordinary-finalization`, draft PR #612, based on
-`feature/bra-561-compiler-described-activation`. No merge is authorized.
+## One connected implementation contract
 
-The old BRA-505 checkpoint `b3022d87` was transplanted as `eb91736c`.
-BRA-619 admission and rollback remain at `6bbcb4a3` on
-`feature/bra-619-complete-selected-scope-native-cleanup`. Preserve those branches.
-Do not replay older stack work or modify the user's main checkout.
+1. Checking selects lifecycle actions and whether their resolution can suspend, including
+   child work in a finalizer's error. Source, temporary, replacement and imported consumers
+   use that result. Quiescence abandons graceful finalization while retaining payload owners.
+2. Lowering expands selected structural actions into the owning continuation. One existing
+   cleanup collection owns the incidents. Arrays use a counter. Pending values and projections
+   live in enclosing storage. Concrete specialization precedes expansion and layout. Do not
+   rebuild a unit per operation or rerun authority, liveness or selection downstream.
+3. The existing Bray activation driver composes asynchronous children into the same run.
+   Ordinary composition consumes a child. Quiescence detaches a terminal owner into its
+   original slot without entering its inactive body or destroying its captured owners.
+4. Attachment transfers admitted error backing after child work is resolved. Later synchronous
+   abandoned destruction consumes payload, captures, backing and provider dependencies once.
+   Panic/cancellation preserve the collection and its execution/attachment requirements.
 
-No new language feature, syntax, compatibility layer, ABI bump, second cleanup
-walker, post-failure allocation or downstream authority proof. Reuse selected
-lifecycle expansion, checked cleanup transitions, existing outcomes, BRA-561
-same-run activation and the existing report chain. Structural traversal shares
-retained enclosing progress where possible. An organizational helper does not
-justify another reservation. Reconsider accumulating special cases or hidden
-blocking execution. Measure production and test growth separately.
+Replace the generated Immediate override, synchronous structural-helper assumption and
+consuming interpretation of retained quiescence. Reuse selected expansion, the shared await
+emitter, existing activation owner and report chain. No reservation per organizational helper.
+Recursive/erased/raw-buffer family migration is BRA-506. Existing call boundaries prevent
+recursive unrolling. Their presence does not prove asynchronous family acceptance. BRA-560
+owns started tasks and BRA-562 waiter migration. Do not silently use consuming TaskObservation
+or blocking resolve_task as an admitted non-consuming wait. General generators remain BRA-484.
 
-Delete this temporary record after BRA-505 acceptance and independent PR review.
-Carry only unfinished BRA-619 inputs into its record. No handoff survives the stack.
-Completed implementation detail and evidence belong in Git and PR history.
+## Whole-path boundary assessment
 
-## Current checkpoint and implementation boundary
+The current batch is not a complete implementation of the contract above. Do not proceed by
+adding an abandoned-helper variant alone. That would leave source destructor bodies owning
+potentially suspending receiver-tail cleanup and would merely move the same problem.
 
-Published baseline: `61a483957` on PR #612. Earlier evidence remains in Git and the PR:
-`6306d9f33` establishes the shared enclosing collection, `1d15b68c9` fixes native boundary
-and report ownership, and `61a483957` adds source allocation-denial acceptance. The PR is
-still draft. Independent review 5560583230 preceded active human architectural review.
-Follow the workflow's human-review rule. Do not launch another agent review unless asked.
+The working design hypothesis is to keep the synchronous destructor body shared and let the
+enclosing selected cleanup own its remaining represented-part continuation. Preserve the
+existing order: whole destructor body, then remaining initialized parts. Do not move child
+finalizers before the whole destructor or destroy captured owners during quiescence.
 
-Structural cleanup borrows `MirCleanupCollection` state/report places. It does not create
-another shield or independent report group. Source invocations keep a separate incoming
-failure destination. Collection states are Normal, Incidents, Cancelled and Panicked.
-Only Normal has no initialized report. Ordinary source call outcomes remain completed,
-panicked or cancelled. Headless completed incident chains belong to native callbacks.
-Typed incidents consume admitted payload backing and retain the provider independently
-of owner discharge. Fixed C platform-service boundaries report and terminate on failures
-that have no caller outcome destination. Ordinary Bray calls forward their existing outcome.
+Implementation mapping to finish before changing this boundary:
 
-Current continuation work extracts `MirFrameRetention` from `MirFrameState`. Executable
-states and logical cleanup share broadcast entry, affinity, operation requirements,
-completion-cleanup identity and initialized storage. Source await and yield use the same
-producer. Failed-finalizer quiescence reuses its awaited state. Completed-result cleanup
-carries its checked retention through generic executable imports. Existing MIR reconstruction,
-optimization, storage walking and import validation preserve it. The wire encoder/decoder
-share one retention contract. This is transport for the planned expansion consumer, not
-completion of generated resumable cleanup.
+- `lowering/initialization.rs` already allocates the root and represented-part initialization
+  guards and updates them on committed moves/stores. Reuse that exact partition and update
+  logic. Caller-owned state must survive normal and abnormal body returns. Do not infer final
+  initialization from a normal-return postcondition or add ownership history.
+- `lowering/lowerer.rs` introduces the hidden abandonment argument, and
+  `lowering/cleanup/lifecycle.rs` branches on it for implicit receiver cleanup. Replace that
+  ownership boundary, not ordinary local cleanup or explicit receiver operations. The body
+  still resolves its locals and leaves no escaping receiver-derived borrow.
+- `synthetic/lifecycle/representation.rs` already expands selected represented operations.
+  Reuse it for the remaining receiver tail under the published guards. Keep the same cleanup
+  collection on body failure and continue remaining independent parts. The caller supplies
+  ordinary versus already-abandoned disposition before realizing synchronous retained cleanup.
+- `asynchronous/parts.rs` currently treats a source destructor as owning its represented tail.
+  Checking must attribute the tail's suspension and execution requirements to the complete
+  lifecycle operation while keeping the body contract synchronous. Source/imported consumers
+  must share that distinction. No downstream rechecking of authority or liveness.
+- Imported executable metadata, specialization, callable layout and lifecycle demand must carry
+  the same receiver-state contract. Reuse one shared body. No copy of a destructor body per
+  cleanup site, no new activation per destructor and no separate reservation per helper.
 
-The focused tests pass 44 MIR, 39 lowering and 191 package-interface checks. Source coverage
-passes all 25 lifecycle and eight async lowering cases, plus imported completed-result
-specialization. The replacement test now checks the shared collection's two failure exits
-and exact report transfer, replacing its stale helper-local CheckCallOutcome expectation.
-MIR inspection passes all 17 focused checks. The audit also verifies that omitting a cleanup
-operation removes its exclusively retained callback and storage. Style, Rust formatting, Bray
-formatting and diff whitespace checks pass. No native acceptance is claimed for this transport batch.
-Logs in the shared target: bra-505-retention-tests.log, bra-505-retention-verified.log and
-bra-505-retention-replacement.log. The latter is the passing rerun of that corrected assertion.
+Execution context is a separate boundary with the same ownership discipline:
 
-Native baseline: full runtime-artifact smoke passes development and release, including
-ordinary finalization, started tasks, bootstrap allocation/lifetime/reentry checks and
-activation depths 1, 32 and 2048 with constant measured native callback stack usage.
-The ordinary-finalization fixture denies Bray backing allocation after owner admission and
-observes zero attempts through suspension, retained typed-error transfer, owner destruction
-and report disposal. It preserves a 2 KiB-aligned payload, skips its finalizer and destroys
-it exactly once. This measures the Bray allocator boundary, not every process allocator.
-The panic has an empty message because a nonempty source message snapshots bytes before
-raising the requested panic, under the existing catchable allocation-failure contract.
-No runtime implementation was changed to evade that test. See bra-505-allocation-native.log.
-This evidence does not cover retained errors with child work or generated resumable traversal.
+- `activation/execution/invoke.bray` asks for readiness before invoking a provider callback.
+  Preserve that admission point and the exact live producer identity.
+- `native/activation/execution.rs` currently obtains all readiness from a task registration.
+  A synchronous action must instead use the actual enclosing task lane or native entry root.
+  `native/activation/callback.rs` may install a resumable task continuation only for resumable
+  operations. A synchronous callback must not publish a continuation or acquire composition
+  authority, including during nested entry.
+- `entry/execution.bray` owns native root/foreign dispatch, attachment acquisition and the
+  context bridge. Any root capability state belongs to this existing Bray boundary, with
+  exact nesting and restoration through callback, report and attachment retirement. A root
+  kind supplies its defined capabilities. A foreign entry supplies none by default. Do not
+  infer capabilities from being on an OS thread, or use a callback that always reports ready.
+- Retained report backing must keep the actual provider and attachment dependencies alive.
+  Trace the current allocation/transfer/release path before claiming that comments or a live
+  byte buffer prove this. Returned reports and static cleanup are consumers, not exceptions.
 
-## Next implementation
+Cost constraints for this hypothesis: reuse existing initialization guards instead of adding
+another state history, one shared machine body per destructor specialization, tail continuation
+storage only while cleanup is pending, no post-admission allocation, no Rust frame or scheduler
+owner, no runtime descriptor-graph reconstruction. Compare these costs with the current hidden
+argument, duplicate branches and local guards. Any schema or helper that cannot replace existing
+machinery is a reason to reconsider rather than an automatic addition.
 
-Use the shared selected-action expander to lower concrete structural cleanup into its
-owning continuation before layout and reachability. Remove the generated Immediate override
-only when its actual continuation is connected. Keep the scalar call splicer's existing
-eligibility checks. Do not allocate a frame merely because compiler code uses a helper.
-Retain pending values, array counters, borrowed storage projections and the enclosing
-collection across introduced suspension. Physical SSA retention belongs to MIR construction,
-not a downstream semantic reproof. Avoid copying/rebuilding the whole unit per cleanup site.
+This is a working architecture assessment, not evidence that these boundaries are implemented
+or proved. Finish mapping guard transport, abnormal returns, imported layout and root retirement
+before adding code for the changed boundary. Then implement the connected path and batch tests.
 
-Audit all cleanup producers while connecting expansion, including ordinary cleanup with no
-preexisting collection, scoped incidents, input temporaries, completed results and imported
-generic bodies. A missing checked suspension must not become guessed execution requirements.
-If an error's child-work obligation is missing from cleanup suspension analysis, repair that
-owning analysis. Do not conceal it by using the previous frame state or a blocking root.
+### Guard-only transport is insufficient
 
-## Remaining implementation and acceptance
+A bounded semantic counterexample rules out publishing initialization bits as the complete
+receiver-tail contract. A body can leave a child initialized and pending, or successfully
+finalize that same initialized child. Both histories have the same initialization bit. Ordinary
+cleanup must finalize only the first. Abandoned cleanup destroys both without finalizing.
+`cleanup/control.rs` consumes `finalizer_is_complete(plan.exit(), access)` separately from the
+initialization guard, so the production implementation already exhibits this distinction.
 
-| Obligation | Owner and required work |
-| --- | --- |
-| Ordinary async cleanup | Shared lifecycle expansion and protected source continuations. Replace generated immediate-call assumptions with admitted same-run completion under the cleanup shield. Retain parent progress, pending outcomes and dependencies. |
-| Inactive Future captures | Existing frame descriptor and abandonment entry. Never enter an inactive body. Resolve accepted captures before retaining a terminal representation. Future selection currently rejects quiescence explicitly. |
-| Retained error quiescence | Shared selected expansion. Resolve child runs while retaining payload and terminal handles. General generator work remains owned by BRA-484/BRA-506. Buffer prefix selection is covered. |
-| Abandoned destruction | Generated destruction and source destructor receiver cleanup must not replay implicit graceful finalizers. Explicit operations keep ordinary checked semantics. |
-| Physical incident ownership | Verify the implemented transfer of pre-admitted payload backing, provider and attachment dependencies into the existing report chain. Discharge cannot release transferred storage. Do not use immediate disposal or a separate activation. |
-| Run ownership and disposal | Retain ordered typed entries across direct await, suspension and nested independent roots. Destroy and release exactly once, preserving reporting/destruction/release failures and cancellation. |
-| Production acceptance | Source/imported contracts, normal/panic/cancel exits, temporary/partial/nested owners, inactive captures, large/aligned errors, denied allocation, exact release and link maps. BRA-561 driver tests are not proof of these consumers. |
+Therefore do not implement the guard-only metadata proposal above. A caller-owned tail must
+preserve the selected checked continuation, including completion choices, guards, failure
+outcomes and source order. Reinterpreting only its final storage state would lose established
+analysis and require the downstream reproof that the user forbids.
 
-Keep `scoped_selected_calls_emit_native_artifacts` required through BRA-505/BRA-619.
-Incident transfer is now implemented, but full quiescence and abandoned destruction
-acceptance must establish its contract before the PR becomes ready.
+The next architectural question is how to retain that existing checked MIR tail while sharing
+the synchronous body. Map the actual normal/abnormal tail entries and their live inputs before
+choosing an internal representation. Prefer splitting/reusing existing MIR and its ID mappings
+and continuation expansion over serializing another semantic cleanup language. Do not duplicate
+the entire destructor body at every caller. No source/body/tail ABI change has been implemented.
 
-## Continuation proof still to implement
+## Current batch and evidence
 
-A source-owned Future is inactive: await and start consume it. Its native composition path
-currently consumes and retires that token, and frame failure cleanup destroys captures.
-Therefore calling await_frame with no completion destination cannot implement retained
-error quiescence. That would destroy captured owners early and leave a stale token inside E.
-See lowering/asynchronous.rs, continuation.rs and activation/run/step.bray and retirement.bray.
-This is a concrete ownership mismatch, not a request for new syntax or a Rust frame.
+The batch now carries BoundCallResult through generated finalizer invocation, expands
+structural cleanup at explicit existing Goto continuations, preserves existing operation IDs
+until one final compaction, and materializes boundary SSA inputs into storage. It shares
+MirFrameRetention and the existing cleanup collection. Generated blocks inherit the enclosing
+phase. The checker includes suspending finalizer completions, not just async callable bodies.
 
-Keep quiescence distinct from destruction using the existing activation and frame ownership.
-A quiesced Future must retain its capture storage and descriptor until synchronous abandoned
-destruction consumes it. Ordinary await/unused-Future cleanup must still retire exactly once.
-Synchronous destructors cannot await or start a Future (asynchronous/check.rs owns the start
-restriction), and they cannot let receiver-derived ownership escape. Do not use field privacy
-or a fabricated valid token as a substitute for these contracts.
+Inactive captures have described quiescence/destruction entries derived from checked entry
+cleanup plans. MirFrameComposition distinguishes Completion, Abandon and Quiesce. The existing
+Bray header stores the disposition, preserves retention through panic/cancellation, and detaches
+terminal retained children without releasing captures or outgoing records. The resident registry
+has a Retained state which permits inspection but rejects reactivation. Later destruction uses
+activation.inactive and existing callback containment, admission and report ownership.
 
-Source cleanup already emits array loops into its enclosing frame and materializes counters
-in MIR storage. Concrete generic cleanup expansion must retain that same enclosing progress,
-collection and checked lane/guard information before layout. Do not relax the scalar inliner
-or allocate an activation for each organizational helper. Recursive or erased ownership must
-use its already-admitted child allowance. This continuation work has not been implemented,
-and the remaining table above remains the acceptance boundary.
+Unused ExecuteCleanupBroadcast/ExecuteLifecycleResolution MIR operations were replaced by
+BroadcastInactiveFrame/DestroyInactiveFrame, whose operands identify the actual owner. Their
+walkers, mappings, imports, inspection and LLVM consumers were changed together. Source selection
+now has LifecycleAction::Future. Quiescence reuses cleanup continuation construction. NativeRun's
+existing callback scope masks composition authority during synchronous nested actions and still
+rejects recursive resumable entry. No new Rust frame was added.
 
-## Resuming efficiently
+Synchronous action readiness reuses an existing task lane without publishing another run
+continuation. Outside a task it grants no capabilities, permits movable actions with no lane
+requirements, and checks exact attachment identity for origin-affine actions. Synchronous native
+callbacks can execute without manufacturing a task context. Root-specific capabilities and
+retained provider/attachment lifetime still require the bounded boundary audit below.
 
-The tracked stack plan remains in runtime-stack-linear-execution.md and its semantic-proof,
-rule-coverage and coverage-inventory companion records. Preserve BRA-619-remaining-work.md.
+The existing ordinary-finalization native fixture now includes an inactive Future in its aligned
+error. Its captured destructor checks that error destruction has begun, and the body must never
+run. The future is prepared before allocation denial. This extension has NOT run yet.
 
-No new runtime frame or source feature is authorized. The generated lifecycle call still
-forces Immediate twice in synthetic/lifecycle/calls.rs, and generated lifecycle/body.rs
-still selects Synchronous. Checker lifecycle selection explicitly rejects Future quiescence
-pending admitted capture-cleanup activation. Resolve these through existing shared selection,
-continuation and Bray activation. Recursive/erased owners and arrays prevent assuming every
-graph can simply be inlined. Do not relax the scalar MIR splicer's eligibility checks.
+Current verification, 2026-10-18:
+- 331 checker, 44 MIR, 38 lowering and 191 package-interface unit tests pass.
+  Logs: target/bra-505-result-unit-tests.log and target/bra-505-checker-joins.log.
+- All 87 source-lowering tests pass. The array-guard regression now checks actual suspend/resume
+  states instead of treating inactive capture entry states as body resumptions.
+  Log: target/bra-505-result-lowering-tests.log.
+- All 111 trusted-contract source tests pass, including owned tuple results through if, block,
+  loop and match, mutation/reconstruction rejection, and rejection of mixed certified pairs.
+  Log: target/bra-505-result-joins.log.
+- Actual production report/activation declaration audit passes. Negative production tests for
+  exact token/outcome pairing and independent output destinations passed previously.
+  Log: target/bra-505-native-contract-audit.log.
+- Rust runtime tests compile with --no-default-features. Three test consumers now pass the
+  explicit composition enum instead of bool. This is compile evidence, not runtime execution.
+- Fresh xtask builds. Native smoke session 92081 finished with failure during standard-library
+  emission, E7123 in channel Sender.send. Log: target/bra-505-result-native-smoke.log.
+  A source reproduction showed pending-value extraction changing an independent channel snapshot.
+  Result publication had skipped its planned ownership transfer, leaving apparent cleanup effects.
+  Restoring those transfers makes production_channel_declarations_check_their_own_bodies pass.
+  Log: target/bra-505-channel-proof.log. Temporary checker tracing has been removed.
+- The source regression/lowering batch completed successfully with 111 trusted-contract and
+  87 source-lowering tests. Native acceptance must rerun with the corrected, rebuilt tool binary.
+- The current batch remains unaccepted. The full retained-incident maintainability audit and native
+  acceptance remain outstanding. The checkpoint's formatting results are recorded below.
 
-Terminal analysis distinguishes possible introduction or reactivation of graceful ownership
-from scalar mutation. It covers aliases, dependencies and abnormal outcomes, and imported
-consumers reuse the established result. Resource operations require complete-carrier authority,
-not reconstructed fields. Native resource acquisition ordering remains part of BRA-505.
-The broader scalar-resource authority audit belongs to open BRA-508. BRA-625 owns the separate
-general compiler-defect diagnostic mechanism. Do not reopen closed issues or duplicate those
-subsystems. Current lifecycle invariant failures remain BRA-505 work.
+The callback result failure was an owning control-flow defect. Yielded branch values became
+Unknown before publication and lost common witness facts. Result regions now have explicit
+begin/completion operations. Begin retires an earlier evaluation, completion publishes staged
+results without invoking calls again, and the existing component join also joins yielded owners.
+Borrowed referents retain their original identities. This adds checker operations only, no runtime
+operations, language vocabulary or authority. There is one bounded recursive component join.
 
-Reuse C:/Users/anton/source/repos/bray/target for CARGO_TARGET_DIR, with its cargo subdirectory
-as CARGO_BUILD_BUILD_DIR. BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX both point to
-C:/Users/anton/source/repos/bray/target/toolchains/llvm/active. Never clean shared artifacts.
-Worktree writes and native workflows require escalation outside the sandbox.
+Result publication now commits the existing result transfer plans. It excludes iteration cursor
+and element storage in both liveness and initialization, using StorageIdentity.is_iteration_storage.
+A checker regression distinguishes result birth from iterator protocol birth. Direct initializer
+destinations remain included. A temporary stricter value-only classification was wrong because
+results can be initialized directly into local bindings. It was replaced, not retained as another
+path. No call-effects pass or iterator invocation is replayed.
 
-Native smoke uses the fresh target/release/xtask.exe runtime-artifact smoke-test with process-local
-RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-msvc. Rust 1.99 emits incompatible LLVM 23 bitcode while
-this checkout uses LLVM 22.1.8. Do not change the global toolchain or rebuild the compiler just
-to select the provider producer. Native TMP/TEMP use target/native/bra-505. Keep logs and temporary
-products inside the repository target. No full native rerun until its known blocker changes.
+All 111 authority source tests pass after the ownership correction, including the small generic
+regression using an owned nullable input in the core-only fixture. This is not native acceptance
+or the destructor-body/tail repair.
 
-Check the active task-owned process before launching another build. Use focused test filters,
-not the broad unit:: filter. Avoid duplicate release xtask rebuilds. Find files with rg and read bounded
-relevant sections without truncation. PowerShell does not expand directory wildcards for rg.
-Preserve exact leaf failures instead of repeatedly running expensive workflows.
+The human readability correction replaces nested yield-if expressions with flat conditional
+chains, combined pattern conditions or guarded match arms, and replaces return-if expressions
+with direct branch returns. The formatter's shared punctuation rule now retains a space between
+control-flow/effect keywords and parenthesized operands. It preserves ordinary call syntax.
+Formatter regressions cover yield/break tuples and the related keyword operands, including
+parse preservation and idempotence. Maintained source is reformatted with that rule.
+
+Checkpoint verification after the human correction, 2026-10-18:
+- All 58 formatter tests pass, including 42 grammar/layout tests. Log:
+  target/bra-505-keyword-format-tests.log. The 331 checker tests also pass after the
+  source-refinement helper extraction. Log: target/bra-505-checkpoint-format-tests.log.
+- All 111 trusted-contract source tests pass. Actual production report/activation and channel
+  declaration checks pass after the rewritten conditionals. Logs:
+  target/bra-505-result-joins.log, target/bra-505-native-contract-audit.log and
+  target/bra-505-channel-proof.log.
+- The rewritten selected-exit destructor and storage boundary declarations pass their direct
+  production tests. Logs: target/bra-505-readable-exit-proof.log and
+  target/bra-505-readable-storage-proof.log.
+- cargo xtask style, cargo xtask format, cargo fmt --all and git diff --check pass.
+  Structural style still reports oversized-module warnings. These are not a completed
+  maintainability audit of the retained-cleanup implementation.
+- A repository search finds no remaining return-if, yield-if or targeted missing keyword spaces
+  in maintained runtime, standard-library and xtask Bray sources. Deliberately unformatted
+  formatter test input remains unformatted so the tests exercise the correction.
+- Relative to 9e4bfd5d9, production files have net +2404 lines, including inline unit tests.
+  Dedicated test/fixture files have net +284 lines. These counts cover the entire recovery batch,
+  not just the readability correction, and are not acceptance of its remaining complexity.
+- No task-owned process remains. Build artifacts remain in the existing shared Cargo target at
+  C:/Users/anton/source/repos/bray/target. No shared artifacts or branches were removed.
+
+Pause after publishing this checkpoint. Do not mark PR #612 ready or BRA-505 complete.
+On resumption, rerun native acceptance with the rebuilt tool and finish the connected
+body/tail and retained-dependency work below. Do not repeat the passing unchanged source
+suites merely because the desktop application restarted.
+
+## Remaining work, considered as one path
+
+- Settle known-abandoned destruction before helper realization. The general helper takes a runtime
+  abandonment flag and emits ordinary child cleanup too. That can demand async work in a synchronous
+  helper even when an incident consumer knows abandonment. Do not rely on LLVM elimination. Carry
+  the established choice into lowering and keep one selected-action implementation. The exact
+  representation has NOT yet been changed. Consider its helper identity, call ABI and source
+  destructor receiver cleanup together, not only the incident adapter.
+- Verify capture destruction has the retention/entry contract needed by its actual children, with
+  no early capture destruction during quiescence. Preserve whole-owner-before-part destruction.
+- Complete synchronous action execution outside task callbacks under the retained report domain.
+  Keep exact thread/lane, provider and attachment requirements. No new Rust owner or permissive ready
+  callback is authorized. Static cleanup and returned reports are actual consumers.
+- Verify native non-source descriptors such as TaskObservation handle quiescence and retained
+  destruction exits exactly once. Existing task migration boundaries remain explicit.
+- Check registry transitions, all native return paths, report/unused record ownership and anti-forgery
+  against actual caller declarations. Native fixture modes must cover retained composition and disposal.
+- Consolidate append_report_records with equivalent report-chain assembly before finishing the audit.
+- Batch source/import/native acceptance: normal/panic/cancel, arrays/temporary/partial owners, retained
+  child work, no inactive body execution, exact capture destruction, aligned errors, denied allocation,
+  no new Rust frame or hidden blocking, and bounded compile/runtime/code-size costs.
+- Finish AGENTS audit, style and format after tests pass. Push fixes, keep review/Linear/PR accurate,
+  and continue BRA-619. Keep scoped_selected_calls_emit_native_artifacts required across both issues.
+
+## Efficient execution
+
+Shared CARGO_TARGET_DIR: C:/Users/anton/source/repos/bray/target.
+CARGO_BUILD_BUILD_DIR: target/cargo. LLVM prefixes: target/toolchains/llvm/active.
+Worktree writes/Git and native workflows require escalation. Do not clean shared artifacts.
+The verified remote is git@github.com:lejmer/bray.git, PUBLIC lejmer/bray, authenticated lejmer.
+
+Build Rust compiler tooling with 1.99. For native provider work, run the fresh xtask executable
+with process-local RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-msvc and TMP/TEMP=target/native/bra-505.
+Do not use cargo check -p bray-runtime with bundled-bootstrap under Rust 1.99 again. Use
+--no-default-features for Rust-only runtime checking. No global toolchain changes or artifact deletion.
+
+Use bounded reads and real paths from rg --files. PowerShell does not expand rg path wildcards.
+Do not dump complete Linear issues or large logs. Reuse compiled test binaries and fresh xtask
+where possible. No parallel Cargo builds competing for the shared target. Task-owned processes
+must be accounted for before starting more work.
+
+For formatting/style with the existing debug compiler cache, use process-local
+CARGO_ALIAS_XTASK='run --package xtask --'. This runs the same repository xtask commands without
+rebuilding the optimized compiler through the default release alias. Do not change checked-in
+Cargo configuration merely to select this local build profile.
+
+## Native inactive-entry proof boundary
+
+The real LLVM caller is `translation/unit/effect/task.rs::cleanup_inactive_frame`.
+It materializes a separate initialized token temporary, passes the fixed callback/readiness
+symbols, and supplies the independent checked-call outcome context. Broadcast borrows the
+selected owner. Retained destruction consumes it through the checked MIR move. The registry
+checks epoch, descriptor identity and inactive/retained phase before a header is selected.
+No callback executes during cursor acquisition. Zero lookup aborts before dereference. The
+local cursor issuer receives only the validated address while that native acquisition remains
+exclusive. Ordinary source can construct the same fields but cannot establish the entry
+predicate. Acquisition must require the exact token/outcome pair, with negative production-
+declaration cases for absent authority and either differently paired slot.
+
+Keep the exclusive-owner requirement on `retained_address`. Derive that owner only from the
+complete native entry contract when reading its exact input. Do not derive it from lease or
+cursor fields. Retaining invocation now has one shared implementation, reused by run advance
+and inactive cleanup, and the latter supplies literal valid operation/argument pairs.
+
+Automatic review rejected the broad root rewrite, a report serialization rewrite and a
+proposal to weaken the new lookup helper's exclusive-owner precondition. None was applied.
+Use narrow changes under the existing stronger contracts. No report representation or ABI
+change is needed merely because the first failed invocation caused downstream witness errors.
+
+The production declaration audit and all source lifecycle/lowering tests now pass as recorded
+above. The persistent failed native build remains at target/native/bra-505/runtime, but current
+native acceptance uses the full smoke command and retained failure directory. Do not claim
+native retained-incident acceptance before that command and required fixtures pass.

@@ -176,7 +176,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )
                 .map_err(|cause| self.capacity_error(cause))?;
 
-            builder.set_terminator(failed, source.clone(), MirTerminatorKind::Return(None));
+            let terminal = match self.continuation {
+                Some(continuation) => MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
+                None => MirTerminatorKind::Return(None),
+            };
+
+            builder.set_terminator(failed, source.clone(), terminal);
 
             let Some(bray_ir::MirOperand::Value(result)) = result else {
                 unreachable!("a completed lifecycle invocation retains its result parameter");
