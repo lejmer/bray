@@ -2462,3 +2462,176 @@ fn scoped_error_quiescence_requires_an_async_caller_even_for_sync_exit() {
         bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
     );
 }
+
+#[test]
+fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Resource
+        {
+            enter() -> bool
+            {
+                return true;
+            }
+
+            exit(pos capability: bool) {}
+        }
+
+        struct Local
+        {
+            marker: usize;
+
+            destruct()
+            {
+                let _ = self.marker;
+            }
+        }
+
+        async func caller(pos resource: Resource)
+        {
+            with capability = resource
+            {
+                let local = Local
+                {
+                    marker = 619
+                };
+            };
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let lowered = compilation.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&lowered);
+    let mut checked = 0;
+
+    assert!(mir.is_valid());
+
+    for block in mir.blocks() {
+        for (index, id) in block.operations().iter().enumerate() {
+            let operation = mir.operation(*id).unwrap();
+
+            let bray_ir::MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+                ..
+            } = operation.kind()
+            else {
+                continue;
+            };
+
+            if !matches!(
+                mir.storage(place.storage()).unwrap().kind(),
+                bray_ir::MirStorageKind::Local
+            ) {
+                continue;
+            }
+
+            assert!(
+                block.operations()[..index]
+                    .last()
+                    .is_some_and(|id| matches!(
+                        mir.operation(*id).unwrap().kind(),
+                        bray_ir::MirOperationKind::Store {
+                            value: bray_ir::MirOperand::Immediate {
+                                value: bray_ir::MirImmediateValue::Boolean(false),
+                                ..
+                            },
+                            ..
+                        }
+                    )),
+                "source ownership must retire before structural cleanup can fail or suspend"
+            );
+
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "the scoped body owns a local requiring cleanup"
+    );
+}
+
+#[test]
+fn scoped_result_completion_reaches_the_following_return() {
+    for execution in ["", "async "] {
+        for fallible in [false, true] {
+            let result = if fallible {
+                "Result<bool, unit>"
+            } else {
+                "bool"
+            };
+
+            let entered = if fallible { "Ok(true)" } else { "true" };
+
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource
+                {{
+                    {execution}enter() -> {result}
+                    {{
+                        return {entered};
+                    }}
+
+                    {execution}exit(pos capability: bool) {{}}
+                }}
+
+                {execution}func caller() -> usize
+                {{
+                    let _ = with capability = Resource {{}}
+                    {{
+                        yield unit;
+                    }};
+
+                    return 619;
+                }}
+                "#,
+            );
+
+            let compilation = compilation(&source);
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "caller"))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            assert!(mir.is_valid());
+
+            let returns = if execution.is_empty() {
+                mir.blocks().iter().any(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Return(Some(_))
+                    )
+                })
+            } else {
+                mir.operations().iter().any(|operation| {
+                    matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
+                            state: bray_ir::MirTaskTerminalState::Completed(_),
+                            ..
+                        })
+                    )
+                })
+            };
+
+            assert!(
+                returns,
+                "the checked with result must continue to its following return: {source}"
+            );
+        }
+    }
+}

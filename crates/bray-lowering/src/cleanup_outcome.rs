@@ -37,22 +37,6 @@ pub(crate) struct CleanupOutcome {
 // Builder views share one lazily allocated incoming slot. Structural forwarding alone creates
 // no report temporary, and sequential calls in the same collection reuse its scratch storage.
 impl CleanupOutcome {
-    /// Resolves every operation before the caller dispatches the collected outcome.
-    pub(crate) fn resolve(
-        &self,
-        builder: &mut MirUnitBuilder,
-        mut block: MirBlockId,
-        source: &MirSourceAnchor,
-        operations: impl IntoIterator<Item = MirOperationKind>,
-    ) -> Result<MirBlockId, MirCapacityError> {
-        for operation in operations {
-            builder.push_operation(block, source.clone(), operation, None)?;
-            block = self.check(builder, block, source)?;
-        }
-
-        Ok(block)
-    }
-
     pub(crate) fn new(
         builder: &mut MirUnitBuilder,
         block: MirBlockId,

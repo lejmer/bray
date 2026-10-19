@@ -98,8 +98,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     }
                 };
 
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Async(operation),
+                )?;
+
                 outcome
-                    .resolve(builder, block, source, [MirOperationKind::Async(operation)])
+                    .check(builder, block, source)
                     .map_err(|cause| self.capacity_error(cause))
             }
             LifecycleAction::Members(members) => {

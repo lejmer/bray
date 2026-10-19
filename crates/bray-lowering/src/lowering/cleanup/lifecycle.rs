@@ -141,7 +141,10 @@ impl Lowerer<'_> {
         };
 
         let outcome = outcome.with_retention(retention);
-        let completed = outcome.resolve(&mut self.builder, block, source, [operation])?;
+
+        self.push_operation(block, Self::retained_source(source), operation, None)?;
+
+        let completed = outcome.check(&mut self.builder, block, source)?;
 
         if local {
             self.finish_finalizer_outcome(completed, source, &outcome)

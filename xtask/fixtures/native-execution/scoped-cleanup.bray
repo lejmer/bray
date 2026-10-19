@@ -236,14 +236,14 @@ trusted async func transfer_sync(pos mode: usize) -> Result<i32, Failure>
             entry = await prepared_entry(false, true, false)
         };
 
-        core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
-
         let _ = with capability = scope
         {
             let local = BodyLocal
             {
                 previous_exits = core.atomic.load<usize, 1>(&EXITS)
             };
+
+            core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
 
             if mode == 0
             {
@@ -278,14 +278,14 @@ trusted async func transfer_async(pos mode: usize) -> Result<i32, Failure>
             entry = await prepared_entry(false, true, false)
         };
 
-        core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
-
         let _ = with capability = scope
         {
             let local = BodyLocal
             {
                 previous_exits = core.atomic.load<usize, 1>(&EXITS)
             };
+
+            core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
 
             if mode == 0
             {
@@ -348,13 +348,11 @@ async func propagate_error() -> Result<unit, Failure>
 
     let failed: Result<unit, Failure> = Error(await prepared_failure());
 
-    let _ = with capability = scope
+    return with capability = scope
     {
         try failed;
         yield unit;
     };
-
-    return Ok(unit);
 }
 
 async func panic_scope(pos forward: bool)
