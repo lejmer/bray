@@ -312,12 +312,6 @@ impl ExecutionState {
 
             entry.trusted_boundary = false;
         }
-
-        // Opaque execution can reach every payload. The caller restores only observations
-        // whose storage analysis established preservation, never the containing snapshot.
-        for value in self.current.values_mut() {
-            *value = ExecutionCondition::Unknown;
-        }
     }
 
     pub(super) fn join_values(

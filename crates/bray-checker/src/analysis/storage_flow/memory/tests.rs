@@ -2541,6 +2541,15 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
             bray_bound_tree::StorageRelationship::Disjoint
         );
 
+        let candidates = [first.clone(), second.clone()];
+
+        assert_eq!(
+            state
+                .unexposed_storage(&candidates, [returned.clone()])
+                .collect::<Vec<_>>(),
+            vec![&candidates[1]],
+        );
+
         state.transfer(&result, copied.clone());
         state.begin_transition(call);
 

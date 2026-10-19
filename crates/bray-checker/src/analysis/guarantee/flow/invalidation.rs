@@ -120,7 +120,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let retained = stable_values
+        let mut retained = stable_values
             .iter()
             .flat_map(|path| self.storage_places(state, path.clone()))
             .filter_map(|place| {
@@ -146,21 +146,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.invalidate_cleanup(&retained.values().cloned().collect(), &owners);
 
-        let observed = self
+        // A local observation starts at its checked binding, not at a preceding
+        // opaque call. Keep existing local roots and all potentially external roots.
+        let roots = self
             .observed_types
             .keys()
+            .filter(|place| {
+                !matches!(
+                    place.root,
+                    crate::execution_guarantees::ExecutionInput::Reference(
+                        bray_bound_tree::BoundReferenceTarget::Local(
+                            bray_symbols::AnyLocalSymbolId::Binding(_)
+                        )
+                    ) | crate::execution_guarantees::ExecutionInput::Storage(_)
+                )
+            })
             .chain(state.current.keys())
+            .filter(|place| place.projections.is_empty())
             .cloned()
             .collect::<BTreeSet<_>>();
-
-        let roots = observed
-            .iter()
-            .filter(|place| place.projections.is_empty())
-            .cloned();
 
         state.current.clear();
 
         for place in roots {
+            if let Some(value) = retained.remove(&place) {
+                // A whole stable root needs no intermediate post-state or reconstruction.
+                state.current.insert(place, value);
+                continue;
+            }
+
             let contents = ExecutionCondition::PostState(mutation, place.clone());
 
             let value = descriptors.get(&place).map_or_else(
