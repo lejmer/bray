@@ -20,6 +20,8 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
+    pub(crate) scoped_error_quiescence:
+        BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -100,6 +102,7 @@ impl Plan {
 
                 self.requires_suspension(access).then_some(scope)
             })
+            .chain(self.scoped_error_quiescence.keys().copied())
             .collect()
     }
 
@@ -400,6 +403,7 @@ impl Plan {
         }
 
         prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
+        prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
     }

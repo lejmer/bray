@@ -385,6 +385,9 @@ impl Lowerer<'_> {
                             None => lowerer.create_cleanup_outcome(error, source)?,
                         };
 
+                        let retention = lowerer.lifecycle_retention(source, invocation_result)?;
+                        let outcome = outcome.with_retention(retention);
+
                         let error = outcome.retain_incident(
                             &mut lowerer.builder,
                             error,

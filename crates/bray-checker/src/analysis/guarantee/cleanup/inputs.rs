@@ -7,6 +7,56 @@ use super::plan::{Plan, has_source_lifecycle};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 impl Plan {
+    pub(super) fn select_scoped_quiescence<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+        request: CheckerUnitView<'_, C>,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        for entry in selections.entries() {
+            let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = entry.selection() else {
+                continue;
+            };
+
+            // Async exit already publishes the checked continuation reused by error quiescence.
+            if matches!(
+                scoped.exit_result(),
+                bray_bound_tree::BoundCallResult::LazyFuture(_)
+            ) {
+                continue;
+            }
+
+            if crate::representation::type_representation(request, scoped.exit().1.result())
+                != Some(bray_compiler_known::RepresentationRole::Result)
+            {
+                continue;
+            }
+
+            let Some(error) = scoped.failure_type() else {
+                continue;
+            };
+
+            if !cleanup_shapes.quiescence_requires_suspension(error)? {
+                continue;
+            }
+
+            let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
+                request.view().expression(scoped.expression())
+            else {
+                panic!("checked scoped use retains its structured expression");
+            };
+
+            let [body] = expression.blocks() else {
+                panic!("checked scoped use retains its sole body");
+            };
+
+            self.scoped_error_quiescence
+                .insert(*body, scoped.expression());
+        }
+
+        Ok(())
+    }
+
     pub(super) fn select_inputs(
         &mut self,
         unit: &bray_bound_tree::BoundUnit,

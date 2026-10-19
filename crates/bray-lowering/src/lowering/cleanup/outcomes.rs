@@ -56,7 +56,10 @@ struct AbnormalCleanupRoute {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum AbnormalCleanupStep {
-    ScopedExit(bray_bound_tree::BoundExpressionId),
+    ScopedExit {
+        expression: bray_bound_tree::BoundExpressionId,
+        exit: AnyBoundNodeId,
+    },
     Place {
         place: bray_ir::MirPlace,
         source: MirSourceAnchor,
@@ -457,7 +460,10 @@ impl Lowerer<'_> {
             if phase == MirCleanupPhase::LifecycleResolution
                 && let Some(expression) = plan.scoped_exit()
             {
-                steps.push(AbnormalCleanupStep::ScopedExit(expression));
+                steps.push(AbnormalCleanupStep::ScopedExit {
+                    expression,
+                    exit: plan.exit(),
+                });
             }
 
             let depth = self
@@ -558,8 +564,16 @@ impl Lowerer<'_> {
             self.cleanup_outcome = Some(machine.outcome.clone());
 
             let end = match &step {
-                AbnormalCleanupStep::ScopedExit(expression) => {
-                    self.push_scope_exit(entry, source, *expression, None, None)?
+                AbnormalCleanupStep::ScopedExit { expression, exit } => {
+                    let previous = self
+                        .cleanup_occurrence
+                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
+
+                    let end = self.push_scope_exit(entry, source, *expression, None, None)?;
+
+                    self.cleanup_occurrence = previous;
+
+                    end
                 }
                 AbnormalCleanupStep::Place {
                     place,

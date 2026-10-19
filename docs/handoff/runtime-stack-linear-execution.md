@@ -9,8 +9,8 @@ and [#610](https://github.com/lejmer/bray/pull/610).
 BRA-561 is implemented and independently reviewed in [#611](https://github.com/lejmer/bray/pull/611).
 BRA-626 is implemented and independently reviewed in [#613](https://github.com/lejmer/bray/pull/613),
 stacked on BRA-505. Its conversion, authority, import and native cleanup acceptance passes.
-Finish BRA-505's remaining native boundary audit in [#612](https://github.com/lejmer/bray/pull/612),
-then BRA-619, with one reviewed stacked PR per issue. Do not merge without user approval.
+BRA-505's scoped native boundary audit is complete in [#612](https://github.com/lejmer/bray/pull/612).
+Finish BRA-619, with one reviewed stacked PR per issue. Do not merge without user approval.
 
 Use [the active BRA-505 record](BRA-505-retained-incidents.md) for the branch,
 requirements, evidence and next work. [BRA-619 acceptance](BRA-619-remaining-work.md)

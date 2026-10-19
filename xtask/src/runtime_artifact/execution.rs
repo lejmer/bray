@@ -38,6 +38,11 @@ pub(super) fn smoke_test(
             0,
         ),
         (
+            "scoped-cleanup",
+            include_str!("../../fixtures/native-execution/scoped-cleanup.bray"),
+            0,
+        ),
+        (
             "async-tasks",
             include_str!("../../fixtures/native-execution/async_tasks.bray"),
             0,
@@ -62,7 +67,9 @@ pub(super) fn smoke_test(
                 ProductKind::Executable,
                 SelectedTarget::for_native(target),
             )
-            .with_native_link_inputs((name == "ordinary-finalization").then(|| probe.clone())),
+            .with_native_link_inputs(
+                matches!(name, "ordinary-finalization" | "scoped-cleanup").then(|| probe.clone()),
+            ),
         )
         .with_standard_library_root(standard_library(target)?);
 
@@ -115,7 +122,21 @@ pub(super) fn smoke_test(
                 "generated async execution",
             )?;
 
-            if result.status.code() != Some(expected) || !result.stderr.is_empty() {
+            let expected_stderr = if name == "scoped-cleanup" {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let mut lines = stderr.lines();
+
+                matches!(
+                    (lines.next(), lines.next(), lines.next()),
+                    (Some(segment), Some(error), None)
+                        if segment.starts_with("cleanup_incident ordinal=0 task=")
+                            && error.starts_with("cleanup_error type=")
+                )
+            } else {
+                result.stderr.is_empty()
+            };
+
+            if result.status.code() != Some(expected) || !expected_stderr {
                 return Err(CommandError::EntrySmoke(crate::command::failure(
                     &format!("{name} ({mode}, expected exit {expected})"),
                     &result,

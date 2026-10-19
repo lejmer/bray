@@ -1,81 +1,95 @@
-# BRA-619 remaining work
+# BRA-619 completion acceptance
 
-## Active sequence and baseline
+## Contract and baseline
 
-Complete [BRA-505](https://linear.app/bray-lang/issue/BRA-505) in PR #612, then
-[BRA-619](https://linear.app/bray-lang/issue/BRA-619) in a dependent PR.
-Use [the active prerequisite record](BRA-505-retained-incidents.md) until it is complete.
-The selected-scope implementation from #602 is included through merged #607.
-The recovery branch `feature/bra-619-complete-selected-scope-native-cleanup` at `6bbcb4a3`
-preserves subsequent admission and rollback work. Inspect its diff against the completed
-BRA-505 branch and retain only work still needed. Do not replay old prerequisites.
-BRA-502/554/558 are merged and BRA-561 is reviewed. BRA-505 must supply retained-error
-quiescence, abandoned destruction and admitted payload transfer before this consumer connects them.
-The native missing-role regression stays enabled and must pass before completion.
+Continue through BRA-619, including reviewed PRs and pushed fixes. No merge is authorized.
+Read AGENTS.md, coding-conventions.md, crates.md and this record after compaction.
+Use only release xtask. Runtime ownership belongs in Bray. No new syntax, language feature,
+Rust frame, authority relaxation, post-failure allocation or downstream revalidation.
 
-## What is implemented
+Branch feature/bra-619-scoped-cleanup-acceptance starts at d69592ca0 on reviewed PR #613.
+BRA-505 PR #612 is ready with its scoped native boundary audit recorded. BRA-626 PR #613
+is implemented and independently reviewed. Preserve the older recovery branch at 6bbcb4a3.
+The selected calls and native transfer are already implemented. The old MissingRole regression
+now passes. Complete acceptance rather than replaying old code or adding another mechanism.
 
-Selected enter and exit calls flow through semantic selection, storage and dependency checking, trusted contracts, asynchronous execution, and lowering. Scoped bindings use the entered capability. Lowering retains a protocol activity guard and clears it before invoking exit. Existing source/MIR tests cover distinct entry/exit inputs, borrowed receiver lifetime, asynchronous exit shielding, fallible result types, and preservation of pending control outcomes.
+## Coverage matrix
 
-The original implementation recorded passing affected Rust suites and formatting/style checks. These results do not establish native completion of fallible scoped cleanup.
+| Obligation | Existing implementation and evidence | Remaining acceptance |
+| --- | --- | --- |
+| Selected inputs and exactly-once entry/exit | lowering/scoped.rs, lifecycle lowering tests | Native sync/async success and failed entry |
+| Normal and yield exit error | replace_scoped_result and checked scoped failure type | Native owned error disposal |
+| Pending return/break/continue | retain_incident and shared CleanupOutcome | Native original outcomes and retained ownership |
+| Nullable/result/run-result propagation | Existing propagation selection and guarded cleanup | Native composition with fallible exit |
+| Panic/cancellation and shielding | Checked scoped suspension, CleanupShield, shared broadcasts | Native shielding and precedence |
+| Physical backing and error quiescence | BRA-502/505 admitted transfer and abandoned destruction | Inactive Future capture, delayed disposal and denied allocation |
+| Borrowed capability and trusted authority | Existing source/imported lifecycle and trusted tests | Reuse checks, add missing imported authority variants if absent |
 
-## Functional gap
+## Design and limits
 
-The missing path transfers an owned error from a fallible exit to the native runtime when another outcome is already pending.
+Add a focused native scoped-use fixture to the existing execution smoke. Use source counters,
+existing catch/report ownership and the allocation probe. No new runtime object or framework.
+Change production only for concrete gaps exposed by the matrix, in the owning phase, and audit
+sibling operations. Tests are batched before mandatory format/style. Measure production/test
+changes separately. Unexpected runtime adapters or substantial growth require reconsideration.
 
-For example, the body starts returning a value, then exit returns an error. The original return must continue, and the exit error must be retained as a suppressed incident for later consumption and disposal. The same rule applies to break, continue, propagation, panic, and cancellation. Normal body completion or yield instead lets the exit error contribute to the `with` expression's failure result.
+Shared Cargo/LLVM storage is C:/Users/anton/source/repos/bray/target. Native workflows run
+outside the sandbox. Do not delete shared artifacts. Delete this and completed stack handoffs
+when their inputs are no longer needed. Keep durable behavior in specs/tests and open issues.
 
-This behavior is already specified in [with expressions](../language/lifecycle/with-expressions.md). Also read [scoped use](../language/lifecycle/scoped-use.md), [scope exits, panics and cancellation](../language/lifecycle/scope-exits-panics-and-cancellation.md), and the trusted caller, witness, and propagation contracts under `docs/language/contracts-and-trust/`.
+## Native gap exposed by the matrix
 
-The recorded native failure is:
+The first native run passed old products, then hit the retained suspending-helper assertion.
+Scoped exit did not attach the error-quiescence retention already used by finalizers. Immediate
+fallible exits also lacked checked body-exit suspension for quiescent error payloads. The fix
+publishes those scopes in the existing CleanupPlan, reuses it for CFG/async retention, shares
+lifecycle_retention with finalizers, and carries exact exit identity in abnormal scoped steps.
+No synchronous generated helper may receive a suspending action. Keep the invariant assertion.
 
-```text
-InvalidExecutableHost(IncompatibleRuntime(MissingRole(CleanupIncidentTransfer)))
-```
+Current uncommitted acceptance fixture has 21 entries, 17 exits, 19 errors, 22 captures and 8
+ordinary finalizers, including cancellation and cleanup-panic precedence. Assertions must stay
+outside expected catch containment, or set a checked flag observed outside. Inactive body and
+ordering violations have outer assertions. Native run before these assertion-strengthening edits
+is target/bra-619-native-smoke.log. Rebuild tools after the compiler fix and rerun acceptance.
+19 scoped tests passed before this repair. Source checking passed the fixture before the last
+assertion-strengthening edits. Rustfmt, mutating style and format passed before this repair.
 
-The native regression `scoped_selected_calls_emit_native_artifacts` exercises ordinary and fallible enter/exit. The fallible form requires the missing role during compilation even when its example exit body returns success. A potentially reachable error branch still needs a valid native implementation.
+Latest repair checks pass 22 scoped, 95 lowering, 21 exported lifecycle and 315 source-query
+cases. An empty unit/lowering selector is not evidence and was replaced by the 95-case suite.
+Style found the async analysis function at 267 production lines. Context checking now belongs
+to its existing selected-async-operation helper. CleanupPlan retains the exact body/expression
+relation once. Async exits reuse their existing awaited retention, so only immediate exits add
+an implicit error-quiescence scope. The negative sync-caller diagnostic is covered.
 
-## Where to resume
+The attempt to copy the full proof into a new Linear document was auto-review rejected as an
+external disclosure. No document was created. Use the verified already-public immutable proof
+at https://github.com/lejmer/bray/blob/d69592ca0/docs/handoff/runtime-stack-semantic-proof.md
+as the safer alternative in tracked plan links. The three existing Linear plan/inventory/sequence
+documents already preserve their own content. Do not retry full proof publication or ask for it.
 
-| Path | Relevant behavior |
-| --- | --- |
-| `crates/bray-lowering/src/lowering/scoped.rs` | `push_scope_exit` emits `TransferCleanupIncident` for an exit error that cannot replace the pending outcome. |
-| `crates/bray-ir/src/operation.rs` | Defines the incident-transfer operation. |
-| `crates/bray-ir/src/unit/validation/operation.rs` | Validates its runtime role. |
-| `crates/bray-runtime-abi/src/catalog/execution.rs` | `CleanupIncidentTransfer` currently has no native binding and is marked compiler-owned. |
-| `crates/bray-codegen/src/mapping/demand.rs` and `mapping/model/validation.rs` | Demand and validate the transfer mapping. |
-| `crates/bray-codegen-llvm/src/translation/unit/effect/body.rs` | Translates the incident operand and invokes its runtime mapping. |
-| `runtime/bootstrap/src/outgoing/` and `report/` | Existing outgoing report admission, record ownership, transfer, and retirement mechanisms to examine for reuse. |
-| `crates/bray-compilation/src/compilation/lowering/tests/lifecycle.rs` | Existing source/MIR lifecycle coverage. |
-| `crates/bray-compilation/src/compilation/product/codegen/implementation/tests/lifecycle.rs` | Native artifact regression and related cleanup coverage. |
+Active build/test/style session 60956. No native/debug process remains. Native acceptance must
+be rerun with the repaired release tools. Do not claim completion from MIR tests alone.
 
-Build one coherent compiler-to-runtime transfer path. Trace the actual error type, physical owner, admission/reservation, report representation, consumer lifetime, and destruction. Preserve ownership exactly once, including errors whose values need destruction. A bare pointer or discarded error is not a completed transfer. Do not invent a fixed native signature for arbitrary typed errors without following their existing representation and cleanup mechanisms.
+## Remaining ownership obligation
 
-Search structurally equivalent finalizer and cleanup-incident paths before choosing the implementation. Reuse existing lifecycle and reporting machinery. Keep established compiler phase invariants, and do not hide the missing role through fallback behavior or weaker validation.
+The audit found that storage-flow invocation_result(ScopedExit) returns None. A source-only
+check accepts a retained exit error whose destructor reads a borrow of the dying resource.
+Reproducer: target/bra-619-borrowed-exit-error.bray, log .log, exit 0. This differs from a bare
+unused borrow, whose dependency may legitimately end at last use. The concrete Failure has
+value: &Value and destruct() calls self.value.read(). Resource.enter returns &self.value,
+exit returns Error(Failure { value = lease }), and the caller owns Resource and returns Ok
+inside with. The retained incident can outlive that Resource. Native continuation acceptance
+alone does not discharge this obligation. Do not claim BRA-619 complete.
 
-## Transfer constraints
+Trace the shared retained cleanup-result ownership boundary, including finalizers, through
+existing storage/dependency and retirement mechanisms. Represent the actual selected result
+and guarded normal/error/retained transfer in its owning analysis. Reuse established results
+in liveness/lowering. Do not patch the final descriptor, assume unused fields, ban all borrows
+by type, introduce a new language contract or grow another runtime owner/framework.
 
-Retain the exact error payload, physical backing and provider/attachment dependencies until
-run-boundary consumption. Reuse the existing report chain, concrete callbacks and outgoing
-allowances. Admit size, alignment and callback obligations before failure. Preserve separate
-reporting, destruction and release outcomes, including failures in each operation. Resolve child
-runs and inactive captures before retaining an incident without replaying graceful finalizers.
-No second arena, Rust payload registry, borrowed stack pointer, immediate disposal, allocation
-on failure or weakened role validation satisfies this ownership contract.
-
-## Validation and review
-
-Start with the existing failing regression, running native workflows outside the Codex sandbox on Windows:
-
-```text
-cargo test -p bray-compilation --release scoped_selected_calls_emit_native_artifacts -- --nocapture
-cargo test -p bray-compilation --release scoped_ -- --nocapture
-```
-
-Add meaningful native execution coverage for successful entry/exit, failed entry without exit, normal completion with exit failure, and pending return/control/panic/cancellation with exit failure. Check that exit runs once, the original pending outcome survives, the suppressed error remains owned, and its eventual disposal occurs once. Include asynchronous forms, source/imported contracts, stale scoped witnesses, and valid explicit authority transfer as required by the issue. These variants were still under audit in the earlier checkpoint.
-
-Read AGENTS.md and the coding/debug/language skills before implementation. Reuse the configured shared Cargo and LLVM storage. After Rust changes run the mutating `cargo xtask style`, and finish with `cargo xtask format`. Run affected suites and native API/outcome audits when changes to shared transport warrant them. Do not repeat unchanged broad checks just to start review.
-
-Follow the [Bray issue workflow](../../.agents/skills/work-on-bray-issues/SKILL.md) for
-independent review, readiness and Linear status. Remove this handoff after implementation,
-acceptance, review and any fixes are pushed. Keep durable behavior in specifications and tests.
+Current checks: 22 scoped tests, 95 lowering, 21 exported lifecycle, 315 source query pass.
+Rustfmt and mutating structural style pass after moving the context check into the existing
+selected-async-operation helper. Bray formatting passes. No task-owned process remains.
+Next: checkpoint current continuation repair, native run with fresh release xtask, then close
+the retained error dependency boundary before final review. The source check used brayc from
+BRA-626, whose relevant invocation-result behavior is unchanged by this continuation repair.

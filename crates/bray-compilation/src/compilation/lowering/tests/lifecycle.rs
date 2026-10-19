@@ -2373,3 +2373,92 @@ fn destructor_receiver_tail_retains_normal_completion() {
         );
     }
 }
+
+#[test]
+fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
+    for execution in ["", "async "] {
+        for body in ["return Ok(unit);", r#"panic("");"#] {
+            let compilation = compilation(&format!(
+                r#"
+                module app;
+                async func pending() {{}}
+                struct Failure {{ child: Future<unit>; }}
+                struct Resource {{}}
+                impl Resource
+                {{
+                    enter() -> bool {{ return true; }}
+                    {execution}exit(pos lease: bool) -> Result<unit, Failure>
+                    {{
+                        return Error(Failure {{ child = pending() }});
+                    }}
+                }}
+                async func caller(pos resource: Resource) -> Result<unit, Failure>
+                {{
+                    let _ = with lease = resource {{ {body} }};
+
+                    return Ok(unit);
+                }}
+                "#,
+            ));
+
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(
+                diagnostics.is_empty(),
+                "{execution}, {body}: {diagnostics:?}"
+            );
+
+            let key = source_function_body_key(&compilation, "caller");
+            let lowered = compilation.lowered_unit(key).unwrap();
+            let mir = lowered_mir(&lowered);
+            let mut quiescence = 0;
+
+            for operation in mir.operations() {
+                if let MirOperationKind::Quiesce { collection, .. } = operation.kind() {
+                    quiescence += 1;
+
+                    assert!(
+                        collection.as_ref().unwrap().retention().is_some(),
+                        "{execution}, {body}: scoped error quiescence retains its caller continuation"
+                    );
+                }
+            }
+
+            assert!(
+                quiescence > 0,
+                "fallible exit retains owned error quiescence"
+            );
+        }
+    }
+}
+
+#[test]
+fn scoped_error_quiescence_requires_an_async_caller_even_for_sync_exit() {
+    let compilation = compilation(
+        r#"
+        module app;
+        async func pending() {}
+        struct Failure { child: Future<unit>; }
+        struct Resource {}
+        impl Resource
+        {
+            enter() -> bool { return true; }
+            exit(pos lease: bool) -> Result<unit, Failure>
+            {
+                return Error(Failure { child = pending() });
+            }
+        }
+        func caller(pos resource: Resource) -> Result<unit, Failure>
+        {
+            let _ = with lease = resource { return Ok(unit); };
+
+            return Ok(unit);
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+    );
+}

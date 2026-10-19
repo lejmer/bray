@@ -252,19 +252,7 @@ impl Lowerer<'_> {
             }
         };
 
-        let retention = match invocation {
-            bray_bound_tree::BoundCallResult::Immediate(_) => self.cleanup_retention(source)?,
-            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
-                // The just-published awaited state already owns the exact cleanup retention.
-                Some(std::sync::Arc::new(
-                    self.frame_states
-                        .last()
-                        .expect("awaited finalizer published its continuation")
-                        .retention()
-                        .clone(),
-                ))
-            }
-        };
+        let retention = self.lifecycle_retention(source, invocation)?;
 
         let outcome = outcome.with_retention(retention);
 

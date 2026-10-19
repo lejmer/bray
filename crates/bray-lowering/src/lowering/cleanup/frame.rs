@@ -55,6 +55,26 @@ impl Lowerer<'_> {
             .map(|retention| Some(std::sync::Arc::new(retention)))
     }
 
+    pub(in crate::lowering) fn lifecycle_retention(
+        &mut self,
+        source: &MirSourceAnchor,
+        invocation: bray_bound_tree::BoundCallResult,
+    ) -> Result<Option<std::sync::Arc<bray_ir::MirFrameRetention>>, LoweringError> {
+        match invocation {
+            bray_bound_tree::BoundCallResult::Immediate(_) => self.cleanup_retention(source),
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
+                // The just-published awaited state already owns the exact cleanup retention.
+                Ok(Some(std::sync::Arc::new(
+                    self.frame_states
+                        .last()
+                        .expect("awaited lifecycle call published its continuation")
+                        .retention()
+                        .clone(),
+                )))
+            }
+        }
+    }
+
     pub(in crate::lowering) fn frame_completion(
         &mut self,
         source: &MirSourceAnchor,

@@ -104,6 +104,13 @@ where
         self.resolve(ty).map(|shape| shape.suspending)
     }
 
+    pub(crate) fn quiescence_requires_suspension(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        self.resolve(ty).map(|shape| shape.quiescence)
+    }
+
     pub(crate) fn requirement(
         &mut self,
         ty: TypeId,
