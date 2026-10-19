@@ -81,9 +81,14 @@ impl Lowerer<'_> {
         };
 
         self.set_ordinary_destination(
-            lifecycle, source, destination,
-            pending.as_ref().map(|place| MirOperand::Move(Self::retained_place(place))),
-            scope_depth, exit,
+            lifecycle,
+            source,
+            destination,
+            pending
+                .as_ref()
+                .map(|place| MirOperand::Move(Self::retained_place(place))),
+            scope_depth,
+            exit,
         )
     }
 
@@ -231,13 +236,19 @@ impl Lowerer<'_> {
         occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     ) -> Result<(MirBlockId, Option<MirOperand>), LoweringError> {
         // The receiver shares immutable collection paths with the surrounding source boundary.
-        let outcome = occurrence.and_then(|site| self.completion_report_outcome(site)).cloned();
+        let outcome = occurrence
+            .and_then(|site| self.completion_report_outcome(site))
+            .cloned();
+
         let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
         else {
             let completed = match outcome {
-                Some(outcome) => outcome.take_completed_report(&mut self.builder, block, source, &mut value)?,
+                Some(outcome) => {
+                    outcome.take_completed_report(&mut self.builder, block, source, &mut value)?
+                }
                 None => block,
             };
+
             return Ok((completed, value));
         };
 
@@ -271,8 +282,11 @@ impl Lowerer<'_> {
             }
         }
 
-        let completed_report = outcome.as_ref().map(|outcome|
-            outcome.incoming_report(&mut self.builder, source)).transpose()?;
+        let completed_report = outcome
+            .as_ref()
+            .map(|outcome| outcome.incoming_report(&mut self.builder, source))
+            .transpose()?;
+
         let (completed, mut value) = crate::continuation::check_call_outcome(
             &mut self.builder,
             block,
@@ -283,10 +297,14 @@ impl Lowerer<'_> {
             completed_report,
             value,
         )?;
+
         let completed = match outcome {
-            Some(outcome) => outcome.retain_completed_report(&mut self.builder, completed, source, &mut value)?,
+            Some(outcome) => {
+                outcome.retain_completed_report(&mut self.builder, completed, source, &mut value)?
+            }
             None => completed,
         };
+
         Ok((completed, value))
     }
 }

@@ -119,6 +119,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
     ) -> Result<CleanupOutcome, LoweringError> {
         let outcome = self.allocate_cleanup_outcome(source)?;
+
         outcome.begin(&mut self.builder, block, source)?;
 
         Ok(outcome)
@@ -141,8 +142,14 @@ impl Lowerer<'_> {
             .create_cleanup_outcome(broadcast, source)?
             .with_retention(Some(Arc::new(retention)));
 
-        let broadcast = self.seed_pending_failure(&outcome, broadcast, source,
-            CleanupFailure::Cancellation(None), CleanupDestination::PropagateCancellation)?;
+        let broadcast = self.seed_pending_failure(
+            &outcome,
+            broadcast,
+            source,
+            CleanupFailure::Cancellation(None),
+            CleanupDestination::PropagateCancellation,
+        )?;
+
         self.cleanup_outcome = Some(outcome);
 
         let lifecycle = self.resolve_cleanup(
@@ -218,7 +225,8 @@ impl Lowerer<'_> {
 
         machine.outcome.begin(&mut self.builder, current, source)?;
 
-        let current = self.seed_pending_failure(&machine.outcome, current, source, failure, destination)?;
+        let current =
+            self.seed_pending_failure(&machine.outcome, current, source, failure, destination)?;
 
         let temporaries = self.input_cleanup(input_exit);
 

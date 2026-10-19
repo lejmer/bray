@@ -30,7 +30,14 @@ impl Lowerer<'_> {
             }
         };
 
-        for outcome in self.pending_reports.iter().chain(self.catch_targets.iter().filter_map(|catch| catch.reports.as_ref()))
+        for outcome in self
+            .pending_reports
+            .iter()
+            .chain(
+                self.catch_targets
+                    .iter()
+                    .filter_map(|catch| catch.reports.as_ref()),
+            )
             .filter(|_| self.completion_cleanup.is_none())
         {
             initialized.extend(outcome.collection().places().map(|place| place.storage()));

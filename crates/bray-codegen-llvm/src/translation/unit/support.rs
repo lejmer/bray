@@ -151,8 +151,15 @@ pub(super) fn native_run_outcome_value<'context>(
         .into();
 
     let mut outcome = insert_value(builder, outcome, state, 0)?;
-    if let Some(payload) = payload { outcome = insert_value(builder, outcome, payload.into(), 1)?; }
-    if let Some(report) = report { outcome = insert_value(builder, outcome, report, 2)?; }
+
+    if let Some(payload) = payload {
+        outcome = insert_value(builder, outcome, payload.into(), 1)?;
+    }
+
+    if let Some(report) = report {
+        outcome = insert_value(builder, outcome, report, 2)?;
+    }
+
     Ok(outcome)
 }
 

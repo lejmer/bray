@@ -261,7 +261,8 @@ pub(super) fn encode_dependency_requirement(
             }
         }
         InterfaceDependencyRequirementValue::ResultCall {
-            output, callable,
+            output,
+            callable,
             requirement,
             inputs,
         } => {

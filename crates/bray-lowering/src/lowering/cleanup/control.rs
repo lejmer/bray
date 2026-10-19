@@ -291,10 +291,21 @@ impl Lowerer<'_> {
         if self.input_cleanup(input_exit).is_empty() && plans.iter().all(|plan| !plan.has_cleanup())
         {
             match &entry {
-                CleanupEntry::Ordinary => return self.set_ordinary_destination(current, source,
-                    destination, value.map(|(value, _)| value), scope_depth, exit),
+                CleanupEntry::Ordinary => {
+                    return self.set_ordinary_destination(
+                        current,
+                        source,
+                        destination,
+                        value.map(|(value, _)| value),
+                        scope_depth,
+                        exit,
+                    );
+                }
                 CleanupEntry::Panic(_) | CleanupEntry::Cancellation(_)
-                    if !self.has_pending_failure_reports(destination, matches!(entry, CleanupEntry::Panic(_))) =>
+                    if !self.has_pending_failure_reports(
+                        destination,
+                        matches!(entry, CleanupEntry::Panic(_)),
+                    ) =>
                 {
                     return self.set_direct_exit(current, source, entry, destination, value);
                 }

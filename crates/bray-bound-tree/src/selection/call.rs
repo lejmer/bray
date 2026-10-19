@@ -244,6 +244,10 @@ impl SelectedCall {
         &self.witnesses
     }
 
+    pub(crate) fn set_declaration_source(&mut self, callable: bray_symbols::CallableInstanceData) {
+        self.resolution.set_declaration_source(callable);
+    }
+
     /// Returns the exact declared, anonymous, or indirect call target.
     pub const fn target(&self) -> BoundCallableTarget {
         self.resolution.target()

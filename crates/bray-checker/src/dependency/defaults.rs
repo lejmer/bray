@@ -17,15 +17,35 @@ pub(crate) struct CallResultDependencies {
 impl CallResultDependencies {
     pub(crate) fn immediate_reports(&self, deferred: bool) -> DependencyContractTemplateData {
         let mut result = self.evaluation_reports.clone();
+
         if !deferred {
-            for (normal, requirements) in [(true, self.template.completion_reports()), (false, self.template.abnormal_reports())] {
+            for (normal, requirements) in [
+                (true, self.template.completion_reports()),
+                (false, self.template.abnormal_reports()),
+            ] {
                 if let Some(requirements) = requirements {
-                    let previous = if normal { result.completion_reports() } else { result.abnormal_reports() };
-                    let merged = previous.into_iter().flatten().chain(requirements).cloned().collect::<Vec<_>>();
-                    result = if normal { result.with_completion_reports(merged) } else { result.with_abnormal_reports(merged) };
+                    let previous = if normal {
+                        result.completion_reports()
+                    } else {
+                        result.abnormal_reports()
+                    };
+
+                    let merged = previous
+                        .into_iter()
+                        .flatten()
+                        .chain(requirements)
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    result = if normal {
+                        result.with_completion_reports(merged)
+                    } else {
+                        result.with_abnormal_reports(merged)
+                    };
                 }
             }
         }
+
         result
     }
 }
@@ -96,17 +116,42 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
 
     for completion in [true, false] {
         let mut reports = None::<Vec<DependencyRequirement>>;
+
         for provider in defaults.values() {
-            let requirements = if completion { provider.completion_reports() } else { provider.abnormal_reports() };
-            for requirements in requirements.into_iter().chain((!completion).then(|| provider.completion_reports()).flatten()) {
-                let output = expand(request, call, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults)?;
-                reports.get_or_insert_default().extend(output.template.requirements().iter().cloned());
-                expanded.escaping_evaluation_inputs.extend(output.escaping_evaluation_inputs);
+            let requirements = if completion {
+                provider.completion_reports()
+            } else {
+                provider.abnormal_reports()
+            };
+
+            for requirements in requirements.into_iter().chain(
+                (!completion)
+                    .then(|| provider.completion_reports())
+                    .flatten(),
+            ) {
+                let output = expand(
+                    request,
+                    call,
+                    &DependencyContractTemplateData::new(requirements.iter().cloned()),
+                    &defaults,
+                )?;
+
+                reports
+                    .get_or_insert_default()
+                    .extend(output.template.requirements().iter().cloned());
+
+                expanded
+                    .escaping_evaluation_inputs
+                    .extend(output.escaping_evaluation_inputs);
             }
         }
+
         if let Some(reports) = reports {
-            expanded.evaluation_reports = if completion { expanded.evaluation_reports.with_completion_reports(reports) }
-                else { expanded.evaluation_reports.with_abnormal_reports(reports) };
+            expanded.evaluation_reports = if completion {
+                expanded.evaluation_reports.with_completion_reports(reports)
+            } else {
+                expanded.evaluation_reports.with_abnormal_reports(reports)
+            };
         }
     }
 
@@ -164,7 +209,8 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         }
 
         if let DependencyRequirement::ResultCall {
-            output, callable,
+            output,
+            callable,
             requirement,
             inputs,
         } = requirement
@@ -172,7 +218,9 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                expand_call_inputs(request, call, &inputs, defaults)?, output, ));
+                expand_call_inputs(request, call, &inputs, defaults)?,
+                output,
+            ));
 
             continue;
         }

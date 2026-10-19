@@ -79,6 +79,12 @@ independent run boundary and adds the task-resolution obligation represented by 
 preserve the deferred execution contract and guaranteed normal-completion postcondition template. Control-flow merge
 retains only guarantees common to every reachable producer.
 
+An owned cleanup report carries the dependencies of its retained error values, including incidents left behind by a
+normally completed call. These dependencies are not restricted to the types in the callable's explicit result. A borrow
+can therefore remain live after a synchronous call returns when a retained incident still reaches it. This rule also
+applies to calls through callable values. An unconstrained callable type cannot establish that its input borrows end at
+normal return. A statically known callable value preserves its producer's more precise checked contract.
+
 Moving a value moves its dependency contract with the value.
 
 Product-rooted dependencies can escape a callable and cross package or dynamic-library boundaries only when the

@@ -137,8 +137,8 @@ impl Lowerer<'_> {
             &self.unit_operand(unit),
             unit,
             None,
-        false,
-)?;
+            false,
+        )?;
 
         Ok(block)
     }

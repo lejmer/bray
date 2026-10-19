@@ -50,6 +50,15 @@ pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
         )
 }
 
+pub(super) fn declaration_source(
+    call: &SelectedCall,
+) -> Option<bray_symbols::CallableInstanceData> {
+    match call.target() {
+        BoundCallableTarget::Declaration(instance) => Some(instance),
+        _ => call.resolution().declaration_source(),
+    }
+}
+
 /// Applies the selected implementation, generic substitution and parameter defaults once.
 pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -75,6 +84,12 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                         DependencyRequirementKind::BorrowCapabilityActive(kind),
                     )))
             )).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+    } else if matches!(call.target(), BoundCallableTarget::Predicate(_)) {
+        // Predicate evaluation is checked in an effect-free context. It cannot retain
+        // an owned cleanup incident or return a value with input dependencies.
+        store
+            .empty_dependency_contract_template()
+            .expect("predicate outputs have no retained ownership")
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
         let requirement = request.context().result_dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
@@ -88,30 +103,43 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                 .expect("selected anonymous callable retains its body key")
                 .0,
         )?
-    } else if !opaque_result(call)
-        && let BoundCallableTarget::Declaration(instance) = call.target()
-    {
+    } else if let Some(instance) = declaration_source(call) {
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
         let requirements = input_requirements(call).collect::<Vec<_>>();
-        let body = call.phase_behaviors().deferred_execution().unwrap_or(call.phase_behaviors().invocation());
-        let template = DependencyContractTemplateData::new(requirements.iter().cloned())
-            .with_abnormal_reports(requirements.iter().cloned());
-        let template = if body.execution_properties().contains(&bray_symbols::ExecutionProperty::Pure) {
-            template
-        } else { template.with_completion_reports(requirements) };
+
+        let body = call
+            .phase_behaviors()
+            .deferred_execution()
+            .unwrap_or(call.phase_behaviors().invocation());
+
+        let mut template = DependencyContractTemplateData::new(requirements.iter().cloned());
+
+        if call.invocation() == bray_symbols::CallableInvocation::Bray {
+            template = template.with_abnormal_reports(requirements.iter().cloned());
+
+            if !body
+                .execution_properties()
+                .contains(&bray_symbols::ExecutionProperty::Pure)
+            {
+                template = template.with_completion_reports(requirements);
+            }
+        }
 
         store
             .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
-    let instance = match call.target() {
-        BoundCallableTarget::Declaration(instance) => Some(instance),
-        _ => None,
-    };
+    let instance = declaration_source(call);
 
     let mut template = resolved_result_template(request, instance, template)?;
+
+    if call.invocation() == bray_symbols::CallableInvocation::Native {
+        // The native entry consumes body incidents and contains abnormal completion.
+        // Omitted defaults still execute in the caller and are expanded below.
+        template = template.without_reports();
+    }
 
     if let Some(relation) = call
         .implementation_hook()

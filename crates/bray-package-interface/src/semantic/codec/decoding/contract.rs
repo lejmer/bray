@@ -447,7 +447,9 @@ pub(super) fn decode_dependency_requirement(
             Ok(InterfaceDependencyRequirement::result_call(
                 callable,
                 requirement,
-                inputs, output, ))
+                inputs,
+                output,
+            ))
         }
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
@@ -715,7 +717,9 @@ mod tests {
                         ),
                         InterfaceDependencyRequirementKind::StorageAlive,
                     )],
-                )], bray_symbols::DependencyCallOutput::Value, )]);
+                )],
+                bray_symbols::DependencyCallOutput::Value,
+            )]);
 
         assert_eq!(decoded, expected);
 

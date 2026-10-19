@@ -277,7 +277,8 @@ impl Lowerer<'_> {
             ),
             payloads,
             self.input.dependency_contracts().lifecycle_dependencies()[&callable.callable]
-                .completion_reports().is_some(),
+                .completion_reports()
+                .is_some(),
         )?;
 
         // Keep the owner broadcastable throughout finalizer mutation. Destruction
@@ -346,7 +347,12 @@ impl Lowerer<'_> {
         let [panicked, cancelled] = transfers;
 
         let completed = outcome.dispatch(
-            &mut self.builder, block, source, panicked, cancelled, &mut None,
+            &mut self.builder,
+            block,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
         )?;
 
         self.forward_cleanup_incidents(completed, source, outcome, &mut None)

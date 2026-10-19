@@ -62,7 +62,11 @@ fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
     let storage = builder.finish();
 
     let mut input = super::StorageFlowInput::default();
-    input.prepare_locations(&storage, &crate::analysis::guarantee::CleanupPlan::default());
+
+    input.prepare_locations(
+        &storage,
+        &crate::analysis::guarantee::CleanupPlan::default(),
+    );
 
     assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
 
@@ -279,10 +283,11 @@ fn uncertain_writes_do_not_reconstruct_a_definitely_moved_component() {
 }
 
 fn reachable_state() -> StorageFlowState {
-    StorageFlowState {
-        reachable: true,
-        ..StorageFlowState::default()
-    }
+    let mut state = StorageFlowState::default();
+
+    state.reachable = true;
+
+    state
 }
 
 fn storage_and_expressions(
@@ -402,4 +407,45 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
 
         assert_eq!(state.definitely_absent.contains_key(&payload), retained);
     }
+}
+
+#[test]
+fn abnormal_reports_retain_dependencies_without_requesting_pending_storage() {
+    let (identity, expressions) = storage_and_expressions(94);
+
+    let subject = bray_bound_tree::BoundDependencySubject::Storage(identity);
+    let boundary = expressions[0];
+    let mut abnormal = reachable_state();
+
+    abnormal.retain_reports(Some(boundary), [subject], false);
+    assert!(abnormal.report_retains(subject));
+    assert_eq!(abnormal.pending_report_boundaries().count(), 0);
+
+    let mut normal = reachable_state();
+
+    normal.retain_reports(Some(boundary), [], true);
+    assert!(abnormal.merge(&normal, None));
+    assert!(!abnormal.merge(&normal, None));
+
+    assert_eq!(
+        abnormal.pending_report_boundaries().collect::<Vec<_>>(),
+        [Some(boundary)]
+    );
+
+    assert!(abnormal.report_retains(subject));
+
+    let mut caught = abnormal.clone();
+
+    caught.transfer_report_boundary(boundary, None, true);
+    assert_eq!(caught.pending_report_boundaries().count(), 0);
+    assert!(!caught.report_retains(subject));
+
+    abnormal.transfer_report_boundary(boundary, None, false);
+
+    assert_eq!(
+        abnormal.pending_report_boundaries().collect::<Vec<_>>(),
+        [None]
+    );
+
+    assert!(abnormal.report_retains(subject));
 }

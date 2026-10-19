@@ -429,6 +429,10 @@ After local cleanup, they consume and report retained incidents and terminate. T
 caller or return an ordinary result after abnormal completion. Expected operational failures still use the declared
 status result. A service that supports cancellation as an ordinary outcome must represent it in its declared protocol.
 
+On ordinary completion, a fixed native entry reports and consumes retained cleanup incidents before returning its declared
+result. A native invocation carries only its explicit protocol outputs. Omitted argument defaults execute in the caller
+and retain their own Bray completion and cleanup behavior.
+
 ## Target Availability
 
 The following compiler-known boolean target properties describe platform-service availability:

@@ -210,7 +210,8 @@ impl<'a> SemanticExporter<'a> {
                 ))
             }
             DependencyRequirement::ResultCall {
-                output, callable,
+                output,
+                callable,
                 requirement,
                 inputs,
             } => {
@@ -229,7 +230,9 @@ impl<'a> SemanticExporter<'a> {
                 Ok(InterfaceDependencyRequirement::result_call(
                     callable,
                     requirement,
-                    inputs, *output, ))
+                    inputs,
+                    *output,
+                ))
             }
             DependencyRequirement::Direct { subject, kind } => {
                 Ok(InterfaceDependencyRequirement::new(

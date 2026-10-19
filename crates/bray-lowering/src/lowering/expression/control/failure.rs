@@ -244,6 +244,7 @@ impl Lowerer<'_> {
         }
 
         let mut success_result = Some(MirOperand::Value(success_value));
+
         let success = if let Some(reports) = &reports {
             self.forward_cleanup_incidents(success, &source, reports, &mut success_result)?
         } else {
@@ -375,9 +376,17 @@ impl Lowerer<'_> {
         reports: bool,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let occurrence = occurrence.into();
-        let expression = occurrence.expression().expect("checked call belongs to an expression");
+
+        let expression = occurrence
+            .expression()
+            .expect("checked call belongs to an expression");
+
         // The view shares immutable collection paths while failure handlers are constructed.
-        let outcome = reports.then(|| self.completion_report_outcome(occurrence)).flatten().cloned();
+        let outcome = reports
+            .then(|| self.completion_report_outcome(occurrence))
+            .flatten()
+            .cloned();
+
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
@@ -398,8 +407,12 @@ impl Lowerer<'_> {
         let report = match &outcome {
             Some(outcome) => outcome.incoming_report(&mut self.builder, source)?,
             None => {
-                let storage = self.builder.push_storage(Self::retained_source(source),
-                    bray_ir::MirStorageKind::Temporary, report_type)?;
+                let storage = self.builder.push_storage(
+                    Self::retained_source(source),
+                    bray_ir::MirStorageKind::Temporary,
+                    report_type,
+                )?;
+
                 bray_ir::MirPlace::new(storage, [], report_type)
             }
         };
@@ -441,11 +454,21 @@ impl Lowerer<'_> {
         )?;
 
         let mut result = Some(MirOperand::Value(result));
+
         let completed = match outcome {
-            Some(outcome) => outcome.retain_completed_report(&mut self.builder, completed, source, &mut result)?,
+            Some(outcome) => outcome.retain_completed_report(
+                &mut self.builder,
+                completed,
+                source,
+                &mut result,
+            )?,
             None => completed,
         };
-        Ok((completed, result.expect("completed call retains its result")))
+
+        Ok((
+            completed,
+            result.expect("completed call retains its result"),
+        ))
     }
 
     pub(in crate::lowering) fn construct_result(

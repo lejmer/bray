@@ -48,14 +48,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         crate::dependency::defaults::CallResultDependencies,
         CheckerQueryError<C::UpstreamError>,
     > {
-        let recursive = match call.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
-                self.request
-                    .is_recursive_result(instance.definition().callable_symbol())
-                    && call.resolution().trait_dispatch().is_none()
-            }
-            _ => false,
-        };
+        let recursive = super::super::returned::declaration_source(call).is_some_and(|instance| {
+            self.request
+                .is_recursive_result(instance.definition().callable_symbol())
+                && call.resolution().trait_dispatch().is_none()
+        });
 
         if recursive {
             let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
@@ -97,7 +94,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                             bray_symbols::DependencySubject::root(root),
                             DependencyRequirementKind::StorageAlive,
                         )],
-                    )], bray_symbols::DependencyCallOutput::Value, ),
+                    )],
+                    bray_symbols::DependencyCallOutput::Value,
+                ),
             ]);
 
             requirements
@@ -185,15 +184,21 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     panic!("report-producing invocation retains its selected call");
                 };
 
-                let template =
-                    crate::dependency::call_result_template(self.request, call, |callable| {
-                        self.request.callable_result_dependencies(callable)
-                    })?;
+                let template = self.selected_result_template(call)?;
 
-                let reports = if matches!(output, bray_bound_tree::CallReportOutput::DeferredCompleted
-                    | bray_bound_tree::CallReportOutput::DeferredAbnormal) {
+                let reports = if matches!(
+                    output,
+                    bray_bound_tree::CallReportOutput::DeferredCompleted
+                        | bray_bound_tree::CallReportOutput::DeferredAbnormal
+                ) {
                     template.template
-                } else { template.immediate_reports(matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_))) };
+                } else {
+                    template.immediate_reports(matches!(
+                        call.resolution().result(),
+                        bray_bound_tree::BoundCallResult::LazyFuture(_)
+                    ))
+                };
+
                 let requirements = if output.is_abnormal() {
                     reports.abnormal_reports()
                 } else {

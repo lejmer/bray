@@ -697,7 +697,9 @@ mod tests {
                             DependencyRequirement::result_call(
                                 *callable,
                                 Some(*requirement),
-                                inputs, bray_symbols::DependencyCallOutput::Value, ),
+                                inputs,
+                                bray_symbols::DependencyCallOutput::Value,
+                            ),
                         ]))
                         .unwrap();
 

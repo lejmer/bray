@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundCallableTarget, SelectedArgument, SelectedCall};
+use bray_bound_tree::{SelectedArgument, SelectedCall};
 use bray_symbols::{
     DependencyCallInput, DependencyContractTemplateData, DependencyContractTemplateId,
     DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
@@ -12,7 +12,7 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
-    let BoundCallableTarget::Declaration(instance) = call.target() else {
+    let Some(instance) = super::returned::declaration_source(call) else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in deferred_result"
         );
@@ -23,17 +23,47 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
         .intern_callable_instance(instance).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in deferred_result: {error:?}"));
 
     let inputs = call_inputs(call);
-    let template = DependencyContractTemplateData::new([
-        DependencyRequirement::result_call(callable, requirement, inputs.iter().cloned(), bray_symbols::DependencyCallOutput::Value),
-    ]).with_abnormal_reports([DependencyRequirement::result_call(callable, requirement,
-        inputs.iter().cloned(), bray_symbols::DependencyCallOutput::AbnormalReport)]);
-    let body = call.phase_behaviors().deferred_execution().unwrap_or(call.phase_behaviors().invocation());
+
+    let template = DependencyContractTemplateData::new([DependencyRequirement::result_call(
+        callable,
+        requirement,
+        inputs.iter().cloned(),
+        bray_symbols::DependencyCallOutput::Value,
+    )]);
+
+    if call.invocation() == bray_symbols::CallableInvocation::Native {
+        return Ok(template);
+    }
+
+    let template = template.with_abnormal_reports([DependencyRequirement::result_call(
+        callable,
+        requirement,
+        inputs.iter().cloned(),
+        bray_symbols::DependencyCallOutput::AbnormalReport,
+    )]);
+
+    let body = call
+        .phase_behaviors()
+        .deferred_execution()
+        .unwrap_or(call.phase_behaviors().invocation());
+
     // The verified phase contract excludes admission and insertion of normal incidents.
     // Totality alone establishes no such absence.
-    Ok(if body.execution_properties().contains(&bray_symbols::ExecutionProperty::Pure) {
-        template
-    } else { template.with_completion_reports([DependencyRequirement::result_call(callable, requirement,
-        inputs, bray_symbols::DependencyCallOutput::CompletionReport)]) })
+    Ok(
+        if body
+            .execution_properties()
+            .contains(&bray_symbols::ExecutionProperty::Pure)
+        {
+            template
+        } else {
+            template.with_completion_reports([DependencyRequirement::result_call(
+                callable,
+                requirement,
+                inputs,
+                bray_symbols::DependencyCallOutput::CompletionReport,
+            )])
+        },
+    )
 }
 
 fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
@@ -73,9 +103,9 @@ pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
     let values = request.semantic_values();
 
     let template = values
-        .substitute_dependency_contract(template, key.0.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}"));
+        .substitute_dependency_contract(template, key.callable.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}"));
 
-    let template = match key.1 {
+    let template = match key.contextual_self {
         Some((context, subject)) => values
             .substitute_contextual_self_in_dependency_contract(template, context, subject).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}")),
         None => template,
@@ -94,8 +124,8 @@ struct EquationFrame {
 
 struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     request: CheckerUnitView<'a, C>,
-    active: std::collections::BTreeSet<(super::parameters::ResultKey, bray_symbols::DependencyCallOutput)>,
-    results: std::collections::BTreeMap<(super::parameters::ResultKey, bray_symbols::DependencyCallOutput), Vec<DependencyRequirement>>,
+    active: std::collections::BTreeSet<super::parameters::ResultKey>,
+    results: std::collections::BTreeMap<super::parameters::ResultKey, Vec<DependencyRequirement>>,
     changed: bool,
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
@@ -131,11 +161,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
     fn selected_result(
         &mut self,
         key: super::parameters::ResultKey,
-        output: bray_symbols::DependencyCallOutput,
     ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let (selected, contextual_self) = key;
+        let selected = key;
 
-        let key = (self.parameters.key(self.request, key)?, output);
+        let key = self.parameters.key(self.request, key)?;
 
         if !self.active.insert(key) {
             // Recursive calls read the preceding approximation while this result is recomputed.
@@ -144,16 +173,12 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let request = self.request;
 
-        let template =
-            request.callable_result_dependencies(selected.definition().callable_symbol())?;
+        let template = request
+            .callable_result_dependencies(selected.callable.definition().callable_symbol())?;
 
-        let template = instantiate_template(request, template, (selected, contextual_self))?;
+        let template = instantiate_template(request, template, selected)?;
 
-        let requirements = match output {
-            bray_symbols::DependencyCallOutput::Value => template.requirements(),
-            bray_symbols::DependencyCallOutput::CompletionReport => template.completion_reports().unwrap_or(&[]),
-            bray_symbols::DependencyCallOutput::AbnormalReport => template.abnormal_reports().unwrap_or(&[]),
-        };
+        let requirements = template.output_requirements(key.output);
         let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
 
         self.active.remove(&key);
@@ -305,7 +330,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                     result.extend(self.variable(*depth, *ordinal)?)
                 }
                 DependencyRequirement::ResultCall {
-                    output, callable,
+                    output,
+                    callable,
                     requirement,
                     inputs,
                 } => {
@@ -320,7 +346,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                                 continue;
                             };
 
-                            (selected, Some((context, requirement.subject())))
+                            super::parameters::ResultKey {
+                                callable: selected,
+                                contextual_self: Some((context, requirement.subject())),
+                                output: *output,
+                            }
                         }
                         None => {
                             let selected =
@@ -334,11 +364,15 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                                 continue;
                             }
 
-                            (*selected, None)
+                            super::parameters::ResultKey {
+                                callable: *selected,
+                                contextual_self: None,
+                                output: *output,
+                            }
                         }
                     };
 
-                    let resolved = self.selected_result(key, *output)?;
+                    let resolved = self.selected_result(key)?;
 
                     let mapped = map_call_inputs(&resolved, inputs).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in requirements: {error:?}"));
 

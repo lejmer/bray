@@ -44,10 +44,7 @@ fn validate_cleanup_continuation(unit: &MirUnit) -> Option<()> {
     for cleanup in continuation.entries() {
         if !matches!(
             unit.block(cleanup.handoff())?.terminator().kind(),
-            crate::MirTerminatorKind::Return {
-                value: None,
-                report: None
-            }
+            crate::MirTerminatorKind::Return { value: None, .. }
         ) {
             return None;
         }

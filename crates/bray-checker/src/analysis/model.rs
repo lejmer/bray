@@ -130,7 +130,7 @@ pub(crate) struct AnalysisOperation {
     before: ProgramPointId,
     after: ProgramPointId,
     cleanup_suspension: bool,
-    scoped_exit: Option<bray_bound_tree::StorageExitPoint>,
+    scoped_exit: Option<(bray_bound_tree::StorageExitPoint, bool)>,
 }
 
 impl AnalysisOperation {
@@ -150,14 +150,23 @@ impl AnalysisOperation {
         }
     }
 
-    pub(super) fn with_scoped_exit(mut self, exit: bray_bound_tree::StorageExitPoint) -> Self {
-        self.scoped_exit = Some(exit);
+    pub(super) fn with_scoped_exit(
+        mut self,
+        exit: bray_bound_tree::StorageExitPoint,
+        preserves_exit_value: bool,
+    ) -> Self {
+        self.scoped_exit = Some((exit, preserves_exit_value));
 
         self
     }
 
-    pub(crate) const fn scoped_exit(self) -> Option<bray_bound_tree::StorageExitPoint> {
+    pub(crate) fn scoped_exit(self) -> Option<bray_bound_tree::StorageExitPoint> {
+        self.scoped_exit.map(|(exit, _)| exit)
+    }
+
+    pub(crate) fn is_normal_cleanup(self) -> bool {
         self.scoped_exit
+            .map_or_else(|| self.kind.is_normal_cleanup(), |(_, normal)| normal)
     }
 
     pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {

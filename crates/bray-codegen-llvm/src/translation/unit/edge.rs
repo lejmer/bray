@@ -179,7 +179,7 @@ pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId
             matches!(
                 block.terminator().kind(),
                 bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
-                | bray_ir::MirTerminatorKind::TakeCallReport { .. }
+                    | bray_ir::MirTerminatorKind::TakeCallReport { .. }
             )
             .then(|| block.operations().last().copied())
             .flatten()

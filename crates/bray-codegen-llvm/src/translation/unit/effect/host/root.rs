@@ -104,17 +104,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             llvm(self.builder.build_store(root_storage, root))?;
 
             let failure = crate::translation::unit::support::native_run_outcome_value(
-context,
-&self.builder,
-self.request.target(),
-bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
-Some(llvm(
-                    self.builder
-                        .build_int_cast(status, root_type, "root.failure.status"),
-                )?
-                ),
-None,
-)?;
+                context,
+                &self.builder,
+                self.request.target(),
+                bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
+                Some(llvm(self.builder.build_int_cast(
+                    status,
+                    root_type,
+                    "root.failure.status",
+                ))?),
+                None,
+            )?;
 
             // Observation replaces this only for a successfully started root. Failed
             // admission retains its original outcome and still reaches host teardown.

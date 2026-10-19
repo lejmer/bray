@@ -72,60 +72,7 @@ pub(super) fn validate_terminator(
             validate_local_edge(unit, block_id, otherwise)?;
         }
         MirTerminatorKind::InlineAssembly(assembly) => {
-            validate_operand(unit, assembly.inputs(), block_id, None)?;
-
-            let label_count = assembly
-                .contract()
-                .operands()
-                .filter(|operand| {
-                    operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Label
-                })
-                .count();
-
-            if unit.operand_type(assembly.inputs())? != assembly.inputs_type()
-                || label_count != assembly.alternates().len()
-                || assembly
-                    .contract()
-                    .operands()
-                    .filter(|operand| {
-                        operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol
-                    })
-                    .count()
-                    != assembly.symbols().len()
-            {
-                return None;
-            }
-
-            let mut successors = BTreeSet::from([assembly.normal()]);
-
-            for alternate in assembly.alternates() {
-                let Some(block) = unit.block(*alternate) else {
-                    return None;
-                };
-
-                if !successors.insert(*alternate)
-                    || block.kind() != MirBlockKind::Ordinary
-                    || !block.parameters().is_empty()
-                {
-                    return None;
-                }
-            }
-
-            let Some(normal) = unit.block(assembly.normal()) else {
-                return None;
-            };
-
-            let [parameter] = normal.parameters() else {
-                return None;
-            };
-
-            let Some(parameter) = unit.value(*parameter) else {
-                return None;
-            };
-
-            if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
-                return None;
-            }
+            validate_inline_assembly(unit, block_id, assembly)?;
         }
         MirTerminatorKind::Return { value, report } => {
             validate_return(unit, block_id, value.as_ref(), report.as_ref())?;
@@ -184,11 +131,23 @@ pub(super) fn validate_terminator(
             validate_cleanup_start(unit, block_id, edges.cancelled())?;
         }
         MirTerminatorKind::TakeCallReport { completed, report } => {
-            if !block.operations().last().and_then(|operation| unit.operation(*operation))
-                .is_some_and(|operation| matches!(operation.kind(), crate::MirOperationKind::Call(_)
-                    | crate::MirOperationKind::Async(crate::MirAsyncOperation::CommitAwaitedCompletion { .. }))) {
+            if !block
+                .operations()
+                .last()
+                .and_then(|operation| unit.operation(*operation))
+                .is_some_and(|operation| {
+                    matches!(
+                        operation.kind(),
+                        crate::MirOperationKind::Call(_)
+                            | crate::MirOperationKind::Async(
+                                crate::MirAsyncOperation::CommitAwaitedCompletion { .. }
+                            )
+                    )
+                })
+            {
                 return None;
             }
+
             validate_local_edge(unit, block_id, completed)?;
             super::operation::validate_place(unit, report, block_id, None)?;
         }
@@ -258,6 +217,65 @@ pub(super) fn validate_terminator(
                 | MirTerminatorKind::PropagateCancellation { .. }
         )
     {
+        return None;
+    }
+
+    Some(())
+}
+
+fn validate_inline_assembly(
+    unit: &MirUnit,
+    block_id: MirBlockId,
+    assembly: &crate::MirInlineAssemblyTerminator,
+) -> Option<()> {
+    validate_operand(unit, assembly.inputs(), block_id, None)?;
+
+    let label_count = assembly
+        .contract()
+        .operands()
+        .filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Label)
+        .count();
+
+    if unit.operand_type(assembly.inputs())? != assembly.inputs_type()
+        || label_count != assembly.alternates().len()
+        || assembly
+            .contract()
+            .operands()
+            .filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol)
+            .count()
+            != assembly.symbols().len()
+    {
+        return None;
+    }
+
+    let mut successors = BTreeSet::from([assembly.normal()]);
+
+    for alternate in assembly.alternates() {
+        let Some(block) = unit.block(*alternate) else {
+            return None;
+        };
+
+        if !successors.insert(*alternate)
+            || block.kind() != MirBlockKind::Ordinary
+            || !block.parameters().is_empty()
+        {
+            return None;
+        }
+    }
+
+    let Some(normal) = unit.block(assembly.normal()) else {
+        return None;
+    };
+
+    let [parameter] = normal.parameters() else {
+        return None;
+    };
+
+    let Some(parameter) = unit.value(*parameter) else {
+        return None;
+    };
+
+    if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
         return None;
     }
 

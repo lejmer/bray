@@ -159,7 +159,7 @@ where
 
         collector
             .report_collections
-            .extend(state.reports.keys().copied());
+            .extend(state.pending_report_boundaries());
 
         for operation in block.operations() {
             let operation = graph
@@ -187,7 +187,7 @@ where
 
         collector
             .report_collections
-            .extend(state.reports.keys().copied());
+            .extend(state.pending_report_boundaries());
 
         collector.collect_conditions(&state, block, graph, &mut conditions);
 

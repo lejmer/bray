@@ -1,8 +1,11 @@
-use bray_bound_tree::BoundCallResult;
-use bray_ir::{MirBlockId, MirCall, MirCallTarget, MirCapacityError, MirCleanupState, MirEdge, MirOperand, MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder};
-use bray_runtime_interface::{RuntimeAbiRole};
 use super::model::CleanupOutcome;
 use crate::continuation::{forward_cleanup_edge, forward_cleanup_result};
+use bray_bound_tree::BoundCallResult;
+use bray_ir::{
+    MirBlockId, MirCall, MirCallTarget, MirCapacityError, MirCleanupState, MirEdge, MirOperand,
+    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+};
+use bray_runtime_interface::RuntimeAbiRole;
 
 impl CleanupOutcome {
     /// Forwards normal incidents to the collection selected by checked ownership flow.
@@ -18,14 +21,32 @@ impl CleanupOutcome {
         let transfer = builder.push_block(source.clone(), builder.block_kind(block))?;
 
         let incoming = MirEdge::new(completed, value.take());
-        let (to_transfer, from_transfer) = forward_cleanup_edge(builder, source, transfer, &incoming)?;
-        let (to_completed, from_completed) = forward_cleanup_edge(builder, source, completed, &incoming)?;
+
+        let (to_transfer, from_transfer) =
+            forward_cleanup_edge(builder, source, transfer, &incoming)?;
+
+        let (to_completed, from_completed) =
+            forward_cleanup_edge(builder, source, completed, &incoming)?;
+
         *value = from_completed.arguments().first().cloned();
-        self.switch(builder, block, source, [(MirCleanupState::Incidents, to_transfer)], to_completed);
+
+        self.switch(
+            builder,
+            block,
+            source,
+            [(MirCleanupState::Incidents, to_transfer)],
+            to_completed,
+        );
 
         match target {
-            Some(target) => target.retain_report(builder, transfer, source, from_transfer,
-                MirCleanupState::Incidents, self.report())?,
+            Some(target) => target.retain_report(
+                builder,
+                transfer,
+                source,
+                from_transfer,
+                MirCleanupState::Incidents,
+                self.report(),
+            )?,
             None => {
                 // The owning flow proves that this collection cannot forward incidents here.
                 builder.set_terminator(transfer, source.clone(), MirTerminatorKind::Unreachable);
@@ -45,7 +66,9 @@ impl CleanupOutcome {
     ) -> Result<MirBlockId, MirCapacityError> {
         let completed = builder.push_block(source.clone(), builder.block_kind(block))?;
         let edge = forward_cleanup_result(builder, source, completed, value)?;
+
         self.retain_failure(builder, block, source, edge, MirCleanupState::Incidents)?;
+
         Ok(completed)
     }
 
@@ -60,7 +83,13 @@ impl CleanupOutcome {
         let report = self.incoming_report(builder, source)?;
         let reported = builder.push_block(source.clone(), builder.block_kind(block))?;
         let completed = forward_cleanup_result(builder, source, reported, value)?;
-        builder.set_terminator(block, source.clone(), MirTerminatorKind::TakeCallReport { completed, report });
+
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::TakeCallReport { completed, report },
+        );
+
         self.retain_completed_report(builder, reported, source, value)
     }
 
@@ -95,10 +124,22 @@ impl CleanupOutcome {
         let suppressed = builder.push_block(source.clone(), kind)?;
         let retained = builder.push_block(source.clone(), kind)?;
 
-        let (to_primary, primary_result) = forward_cleanup_edge(builder, source, primary, &completed)?;
-        let (to_suppressed, suppressed_result) = forward_cleanup_edge(builder, source, suppressed, &completed)?;
-        let (to_retained, retained_result) = forward_cleanup_edge(builder, source, retained, &primary_result)?;
-        self.switch(builder, block, source, [(MirCleanupState::Normal, to_primary)], to_suppressed);
+        let (to_primary, primary_result) =
+            forward_cleanup_edge(builder, source, primary, &completed)?;
+
+        let (to_suppressed, suppressed_result) =
+            forward_cleanup_edge(builder, source, suppressed, &completed)?;
+
+        let (to_retained, retained_result) =
+            forward_cleanup_edge(builder, source, retained, &primary_result)?;
+
+        self.switch(
+            builder,
+            block,
+            source,
+            [(MirCleanupState::Normal, to_primary)],
+            to_suppressed,
+        );
 
         self.store(
             builder,
@@ -144,7 +185,10 @@ impl CleanupOutcome {
         builder.set_terminator(
             suppressed,
             source.clone(),
-            MirTerminatorKind::Goto(MirEdge::new(retained, suppressed_result.arguments().iter().cloned())),
+            MirTerminatorKind::Goto(MirEdge::new(
+                retained,
+                suppressed_result.arguments().iter().cloned(),
+            )),
         );
 
         let stronger: &[MirCleanupState] = match incoming {
@@ -160,7 +204,9 @@ impl CleanupOutcome {
             (retained, retained_result)
         } else {
             let commit = builder.push_block(source.clone(), kind)?;
-            let (to_commit, commit_result) = forward_cleanup_edge(builder, source, commit, &retained_result)?;
+
+            let (to_commit, commit_result) =
+                forward_cleanup_edge(builder, source, commit, &retained_result)?;
 
             self.switch(
                 builder,
@@ -177,11 +223,7 @@ impl CleanupOutcome {
 
         self.store_state(builder, commit, source, incoming)?;
 
-        builder.set_terminator(
-            commit,
-            source.clone(),
-            MirTerminatorKind::Goto(completed),
-        );
+        builder.set_terminator(commit, source.clone(), MirTerminatorKind::Goto(completed));
 
         Ok(())
     }

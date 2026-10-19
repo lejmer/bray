@@ -82,8 +82,8 @@ impl Lowerer<'_> {
             &awaited.value.expect("await publishes its completion value"),
             completion,
             None,
-        true,
-)?;
+            true,
+        )?;
 
         // Take the child's outcome before observing a new cancellation request.
         // A completed value is an owned temporary until the enclosing expression

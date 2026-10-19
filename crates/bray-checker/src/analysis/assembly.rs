@@ -166,8 +166,10 @@ impl ControlFlowGraphAssembler {
                 .last_mut()
                 .expect("scoped completion was just emitted");
 
-            *operation =
-                operation.with_scoped_exit(bray_bound_tree::StorageExitPoint::new(block, exit));
+            *operation = operation.with_scoped_exit(
+                bray_bound_tree::StorageExitPoint::new(block, exit),
+                preserves_exit_value,
+            );
 
             completed
         } else {

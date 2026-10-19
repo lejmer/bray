@@ -1,9 +1,13 @@
-use bray_bound_tree::BoundCallResult;
-use bray_ir::{MirBlockId, MirCall, MirCallTarget, MirCapacityError, MirCleanupState, MirEdge, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStoreKind, MirTerminatorKind, MirUnitBuilder};
-use bray_runtime_interface::{RuntimeAbiRole};
-use bray_symbols::TypeId;
-use crate::continuation::{forward_cleanup_result};
 use super::model::CleanupOutcome;
+use crate::continuation::forward_cleanup_result;
+use bray_bound_tree::BoundCallResult;
+use bray_ir::{
+    MirBlockId, MirCall, MirCallTarget, MirCapacityError, MirCleanupState, MirEdge,
+    MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
+    MirSourceAnchor, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
+};
+use bray_runtime_interface::RuntimeAbiRole;
+use bray_symbols::TypeId;
 
 impl CleanupOutcome {
     /// Initializes retained source reports without shielding ordinary execution.
@@ -14,10 +18,17 @@ impl CleanupOutcome {
         source: &MirSourceAnchor,
     ) -> Result<(), MirCapacityError> {
         self.store_state(builder, block, source, MirCleanupState::Normal)?;
-        self.store(builder, block, source, &self.report, MirOperand::Immediate {
-            value: MirImmediateValue::EmptyPanicReport,
-            ty: self.report.ty(),
-        })
+
+        self.store(
+            builder,
+            block,
+            source,
+            &self.report,
+            MirOperand::Immediate {
+                value: MirImmediateValue::EmptyPanicReport,
+                ty: self.report.ty(),
+            },
+        )
     }
 
     pub(crate) fn begin(

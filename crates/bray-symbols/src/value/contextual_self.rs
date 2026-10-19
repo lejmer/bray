@@ -229,7 +229,8 @@ impl SemanticValueStore {
                     Ok(super::DependencyRequirement::variable(*depth, *ordinal))
                 }
                 super::DependencyRequirement::ResultCall {
-                    output, callable,
+                    output,
+                    callable,
                     requirement,
                     inputs,
                 } => {
@@ -271,7 +272,9 @@ impl SemanticValueStore {
                     Ok(super::DependencyRequirement::result_call(
                         callable,
                         requirement,
-                        inputs, *output, ))
+                        inputs,
+                        *output,
+                    ))
                 }
                 super::DependencyRequirement::Guarded(guarded) => {
                     Ok(super::DependencyRequirement::guarded(

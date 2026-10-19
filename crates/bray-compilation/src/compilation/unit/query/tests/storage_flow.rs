@@ -9,7 +9,10 @@ use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
 fn normal_reports_follow_calls_and_consumed_futures() {
-    for (execution, invocation) in [("", "collect(resource)"), ("async ", "await collect(resource)")] {
+    for (execution, invocation) in [
+        ("", "collect(resource)"),
+        ("async ", "await collect(resource)"),
+    ] {
         let source = r#"
         module app;
         struct Value
@@ -52,26 +55,73 @@ fn normal_reports_follow_calls_and_consumed_futures() {
         {
             let _ = Invocation;
         }
-        "#.replace("Execution", execution).replace("Invocation", invocation);
+        "#
+        .replace("Execution", execution)
+        .replace("Invocation", invocation);
+
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
+
         assert!(!diagnostics.has_errors(), "{execution}: {diagnostics:#?}");
+
         for name in ["collect", "caller"] {
-            let summary = crate::compilation::result_dependencies::source_function_dependencies(&compilation, name);
-            assert!(summary.completion_reports().is_some_and(|requirements| !requirements.is_empty()),
-                "{execution}{name}: {summary:#?}");
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(
+                &compilation,
+                name,
+            );
+
+            assert!(
+                summary
+                    .completion_reports()
+                    .is_some_and(|requirements| !requirements.is_empty()),
+                "{execution}{name}: {summary:#?}"
+            );
+
             let key = crate::test_support::source_function_body_key(&compilation, name);
-            let lowered = compilation.lowered_unit(key).expect("report-producing body lowers");
-            assert!(!lowered.diagnostics().has_errors(), "{:#?}", lowered.diagnostics());
-            let unit = lowered.value().as_ref().expect("checked report-producing body lowers")
-                .mir().expect("checked report-producing body has MIR");
-            assert!(unit.is_valid(), "{execution}{name} preserves MIR ownership and edge contracts");
-            assert!(unit.blocks().iter().any(|block| matches!(block.terminator().kind(),
-                bray_ir::MirTerminatorKind::Return { report: Some(_), .. }
-            )) || unit.operations().iter().any(|operation| matches!(operation.kind(),
-                bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
-                    state: bray_ir::MirTaskTerminalState::Completed { report: Some(_), .. }, .. })
-            )), "{execution}{name} publishes its retained reports");
+
+            let lowered = compilation
+                .lowered_unit(key)
+                .expect("report-producing body lowers");
+
+            assert!(
+                !lowered.diagnostics().has_errors(),
+                "{:#?}",
+                lowered.diagnostics()
+            );
+
+            let unit = lowered
+                .value()
+                .as_ref()
+                .expect("checked report-producing body lowers")
+                .mir()
+                .expect("checked report-producing body has MIR");
+
+            assert!(
+                unit.is_valid(),
+                "{execution}{name} preserves MIR ownership and edge contracts"
+            );
+
+            assert!(
+                unit.blocks().iter().any(|block| matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Return {
+                        report: Some(_),
+                        ..
+                    }
+                )) || unit.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    bray_ir::MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::PublishTerminalState {
+                            state: bray_ir::MirTaskTerminalState::Completed {
+                                report: Some(_),
+                                ..
+                            },
+                            ..
+                        }
+                    )
+                )),
+                "{execution}{name} publishes its retained reports"
+            );
         }
     }
 }
@@ -125,6 +175,83 @@ fn retained_scoped_exit_errors_keep_borrowed_origins_alive() {
 
         if !escapes {
             assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
+fn callable_reports_preserve_borrows_absent_from_the_explicit_result_type() {
+    for known in [false, true] {
+        for local in [false, true] {
+            let source = r#"
+            module app;
+            struct Value<T> { values: [T; 2]; }
+            union Failure { Unavailable; }
+            struct Incident { value: &bool; }
+            struct Resource
+            {
+                value: &bool;
+                enter() -> &bool { return self.value; }
+                exit(pos lease: &bool) -> Result<unit, Incident>
+                {
+                    return Error(Incident { value = lease });
+                }
+            }
+            func retain(pos input: &bool) -> Result<Value<bool>, Failure>
+            {
+                let resource = Resource { value = input };
+                let _ = with lease = resource
+                {
+                    return Ok({ values = [true, true] });
+                };
+                return Ok({ values = [true, true] });
+            }
+            func invoke(pos produce: func(pos input: &bool) -> Result<Value<bool>, Failure>,
+                pos input: &bool) -> Result<Value<bool>, Failure>
+            {
+                let operation: func(pos input: &bool) -> Result<Value<bool>, Failure> = retain;
+                Prologue
+                return Callee(Argument);
+            }
+            func caller(pos input: &bool) -> Result<Value<bool>, Failure>
+            {
+                return invoke(retain, input);
+            }
+            "#
+            .replace(
+                "Prologue",
+                if local { "let local: bool = true;" } else { "" },
+            )
+            .replace("Callee", if known { "operation" } else { "produce" })
+            .replace("Argument", if local { "&local" } else { "input" });
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            let producer = crate::compilation::result_dependencies::source_function_dependencies(
+                &application,
+                "retain",
+            );
+
+            assert!(
+                producer
+                    .completion_reports()
+                    .is_some_and(|requirements| !requirements.is_empty()),
+                "a callback can retain a borrowed Incident despite its explicit Failure type: {producer:#?}, {diagnostics:#?}"
+            );
+
+            assert_eq!(
+                diagnostics.has_errors(),
+                local,
+                "known={known}, local={local}: {diagnostics:#?}"
+            );
+
+            if local {
+                assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
         }
     }
 }
@@ -740,4 +867,47 @@ fn liveness_retains_storage_required_beyond_nested_scope_exits() {
             .iter()
             .any(|entry| { matches!(entry.subject(), BoundDependencySubject::Storage(_)) })
     );
+}
+
+#[test]
+fn native_callbacks_consume_only_their_implicit_report_outputs() {
+    for native in [false, true] {
+        let source = r#"
+            module app;
+
+            trusted func invoke(pos callback: NativeAbi func(pos value: u32) -> u32, pos value: u32) -> u32
+            {
+                return callback(value);
+            }
+        "#.replace("NativeAbi", if native { "@abi(c)" } else { "" });
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(
+            !diagnostics.has_errors(),
+            "native={native}: {diagnostics:#?}"
+        );
+
+        let contracts = application
+            .dependency_contracts(crate::test_support::source_function_body_key(
+                &application,
+                "invoke",
+            ))
+            .unwrap();
+
+        let calls = contracts.value().calls().values().collect::<Vec<_>>();
+
+        let [call] = calls.as_slice() else {
+            panic!("callback invocation retains its single call contract");
+        };
+
+        assert_eq!(call.reports().completed().is_none(), native);
+        assert_eq!(call.reports().abnormal().is_none(), native);
+
+        assert!(
+            !call.result().requirements().is_empty(),
+            "explicit result dependencies remain visible: {call:#?}"
+        );
+    }
 }

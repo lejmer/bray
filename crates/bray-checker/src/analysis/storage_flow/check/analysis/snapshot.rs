@@ -218,10 +218,9 @@ mod tests {
         let storage = builder.finish();
         let plan = storage.access_plans()[0];
 
-        let mut state = StorageFlowState {
-            reachable: true,
-            ..StorageFlowState::default()
-        };
+        let mut state = StorageFlowState::default();
+
+        state.reachable = true;
 
         state.live.extend([owner, alias]);
         state.initialized.extend([owner, alias]);
@@ -279,10 +278,9 @@ mod tests {
             .push_identity(StorageIdentity::Temporary(expressions[1]))
             .expect("moved identity must build");
 
-        let mut left = StorageFlowState {
-            reachable: true,
-            ..StorageFlowState::default()
-        };
+        let mut left = StorageFlowState::default();
+
+        left.reachable = true;
 
         left.live.extend([identity, moved_identity]);
         left.initialized.insert(identity);
@@ -295,11 +293,10 @@ mod tests {
 
         let mut snapshot = ExitState::new(&left);
 
-        let mut right = StorageFlowState {
-            reachable: true,
-            recovered: true,
-            ..StorageFlowState::default()
-        };
+        let mut right = StorageFlowState::default();
+
+        right.reachable = true;
+        right.recovered = true;
 
         right.live.extend([identity, moved_identity]);
         right.initialized.insert(moved_identity);

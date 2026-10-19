@@ -54,7 +54,10 @@ pub trait SyntheticLoweringContext {
     ) -> Result<CallableInstanceData, Self::Error>;
 
     /// Returns whether this selected callable can transfer a normal owned report.
-    fn callable_completion_reports(&self, callable: CallableInstanceData) -> Result<bool, Self::Error>;
+    fn callable_completion_reports(
+        &self,
+        callable: CallableInstanceData,
+    ) -> Result<bool, Self::Error>;
 
     /// Demands the checked body and substitutions for a selected consuming source destructor.
     fn destruction_body(

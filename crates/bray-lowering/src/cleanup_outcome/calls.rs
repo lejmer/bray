@@ -1,6 +1,9 @@
-use bray_ir::{MirBlockId, MirCapacityError, MirCleanupState, MirEdge, MirOperand, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder};
-use crate::continuation::{check_call_outcome};
 use super::model::CleanupOutcome;
+use crate::continuation::check_call_outcome;
+use bray_ir::{
+    MirBlockId, MirCapacityError, MirCleanupState, MirEdge, MirOperand, MirSourceAnchor,
+    MirTerminatorKind, MirUnitBuilder,
+};
 
 impl CleanupOutcome {
     /// Adds incident continuations after the block's last fallible cleanup operation.
@@ -22,7 +25,8 @@ impl CleanupOutcome {
             return Ok(continuation);
         }
 
-        let (completed, _, continuation) = self.check_completion(builder, block, source, None, false)?;
+        let (completed, _, continuation) =
+            self.check_completion(builder, block, source, None, false)?;
 
         builder.set_terminator(
             completed,
@@ -103,7 +107,9 @@ impl CleanupOutcome {
 
         let completed = if reports {
             self.retain_completed_report(builder, completed, source, &mut value)?
-        } else { completed };
+        } else {
+            completed
+        };
 
         self.retain_failure(
             builder,

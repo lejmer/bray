@@ -64,6 +64,82 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 }
 
 #[test]
+fn imported_immutable_function_values_reuse_the_producers_report_contract() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Cell { mut value: bool; }
+        func rewrite(pos cell: &mut Cell) { cell.value = false; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Cell;
+        using example.package.api.rewrite;
+        func caller(pos cell: &mut example.package.api.Cell)
+        {
+            let operation: func(pos cell: &mut example.package.api.Cell) = example.package.api.rewrite;
+            operation(cell);
+            operation(cell);
+        }
+    "#,
+    );
+
+    let key = source_function_body_key(&consumer, "caller");
+
+    let checked = consumer
+        .dependency_contracts(key.clone())
+        .expect("imported callable value checks");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:#?}",
+        checked.diagnostics()
+    );
+
+    let calls = checked.value().calls();
+
+    assert_eq!(calls.len(), 2);
+
+    for call in calls.values() {
+        assert!(call.reports().completed().is_none(), "{call:#?}");
+    }
+
+    let lowered = consumer
+        .lowered_unit(key)
+        .expect("imported callable value lowers");
+
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+
+    assert!(
+        lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .blocks()
+            .iter()
+            .all(|block| {
+                !matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Return {
+                        report: Some(_),
+                        ..
+                    }
+                )
+            })
+    );
+}
+
+#[test]
 fn returned_values_preserve_imported_generic_dependencies() {
     let provider = compilation(
         r#"

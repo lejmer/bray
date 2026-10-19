@@ -228,6 +228,7 @@ where
                 &mut incoming,
                 occurrence,
                 bray_bound_tree::CallReportOutput::Abnormal,
+                false,
             );
         }
 

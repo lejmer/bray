@@ -82,7 +82,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         }
 
         let outcome = self.allocate_outcome(builder, source)?;
-        outcome.begin(builder, block, source).map_err(|cause| self.capacity_error(cause))?;
+
+        outcome
+            .begin(builder, block, source)
+            .map_err(|cause| self.capacity_error(cause))?;
+
         Ok(outcome)
     }
 
@@ -165,7 +169,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
-        outcome.forward_incidents(builder, completed, source, self.pending_reports.as_ref(), value)
+        outcome
+            .forward_incidents(
+                builder,
+                completed,
+                source,
+                self.pending_reports.as_ref(),
+                value,
+            )
             .map_err(invalid)
     }
 
@@ -232,10 +243,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let report = bray_ir::MirPlace::new(report_storage, [], report_type);
 
         let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
         let normal_report = if reports {
-            Some(self.pending_reports.as_ref().expect("standalone reporting lifecycle has its pending owner")
-                .incoming_report(builder, source).map_err(invalid)?)
-        } else { None };
+            Some(
+                self.pending_reports
+                    .as_ref()
+                    .expect("standalone reporting lifecycle has its pending owner")
+                    .incoming_report(builder, source)
+                    .map_err(invalid)?,
+            )
+        } else {
+            None
+        };
 
         builder.set_terminator(
             block,
@@ -271,11 +290,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )?;
 
         let mut value = Some(bray_ir::MirOperand::Value(value_parameter));
+
         let completed = if reports {
-            self.pending_reports.as_ref().expect("normal lifecycle report has its owner")
-                .retain_completed_report(builder, completed, source, &mut value).map_err(invalid)?
-        } else { completed };
-        let Some(bray_ir::MirOperand::Value(value)) = value else { unreachable!("lifecycle result is forwarded by its completion parameter") };
+            self.pending_reports
+                .as_ref()
+                .expect("normal lifecycle report has its owner")
+                .retain_completed_report(builder, completed, source, &mut value)
+                .map_err(invalid)?
+        } else {
+            completed
+        };
+
+        let Some(bray_ir::MirOperand::Value(value)) = value else {
+            unreachable!("lifecycle result is forwarded by its completion parameter")
+        };
+
         Ok((completed, value))
     }
 
@@ -288,14 +317,33 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<(), C::Error> {
         let invalid = |cause| self.capacity_error(cause);
         let mut block = block;
+
         if let Some(pending) = &self.pending_reports {
             let (state, report) = match &mut terminator {
-                MirTerminatorKind::PropagatePanic { report, .. } => (bray_ir::MirCleanupState::Panicked, report),
-                MirTerminatorKind::PropagateCancellation { report, .. } => (bray_ir::MirCleanupState::Cancelled, report),
+                MirTerminatorKind::PropagatePanic { report, .. } => {
+                    (bray_ir::MirCleanupState::Panicked, report)
+                }
+                MirTerminatorKind::PropagateCancellation { report, .. } => {
+                    (bray_ir::MirCleanupState::Cancelled, report)
+                }
                 _ => panic!("cleanup propagation carries an owned abnormal report"),
             };
-            let retained = builder.push_block(source.clone(), builder.block_kind(block)).map_err(invalid)?;
-            pending.retain_report(builder, block, source, MirEdge::new(retained, []), state, report.clone()).map_err(invalid)?;
+
+            let retained = builder
+                .push_block(source.clone(), builder.block_kind(block))
+                .map_err(invalid)?;
+
+            pending
+                .retain_report(
+                    builder,
+                    block,
+                    source,
+                    MirEdge::new(retained, []),
+                    state,
+                    report.clone(),
+                )
+                .map_err(invalid)?;
+
             *report = pending.report();
             block = retained;
         }

@@ -378,11 +378,11 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 requires(!stored.value.ready, trusted attachment_exit_inactive(owner = &stored.value))
                 ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
             { return stored.value; }
-            func retain(pos selected: AttachmentExit) -> (AttachmentExit, unit)
+            func retain_existing_exit(pos selected: AttachmentExit) -> (AttachmentExit, unit)
                 requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
                 ensures(!result.0.ready, trusted attachment_exit_inactive(owner = &result.0))
             { return (selected, unit); }
-            func take(pos stored: (AttachmentExit, unit)) -> AttachmentExit
+            func take_existing_exit(pos stored: (AttachmentExit, unit)) -> AttachmentExit
                 requires(!stored.0.ready, trusted attachment_exit_inactive(owner = &stored.0))
                 ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
             { return stored.0; }
@@ -405,7 +405,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
             bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
         );
 
-        for (name, capacity) in [("retain", 1), ("take", 0)] {
+        for (name, capacity) in [("retain_existing_exit", 1), ("take_existing_exit", 0)] {
             let lowered = compilation
                 .lowered_unit(crate::test_support::source_function_body_key(
                     &compilation,

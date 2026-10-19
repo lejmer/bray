@@ -368,7 +368,8 @@ pub(super) fn validate_dependency_template_data(
             }
             DependencyRequirement::Variable { .. } => {}
             DependencyRequirement::ResultCall {
-                output: _, callable,
+                output: _,
+                callable,
                 requirement,
                 inputs,
             } => {

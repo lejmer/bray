@@ -632,18 +632,21 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
 #[test]
 fn native_platform_cleanup_terminates_uncaught_panic() {
     assert_native_platform_cleanup_emits(
+        "",
         r#"
             destruct()
             {
                 panic("native provider cleanup");
             }
         "#,
+        bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
     );
 }
 
 #[test]
 fn native_platform_cleanup_terminates_uncaught_cancellation() {
     assert_native_platform_cleanup_emits(
+        "",
         r#"
             finalize()
             {
@@ -651,10 +654,49 @@ fn native_platform_cleanup_terminates_uncaught_cancellation() {
                 try outcome;
             }
         "#,
+        bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
     );
 }
 
-fn assert_native_platform_cleanup_emits(cleanup: &str) {
+#[test]
+fn native_platform_normal_return_consumes_retained_cleanup_incidents() {
+    assert_native_platform_cleanup_emits(
+        r#"
+            struct Incident {}
+            struct Scope {}
+            impl Scope
+            {
+                enter() -> bool
+                {
+                    return true;
+                }
+
+                exit(pos capability: bool) -> Result<unit, Incident>
+                {
+                    return Error(Incident {});
+                }
+            }
+        "#,
+        r#"
+            destruct()
+            {
+                let scope = Scope {};
+
+                with capability = scope
+                {
+                    return;
+                }
+            }
+        "#,
+        bray_runtime_interface::RuntimeAbiRole::PanicReporting,
+    );
+}
+
+fn assert_native_platform_cleanup_emits(
+    definitions: &str,
+    cleanup: &str,
+    report: bray_runtime_interface::RuntimeAbiRole,
+) {
     let source = format!(
         r#"
             trusted module app;
@@ -666,6 +708,8 @@ fn assert_native_platform_cleanup_emits(cleanup: &str) {
                 reserved: u32;
                 native_code: i64;
             }}
+
+            {definitions}
 
             struct Owner
             {{
@@ -717,12 +761,27 @@ fn assert_native_platform_cleanup_emits(cleanup: &str) {
 
     assert!(
         implementation.lines().any(|line| {
-            line.contains("call ") && line.contains("@bray_runtime_panic_propagation(")
+            line.contains("call ")
+                && line.contains(&format!(
+                    "@{}(",
+                    report
+                        .native_symbol()
+                        .expect("report role has its native symbol")
+                ))
         }),
         "{implementation}"
     );
 
     assert!(!implementation.contains("@bray_runtime_current_run_cancellation_propagation("));
+
+    if report == bray_runtime_interface::RuntimeAbiRole::PanicReporting {
+        assert!(
+            implementation
+                .lines()
+                .any(|line| line.trim_start().starts_with("ret ")),
+            "{implementation}"
+        );
+    }
 }
 
 #[test]

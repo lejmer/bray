@@ -1019,7 +1019,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
                         .chain(result.iter()),
                 ),
                 InterfaceDependencyRequirementValue::ResultCall {
-                    output: _, callable,
+                    output: _,
+                    callable,
                     requirement,
                     inputs,
                 } => {

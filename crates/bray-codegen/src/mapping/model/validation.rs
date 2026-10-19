@@ -55,11 +55,9 @@ pub fn demanded_runtime_references_for_mir(
     mir.operations()
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind(), runtime_abi))
-        .chain(
-            mir.blocks()
-                .iter()
-                .flat_map(|block| terminator_runtime_references(block.terminator().kind())),
-        )
+        .chain(mir.blocks().iter().flat_map(|block| {
+            terminator_runtime_references(block.terminator().kind(), runtime_abi)
+        }))
         .chain(
             mir.operations()
                 .iter()
@@ -346,6 +344,7 @@ fn operation_runtime_references(
 
 fn terminator_runtime_references(
     terminator: &MirTerminatorKind,
+    runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
 ) -> [Option<MirRuntimeReference>; 3] {
     match terminator {
         MirTerminatorKind::Suspend {
@@ -353,6 +352,16 @@ fn terminator_runtime_references(
         } => [Some(*registration), Some(*wake), None],
         MirTerminatorKind::PropagatePanic { runtime, .. }
         | MirTerminatorKind::PropagateCancellation { runtime, .. } => [Some(*runtime), None, None],
+        MirTerminatorKind::Return {
+            report: Some(_), ..
+        } => [
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::PanicReporting,
+                runtime_abi,
+            )),
+            None,
+            None,
+        ],
         MirTerminatorKind::Goto(_)
         | MirTerminatorKind::Branch { .. }
         | MirTerminatorKind::PatternBranch { .. }

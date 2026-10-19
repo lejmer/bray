@@ -632,8 +632,9 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallOutcome { completed, .. }
-            | Self::TakeCallReport { completed, .. } => visit(completed)?,
+            Self::CheckCallOutcome { completed, .. } | Self::TakeCallReport { completed, .. } => {
+                visit(completed)?
+            }
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }

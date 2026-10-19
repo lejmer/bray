@@ -512,8 +512,17 @@ fn body_callees<'a>(
                     };
 
                     call.resolution()
-                        .anonymous_body()
-                        .map(|(key, _)| ResultDependencyOwner::Anonymous(key.clone()))
+                        .declaration_source()
+                        .map(|instance| {
+                            ResultDependencyOwner::Declaration(
+                                instance.definition().callable_symbol().into_any(),
+                            )
+                        })
+                        .or_else(|| {
+                            call.resolution()
+                                .anonymous_body()
+                                .map(|(key, _)| ResultDependencyOwner::Anonymous(key.clone()))
+                        })
                 }),
         )
         .chain(

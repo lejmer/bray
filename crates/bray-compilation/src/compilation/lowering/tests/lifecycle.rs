@@ -2307,76 +2307,99 @@ fn retained_capture_cleanup_publishes_frame_outcomes() {
 
 #[test]
 fn destructor_receiver_tail_retains_normal_completion() {
-    let application = compilation(
-        r#"
+    for (fields, body, reports) in [
+        ("", "assert(true);", false),
+        (
+            "action: func() -> unit executes(total);",
+            "self.action();",
+            true,
+        ),
+    ] {
+        let source = r#"
         module app;
         struct Owner
         {
             pending: Future<unit>;
+            ExtraFields
             destruct()
             {
-                assert(true, "normal destructor body");
+                Body
             }
         }
-    "#,
-    );
+    "#
+        .replace("ExtraFields", fields)
+        .replace("Body", body);
 
-    assert!(
-        !application.check_diagnostics().has_errors(),
-        "{:?}",
-        application.check_diagnostics()
-    );
-
-    let key = application
-        .declared_unit_keys_for_test()
-        .unwrap()
-        .into_iter()
-        .find(|key| {
-            key.kind() == BoundUnitKind::CallableBody
-                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
-        })
-        .unwrap();
-
-    let lowered = application.lowered_unit(key).unwrap();
-    let mir = lowered_mir(&lowered);
-    let tail = mir.cleanup_continuation().unwrap();
-
-    for abandoned in [false, true] {
-        let selected = |entry: &bray_ir::MirCleanupEntry| {
-            if abandoned {
-                entry.abandoned()
-            } else {
-                entry.ordinary()
-            }
-        };
-
-        let handoffs = tail
-            .entries()
-            .iter()
-            .map(|entry| (entry.handoff(), vec![selected(entry)]))
-            .collect::<std::collections::BTreeMap<_, _>>();
-
-        let roots = tail
-            .entries()
-            .iter()
-            .filter(|entry| entry.is_initial())
-            .map(selected);
-
-        let reachable = bray_ir::reachable_blocks(mir, roots, &handoffs);
+        let application = compilation(&source);
 
         assert!(
-            reachable.into_iter().any(|id| {
-                !handoffs.contains_key(&id)
-                    && matches!(
-                        mir.block(id).unwrap().terminator().kind(),
-                        MirTerminatorKind::Return {
-                            value: None,
-                            report: None
-                        }
-                    )
-            }),
-            "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
+            !application.check_diagnostics().has_errors(),
+            "{:?}",
+            application.check_diagnostics()
         );
+
+        let key = application
+            .declared_unit_keys_for_test()
+            .unwrap()
+            .into_iter()
+            .find(|key| {
+                key.kind() == BoundUnitKind::CallableBody
+                    && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+            })
+            .unwrap();
+
+        let lowered = application.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&lowered);
+        let tail = mir.cleanup_continuation().unwrap();
+
+        assert!(mir.is_valid(), "{source}");
+
+        assert_eq!(
+            tail.entries().iter().any(|entry| matches!(
+                mir.block(entry.handoff()).unwrap().terminator().kind(),
+                MirTerminatorKind::Return {
+                    report: Some(_),
+                    ..
+                }
+            )),
+            reports,
+            "{source}"
+        );
+
+        for abandoned in [false, true] {
+            let selected = |entry: &bray_ir::MirCleanupEntry| {
+                if abandoned {
+                    entry.abandoned()
+                } else {
+                    entry.ordinary()
+                }
+            };
+
+            let handoffs = tail
+                .entries()
+                .iter()
+                .map(|entry| (entry.handoff(), vec![selected(entry)]))
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            let roots = tail
+                .entries()
+                .iter()
+                .filter(|entry| entry.is_initial())
+                .map(selected);
+
+            let reachable = bray_ir::reachable_blocks(mir, roots, &handoffs);
+
+            assert!(
+                reachable.into_iter().any(|id| {
+                    !handoffs.contains_key(&id)
+                        && matches!(
+                            mir.block(id).unwrap().terminator().kind(),
+                            MirTerminatorKind::Return { value: None, .. }
+                        )
+                }),
+                "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
+            );
+        }
     }
 }
 

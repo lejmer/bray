@@ -215,14 +215,19 @@ impl StructuralValueEncoder<'_, '_> {
                 }
             }
             DependencyRequirement::ResultCall {
-                output, callable,
+                output,
+                callable,
                 requirement,
                 inputs,
             } => {
                 self.tag(if requirement.is_some() { 2 } else { 3 });
-                self.tag(match output { bray_symbols::DependencyCallOutput::Value => 0,
+
+                self.tag(match output {
+                    bray_symbols::DependencyCallOutput::Value => 0,
                     bray_symbols::DependencyCallOutput::CompletionReport => 1,
-                    bray_symbols::DependencyCallOutput::AbnormalReport => 2 });
+                    bray_symbols::DependencyCallOutput::AbnormalReport => 2,
+                });
+
                 self.callable_instance(*callable)?;
 
                 if let Some(requirement) = requirement {

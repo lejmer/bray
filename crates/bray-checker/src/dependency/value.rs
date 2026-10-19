@@ -112,7 +112,7 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
-            pattern_subjects: crate::pattern::binding_subjects(unit).into_iter().collect(),
+            pattern_subjects: unit.tree().binding_subjects().into_iter().collect(),
             independent: Default::default(),
             source_inputs: Default::default(),
             projections: BTreeMap::new(),
@@ -312,7 +312,10 @@ impl ValueInputs {
 
     pub(crate) fn retain_input(&mut self, result: BoundExpressionId, input: BoundExpressionId) {
         let inputs = self.expressions.entry(result).or_default();
-        if !inputs.contains(&input) { inputs.push(input); }
+
+        if !inputs.contains(&input) {
+            inputs.push(input);
+        }
     }
 
     pub(crate) fn operands(

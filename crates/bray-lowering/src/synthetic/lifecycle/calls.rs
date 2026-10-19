@@ -119,7 +119,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     callable.result,
                 ),
                 payloads,
-                self.context.callable_completion_reports(callable.callable)?,
+                self.context
+                    .callable_completion_reports(callable.callable)?,
             )
             .map_err(|cause| self.capacity_error(cause))?;
 
@@ -263,10 +264,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let result = callable.result;
 
+        let reports = result.execution() == CallableExecution::Synchronous
+            && self
+                .context
+                .callable_completion_reports(callable.callable)?;
+
+        if reports && self.collection.is_none() && self.pending_reports.is_none() {
+            let pending = self.allocate_outcome(builder, source)?;
+
+            pending
+                .initialize_pending(builder, block, source)
+                .map_err(|cause| self.capacity_error(cause))?;
+
+            self.pending_reports = Some(pending);
+        }
+
         let value = self.push_selected_call(builder, block, source, place, callable, result)?;
 
-        if callable.result.execution() == CallableExecution::Synchronous {
-            self.check_lifecycle_value(builder, block, source, value, callable.result.ty(), self.context.callable_completion_reports(callable.callable)?)
+        if result.execution() == CallableExecution::Synchronous {
+            self.check_lifecycle_value(builder, block, source, value, result.ty(), reports)
         } else {
             Ok((block, value))
         }

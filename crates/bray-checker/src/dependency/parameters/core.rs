@@ -6,10 +6,13 @@ use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::graph::{ParameterNode, Parameters, retain_parameters, solve_parameters};
 
-pub(in crate::dependency) type ResultKey = (
-    CallableInstanceData,
-    Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
-);
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::dependency) struct ResultKey {
+    pub(in crate::dependency) callable: CallableInstanceData,
+    pub(in crate::dependency) contextual_self:
+        Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
+    pub(in crate::dependency) output: bray_symbols::DependencyCallOutput,
+}
 
 #[derive(Default)]
 pub(in crate::dependency) struct ResultParameters {
@@ -24,19 +27,27 @@ impl ResultParameters {
         selected: ResultKey,
     ) -> Result<ResultKey, CheckerQueryError<C::UpstreamError>> {
         // Reuse a relevance graph only when its implementation-selection arguments agree.
-        let node = (self.selection.key(request, selected.0)?, selected.1);
+        let node = ResultKey {
+            callable: self
+                .selection
+                .key(request, selected.callable, selected.output)?,
+            ..selected
+        };
 
         if !self.relevant.contains_key(&node) {
-            self.discover(request, node, selected.0)?;
+            self.discover(request, node, selected.callable)?;
         }
 
         let callable = retain_parameters(
             request.semantic_values(),
-            selected.0,
+            selected.callable,
             self.relevant.get(&node),
         ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in key: {error:?}"));
 
-        Ok((callable, selected.1))
+        Ok(ResultKey {
+            callable,
+            ..selected
+        })
     }
 
     fn discover<C: CheckerRequestContext + ?Sized>(
@@ -68,7 +79,7 @@ impl ResultParameters {
             let local = self.local_requirements(
                 request,
                 key,
-                &template.all_requirements().cloned().collect::<Vec<_>>(),
+                template.output_requirements(key.output),
                 &mut pending,
                 &mut edges,
             )?;
@@ -102,7 +113,8 @@ impl ResultParameters {
         super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
             let (callable, requirement, inputs, output) = match item {
                 DependencyRequirement::ResultCall {
-                    output, callable,
+                    output,
+                    callable,
                     requirement,
                     inputs,
                 } => (*callable, requirement, inputs, output),
@@ -118,16 +130,24 @@ impl ResultParameters {
                 let original = values.callable_instance_data(callable);
 
                 let target = if let Some(requirement) = requirement {
-                    let Some(target) = witness_target(request, key, callable, *requirement)? else {
+                    let Some(target) =
+                        witness_target(request, key, callable, *requirement, *output)?
+                    else {
                         return Ok(vec![DependencyRequirement::result_call(
                             callable,
                             Some(*requirement),
-                            inputs, *output, )]);
+                            inputs,
+                            *output,
+                        )]);
                     };
 
                     target
                 } else {
-                    (*original, None)
+                    ResultKey {
+                        callable: *original,
+                        contextual_self: None,
+                        output: *output,
+                    }
                 };
 
                 let concrete = instantiate(
@@ -135,7 +155,7 @@ impl ResultParameters {
                     key,
                     DependencyRequirement::result_call(
                         values
-                            .intern_callable_instance(target.0).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}")),
+                            .intern_callable_instance(target.callable).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}")),
                         None,
                         [], bray_symbols::DependencyCallOutput::Value, ),
                 )?;
@@ -153,10 +173,13 @@ impl ResultParameters {
 
                 let concrete = values.callable_instance_data(*concrete);
 
-                let target_key = (self.selection.key(request, *concrete)?, target.1);
+                let target_key = ResultKey {
+                    callable: self.selection.key(request, *concrete, *output)?,
+                    ..target
+                };
 
-                pending.push((target_key, target.0));
-                edges.push((target.0, target_key));
+                pending.push((target_key, target.callable));
+                edges.push((target.callable, target_key));
 
                 let empty = retain_parameters(values, *original, None)
                     .and_then(|callable| values.intern_callable_instance(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}"));
@@ -164,7 +187,9 @@ impl ResultParameters {
                 Ok(vec![DependencyRequirement::result_call(
                     empty,
                     *requirement,
-                    inputs, *output, )])
+                    inputs,
+                    *output,
+                )])
             })())
         })
     }
@@ -175,11 +200,17 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
     key: ResultKey,
     callable: bray_symbols::CallableInstanceId,
     requirement: bray_symbols::ImplementationRequirementKey,
+    output: bray_symbols::DependencyCallOutput,
 ) -> Result<Option<ResultKey>, CheckerQueryError<C::UpstreamError>> {
     let selection = instantiate(
         request,
         key,
-        DependencyRequirement::result_call(callable, Some(requirement), [], bray_symbols::DependencyCallOutput::Value, ),
+        DependencyRequirement::result_call(
+            callable,
+            Some(requirement),
+            [],
+            bray_symbols::DependencyCallOutput::Value,
+        ),
     )?;
 
     let Some(DependencyRequirement::ResultCall {
@@ -196,7 +227,11 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
         .context()
         .result_witness_callable(callable, *requirement)
         .map(|selected| {
-            selected.map(|(target, context)| (target, Some((context, requirement.subject()))))
+            selected.map(|(callable, context)| ResultKey {
+                callable,
+                contextual_self: Some((context, requirement.subject())),
+                output,
+            })
         })
 }
 

@@ -30,7 +30,8 @@ pub(crate) struct OperationEffects {
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
-    pub(super) report_owner_inputs: BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StorageIdentityId>>,
+    pub(super) report_owner_inputs:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StorageIdentityId>>,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
@@ -58,7 +59,15 @@ impl OperationEffects {
 
         effects.value_inputs = value_inputs;
         effects.add_selected_call_dependencies(selections, storage, dependencies);
-        effects.retain_report_dependencies(request, graph, selections, storage, dependencies, cleanup);
+
+        effects.retain_report_dependencies(
+            request,
+            graph,
+            selections,
+            storage,
+            dependencies,
+            cleanup,
+        );
 
         for plan in storage.access_plans() {
             let access = storage

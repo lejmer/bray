@@ -87,27 +87,40 @@ impl State {
         formal: Option<bray_symbols::DependencySubjectRoot>,
     ) -> BTreeSet<DependencyRequirement> {
         if let Some(formal) = formal {
-            return BTreeSet::from([DependencyRequirement::direct(bray_symbols::DependencySubject::root(formal),
-                bray_symbols::DependencyRequirementKind::ValueDependencies)]);
+            return BTreeSet::from([DependencyRequirement::direct(
+                bray_symbols::DependencySubject::root(formal),
+                bray_symbols::DependencyRequirementKind::ValueDependencies,
+            )]);
         }
+
         let mut values = BTreeSet::new();
+
         for binding in storage.binding_targets(bray_bound_tree::StorageBinding::Identity(root)) {
             if let bray_bound_tree::StorageBindingTarget::Local(binding) = binding {
                 values.extend(self.locals.get(&binding).into_iter().flatten().cloned());
             }
         }
+
         match storage.identity(root) {
-            Some(bray_bound_tree::StorageIdentity::Temporary(expression)
-                | bray_bound_tree::StorageIdentity::Result(bray_bound_tree::AnyBoundNodeId::Expression(expression))
-                | bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
+            Some(
+                bray_bound_tree::StorageIdentity::Temporary(expression)
+                | bray_bound_tree::StorageIdentity::Result(
+                    bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                )
+                | bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. },
+            ) => {
                 values.extend(self.value_requirements(expression).cloned());
             }
-            _ => {},
+            _ => {}
         }
+
         values
     }
 
-    pub(crate) fn value_requirements(&self, expression: BoundExpressionId) -> impl Iterator<Item = &DependencyRequirement> {
+    pub(crate) fn value_requirements(
+        &self,
+        expression: BoundExpressionId,
+    ) -> impl Iterator<Item = &DependencyRequirement> {
         self.values.get(&expression).into_iter().flatten()
     }
 
@@ -122,7 +135,20 @@ impl State {
             .remove(&(occurrence, output))
             .expect("a checked report output has its entry dependency snapshot");
 
+        self.discard_report_candidates(occurrence);
         self.retain_reports(boundary, requirements);
+    }
+
+    pub(crate) fn discard_report_candidates(
+        &mut self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) {
+        for output in [
+            bray_bound_tree::CallReportOutput::Completed,
+            bray_bound_tree::CallReportOutput::Abnormal,
+        ] {
+            self.report_candidates.remove(&(occurrence, output));
+        }
     }
 
     pub(crate) fn retain_reports(
@@ -144,10 +170,7 @@ impl State {
     ) {
         if let Some(requirements) = self.reports.remove(&Some(boundary)) {
             if caught {
-                self.values
-                    .entry(boundary)
-                    .or_default()
-                    .extend(requirements);
+                assign(&mut self.values, boundary, requirements);
             } else {
                 self.retain_reports(parent, requirements);
             }

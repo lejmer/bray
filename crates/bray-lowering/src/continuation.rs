@@ -189,13 +189,22 @@ pub(crate) fn forward_cleanup_edge(
     continuation: &MirEdge,
 ) -> Result<(MirEdge, MirEdge), MirCapacityError> {
     let mut parameters = Vec::with_capacity(continuation.arguments().len());
+
     for operand in continuation.arguments() {
-        let parameter = builder.push_block_parameter(intermediate, source.clone(), builder.operand_type(operand))?;
+        let parameter = builder.push_block_parameter(
+            intermediate,
+            source.clone(),
+            builder.operand_type(operand),
+        )?;
+
         parameters.push(MirOperand::Value(parameter));
     }
+
     // MIR edges own their operand lists and share immutable projection paths.
-    Ok((MirEdge::new(intermediate, continuation.arguments().iter().cloned()),
-        MirEdge::new(continuation.target(), parameters)))
+    Ok((
+        MirEdge::new(intermediate, continuation.arguments().iter().cloned()),
+        MirEdge::new(continuation.target(), parameters),
+    ))
 }
 
 pub(crate) fn forward_cleanup_result(
@@ -205,7 +214,10 @@ pub(crate) fn forward_cleanup_result(
     value: &mut Option<MirOperand>,
 ) -> Result<MirEdge, MirCapacityError> {
     let continuation = MirEdge::new(target, value.take());
+
     let (incoming, outgoing) = forward_cleanup_edge(builder, source, target, &continuation)?;
+
     *value = outgoing.arguments().first().cloned();
+
     Ok(incoming)
 }

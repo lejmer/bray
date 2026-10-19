@@ -178,18 +178,41 @@ impl Plan {
         &'a self,
         dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
     ) -> impl Iterator<Item = StorageAccessId> + 'a {
-        self.steps.iter().filter_map(|(access, steps)| steps.iter().any(|step| {
-            let Step::Lifecycle { ty, .. } = step else { return false; };
-            [TypeAssociatedLifecycleSlot::Finalizer, TypeAssociatedLifecycleSlot::Destructor]
-                .into_iter().filter_map(|slot| self.lifecycles.get(&(*ty, slot)))
-                .any(|lifecycle| {
-                    let contract = &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
-                    contract.completion_reports().into_iter().chain(contract.abnormal_reports())
-                        .any(|requirements| !requirements.is_empty())
-                        || (lifecycle.call.callable.definition().callable_symbol().kind() == bray_symbols::SymbolKind::Finalizer
-                            && !contract.requirements().is_empty())
+        self.steps.iter().filter_map(|(access, steps)| {
+            steps
+                .iter()
+                .any(|step| {
+                    let Step::Lifecycle { ty, .. } = step else {
+                        return false;
+                    };
+
+                    [
+                        TypeAssociatedLifecycleSlot::Finalizer,
+                        TypeAssociatedLifecycleSlot::Destructor,
+                    ]
+                    .into_iter()
+                    .filter_map(|slot| self.lifecycles.get(&(*ty, slot)))
+                    .any(|lifecycle| {
+                        let contract =
+                            &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
+
+                        contract
+                            .completion_reports()
+                            .into_iter()
+                            .chain(contract.abnormal_reports())
+                            .any(|requirements| !requirements.is_empty())
+                            || (lifecycle
+                                .call
+                                .callable
+                                .definition()
+                                .callable_symbol()
+                                .kind()
+                                == bray_symbols::SymbolKind::Finalizer
+                                && !contract.requirements().is_empty())
+                    })
                 })
-        }).then_some(*access))
+                .then_some(*access)
+        })
     }
 
     pub(in crate::analysis) fn callees(

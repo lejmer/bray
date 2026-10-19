@@ -82,13 +82,25 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         Ok(action)
     }
 
-    fn callable_completion_reports(&self, callable: CallableInstanceData) -> Result<bool, Self::Error> {
+    fn callable_completion_reports(
+        &self,
+        callable: CallableInstanceData,
+    ) -> Result<bool, Self::Error> {
         let binding = self.compilation.binding_context(self.cancellation)?;
-        let summary = bray_binder::SymbolQueryProvider::resolve_symbol_query(&binding,
+
+        let summary = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+            &binding,
             bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-                callable.definition().callable_symbol()))
-            .map_err(crate::compilation::binder::binding_query_error)?;
-        Ok(self.values.dependency_contract_template_data(*summary.value()).completion_reports().is_some())
+                callable.definition().callable_symbol(),
+            ),
+        )
+        .map_err(crate::compilation::binder::binding_query_error)?;
+
+        Ok(self
+            .values
+            .dependency_contract_template_data(*summary.value())
+            .completion_reports()
+            .is_some())
     }
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {

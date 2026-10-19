@@ -108,7 +108,7 @@ pub(super) fn prepare_calls<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
-    let immutable_initializers = crate::pattern::immutable_initializers(request.unit());
+    let immutable_initializers = request.unit().tree().immutable_initializers();
     let mut calls = Vec::new();
     let mut built_in_operators = Vec::new();
     let mut deferred = BTreeSet::new();
@@ -1353,6 +1353,7 @@ where
 
     let receiver = member
         .as_ref()
+        .filter(|member| member.is_callable_declaration())
         .and_then(|_| match request.view().expression(call.callee()) {
             Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
             Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),

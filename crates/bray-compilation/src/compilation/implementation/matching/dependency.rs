@@ -139,7 +139,8 @@ impl HeaderMatcher<'_> {
                     inputs: actual_inputs,
                 },
             ) => {
-                if pattern_output != actual_output || pattern_requirement.is_some() != actual_requirement.is_some()
+                if pattern_output != actual_output
+                    || pattern_requirement.is_some() != actual_requirement.is_some()
                     || !self.match_callable_instance(*pattern_callable, *actual_callable)?
                 {
                     return Ok(false);

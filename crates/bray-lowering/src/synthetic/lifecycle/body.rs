@@ -129,9 +129,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
             }
             MirHelperReference::StaticFinalize(ty) => {
-                let pending = self.allocate_outcome(&mut builder, &source)?;
-                pending.initialize_pending(&mut builder, entry, &source).map_err(|cause| self.capacity_error(cause))?;
-                self.pending_reports = Some(pending);
                 let end;
 
                 let action = self
@@ -174,7 +171,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     source.clone(),
                     MirTerminatorKind::Return {
                         value: return_value,
-                        report: self.pending_reports.as_ref().map(crate::cleanup_outcome::CleanupOutcome::report),
+                        report: self
+                            .pending_reports
+                            .as_ref()
+                            .map(crate::cleanup_outcome::CleanupOutcome::report),
                     },
                 );
             }
@@ -407,7 +407,10 @@ mod tests {
             panic!("tuple lowering must not resolve standard-library helpers");
         }
 
-        fn callable_completion_reports(&self, _: CallableInstanceData) -> Result<bool, Self::Error> {
+        fn callable_completion_reports(
+            &self,
+            _: CallableInstanceData,
+        ) -> Result<bool, Self::Error> {
             panic!("tuple lowering selects no source invocation")
         }
 

@@ -28,12 +28,49 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
-    pub(in crate::analysis::storage_flow) reports:
-        BTreeMap<Option<BoundExpressionId>, BTreeSet<bray_bound_tree::BoundDependencySubject>>,
+    reports: BTreeMap<Option<BoundExpressionId>, RetainedReports>,
     pub(in crate::analysis::storage_flow) recovered: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct RetainedReports {
+    dependencies: BTreeSet<bray_bound_tree::BoundDependencySubject>,
+    pending: bool,
+}
+
+impl RetainedReports {
+    fn merge(&mut self, incoming: &Self) -> bool {
+        let previous = self.dependencies.len();
+        let pending = self.pending;
+
+        self.dependencies.extend(&incoming.dependencies);
+        self.pending |= incoming.pending;
+
+        self.dependencies.len() != previous || self.pending != pending
+    }
+}
+
 impl StorageFlowState {
+    pub(in crate::analysis::storage_flow) fn retain_reports(
+        &mut self,
+        boundary: Option<BoundExpressionId>,
+        dependencies: impl IntoIterator<Item = bray_bound_tree::BoundDependencySubject>,
+        pending: bool,
+    ) {
+        let reports = self.reports.entry(boundary).or_default();
+
+        reports.dependencies.extend(dependencies);
+        reports.pending |= pending;
+    }
+
+    pub(in crate::analysis::storage_flow) fn pending_report_boundaries(
+        &self,
+    ) -> impl Iterator<Item = Option<BoundExpressionId>> + '_ {
+        self.reports
+            .iter()
+            .filter_map(|(boundary, reports)| reports.pending.then_some(*boundary))
+    }
+
     pub(in crate::analysis::storage_flow) fn record_move(
         &mut self,
         path: bray_bound_tree::StoragePath,
@@ -125,7 +162,7 @@ impl StorageFlowState {
             .chain(
                 self.reports
                     .values()
-                    .flat_map(|subjects| subjects.iter().copied()),
+                    .flat_map(|reports| reports.dependencies.iter().copied()),
             )
     }
 
@@ -135,7 +172,7 @@ impl StorageFlowState {
     ) -> bool {
         self.reports
             .values()
-            .any(|subjects| subjects.contains(&subject))
+            .any(|reports| reports.dependencies.contains(&subject))
     }
 
     pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
@@ -146,7 +183,7 @@ impl StorageFlowState {
     ) {
         if let Some(subjects) = self.reports.remove(&Some(boundary)) {
             if !caught {
-                self.reports.entry(parent).or_default().extend(subjects);
+                self.reports.entry(parent).or_default().merge(&subjects);
             }
         }
 
@@ -335,10 +372,7 @@ impl StorageFlowState {
                     reports_changed = true;
                 }
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    let previous = entry.get().len();
-
-                    entry.get_mut().extend(subjects);
-                    reports_changed |= entry.get().len() != previous;
+                    reports_changed |= entry.get_mut().merge(subjects);
                 }
             }
         }

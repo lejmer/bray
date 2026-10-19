@@ -139,8 +139,8 @@ impl Lowerer<'_> {
                         &MirOperand::Value(value),
                         invocation_result.ty(),
                         None,
-                    true,
-)?
+                        true,
+                    )?
                 } else {
                     (current, MirOperand::Value(value))
                 };
@@ -164,9 +164,14 @@ impl Lowerer<'_> {
                             .expect("scope entry await publishes its completion");
 
                         lowerer.finish_typed_call_panic_check(
-                            BoundExecutionSite::ScopedEnter(expression), current, &source, &value, result, None,
-                        true,
-)?
+                            BoundExecutionSite::ScopedEnter(expression),
+                            current,
+                            &source,
+                            &value,
+                            result,
+                            None,
+                            true,
+                        )?
                     } else {
                         (current, value)
                     };
@@ -550,7 +555,11 @@ impl Lowerer<'_> {
         continuations: &mut Vec<MirBlockId>,
         value: MirOperand,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let reports = self.input.storage_flow().completion_reports(BoundExecutionSite::ScopedExit(expression));
+        let reports = self
+            .input
+            .storage_flow()
+            .completion_reports(BoundExecutionSite::ScopedExit(expression));
+
         if let Some(outcome) = &self.cleanup_outcome {
             let (completed, value, continuation) =
                 outcome.check_completion(&mut self.builder, block, source, Some(value), reports)?;
@@ -562,9 +571,14 @@ impl Lowerer<'_> {
                 value.expect("completed scoped exit retains its result"),
             ))
         } else {
-            let (completed, value) =
-                self.check_ordinary_cleanup(block, source, None, shielded, Some(value),
-                    Some(BoundExecutionSite::ScopedExit(expression)))?;
+            let (completed, value) = self.check_ordinary_cleanup(
+                block,
+                source,
+                None,
+                shielded,
+                Some(value),
+                Some(BoundExecutionSite::ScopedExit(expression)),
+            )?;
 
             Ok((
                 completed,

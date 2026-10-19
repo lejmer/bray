@@ -163,7 +163,8 @@ impl InternState {
                     DependencyRequirement::fixed_point(converted, result)
                 }
                 InterfaceDependencyRequirementValue::ResultCall {
-                    output, callable,
+                    output,
+                    callable,
                     requirement,
                     inputs,
                 } => {
@@ -193,7 +194,7 @@ impl InternState {
                         return Ok(None);
                     };
 
-                    DependencyRequirement::result_call(callable, requirement, converted, *output, )
+                    DependencyRequirement::result_call(callable, requirement, converted, *output)
                 }
                 InterfaceDependencyRequirementValue::Direct { subject, kind } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {

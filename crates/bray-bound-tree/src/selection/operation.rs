@@ -131,6 +131,12 @@ impl MemberTarget {
         self.result_type
     }
 
+    /// Whether the member names a callable declaration, rather than a stored callable value.
+    pub fn is_callable_declaration(&self) -> bool {
+        bray_symbols::CallableDefinitionId::try_new(self.member).is_some()
+            || self.member.kind() == bray_symbols::SymbolKind::CallableOverload
+    }
+
     /// Returns the exact substituted callable when this member can be invoked.
     pub const fn callable_instance(&self) -> Option<CallableInstanceData> {
         self.callable_instance

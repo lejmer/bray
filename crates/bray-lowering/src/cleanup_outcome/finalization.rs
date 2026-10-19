@@ -1,8 +1,12 @@
-use bray_bound_tree::BoundCallResult;
-use bray_ir::{MirBlockId, MirBlockKind, MirCapacityError, MirCleanupEdge, MirCleanupPhase, MirCleanupState, MirEdge, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder};
-use bray_runtime_interface::{RuntimeAbiRole};
-use bray_symbols::TypeId;
 use super::model::CleanupOutcome;
+use bray_bound_tree::BoundCallResult;
+use bray_ir::{
+    MirBlockId, MirBlockKind, MirCapacityError, MirCleanupEdge, MirCleanupPhase, MirCleanupState,
+    MirEdge, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
+    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
+};
+use bray_runtime_interface::RuntimeAbiRole;
+use bray_symbols::TypeId;
 
 impl CleanupOutcome {
     /// Collects a completed finalizer's active error while retaining every failed-call outcome.

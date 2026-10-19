@@ -507,12 +507,15 @@ impl StorageFlow {
         occurrences: impl IntoIterator<Item = crate::BoundExecutionSite>,
     ) -> Self {
         self.reporting_completions = sorted_unique_shared_slice(occurrences);
+
         self
     }
 
     /// Whether this checked completion transfers a normal owned report.
     pub fn completion_reports(&self, occurrence: crate::BoundExecutionSite) -> bool {
-        self.reporting_completions.binary_search(&occurrence).is_ok()
+        self.reporting_completions
+            .binary_search(&occurrence)
+            .is_ok()
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.

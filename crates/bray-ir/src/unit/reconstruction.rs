@@ -98,7 +98,11 @@ pub fn reconstruct_with_edits(
     omitted_operations: &BTreeSet<MirOperationId>,
     value_aliases: &BTreeMap<MirValueId, MirValueId>,
 ) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
-    assert!(unit.is_valid(), "MIR reconstruction requires a valid unit");
+    assert!(
+        unit.is_valid(),
+        "MIR reconstruction requires a valid unit: {:#?}",
+        unit.key()
+    );
 
     let retained_blocks = retained_blocks(unit, terminators, omitted_operations);
     let operation_owners = operation_owners(unit);

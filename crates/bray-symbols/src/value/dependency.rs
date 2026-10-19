@@ -461,6 +461,15 @@ impl DependencyContractTemplateData {
         self.abnormal_reports.as_deref()
     }
 
+    /// Removes implicit report outputs consumed by a native ABI boundary.
+    /// Explicit value dependencies, reference relations and effects remain unchanged.
+    pub fn without_reports(mut self) -> Self {
+        self.completion_reports = None;
+        self.abnormal_reports = None;
+
+        self
+    }
+
     /// Transforms requirements in every output while preserving report presence.
     pub fn try_map_requirements<E>(
         &self,
@@ -508,6 +517,16 @@ impl DependencyContractTemplateData {
                 DependencyStorageEffect::Direct { subject, .. } => Some(subject),
                 DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
             }))
+    }
+
+    /// Returns lifetime requirements for one selected owned output.
+    /// Absence and an independent report both have no lifetime requirements.
+    pub fn output_requirements(&self, output: DependencyCallOutput) -> &[DependencyRequirement] {
+        match output {
+            DependencyCallOutput::Value => self.requirements(),
+            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or(&[]),
+            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or(&[]),
+        }
     }
 
     /// Creates a template after deterministic sorting and deduplication.
