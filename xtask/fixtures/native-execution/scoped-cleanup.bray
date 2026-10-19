@@ -400,6 +400,44 @@ async func cancel_scope(pos panic_exit: bool)
     };
 }
 
+struct AbnormalEntry
+{
+    cancel: bool;
+
+    async consume enter() -> bool
+    {
+        core.atomic.fetch_add<usize, 0>(&ENTRIES, value = 1);
+        await std.task.yield_now();
+
+        if self.cancel
+        {
+            let outcome: RunResult<unit> = Cancelled;
+
+            try outcome;
+        }
+
+        panic("");
+    }
+
+    exit(pos capability: bool) -> Result<unit, Failure>
+    {
+        panic("failed entry invoked exit");
+    }
+}
+
+async func abnormal_entry(pos cancel: bool)
+{
+    let scope = AbnormalEntry
+    {
+        cancel = cancel
+    };
+
+    let _ = with capability = scope
+    {
+        panic("failed entry reached its body");
+    };
+}
+
 trusted async func main()
     uses(foreign_call)
 {
@@ -538,9 +576,13 @@ trusted async func main()
 
     let _ = std.testing.assert_panicked<unit>(await cancel_scope(true).start().join());
 
+    let _ = std.testing.assert_panicked<unit>(await abnormal_entry(false).start().join());
+
+    std.testing.assert_cancelled<unit>(await abnormal_entry(true).start().join());
+
     assert(!core.atomic.load<bool, 1>(&INVALID_ORDER), "body locals ended before their selected exit");
     assert(!core.atomic.load<bool, 1>(&ENTERED_INACTIVE), "quiescence entered an inactive Future body");
-    assert(core.atomic.load<usize, 1>(&ENTRIES) == 21);
+    assert(core.atomic.load<usize, 1>(&ENTRIES) == 23);
     assert(core.atomic.load<usize, 1>(&EXITS) == 17);
     assert(core.atomic.load<usize, 1>(&ERRORS) == 20);
     assert(core.atomic.load<usize, 1>(&CAPTURES) == 20);

@@ -422,6 +422,12 @@ impl Lowerer<'_> {
                 .chain(state.parts.iter().map(|part| part.guard.storage()))
         }));
 
+        storages.extend(
+            self.scoped_guards
+                .values()
+                .flat_map(|state| [state.entered.storage(), state.admitted.storage()]),
+        );
+
         storages.sort_unstable();
         storages.dedup();
 

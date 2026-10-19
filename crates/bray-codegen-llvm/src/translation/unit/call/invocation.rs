@@ -205,15 +205,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         for (parameter, argument) in signature.parameters().iter().zip(semantic_arguments) {
             match parameter {
                 CodegenParameterMapping::Ignore => {}
-                CodegenParameterMapping::Direct { coercion, .. } => {
+                CodegenParameterMapping::Direct { ty, coercion, .. } => {
                     if let Some(coercion) = coercion {
                         arguments.extend(
-                            self.encode_abi_pieces(*argument, coercion)?
+                            self.encode_abi_pieces(*argument, *ty, coercion)?
                                 .into_iter()
                                 .map(BasicMetadataValueEnum::from),
                         );
                     } else {
-                        arguments.push((*argument).into());
+                        arguments.push(self.abi_register_value(*argument, *ty)?.into());
                     }
                 }
                 CodegenParameterMapping::Indirect {
@@ -222,7 +222,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let storage =
                         self.aligned_alloca(*pointee, alignment.get(), "call.argument")?;
 
-                    llvm(self.builder.build_store(storage, *argument))?;
+                    self.store_value(storage, *argument, *pointee)?;
                     arguments.push(storage.into());
                 }
             }
@@ -264,7 +264,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 match coercion {
                     Some(coercion) => self.decode_abi_result(value, *ty, coercion).map(Some),
-                    None => Ok(Some(value)),
+                    None => self
+                        .initialize_value(value, *ty, "call.direct.result")
+                        .map(Some),
                 }
             }
             CodegenResultMapping::Indirect { .. } => {
@@ -275,12 +277,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     );
                 };
 
-                llvm(self.builder.build_load(
-                    self.types.map(pointee)?,
-                    storage,
-                    "call.result.value",
-                ))
-                .map(Some)
+                self.place_value(storage, pointee, "call.result.value")
+                    .map(Some)
             }
         }
     }

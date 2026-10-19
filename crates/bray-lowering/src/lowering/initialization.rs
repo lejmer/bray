@@ -160,6 +160,30 @@ impl Lowerer<'_> {
         Ok(flag)
     }
 
+    pub(super) fn set_boolean_guard(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        guard: &MirPlace,
+        value: bool,
+    ) -> Result<(), MirCapacityError> {
+        self.push_operation(
+            block,
+            Self::retained_source(source),
+            MirOperationKind::Store {
+                kind: MirStoreKind::Assign,
+                destination: Self::retained_place(guard),
+                value: MirOperand::Immediate {
+                    value: MirImmediateValue::Boolean(value),
+                    ty: guard.ty(),
+                },
+            },
+            None,
+        )?;
+
+        Ok(())
+    }
+
     pub(super) fn push_operation(
         &mut self,
         block: MirBlockId,

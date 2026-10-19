@@ -67,7 +67,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
-    pub(super) scoped_guards: BTreeMap<bray_bound_tree::BoundExpressionId, MirPlace>,
+    pub(super) scoped_guards:
+        BTreeMap<bray_bound_tree::BoundExpressionId, super::scoped::ScopedCleanup>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,

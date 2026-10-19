@@ -1,14 +1,11 @@
 use std::collections::BTreeMap;
 
 use super::core::UnitTranslator;
-use super::support::{
-    aggregate_value_length, extract_value, insert_value, llvm, next_helper, pointer_value,
-};
+use super::support::{llvm, next_helper};
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
 use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
-    MirConstruction, MirHelperReference, MirOperation, MirProjectionKind, PatternOperation,
-    PatternProjection, SelectedConversion,
+    MirConstruction, MirHelperReference, MirOperation, SelectedConversion,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -28,7 +25,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "checked MIR construction translation requires an established mapping or value",
             );
 
-        let mut value = self.types.map(result)?.const_zero();
+        let mapped = self.types.map(result)?;
+        let mut value = self.initialize_value(mapped.const_zero(), result, "aggregate.value")?;
 
         match aggregate.kind() {
             MirAggregateKind::Tuple | MirAggregateKind::Range => {
@@ -41,16 +39,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 for (index, operand) in aggregate.operands().iter().enumerate() {
                     let operand = self.operand(operand)?;
 
-                    let element = self.aggregate_value_element(fields, index)?;
-
-                    value = insert_value(&self.builder, value, operand, element)?;
+                    value = self.insert_aggregate_field(value, fields, index, operand)?;
                 }
             }
             MirAggregateKind::Array => {
                 for (index, operand) in aggregate.operands().iter().enumerate() {
                     let operand = self.operand(operand)?;
 
-                    value = insert_value(&self.builder, value, operand, index)?;
+                    value = self.insert_array_element(value, result, index, operand)?;
                 }
             }
             MirAggregateKind::RepeatedArray => {
@@ -71,7 +67,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let length = crate::conversion::resource_limit(length, "array_length")?;
 
                 for index in 0..length {
-                    value = insert_value(&self.builder, value, element, index)?;
+                    value = self.insert_array_element(value, result, index, element)?;
                 }
             }
             MirAggregateKind::NullablePresent => {
@@ -184,7 +180,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         // Field layout is shared and must outlive the mapping borrow during operand translation.
         let fields = fields.clone();
-        let mut value = self.types.map(result)?.const_zero();
+        let mapped = self.types.map(result)?;
+
+        let mut value =
+            self.initialize_value(mapped.const_zero(), result, "construction.product")?;
 
         for construction_input in construction.inputs() {
             let input = construction_input.input();
@@ -213,15 +212,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR construction translation requires an established mapping or value",
                 );
 
-            value = insert_value(
-                &self.builder,
-                value,
-                *input_value,
-                crate::conversion::resource_limit::<usize, _>(
-                    self.aggregate_element(&fields, index)?,
-                    "aggregate_element_index",
-                )?,
-            )?;
+            value = self.insert_aggregate_field(value, &fields, index, *input_value)?;
         }
 
         Ok(value)
@@ -279,13 +270,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
 
-            llvm(self.builder.build_store(destination, *input_value))?;
+            self.store_value(destination, *input_value, layout.ty())?;
         }
 
-        llvm(
-            self.builder
-                .build_load(llvm_type, storage, "construction.union.value"),
-        )
+        self.place_value(storage, result, "construction.union.value")
     }
 
     pub(super) fn translate_conversion_plan<'mapping>(
@@ -317,188 +305,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )
             }
             ConversionTarget::Composite(children) => {
-                let source_fields = self.aggregate_fields(conversion.source_type());
                 let target_fields = self.aggregate_fields(conversion.target_type());
-                let mut result = self.types.map(conversion.target_type())?.const_zero();
+                let mapped = self.types.map(conversion.target_type())?;
+
+                let mut result = self.initialize_value(
+                    mapped.const_zero(),
+                    conversion.target_type(),
+                    "conversion.value",
+                )?;
 
                 for (index, child) in children.iter().enumerate() {
-                    let child_value = extract_value(
-                        &self.builder,
-                        value,
-                        self.aggregate_element(&source_fields, index)?,
-                    )?;
+                    let child_value =
+                        self.aggregate_field_value(value, conversion.source_type(), index)?;
 
                     let child_value =
                         self.translate_conversion_plan(child_value, child, helpers)?;
 
-                    let element = self.aggregate_value_element(&target_fields, index)?;
-
-                    result = insert_value(&self.builder, result, child_value, element)?;
+                    result =
+                        self.insert_aggregate_field(result, &target_fields, index, child_value)?;
                 }
 
                 Ok(result)
             }
         }
-    }
-
-    pub(super) fn translate_pattern_projection(
-        &mut self,
-        subject: BasicValueEnum<'context>,
-        subject_type: bray_symbols::TypeId,
-        result_type: bray_symbols::TypeId,
-        projection: PatternProjection,
-        operation: PatternOperation,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let projected = match projection {
-            PatternProjection::ProductField(field) => self.project_declared_field(
-                subject,
-                subject_type,
-                bray_ir::MirFieldReference::Struct(field),
-            )?,
-            PatternProjection::TupleElement(index) => {
-                let element = self.projection_element(
-                    subject_type,
-                    &MirProjectionKind::TupleField(index.raw()),
-                )?;
-
-                extract_value(&self.builder, subject, element)?
-            }
-            PatternProjection::ElementFromStart(index) => {
-                extract_value(&self.builder, subject, index.raw())?
-            }
-            PatternProjection::ElementFromEnd(index) => {
-                let length = aggregate_value_length(subject);
-
-                let ordinal = length
-                    .checked_sub(index.raw())
-                    .and_then(|value| value.checked_sub(1))
-                    .expect("checked MIR construction translation requires an established mapping or value");
-
-                extract_value(&self.builder, subject, ordinal)?
-            }
-            PatternProjection::ActiveUnionPayloadField { variant, field } => {
-                self.project_union_payload(subject, subject_type, variant, field, result_type)?
-            }
-            PatternProjection::NullableValue => {
-                self.project_value(subject, subject_type, result_type)?
-            }
-            PatternProjection::OwnedTarget => {
-                let pointer = pointer_value(subject).expect(
-                    "checked MIR construction translation requires an established mapping or value",
-                );
-
-                llvm(self.builder.build_load(
-                    self.types.map(result_type)?,
-                    pointer,
-                    "pattern.owned",
-                ))?
-            }
-        };
-
-        match operation {
-            PatternOperation::Observe | PatternOperation::Consume | PatternOperation::Copy => {
-                Ok(projected)
-            }
-            PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
-                let storage = self.allocate_temporary(projected.get_type(), "pattern.borrow")?;
-
-                llvm(self.builder.build_store(storage, projected))?;
-
-                Ok(storage.into())
-            }
-            PatternOperation::Recovered => panic!(
-                "checked MIR construction translation violated an established compiler contract"
-            ),
-        }
-    }
-
-    pub(super) fn project_declared_field(
-        &self,
-        subject: BasicValueEnum<'context>,
-        subject_type: bray_symbols::TypeId,
-        reference: bray_ir::MirFieldReference,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let BasicValueEnum::StructValue(subject) = subject else {
-            panic!(
-                "checked MIR construction translation violated an established compiler contract"
-            );
-        };
-
-        let mapping = self.type_mapping(subject_type).expect(
-            "checked MIR construction translation requires an established mapping or value",
-        );
-
-        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!(
-                "checked MIR construction translation violated an established compiler contract"
-            );
-        };
-
-        let index = fields
-            .iter()
-            .position(|field| field.reference() == Some(reference))
-            .expect(
-                "checked MIR construction translation requires an established mapping or value",
-            );
-
-        extract_value(
-            &self.builder,
-            subject.into(),
-            self.aggregate_element(fields, index)?,
-        )
-    }
-
-    pub(super) fn aggregate_fields(
-        &self,
-        ty: bray_symbols::TypeId,
-    ) -> std::sync::Arc<[bray_codegen::CodegenFieldLayout]> {
-        let mapping = self.type_mapping(ty).unwrap_or_else(|| {
-            panic!(
-                "codegen instance {:?} has no aggregate mapping for type {ty:?}",
-                self.instance.key()
-            )
-        });
-
-        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!(
-                "type {ty:?} must map to an aggregate, got {:?}",
-                mapping.kind()
-            );
-        };
-
-        // Composite conversion releases the mapping borrow while translating child values.
-        fields.clone()
-    }
-
-    pub(super) fn project_union_payload(
-        &mut self,
-        subject: BasicValueEnum<'context>,
-        subject_type: bray_symbols::TypeId,
-        variant: bray_symbols::UnionVariantSymbolId,
-        field: bray_symbols::UnionPayloadFieldSymbolId,
-        result_type: bray_symbols::TypeId,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let mapping = self.type_mapping(subject_type).expect(
-            "checked MIR construction translation requires an established mapping or value",
-        );
-
-        let layout = mapping
-            .kind()
-            .union_variant(variant)
-            .and_then(|layout| layout.payload_field(field))
-            .expect(
-                "checked MIR construction translation requires an established mapping or value",
-            );
-
-        let storage = self.allocate_temporary(subject.get_type(), "pattern.union")?;
-
-        llvm(self.builder.build_store(storage, subject))?;
-
-        let field = self.constant_offset_pointer(storage, layout.offset_bytes())?;
-
-        llvm(
-            self.builder
-                .build_load(self.types.map(result_type)?, field, "pattern.union.field"),
-        )
     }
 }

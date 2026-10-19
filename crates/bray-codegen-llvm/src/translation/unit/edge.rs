@@ -10,6 +10,7 @@ use inkwell::context::Context;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 
 use super::core::UnitTranslator;
+use super::support::pointer_value;
 
 pub(super) fn reachable_blocks(
     unit: &MirUnit,
@@ -321,6 +322,49 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
+    pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
+        for (id, block) in self.unit.blocks_with_ids() {
+            if !self.reachable_blocks.contains(&id) {
+                continue;
+            }
+
+            let llvm_block = self.block(id);
+
+            self.builder.position_at_end(llvm_block);
+
+            for parameter in block.parameters() {
+                let semantic = self
+                    .unit
+                    .value(*parameter)
+                    .expect("block parameter has its checked type")
+                    .ty();
+
+                if self.types.is_address_value(semantic)? {
+                    let mapped = self.types.map(semantic)?;
+
+                    let storage =
+                        self.allocate_temporary(mapped, &format!("value.{}", parameter.slot()))?;
+
+                    self.values.insert(*parameter, storage.into());
+
+                    continue;
+                }
+
+                let ty = self.value_type(*parameter)?;
+
+                let phi = llvm(
+                    self.builder
+                        .build_phi(ty, &format!("value.{}", parameter.slot())),
+                )?;
+
+                self.phis.insert(*parameter, phi);
+                self.values.insert(*parameter, phi.as_basic_value());
+            }
+        }
+
+        Ok(())
+    }
+
     pub(super) fn add_edge_arguments(&mut self, edge: &MirEdge) -> Result<(), CodegenFailure> {
         let target = self
             .unit
@@ -331,17 +375,57 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR translation violated an established compiler contract");
         }
 
-        let mut incoming: Vec<(PhiValue<'context>, BasicValueEnum<'context>)> =
-            Vec::with_capacity(target.parameters().len());
+        let mut incoming: Vec<(PhiValue<'context>, BasicValueEnum<'context>)> = Vec::new();
+        let mut stored = Vec::new();
 
         for (parameter, argument) in target.parameters().iter().zip(edge.arguments()) {
-            let phi = self
-                .phis
-                .get(parameter)
-                .copied()
-                .expect("checked MIR translation requires an established mapping or value");
+            let ty = self
+                .unit
+                .value(*parameter)
+                .expect("block parameter has its checked type")
+                .ty();
 
-            incoming.push((phi, self.operand(argument)?));
+            let value = self.operand(argument)?;
+
+            if self.types.is_address_value(ty)? {
+                let destination = pointer_value(self.values[parameter])
+                    .expect("address-valued block parameter owns its storage");
+
+                let source =
+                    pointer_value(value).expect("address-valued edge input has its storage");
+
+                if source != destination {
+                    stored.push((destination, value, ty));
+                }
+            } else {
+                let phi = self
+                    .phis
+                    .get(parameter)
+                    .copied()
+                    .expect("register block parameter has its LLVM phi");
+
+                incoming.push((phi, value));
+            }
+        }
+
+        let destinations = stored
+            .iter()
+            .map(|(destination, _, _)| *destination)
+            .collect::<std::collections::HashSet<_>>();
+
+        // Snapshot every input that another parameter assignment could overwrite.
+        // These private edge scratches are never published as value carriers, so
+        // re-entering a loop cannot make a scratch alias an incoming value.
+        for (_, value, ty) in &mut stored {
+            if destinations
+                .contains(&pointer_value(*value).expect("stored edge input has its address"))
+            {
+                *value = self.snapshot_value(*value, *ty, "edge.snapshot")?;
+            }
+        }
+
+        for (destination, value, ty) in stored {
+            self.store_value(destination, value, ty)?;
         }
 
         let source = self

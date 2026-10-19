@@ -572,9 +572,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "frame.completion",
                 ))?;
 
+                let ty = self.operand_type(value);
                 let value = self.operand(value)?;
 
-                llvm(self.builder.build_store(completion, value))?;
+                self.store_value(completion, value, ty)?;
 
                 let payload = llvm(self.builder.build_ptr_to_int(
                     completion,

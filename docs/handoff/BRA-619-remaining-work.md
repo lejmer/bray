@@ -10,7 +10,7 @@ Read AGENTS.md, coding-conventions.md, crates.md, BRA-505-retained-incidents.md 
 
 Worktree: C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray.
 Branch: feature/bra-619-scoped-cleanup-acceptance, based on d69592ca0, reviewed BRA-626 PR #613.
-The branch HEAD carries the corrections below. Previous published checkpoint: 28f47c2e8, draft PR #614. BRA-561 PR #611, BRA-505 PR #612 and BRA-626 PR #613 are ready.
+The branch HEAD carries the corrections below. Published checkpoint: 0f90849c9, draft PR #614. BRA-561 PR #611, BRA-505 PR #612 and BRA-626 PR #613 are ready.
 Preserve the older BRA-619 recovery branch at 6bbcb4a3. Do not replay it or restart completed reviews.
 
 The tracked Linear rule plan, coverage inventory and sequence preserve the stack plan. The already-public proof
@@ -24,7 +24,7 @@ The existing Linear sequence successfully links the public proof. Do not retry t
 errors need quiescence publish exact body/with suspension in CleanupPlan. Async exits reuse awaited retention.
 Abnormal scoped steps carry the exact exit identity. Keep the no-frame invariant assertion.
 
-Uncommitted owning corrections:
+Owning corrections included in 0f90849c9:
 - declared_type_lifecycle counts only actual Finalizer and Destructor as whole-value cleanup. Inactive scoped
   protocols can partially move fields. Active capability restrictions remain separate. Source/import tests pass.
 - LastUse publication for repeated semantic occurrences now requires retirement to hold at every reachable CFG
@@ -48,7 +48,7 @@ No independent review of PR #614 has started.
 The native fixture prepares its entry/exit results in async caller code, then synchronous entry/exit only transfer
 those values. It checks failed entry, normal/yield, pending transfers, shielding, precedence, inactive captures,
 aligned errors, exactly-once ordering and denied allocation. Expected totals remain unverified until execution:
-entries 21, exits 17, errors 20, captures 20, finalizers 9. Do not weaken its outer assertions or swallow them in catches.
+entries 23, exits 17, errors 20, captures 20, finalizers 9. Do not weaken its outer assertions or swallow them in catches.
 
 ## Remaining native performance failure
 
@@ -84,12 +84,38 @@ selected fields, never Get-Content it. LLVM files are huge too. Raw pre-optimiza
 The focused LLVM pass trace is target/bra-619-pass-trace.stderr.log and .ll. All temporary production tracing has been
 removed. All task-owned build, test, native and opt sessions have completed. No process needs resuming.
 
-Continue at the LLVM value-representation boundary. Union construction, field projection, parameter passing and
-returns currently materialize byte-buffer aggregates as SSA values. Derive one addressable representation that preserves
-snapshots, aliases, consuming moves, block-parameter joins, imported and native ABI boundaries, and frame lifetimes.
-Use actual MIR storage and bulk transfers instead of depending on SROA to repair aggregate copies. Add no language
-feature, general framework, runtime frame or optimizer-disable workaround. Keep this bounded and justify production
-code growth separately from tests. The scoped fixture and all of its acceptance remain required.
+Current uncommitted replacement of that value boundary:
+- Type mappings distinguish physical storage from the value carrier. Ordinary aggregates larger than two pointer
+  words use private addressable snapshots. Native signatures/layouts and protected descriptor protocols stay fixed.
+- Shared typed construction, projection, copy, memory transfer and ABI handling replace large byte-buffer SSA loads.
+  Joins copy into parameter storage. Inputs aliasing another destination are snapshotted before parallel assignment.
+  Private edge scratches never become published carriers. Frame constructors bulk-copy indirect captures.
+- Constants, nullable values, arrays, strings and constant-pattern comparison use the same typed operations.
+  Tagged pattern comparison reads only the common active payload. Native report empty-slot handling stays explicit.
+- Backend and 142 product-codegen integration tests pass, including native mutation/branch/loop, generic, padded tuple,
+  array, nullable and constant-product snapshots through C ABI, in source and imported caller configurations.
+- Expanded direct lifecycle calls now contribute their selected execution requirements to the frame's owning lane
+  analysis. Its existing per-call cache is shared with helper and iteration requirements. Generic/imported completed
+  owners retain both their storage and Blocking requirement. The prior generic tests exposed this concrete omission.
+
+The release scoped reproduction now emits LLVM and native objects in 35.883 seconds with four workers, sampled at
+about 1.1 GB, within the same 8 GB bound. It emits 134.78 MiB total LLVM plus object artifacts. This resolves the
+immediate OOM but is not proof that general code generation costs are optimal. No optimization pass was disabled.
+Log/artifacts: target/bra-619-storage-native.stderr.log and target/bra-619-storage-native-product.
+
+Fresh full smoke passes bootstrap, foreign entry, async-values and ordinary-finalization in both profiles. Scoped
+cleanup development reaches execution, then traps 0xc000001d. Retained product:
+target/native/bra-505/bray-runtime-artifact-smoke-zzFb53/scoped-cleanup-development/scoped-cleanup.exe with matching PDB.
+Native stack and breakpoint tracing prove OutgoingActivation requests a descriptor whose shape has not been admitted.
+The descriptor identity starts 9fd730b2cd209853, size 4096, alignment 2048. claim_value's find returns zero. Its caller is
+frame.resume at source scoped-cleanup:211. Do not weaken the runtime invariant or add late allocation. Trace the exact
+selected producer/admission mismatch in owning realization. Logs: bra-619-storage-native-smoke.log,
+bra-619-storage-native-stack.log and bra-619-storage-native-claim.log. Bounded debug helpers own and terminate their
+children. No debug process remains. An LLVM reproduction using package bray.runtime.execution.smoke is being emitted
+under target/bra-619-smoke-identity-ir-product to match the smoke's semantic identities.
+
+Remaining before checkpoint: finish that native gap, verify changed cost/semantics, complete maintainability audit,
+rustfmt, release mutating style and Bray format. No fresh independent review has started. Ownership below is still open.
 
 Persistent runtime package:
 C:/Users/anton/source/repos/bray/target/bra-619-runtime/x86_64-pc-windows-msvc/bray-runtime.brayrt.
@@ -126,10 +152,60 @@ Run native processes outside the sandbox. Never delete shared outputs. No compet
 and the persistent runtime package for faithful selected runs. Use rg --files before unknown paths. PowerShell wildcard
 paths passed to rg are invalid. Print command output directly and bound diagnostic lines by characters.
 
-Production changes so far replace repeated context handling and preserve established retention. Tests and the fixture
-account for most growth. No dependency ownership repair has been implemented yet. Do not enlarge architecture to fit an unproved diagnosis.
+Production changes replace repeated context handling, aggregate SSA materialization and unadmitted scoped calls.
+The new production code provides aggregate storage snapshots and scoped admission through existing mechanisms. No dependency ownership repair has been implemented yet. Do not enlarge architecture to fit an unproved diagnosis.
 After all concrete gaps are fixed, audit every behavior category repo-wide, run the affected batch and native acceptance,
 then rustfmt, mutating release style and Bray format. Commit/push, update PR description using required Change Summary
 and Related Issues only, and publish evidence in an attributed comment. Complete a fresh independent PR review cycle,
 push fixes, mark ready/In Review, and remove completed stack handoffs after their durable evidence is preserved.
 Do not stop at this checkpoint or claim BRA-619 complete before ownership and native obligations are resolved.
+
+## Scoped admission repair in progress
+
+The source lowerer never admitted the selected exit before entering the scope. Native tracing proved the descriptor
+is preserved exactly from the caller through activation/acquire/claim. The missing shape is the synchronous selected
+exit's 4096-byte, 2048-aligned Result, not a 16-byte Future. The earlier manual hex reading was incorrect.
+
+The current compiled repair reuses input-temporary cleanup for the admitted duty while entry is pending. It keeps
+entry activity separate from admission. Before entry, cleanup only discharges admission. After successful entry and
+before the body becomes active, that same temporary invokes the guarded selected exit. Once the checked body scope
+is active, its existing plan owns exit. Failed fallible entry discharges without exit. Exit clears entry activity
+before invoking user code, then discharges after result disposition. Panic/cancellation uses the same shared cleanup
+machine and the surviving admission guard, preventing repeat invocation/discharge. Async entry uses existing factory
+admission/discharge before awaiting. Both guard storages participate in frame retention. No late allocation, new
+runtime frame, source feature or second cleanup traversal is introduced. The with lowerer retires its temporary
+records after emitting all of the with's paths. Verify this batch and its failure paths before claiming it proven.
+
+## Current acceptance checkpoint after admission
+
+The batch passes 38 lowering tests, 25 scoped tests and all 142 product-codegen integration tests. The consolidated
+aggregate module also passes all 93 LLVM tests after Rustfmt, mutating release style and Bray formatting. No C file
+was changed. The native fixture now also checks panic and cancellation during async entry. Its expected final entry
+count is 23. Other expected totals remain unchanged and native execution has not reached the final assertions.
+
+The fresh release full smoke again passes bootstrap, foreign entry, async-values and ordinary-finalization in both
+profiles. Scoped development progresses beyond the missing admission and then traps in OutgoingDischarge. Retained
+product: target/native/bra-505/bray-runtime-artifact-smoke-nL6Inc/scoped-cleanup-development/scoped-cleanup.exe.
+Its matching PDB and bounded debugger traces prove one BodyLocal destructor executes twice at the same self address.
+One descriptor 5c062d3ee612de44 was admitted, then discharged twice. This is duplicate destruction, not just duplicate
+budget accounting. First and second destructor caller RVAs are 0x2c53c5 and 0x2cde87. Discharge callers are 0x2c5a64
+and 0x2ce506. The selected exit's 4096-byte descriptor 9fd730b2cd209853 is now admitted and discharged correctly before
+these. Do not remove either native invariant or add a speculative guard. Find the duplicate owning cleanup transition.
+Logs: bra-619-admission-native-smoke.log, bra-619-admission-native-stack.log, bra-619-admission-native-budget.log and
+bra-619-admission-native-destruction.log. All native/debug processes have finished. No process needs resuming.
+
+Current matching-package LLVM IR: target/bra-619-admission-ir-product. It emits in 31.927s with four workers, sampled
+at about 0.82 GB, 132.74 MiB IR. Normal's resume is in scoped-cleanup.21.ll, symbol
+bray_resume_7d8e0dfbf42f8b43f88412f359020b6b2f805b3e8583aa6a10527ebf326b4b20. BodyLocal's source destructor is
+bray_instance_5d95cd72263918012b16200db8ff2d6eb060e2cd9ec79b8fa6ef53947da16c03. It has no receiver-record argument,
+so do not assume its retained receiver tail discharged twice. Native breakpoint tracing proves the body itself runs
+twice. Use raw MIR/storage/liveness and the actual source cleanup plan to distinguish duplicated plans from an
+uncleared temporary or local guard. The code has not yet established which of those causes the duplicate.
+
+The retained exit-error dependency omission is still unimplemented. No new result-channel or report-dependency
+metadata design has been adopted. Existing Escape effects represent externally reachable raw addresses and are not
+by themselves proof of finite incident ownership. Fix the owning semantic model after tracing actual producer,
+retention and disposal paths. Do not substitute a blanket static-only rule or a downstream check.
+
+This is an incomplete recovery checkpoint. PR #614 stays draft and BRA-619 stays In Progress. No independent review
+has started. Continue to fix the duplicate cleanup, the dependency obligation, native acceptance and final review.

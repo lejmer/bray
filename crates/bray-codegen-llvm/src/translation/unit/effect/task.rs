@@ -263,8 +263,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         result: bray_symbols::TypeId,
         variants: MirRunResultVariants,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let result_type = self.types.map(result)?;
-
         let mapping = self
             .type_mapping(result)
             .and_then(|mapping| mapping.layout())
@@ -285,10 +283,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "task.resolve",
         )?;
 
-        llvm(
-            self.builder
-                .build_load(result_type, storage, "task.result.value"),
-        )
+        self.load_value(storage, result, "task.result.value")
     }
 
     fn run_result_layout(

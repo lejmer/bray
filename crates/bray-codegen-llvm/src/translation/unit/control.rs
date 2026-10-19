@@ -488,7 +488,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let literal = self.constant(*literal)?;
 
-                self.equal_values(subject, literal)
+                self.equal_pattern_values(subject, literal, subject_type)
             }
             MirPatternPredicate::Constant(term) => {
                 let value = self
@@ -501,7 +501,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let value = self.constant(value)?;
 
-                self.equal_values(subject, value)
+                self.equal_pattern_values(subject, value, subject_type)
             }
             MirPatternPredicate::NullableAbsent | MirPatternPredicate::NullablePresent => {
                 let present = self.nullable_present(subject, subject_type)?;
@@ -615,10 +615,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         );
                     };
 
-                    let storage =
-                        self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
+                    let storage = if self.types.is_address_value(subject_type)? {
+                        pointer_value(subject).expect("union value retains its storage")
+                    } else {
+                        let storage =
+                            self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
 
-                    llvm(self.builder.build_store(storage, subject))?;
+                        llvm(self.builder.build_store(storage, subject))?;
+
+                        storage
+                    };
 
                     break (storage, tag);
                 }
@@ -641,11 +647,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         break (storage, tag);
                     }
 
-                    subject = llvm(self.builder.build_load(
-                        self.types.map(*target)?,
-                        storage,
-                        "pattern.union.borrow",
-                    ))?;
+                    subject = self.place_value(storage, *target, "pattern.union.borrow")?;
 
                     subject_type = *target;
                 }
@@ -715,7 +717,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
-            CodegenResultMapping::Direct { coercion, .. } => {
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
                 let value = value.expect(
                     "checked MIR control translation requires an established mapping or value",
                 );
@@ -723,8 +725,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.operand(value)?;
 
                 let value = match coercion {
-                    Some(coercion) => self.encode_abi_result(value, coercion)?,
-                    None => value,
+                    Some(coercion) => self.encode_abi_result(value, *ty, coercion)?,
+                    None => self.abi_register_value(value, *ty)?,
                 };
 
                 self.clear_moved_reports()?;
@@ -748,7 +750,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.operand(value)?;
                 let value = self.convert(value, source_type, *pointee)?;
 
-                llvm(self.builder.build_store(destination, value))?;
+                self.store_value(destination, value, *pointee)?;
                 self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
@@ -762,15 +764,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         value: BasicValueEnum<'context>,
     ) -> Result<(), CodegenFailure> {
         match self.signature.result() {
-            CodegenResultMapping::Direct { coercion, .. } => {
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
                 let value = match coercion {
-                    Some(coercion) => self.encode_abi_result(value, coercion)?,
-                    None => value,
+                    Some(coercion) => self.encode_abi_result(value, *ty, coercion)?,
+                    None => self.abi_register_value(value, *ty)?,
                 };
 
                 llvm(self.builder.build_return(Some(&value)))?;
             }
-            CodegenResultMapping::Indirect { .. } => {
+            CodegenResultMapping::Indirect { pointee, .. } => {
                 let destination = self
                     .function
                     .get_first_param()
@@ -779,7 +781,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR control translation requires an established mapping or value",
                     );
 
-                llvm(self.builder.build_store(destination, value))?;
+                self.store_value(destination, value, *pointee)?;
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Void => {

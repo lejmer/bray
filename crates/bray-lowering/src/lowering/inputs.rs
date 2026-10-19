@@ -13,13 +13,24 @@ pub(super) struct InputTemporary {
     source: MirSourceAnchor,
     pub(super) scope_depth: usize,
     catch_depth: usize,
-    phases: Option<AsyncCleanupPhases>,
+    action: InputCleanup,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum InputCleanup {
+    Value(Option<AsyncCleanupPhases>),
+    ScopeAdmission(BoundExpressionId),
+    ScopedUse(BoundExpressionId),
 }
 
 impl InputTemporary {
     pub(super) const fn requires_cleanup(&self, phase: MirCleanupPhase) -> bool {
-        let Some(phases) = self.phases else {
-            return false;
+        let phases = match self.action {
+            InputCleanup::Value(Some(phases)) => phases,
+            InputCleanup::Value(None) => return false,
+            InputCleanup::ScopeAdmission(_) | InputCleanup::ScopedUse(_) => {
+                return matches!(phase, MirCleanupPhase::LifecycleResolution);
+            }
         };
 
         match phase {
@@ -133,10 +144,36 @@ impl Lowerer<'_> {
             source: Self::retained_source(source),
             scope_depth: self.active_scopes.len(),
             catch_depth: self.catch_targets.len(),
-            phases,
+            action: InputCleanup::Value(phases),
         });
 
         Ok(MirOperand::Move(place))
+    }
+
+    pub(super) fn track_scope_admission(
+        &mut self,
+        expression: BoundExpressionId,
+        source: &MirSourceAnchor,
+        admitted: MirPlace,
+    ) {
+        self.input_temporaries.push(InputTemporary {
+            place: admitted,
+            source: Self::retained_source(source),
+            scope_depth: self.active_scopes.len() + 1,
+            catch_depth: self.catch_targets.len(),
+            action: InputCleanup::ScopeAdmission(expression),
+        });
+    }
+
+    pub(super) fn mark_scope_entered(&mut self, expression: BoundExpressionId) {
+        let temporary = self
+            .input_temporaries
+            .iter_mut()
+            .rev()
+            .find(|temporary| temporary.action == InputCleanup::ScopeAdmission(expression))
+            .expect("successful entry owns its admitted exit duty");
+
+        temporary.action = InputCleanup::ScopedUse(expression);
     }
 
     pub(super) fn input_cleanup_phases(&self, ty: TypeId) -> Option<AsyncCleanupPhases> {
@@ -158,7 +195,30 @@ impl Lowerer<'_> {
     pub(super) fn input_cleanup(&self, exit: InputExit) -> Vec<InputTemporary> {
         self.input_temporaries
             .iter()
-            .filter(|temporary| temporary.phases.is_some() && exit.crosses(temporary))
+            .filter(|temporary| {
+                if !exit.crosses(temporary) {
+                    return false;
+                }
+
+                match temporary.action {
+                    InputCleanup::Value(phases) => phases.is_some(),
+                    InputCleanup::ScopeAdmission(_) => true,
+                    InputCleanup::ScopedUse(expression) => {
+                        let bray_bound_tree::BoundExpression::Structured(bound) = self
+                            .input
+                            .unit()
+                            .tree()
+                            .expression(expression)
+                            .expect("scope temporary has its bound expression")
+                        else {
+                            panic!("scoped cleanup retains its with expression");
+                        };
+
+                        // The checked body plan owns exit once the body scope is active.
+                        !self.active_scopes.contains(&bound.blocks()[0])
+                    }
+                }
+            })
             // Cleanup mutates the builder while retaining these shallow storage paths.
             .cloned()
             .collect()
@@ -195,6 +255,26 @@ impl Lowerer<'_> {
             return Ok(block);
         }
 
+        match temporary.action {
+            InputCleanup::ScopeAdmission(expression) => {
+                return self
+                    .discharge_scoped_exit(block, &temporary.source, expression, None)
+                    .map(|(block, _)| block);
+            }
+            InputCleanup::ScopedUse(expression) => {
+                let previous = self
+                    .cleanup_occurrence
+                    .replace(bray_bound_tree::BoundExecutionSite::ScopedExit(expression));
+
+                let result = self.push_scope_exit(block, &temporary.source, expression, None, None);
+
+                self.cleanup_occurrence = previous;
+
+                return result;
+            }
+            InputCleanup::Value(_) => {}
+        }
+
         let guard = self
             .initialization_guards
             .get(&temporary.place.storage())
@@ -216,7 +296,7 @@ impl Lowerer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{InputExit, InputTemporary};
+    use super::{InputCleanup, InputExit, InputTemporary};
     use bray_bound_tree::AsyncCleanupPhases;
     use bray_ir::{MirPlace, MirStorageId, MirUnitId};
     use bray_symbols::{SemanticValueStore, TypeData};
@@ -231,7 +311,7 @@ mod tests {
             source: bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(1).key().source()),
             scope_depth: 2,
             catch_depth: 1,
-            phases: Some(AsyncCleanupPhases::Lifecycle),
+            action: InputCleanup::Value(Some(AsyncCleanupPhases::Lifecycle)),
         };
 
         assert!(!InputExit::Scope(2).crosses(&temporary));

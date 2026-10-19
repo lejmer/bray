@@ -4,12 +4,18 @@ use std::num::NonZeroU32;
 use bray_codegen::{
     CodegenAbiScalar, CodegenAggregateCoercion, CodegenCallableSignature, CodegenFailure,
     CodegenInstanceKey, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
-    CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetScalarKind,
+    CodegenTarget, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping, TargetScalarKind,
 };
 use bray_symbols::TypeId;
 use inkwell::context::Context;
 use inkwell::targets::TargetData;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
+
+#[derive(Clone, Copy)]
+struct Representation<'context> {
+    storage: BasicTypeEnum<'context>,
+    address: bool,
+}
 
 /// Task-local LLVM type realization of immutable code generation mappings.
 pub(crate) struct LlvmTypeMappings<'context, 'mappings> {
@@ -18,7 +24,7 @@ pub(crate) struct LlvmTypeMappings<'context, 'mappings> {
     target: &'mappings CodegenTarget,
     target_data: &'mappings TargetData,
     instance: Option<&'mappings CodegenInstanceKey>,
-    mapped: BTreeMap<TypeId, BasicTypeEnum<'context>>,
+    mapped: BTreeMap<TypeId, Representation<'context>>,
     active: BTreeSet<TypeId>,
     named_type_ordinal: u32,
 }
@@ -76,13 +82,34 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     }
 
     pub(crate) fn map(&mut self, ty: TypeId) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        self.representation(ty).map(|mapped| mapped.storage)
+    }
+
+    pub(crate) fn value_type(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let mapped = self.representation(ty)?;
+
+        if mapped.address {
+            self.default_pointer_type()
+        } else {
+            Ok(mapped.storage)
+        }
+    }
+
+    pub(crate) fn is_address_value(&mut self, ty: TypeId) -> Result<bool, CodegenFailure> {
+        self.representation(ty).map(|mapped| mapped.address)
+    }
+
+    fn representation(&mut self, ty: TypeId) -> Result<Representation<'context>, CodegenFailure> {
         if let Some(instance) = self.instance {
             let Some(mapping) = self.mappings.instance_ty(instance, ty) else {
                 panic!("codegen instance {instance:?} has no mapping for type {ty:?}");
             };
 
             if mapping.ty() != ty {
-                return self.map(mapping.ty());
+                return self.representation(mapping.ty());
             }
         }
 
@@ -99,7 +126,18 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         };
 
         if mapping.backend_type() != ty {
-            let mapped = self.map(mapping.backend_type())?;
+            let mut mapped = self.representation(mapping.backend_type())?;
+
+            if matches!(
+                mapping.behavior(),
+                Some(
+                    CodegenTypeBehavior::PanicReport
+                        | CodegenTypeBehavior::String
+                        | CodegenTypeBehavior::FlexibleAggregate { .. }
+                )
+            ) {
+                mapped.address = false;
+            }
 
             self.mapped.insert(ty, mapped);
 
@@ -117,6 +155,33 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         {
             return Err(CodegenFailure::UnsupportedTarget);
         }
+
+        // Preserve large aggregate values as storage instead of byte-array SSA values.
+        // Protected descriptors keep their established value protocols.
+        let ordinary = match mapping.behavior() {
+            None => true,
+            Some(
+                CodegenTypeBehavior::PanicReport
+                | CodegenTypeBehavior::String
+                | CodegenTypeBehavior::FlexibleAggregate { .. },
+            ) => false,
+        };
+
+        let address = ordinary
+            && matches!(
+                mapping.kind(),
+                CodegenTypeKind::Aggregate(_)
+                    | CodegenTypeKind::Array { .. }
+                    | CodegenTypeKind::Union { .. }
+            )
+            && mapping.layout().is_some_and(|layout| {
+                layout.size() > u64::from(self.target_data.get_pointer_byte_size(None)) * 2
+            });
+
+        let mapped = Representation {
+            storage: mapped,
+            address,
+        };
 
         self.mapped.insert(ty, mapped);
 

@@ -10,9 +10,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    extract_value, insert_value, int_value, llvm, native_run_state_is, next_helper, pointer_value,
-};
+use super::super::support::{int_value, llvm, native_run_state_is, next_helper, pointer_value};
 use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -30,7 +28,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let bytes = self.pointer_sized_memory_operand(bytes)?;
         let alignment = self.pointer_sized_memory_operand(alignment)?;
         let result = self.operation_result_type(operation);
-        let empty_value = self.types.map(result)?.const_zero();
+        let zero = self.types.map(result)?.const_zero();
+        let empty_value = self.initialize_value(zero, result, "memory.buffer.empty")?;
 
         let empty = self
             .builder
@@ -218,18 +217,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.observe_memory_allocation(bytes)?;
 
-        let mut allocation = self.types.map(result)?.const_zero();
-
-        for (index, value) in [pointer.into(), bytes.into(), alignment.into()]
-            .into_iter()
-            .enumerate()
-        {
-            let element = self.aggregate_value_element(&result_fields, index)?;
-
-            allocation = insert_value(&self.builder, allocation, value, element)?;
-        }
-
-        Ok(allocation)
+        self.construct_positional_product(result, &[pointer.into(), bytes.into(), alignment.into()])
     }
 
     pub(super) fn translate_owned_memory_deallocation(
@@ -293,12 +281,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn memory_aggregate_integer(
-        &self,
+        &mut self,
         value: BasicValueEnum<'context>,
         fields: &[CodegenFieldLayout],
         index: usize,
     ) -> Result<IntValue<'context>, CodegenFailure> {
-        extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
+        self.layout_field_value(value, fields, index)
             .map(|value| {
                 int_value(value).expect(
                     "checked MIR memory translation requires an established mapping or value",
@@ -308,12 +296,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn memory_aggregate_pointer(
-        &self,
+        &mut self,
         value: BasicValueEnum<'context>,
         fields: &[CodegenFieldLayout],
         index: usize,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        extract_value(&self.builder, value, self.aggregate_element(fields, index)?).map(|value| {
+        self.layout_field_value(value, fields, index).map(|value| {
             pointer_value(value)
                 .expect("checked MIR memory translation requires an established mapping or value")
         })

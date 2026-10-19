@@ -68,10 +68,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer = self.dynamic_offset_pointer(pointer, index, 1)?;
         let result = self.operation_result_type(operation);
 
-        llvm(
-            self.builder
-                .build_load(self.types.map(result)?, pointer, "byte.buffer.read"),
-        )
+        self.load_value(pointer, result, "byte.buffer.read")
     }
 
     pub(super) fn translate_sequence_length(

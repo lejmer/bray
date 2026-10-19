@@ -356,11 +356,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     ),
                 )?;
 
-                Some(llvm(self.builder.build_load(
-                    self.types.map(ty)?,
-                    pointer,
-                    "root.result",
-                ))?)
+                Some(self.load_value(pointer, ty, "root.result")?)
             }
         };
 

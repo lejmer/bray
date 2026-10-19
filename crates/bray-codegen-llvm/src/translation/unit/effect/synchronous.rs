@@ -121,19 +121,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(panic_report),
         )?;
 
-        match (result_type, result) {
-            (Some(result_type), Some(result)) => {
-                if result.get_type() != result_type {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
-
+        match (entry_result, result) {
+            (ExecutableEntryResult::Unit, None) => {}
+            (ExecutableEntryResult::I32, Some(result)) => {
                 llvm(self.builder.build_store(result_destination, result))?;
             }
-            (None, None) => {}
+            (ExecutableEntryResult::Fallible { ty, .. }, Some(result)) => {
+                self.store_value(result_destination, result, ty)?;
+            }
             unexpected => panic!(
-                "checked MIR effect translation violated an established compiler contract: {unexpected:?}"
+                "checked synchronous entry result disagrees with its signature: {unexpected:?}"
             ),
         }
 

@@ -440,18 +440,16 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
         assert!(state.retention().is_completion_cleanup());
 
         assert!(
-            instance.mir().operations().iter().any(|operation| {
-                operation
-                    .kind()
-                    .cleanup_collection()
-                    .and_then(|collection| collection.retention())
-                    .is_some_and(|retention| {
-                        retention.is_completion_cleanup()
-                            && retention.initialized_storages()
-                                == state.retention().initialized_storages()
+            state
+                .retention()
+                .initialized_storages()
+                .iter()
+                .any(|storage| {
+                    instance.mir().storage(*storage).is_some_and(|storage| {
+                        matches!(storage.kind(), bray_ir::MirStorageKind::FrameCompletion)
                     })
-            }),
-            "imported generic cleanup preserves the completed owner's checked retention"
+                }),
+            "imported generic cleanup retains its completed owner storage"
         );
 
         assert_eq!(

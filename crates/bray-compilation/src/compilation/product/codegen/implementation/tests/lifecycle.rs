@@ -596,6 +596,38 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
 
                     let (_, plan) = runtime_native_plan(&source);
 
+                    for instance in plan.units().iter().flat_map(|unit| unit.instances()) {
+                        for operation in instance.mir().operations() {
+                            let call = match operation.kind() {
+                                MirOperationKind::Call(call)
+                                | MirOperationKind::Async(
+                                    bray_ir::MirAsyncOperation::CreateFrame {
+                                        initializer: bray_ir::MirFrameInitializer::Callable(call),
+                                        ..
+                                    },
+                                ) => call,
+                                _ => continue,
+                            };
+
+                            let bray_ir::MirCallTarget::Direct(reference) = call.target() else {
+                                continue;
+                            };
+
+                            if reference.instance().definition().callable_symbol().kind()
+                                != bray_symbols::SymbolKind::ScopeExit
+                            {
+                                continue;
+                            }
+
+                            assert!(instance.mir().operations().iter().any(|operation| matches!(
+                                operation.kind(),
+                                MirOperationKind::AdmitOutgoing {
+                                    owner: bray_ir::MirOutgoingOwner::Invocation { callable, result }, ..
+                                } if callable == reference && *result == call.result()
+                            )), "selected exit owns admission before it can run");
+                        }
+                    }
+
                     assert!(
                         !plan.units().is_empty(),
                         "{execution}, {entry_execution}, {entry_type}, {body}"
@@ -638,7 +670,8 @@ fn moving_aligned_union_values_does_not_clear_dead_payload_bytes() {
         .map(|bytes| String::from_utf8_lossy(bytes))
         .collect::<String>();
 
-    assert!(text.contains("load %bray.union."), "{text}");
+    assert!(text.contains("@llvm.memmove"), "{text}");
+    assert!(!text.contains("load %bray.union."), "{text}");
 
     assert!(
         !text.lines().any(|line| {

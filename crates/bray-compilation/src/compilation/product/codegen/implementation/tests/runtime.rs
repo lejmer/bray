@@ -623,8 +623,64 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
                 trusted record_cleanup();
             }
         }
+        @copy
         @layout(c)
-        struct Aggregate { first: u64; second: u64; third: u64; }
+        struct Aggregate
+        {
+            mut first: u64;
+            second: u64;
+            third: u64;
+        }
+        func carry<T>(pos value: T) -> T
+        {
+            return value;
+        }
+        @symbol(name = "snapshots")
+        @abi(c)
+        func snapshots(pos flag: u32) -> Aggregate
+        {
+            let mut original: Aggregate = { first = 17, second = 29, third = 41 };
+            let saved = original;
+            const EXPECTED: Aggregate = { first = 17, second = 29, third = 41 };
+
+            if !(saved matches EXPECTED)
+            {
+                return { first = 0, second = 0, third = 0 };
+            }
+
+            original.first = 101;
+
+            let mut left = if flag != 0
+            {
+                yield saved;
+            }
+            else
+            {
+                yield original;
+            };
+            let mut right = original;
+            let mut iteration: usize = 0;
+
+            while iteration < 3
+            {
+                let previous = left;
+
+                left = right;
+                right = previous;
+                iteration += 1;
+            }
+
+            let (_, padded) = (7, carry<Aggregate>(right));
+            let array: [Aggregate; 2] = [padded, left];
+            let nullable: Aggregate? = array[0];
+
+            if let ?result = nullable
+            {
+                return result;
+            }
+
+            return original;
+        }
         @layout(c)
         struct Packed
         {
@@ -852,9 +908,18 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         extern uint32_t through_pointer(uint32_t mode);
         extern uint32_t through_lambda(uint32_t mode);
         extern Aggregate aggregate(uint32_t mode);
+        extern Aggregate snapshots(uint32_t flag);
 
         int main(void)
         {{
+            Aggregate preserved = snapshots(1);
+            Aggregate replaced = snapshots(0);
+
+            if (preserved.first != 17 || replaced.first != 101 ||
+                preserved.second != 29 || replaced.second != 29 ||
+                preserved.third != 41 || replaced.third != 41)
+                return 41;
+
             Packed packed = packed_round_trip((Packed){{ 0x12345678, 0x9abcdef0 }});
 
             if (packed.first != 0x9abcdef1 || packed.second != 0x1234567a)

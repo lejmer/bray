@@ -29,7 +29,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .map(|pointer| Some(pointer.into())),
             CheckedMemoryOperationKind::UninitFrom { .. }
             | CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => {
-                self.translate_protected_value(memory).map(Some)
+                self.translate_protected_value(operation, memory).map(Some)
             }
             CheckedMemoryOperationKind::UninitMove { element } => {
                 self.translate_uninit_move(memory, element).map(Some)
@@ -318,11 +318,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let pointer = self.memory_pointer(pointer)?;
 
-                llvm(
-                    self.builder
-                        .build_load(self.types.map(pointee)?, pointer, "memory.read"),
-                )
-                .map(Some)
+                self.load_value(pointer, pointee, "memory.read").map(Some)
             }
             CheckedMemoryOperationKind::Write { .. } => {
                 let [pointer, value] = memory.operands() else {
@@ -332,9 +328,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 };
 
                 let pointer = self.memory_pointer(pointer)?;
+                let ty = self.operand_type(value);
                 let value = self.operand(value)?;
 
-                llvm(self.builder.build_store(pointer, value))?;
+                self.store_value(pointer, value, ty)?;
 
                 Ok(None)
             }
@@ -645,7 +642,9 @@ mod tests {
 
         let ir = module.print_to_string().to_string();
 
-        assert!(module.verify().is_ok(), "{ir}");
+        module
+            .verify()
+            .unwrap_or_else(|error| panic!("invalid memory LLVM: {error}"));
 
         assert!(
             ir.contains("memory.uninit.move"),
@@ -829,7 +828,9 @@ mod tests {
 
         let ir = module.print_to_string().to_string();
 
-        assert!(module.verify().is_ok(), "{ir}");
+        module
+            .verify()
+            .unwrap_or_else(|error| panic!("invalid memory LLVM: {error}"));
 
         assert!(ir.contains(
             "br i1 %memory.allocation.completed, label %memory.allocation.observe, label %memory.allocation.continue"

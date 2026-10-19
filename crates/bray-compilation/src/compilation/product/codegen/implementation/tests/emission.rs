@@ -769,18 +769,13 @@ public func update(pos records: Records) -> Records
         .collect::<Vec<_>>()
         .join("\n");
 
-    let tuple_type = ir
-        .lines()
-        .find(|line| line.contains("= type { i32, [4 x i8],"))
-        .and_then(|line| line.split_whitespace().next())
-        .expect("the returned tuple must contain padding before its records payload");
+    assert!(ir.contains("= type { i32, [4 x i8],"), "{ir}");
+    assert!(ir.contains("@llvm.memmove"), "{ir}");
 
     assert!(
-        ir.lines().any(|line| {
-            line.contains(&format!("extractvalue {tuple_type} "))
-                && line.split(", !dbg").next().unwrap().ends_with(", 2")
-        }),
-        "the records payload must be extracted after tuple padding: {ir}"
+        ir.lines().any(|line| line.contains("add i64")
+            && line.split(", !dbg").next().unwrap().ends_with(", 8")),
+        "the records payload must be addressed after tuple padding: {ir}"
     );
 }
 

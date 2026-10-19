@@ -161,6 +161,20 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let retained = self.input_temporaries.len();
+        let result = self.lower_with_body(id, expression, current);
+
+        self.input_temporaries.truncate(retained);
+
+        result
+    }
+
+    fn lower_with_body(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &BoundStructuredExpression,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
         let entry = current;
 
         let [pattern] = expression.patterns() else {

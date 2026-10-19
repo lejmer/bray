@@ -60,7 +60,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 operand,
                 conversion,
             } => {
+                let source_place = matches!(
+                    operand,
+                    bray_ir::MirOperand::Copy(_) | bray_ir::MirOperand::Move(_)
+                );
+
                 let operand = self.operand(operand)?;
+
+                let operand = if source_place
+                    && matches!(conversion.target(), bray_ir::ConversionTarget::Composite(_))
+                {
+                    self.snapshot_value(operand, conversion.source_type(), "conversion.input")?
+                } else {
+                    operand
+                };
+
                 let helpers = self.operation_helpers(id)?;
                 let mut helpers = helpers.iter();
 
@@ -72,6 +86,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR effect translation violated an established compiler contract"
                     );
                 }
+
+                let converted = if source_place
+                    && matches!(conversion.target(), bray_ir::ConversionTarget::Identity)
+                    && conversion.source_type() == conversion.target_type()
+                {
+                    self.snapshot_value(converted, conversion.target_type(), "conversion.snapshot")?
+                } else {
+                    converted
+                };
 
                 Some(converted)
             }
@@ -272,6 +295,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(());
         }
 
+        let ty = destination.ty();
         let destination = self.place(destination)?;
         let value = self.operand(value)?;
 
@@ -279,9 +303,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         // overlapping destination receives its already-evaluated value.
         self.clear_moved_reports()?;
 
-        llvm(self.builder.build_store(destination, value))?;
-
-        Ok(())
+        self.store_value(destination, value, ty)
     }
 
     fn translate_panic_report(
@@ -600,7 +622,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "awaited.completed",
                 )?;
 
-                let result_type = self.types.map(self.operation_result_type(operation))?;
+                let semantic = self.operation_result_type(operation);
+                let result_type = self.types.map(semantic)?;
                 let destination = self.storage(*completion)?;
 
                 let address = llvm(self.builder.build_ptr_to_int(
@@ -617,11 +640,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "awaited.result.source",
                 ))?;
 
-                llvm(
-                    self.builder
-                        .build_load(result_type, selected, "awaited.result"),
-                )
-                .map(Some)
+                self.load_value(selected, semantic, "awaited.result")
+                    .map(Some)
             }
             MirAsyncOperation::StartTask {
                 value,
