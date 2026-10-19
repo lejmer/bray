@@ -113,7 +113,7 @@ pub(super) fn with_scoped_references<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().cloned()))
 }
 
-fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
+pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     contracts: BoundCallDependencyContracts,
     template: &bray_symbols::DependencyContractTemplateData,

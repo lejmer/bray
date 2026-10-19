@@ -22,5 +22,7 @@ pub(crate) use returned::{
 };
 pub(crate) use value::{ValueInputs, transfer_targets};
 
-pub(crate) use call::{cleanup_report_contract, prepare_reference};
+pub(crate) use call::{
+    OperationInput, cleanup_report_contract, operation_inputs, prepare_reference,
+};
 pub(crate) use witness::map_requirements;

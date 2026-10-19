@@ -2239,3 +2239,157 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         }
     }
 }
+
+#[test]
+fn composite_conversion_effects_use_the_aggregate_input_paths() {
+    use bray_symbols::{
+        DependencyProjection, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    for (input, output, expected) in [
+        (
+            "(Source, Source)",
+            "(Target, Target)",
+            vec![
+                DependencyProjection::TupleElement(SymbolOrdinal::new(0)),
+                DependencyProjection::TupleElement(SymbolOrdinal::new(1)),
+            ],
+        ),
+        (
+            "Source?",
+            "Target?",
+            vec![DependencyProjection::NullableValue],
+        ),
+        ("[Source; 2]", "[Target; 2]", vec![]),
+    ] {
+        let source = r#"
+        module api;
+        struct Value
+        {
+            mut active: bool;
+        }
+        struct Source
+        {
+            value: &mut Value;
+        }
+        struct Target {}
+        impl Conversion = Source(ConvertTo<Target>)
+        {
+            consume func convert() -> Target
+            {
+                let mut reference = self.value;
+                reference.active = true;
+                return Target {};
+            }
+        }
+        func caller(pos value: Input) -> Output
+        {
+            return value as Output;
+        }
+        "#
+        .replace("Input", input)
+        .replace("Output", output);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+
+        let consumer = execution_consumer(
+            &application,
+            &format!(
+                "module app; using example.package.api.Source; using example.package.api.Target; using example.package.api.caller; func forward(pos value: {}) -> {} {{ return example.package.api.caller(value); }}",
+                input.replace("Source", "example.package.api.Source"),
+                output.replace("Target", "example.package.api.Target")
+            ),
+        );
+
+        let imported_diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            !imported_diagnostics.has_errors(),
+            "{imported_diagnostics:#?}"
+        );
+
+        for (application, name) in [(&application, "caller"), (&consumer, "forward")] {
+            let key = crate::test_support::source_function_body_key(application, name);
+            let flow = application.storage_flow(key).unwrap();
+            let summary = flow.value().dependencies().effects();
+
+            let summary_roots = summary
+                .iter()
+                .filter_map(|effect| match effect {
+                    DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                summary_roots.len(),
+                expected.len(),
+                "{name}: {source}: {summary:#?}"
+            );
+
+            for reference in summary_roots {
+                assert_eq!(
+                    reference.subject_root(),
+                    DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))
+                );
+
+                assert!(
+                    expected.contains(reference.projections().first().unwrap()),
+                    "{summary:#?}"
+                );
+            }
+
+            assert_eq!(
+                summary
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                expected.is_empty(),
+                "{name}: {source}: {summary:#?}"
+            );
+        }
+
+        let key = crate::test_support::source_function_body_key(&application, "caller");
+        let contracts = application.dependency_contracts(key).unwrap();
+
+        let effects = contracts
+            .value()
+            .calls()
+            .values()
+            .flat_map(|call| call.effects())
+            .collect::<Vec<_>>();
+
+        let indirect = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let actual = indirect
+            .iter()
+            .map(|reference| {
+                assert_eq!(reference.subject_root(), DependencySubjectRoot::Receiver);
+
+                *reference
+                    .projections()
+                    .first()
+                    .expect("composite reference retains its aggregate prefix")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected, "{source}: {effects:#?}");
+
+        if expected.is_empty() {
+            assert!(
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                "{effects:#?}"
+            );
+        }
+    }
+}

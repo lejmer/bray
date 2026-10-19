@@ -149,6 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         {
             // An awaited task retains inputs even though its invocation is deferred.
             let receiver = invocation_argument(
+                self.request.view(),
                 self.execution.semantics.selections(),
                 occurrence,
                 DependencySubjectRoot::Receiver,
@@ -286,9 +287,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 );
 
             for root in arguments {
-                let argument =
-                    invocation_argument(self.execution.semantics.selections(), occurrence, root)
-                        .expect("selected borrow input retains its argument");
+                let argument = invocation_argument(
+                    self.request.view(),
+                    self.execution.semantics.selections(),
+                    occurrence,
+                    root,
+                )
+                .expect("selected borrow input retains its argument");
 
                 let owners = self
                     .liveness
@@ -341,9 +346,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return self.invocation_result(occurrence);
         }
 
-        if let Some(argument) =
-            invocation_argument(self.execution.semantics.selections(), occurrence, root)
-        {
+        if let Some(argument) = invocation_argument(
+            self.request.view(),
+            self.execution.semantics.selections(),
+            occurrence,
+            root,
+        ) {
             return self.argument_storage(argument);
         }
 
@@ -368,9 +376,40 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<Source> {
-        if let Some(argument) =
-            invocation_argument(self.execution.semantics.selections(), occurrence, root)
-        {
+        if let Some(argument) = invocation_argument(
+            self.request.view(),
+            self.execution.semantics.selections(),
+            occurrence,
+            root,
+        ) {
+            if let Some(SemanticSelection::Operation(operation)) = occurrence
+                .expression()
+                .and_then(|expression| self.execution.semantics.selections().expression(expression))
+                && let Some((_, crate::dependency::OperationInput::Borrow(_, kind))) =
+                    crate::dependency::operation_inputs(
+                        self.request.view(),
+                        occurrence.expression()?,
+                        operation,
+                    )
+                    .into_iter()
+                    .find(|(actual, _)| *actual == root)
+            {
+                let access = self
+                    .storage
+                    .expression_plans(argument)
+                    .find(|plan| {
+                        plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind)
+                    })
+                    .expect("checked operation input retains its implicit borrow")
+                    .access();
+
+                return self
+                    .storage
+                    .borrow_capability_entries()
+                    .find(|(id, loan)| loan.access() == access && state.memory.has_borrow(*id))
+                    .map(|(capability, _)| Source::Borrow(capability));
+            }
+
             let owner = if matches!(occurrence, BoundExecutionSite::ScopedEnter(_)) {
                 occurrence.expression()?
             } else {
@@ -406,6 +445,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .reference_path(subject)?;
 
         if let Some(argument) = invocation_argument(
+            self.request.view(),
             self.execution.semantics.selections(),
             occurrence,
             subject.subject_root(),
@@ -433,6 +473,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 }
 
 pub(super) fn invocation_argument(
+    view: bray_bound_tree::BoundUnitView<'_>,
     selections: &bray_bound_tree::CheckedSemanticSelections,
     occurrence: BoundExecutionSite,
     root: DependencySubjectRoot,
@@ -440,6 +481,12 @@ pub(super) fn invocation_argument(
     match selections.expression(occurrence.expression()?)? {
         SemanticSelection::Call(call) => {
             crate::dependency::result_argument(call.arguments(), call.receiver(), root)
+        }
+        SemanticSelection::Operation(operation) => {
+            crate::dependency::operation_inputs(view, occurrence.expression()?, operation)
+                .into_iter()
+                .find(|(actual, _)| *actual == root)
+                .and_then(|(_, input)| input.expression())
         }
         SemanticSelection::ScopedUse(scoped)
             if matches!(occurrence, BoundExecutionSite::ScopedEnter(_))

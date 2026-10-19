@@ -24,8 +24,11 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
         return Ok(None);
     };
 
-    let inputs = operation_inputs(request.view(), expression, operation)
-        .into_iter()
+    let operands = operation_inputs(request.view(), expression, operation);
+
+    let inputs = operands
+        .iter()
+        .copied()
         .filter_map(|(root, input)| {
             let operand = input.expression()?;
 
@@ -68,7 +71,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
         &mut context,
     )?;
 
-    Ok(Some((
+    let contracts =
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)
             .with_reports(reports)
             .with_input_count(inputs.len())
@@ -82,7 +85,70 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             )
             .with_normal_completion(
                 template.template.normal_completion() && template.evaluation_completes,
-            ),
-        template.escaping_evaluation_inputs,
-    )))
+            );
+
+    let contracts = super::super::references::with_reference_inputs(
+        request,
+        contracts,
+        &template.template,
+        None,
+        |subject| {
+            let (access, input) = if subject.subject_root() == DependencySubjectRoot::Result {
+                (expression_access(storage, expression), None)
+            } else {
+                (
+                    inputs
+                        .iter()
+                        .find(|(root, _, _)| *root == subject.subject_root())
+                        .map(|(_, access, _)| *access),
+                    operands
+                        .iter()
+                        .find(|(root, _)| *root == subject.subject_root())
+                        .map(|(_, input)| *input),
+                )
+            };
+
+            let Some(access) = access else {
+                return Ok(None);
+            };
+
+            let mut ty = storage
+                .access(access)
+                .expect("operation input retains its checked access")
+                .reached_type();
+
+            let mut projections = subject.projections();
+
+            match input {
+                Some(OperationInput::Borrow(_, kind)) => {
+                    ty = request
+                        .semantic_values()
+                        .intern_type(bray_symbols::TypeData::Borrow { kind, target: ty })
+                        .expect("checked operation borrow belongs to the semantic store");
+                }
+                Some(OperationInput::Nullable(_)) => {
+                    let Some(payload) = projections
+                        .strip_prefix(&[bray_symbols::DependencyProjection::NullableValue])
+                    else {
+                        // The synthesized nullable slot has no caller-visible storage.
+                        return Ok(None);
+                    };
+
+                    projections = payload;
+                }
+                Some(OperationInput::Value(_)) | None => {}
+            }
+
+            let Some(projections) =
+                crate::storage::resolve_storage_projections(request, projections)?
+            else {
+                return Ok(None);
+            };
+
+            crate::storage::reference_path(request, ty, projections.into(), None)
+        },
+    )
+    .map_err(bray_bound_tree::DependencyContractInstantiationError::Resolution)?;
+
+    Ok(Some((contracts, template.escaping_evaluation_inputs)))
 }
