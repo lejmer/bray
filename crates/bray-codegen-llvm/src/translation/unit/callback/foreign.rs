@@ -110,12 +110,13 @@ pub(in crate::translation::unit) fn translate<'context, 'request>(
     let destination = llvm(builder.build_alloca(outcome_type, "callback.outcome"))?;
 
     let initial = native_run_outcome_value(
-        context,
-        &builder,
-        request.target(),
-        NativeRunState::RUNTIME_FAILURE,
-        usize.const_int(4, false).into(),
-    )?;
+context,
+&builder,
+request.target(),
+NativeRunState::RUNTIME_FAILURE,
+Some(usize.const_int(4, false)),
+None,
+)?;
 
     llvm(builder.build_store(destination, initial))?;
 
@@ -403,12 +404,13 @@ fn declare_callback<'context>(
     resolve_callback_outcome(context, module, request, &builder, callback, returned)?;
 
     let completed = native_run_outcome_value(
-        context,
-        &builder,
-        target,
-        NativeRunState::COMPLETED,
-        state_handle.into(),
-    )?;
+context,
+&builder,
+target,
+NativeRunState::COMPLETED,
+Some(state_handle),
+None,
+)?;
 
     llvm(builder.build_store(outcome, completed))?;
     llvm(builder.build_return(None))?;

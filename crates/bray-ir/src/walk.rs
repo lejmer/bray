@@ -351,6 +351,7 @@ impl MirTerminatorKind {
                 }
             }
             Self::ForwardRunResult { result, .. } => visit_operand(result, &mut visit),
+            Self::TakeCallReport { report, .. } => visit_place_operands(report, &mut visit),
             Self::Panic { report, .. }
             | Self::PropagatePanic { report, .. }
             | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
@@ -549,6 +550,10 @@ pub fn for_each_terminator_storage(
             visit_edge_storage(edges.completed(), &mut visit);
             visit_edge_storage(edges.panicked().edge(), &mut visit);
             visit_edge_storage(edges.cancelled().edge(), &mut visit);
+        }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            visit_edge_storage(completed, &mut visit);
+            visit_place_storage(report, &mut visit);
         }
         MirTerminatorKind::CheckCallOutcome {
             completed,

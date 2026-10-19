@@ -85,17 +85,24 @@ where
     }
 
     let reports = instantiate_reports(
-        &template.template,
-        &mut result_context,
-        &crate::dependency::returned::input_requirements(call).collect::<Vec<_>>(),
-    )?;
+&template.template,
+&mut result_context,
+)?;
 
     let instantiated = if matches!(
         call.resolution().result(),
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     ) {
-        instantiated.with_deferred_reports(reports)
+        let evaluation = instantiate_reports(
+&template.immediate_reports(true),
+&mut result_context,
+)?;
+        instantiated.with_reports(evaluation).with_deferred_reports(reports)
     } else {
+        let reports = instantiate_reports(
+&template.immediate_reports(false),
+&mut result_context,
+)?;
         instantiated.with_reports(reports)
     };
 
@@ -333,13 +340,9 @@ where
         )?);
 
         instantiated = instantiated.with_reports(instantiate_reports(
-            &template,
-            &mut context,
-            &[DependencyRequirement::direct(
-                DependencySubject::root(root),
-                DependencyRequirementKind::ValueDependencies,
-            )],
-        )?);
+&template,
+&mut context,
+)?);
     }
 
     super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
@@ -349,7 +352,6 @@ where
 fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     template: &DependencyContractTemplateData,
     context: &mut CallInstantiationContext<'_, C>,
-    opaque_inputs: &[DependencyRequirement],
 ) -> Result<
     bray_bound_tree::BoundCallReports,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
@@ -357,31 +359,8 @@ fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     let mut instantiate = |requirements: Option<&[DependencyRequirement]>| {
         requirements
             .map(|requirements| {
-                let symbolic = requirements.iter().any(|requirement| {
-                    matches!(
-                        requirement,
-                        DependencyRequirement::ResultCall { .. }
-                            | DependencyRequirement::FixedPoint { .. }
-                            | DependencyRequirement::Variable { .. }
-                    )
-                });
-
-                // An unresolved abstract result can retain any supplied input. Concrete
-                // outputs retain only the dependencies established by their body analysis.
                 let concrete = DependencyContractTemplateData::new(
-                    requirements
-                        .iter()
-                        .filter(|requirement| {
-                            !matches!(
-                                requirement,
-                                DependencyRequirement::ResultCall { .. }
-                                    | DependencyRequirement::FixedPoint { .. }
-                                    | DependencyRequirement::Variable { .. }
-                            )
-                        })
-                        .chain(opaque_inputs.iter().filter(|_| symbolic))
-                        .cloned(),
-                );
+                    concrete_report_requirements(requirements));
 
                 BoundDependencyContract::try_instantiate(&concrete, context)
             })
@@ -392,6 +371,35 @@ fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
         instantiate(template.completion_reports())?,
         instantiate(template.abnormal_reports())?,
     ))
+}
+
+fn concrete_report_requirements(
+    requirements: &[DependencyRequirement],
+) -> Vec<DependencyRequirement> {
+    requirements.iter().flat_map(|requirement| match requirement {
+        // Contracts own their lists and share immutable subject paths.
+        DependencyRequirement::Direct { .. } => vec![requirement.clone()],
+        DependencyRequirement::Guarded(guarded) => vec![DependencyRequirement::guarded(
+            guarded.guard().clone(), concrete_report_requirements(guarded.requirements()))],
+        DependencyRequirement::ResultCall { .. } | DependencyRequirement::FixedPoint { .. }
+        | DependencyRequirement::Variable { .. } => Vec::new(),
+    }).collect()
+}
+
+pub(crate) fn cleanup_report_contract<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    access: bray_bound_tree::StorageAccessId,
+    requirements: &[DependencyRequirement],
+) -> Result<BoundDependencyContract, CheckerQueryError<C::UpstreamError>> {
+    let template = DependencyContractTemplateData::new(concrete_report_requirements(requirements));
+    let mut context = CallInstantiationContext::hidden(request, storage,
+        (DependencySubjectRoot::Receiver, access), None, None);
+    BoundDependencyContract::try_instantiate(&template, &mut context).map_err(|error| match error {
+        DependencyContractInstantiationError::Resolution(error) => error,
+        DependencyContractInstantiationError::ForeignUnit => panic!("cleanup report receiver {access:?} belongs to the checked unit"),
+        DependencyContractInstantiationError::UnresolvedWitness => panic!("cleanup report receiver {access:?} has a resolved dependency contract"),
+    })
 }
 
 fn instantiate_hidden_call<C>(

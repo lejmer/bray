@@ -1420,9 +1420,12 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-            )
+            true,
+)
         } else {
-            Ok((current, value))
+            let mut value = Some(value);
+            let completed = self.take_completion_report(expression.into(), current, &source, &mut value)?;
+            Ok((completed, value.expect("normal call retains its result")))
         }
     }
 

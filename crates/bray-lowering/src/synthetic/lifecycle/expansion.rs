@@ -33,6 +33,7 @@ pub fn expand_lifecycle_continuations<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        pending_reports: None,
         frame: Some(frame.frame()),
         // Expansion extends the enclosing descriptor once, not once per cleanup site.
         frame_states: frame.states().to_vec(),

@@ -50,6 +50,8 @@ pub(super) struct LoopTarget {
 
 pub(super) struct CatchTarget {
     pub(super) block: MirBlockId,
+    pub(super) success: MirBlockId,
+    pub(super) reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) report_type: bray_symbols::TypeId,
     pub(super) scope_depth: usize,
 }
@@ -79,6 +81,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) pending_reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) receiver_cleanup: Option<super::receiver::ReceiverCleanup>,
     pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
@@ -124,6 +127,7 @@ impl<'unit> Lowerer<'unit> {
             capture_cleanup: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
+            pending_reports: None,
             receiver_cleanup: None,
             cleanup_occurrence: None,
             cleanup_failure_targets: None,
@@ -144,6 +148,7 @@ impl<'unit> Lowerer<'unit> {
         self.initialize_receiver_cleanup(&source)?;
 
         self.initialize_cleanup_guards(entry, &source)?;
+        self.pending_reports = self.allocate_pending_reports(entry, &source, None)?;
 
         if let Some((reference, ty)) = self.input.static_owner().cloned() {
             self.builder.push_storage(
@@ -224,7 +229,7 @@ impl<'unit> Lowerer<'unit> {
                     MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
                         state: MirTaskTerminalState::Completed {
                             value,
-                            report: None,
+                            report: self.pending_report(),
                         },
                         runtime: self.runtime_reference(RuntimeAbiRole::TerminalPublication),
                     }),
@@ -245,7 +250,7 @@ impl<'unit> Lowerer<'unit> {
                     completion.source,
                     MirTerminatorKind::Return {
                         value: completion.value,
-                        report: None,
+                        report: self.pending_report(),
                     },
                 )?;
             }

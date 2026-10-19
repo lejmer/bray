@@ -430,6 +430,7 @@ pub(super) fn decode_dependency_requirement(
             ))
         }
         3 | 4 => {
+            let output = decode_tag(read_u32(reader)?)?;
             let callable = crate::InterfaceCallableInstanceId::new(read_u32(reader)?);
 
             let requirement = if raw == 3 {
@@ -446,8 +447,7 @@ pub(super) fn decode_dependency_requirement(
             Ok(InterfaceDependencyRequirement::result_call(
                 callable,
                 requirement,
-                inputs,
-            ))
+                inputs, output, ))
         }
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
@@ -681,7 +681,7 @@ mod tests {
         let words = [
             1, // Normal completion is possible.
             1, // One result requirement.
-            3, 2, 3, 4, 1, // Witness call and one input.
+            3, 1, 2, 3, 4, 1, // Value-output witness call and one input.
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
@@ -715,8 +715,7 @@ mod tests {
                         ),
                         InterfaceDependencyRequirementKind::StorageAlive,
                     )],
-                )],
-            )]);
+                )], bray_symbols::DependencyCallOutput::Value, )]);
 
         assert_eq!(decoded, expected);
 
@@ -736,7 +735,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert_eq!(
             decode_words(
-                &[1, 1, 3, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[1, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -746,7 +745,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 1, 3, 2, 3, 4, u32::MAX],
+                &[1, 1, 3, 1, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {

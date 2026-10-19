@@ -46,6 +46,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
+    pub(super) fn translate_normal_call_report(
+        &mut self,
+        completed: &MirEdge,
+        report: &bray_ir::MirPlace,
+    ) -> Result<(), CodegenFailure> {
+        let context = self.pending_call_panic_report_context.take()
+            .expect("a normal report transfer has its preceding call outcome context");
+        let (source, moved_reports) = self.take_control_source()?;
+        let destination = self.route_call_completion(completed, Some(report), context, &moved_reports)?;
+
+        self.builder.position_at_end(source);
+        llvm(self.builder.build_unconditional_branch(destination))?;
+
+        Ok(())
+    }
+
     pub(super) fn translate_panic_propagation(
         &mut self,
         report: &MirOperand,
@@ -92,12 +108,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.return_broadcast_outcome(progress, report)?;
         } else if let Some(context) = self.panic_report_context {
             let outcome = native_run_outcome_value(
-                self.types.context(),
-                &self.builder,
-                self.request.target(),
-                state,
-                report,
-            )?;
+self.types.context(),
+&self.builder,
+self.request.target(),
+state,
+None,
+Some(report),
+)?;
 
             llvm(self.builder.build_store(context, outcome))?;
             self.return_propagated_outcome()?;

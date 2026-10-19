@@ -97,8 +97,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                             bray_symbols::DependencySubject::root(root),
                             DependencyRequirementKind::StorageAlive,
                         )],
-                    )],
-                ),
+                    )], bray_symbols::DependencyCallOutput::Value, ),
             ]);
 
             requirements
@@ -191,10 +190,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                         self.request.callable_result_dependencies(callable)
                     })?;
 
+                let reports = if matches!(output, bray_bound_tree::CallReportOutput::DeferredCompleted
+                    | bray_bound_tree::CallReportOutput::DeferredAbnormal) {
+                    template.template
+                } else { template.immediate_reports(matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_))) };
                 let requirements = if output.is_abnormal() {
-                    template.template.abnormal_reports()
+                    reports.abnormal_reports()
                 } else {
-                    template.template.completion_reports()
+                    reports.completion_reports()
                 };
 
                 requirements

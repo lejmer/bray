@@ -224,6 +224,10 @@ pub(super) fn remap_terminator(
             remap_cleanup_edge(&mut edges.panicked, mappings);
             remap_cleanup_edge(&mut edges.cancelled, mappings);
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            remap_edge(completed, mappings);
+            report.remap_local_ids(mappings);
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,

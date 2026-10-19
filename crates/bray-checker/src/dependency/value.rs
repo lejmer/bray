@@ -310,6 +310,11 @@ impl ValueInputs {
         self.projected_initializers.get(&expression).copied()
     }
 
+    pub(crate) fn retain_input(&mut self, result: BoundExpressionId, input: BoundExpressionId) {
+        let inputs = self.expressions.entry(result).or_default();
+        if !inputs.contains(&input) { inputs.push(input); }
+    }
+
     pub(crate) fn operands(
         &self,
         expression: BoundExpressionId,

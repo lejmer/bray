@@ -127,17 +127,19 @@ impl HeaderMatcher<'_> {
             }
             (
                 DependencyRequirement::ResultCall {
+                    output: pattern_output,
                     callable: pattern_callable,
                     requirement: pattern_requirement,
                     inputs: pattern_inputs,
                 },
                 DependencyRequirement::ResultCall {
+                    output: actual_output,
                     callable: actual_callable,
                     requirement: actual_requirement,
                     inputs: actual_inputs,
                 },
             ) => {
-                if pattern_requirement.is_some() != actual_requirement.is_some()
+                if pattern_output != actual_output || pattern_requirement.is_some() != actual_requirement.is_some()
                     || !self.match_callable_instance(*pattern_callable, *actual_callable)?
                 {
                     return Ok(false);

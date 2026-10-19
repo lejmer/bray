@@ -36,6 +36,12 @@ macro_rules! wire_tags {
     };
 }
 
+wire_tags!(bray_symbols::DependencyCallOutput {
+    1 => bray_symbols::DependencyCallOutput::Value,
+    2 => bray_symbols::DependencyCallOutput::CompletionReport,
+    3 => bray_symbols::DependencyCallOutput::AbnormalReport,
+});
+
 wire_tags!(InterfaceProductKind {
     1 => InterfaceProductKind::Library,
     2 => InterfaceProductKind::Executable,

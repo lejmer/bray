@@ -262,6 +262,7 @@ where
             .with_returned_input(returned_input),
     )
     .with_report_collections(collector.report_collections)
+    .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
     .with_cleanup_mutations(collector.cleanup_mutations)
     .with_completions(collector.completions);
@@ -380,6 +381,7 @@ where
     pub(super) on_normal_path: bool,
     pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
+    pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) has_normal_effects: bool,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
     pub(super) cleanup_mutations:
@@ -497,6 +499,7 @@ where
             on_normal_path: false,
             report_boundary: None,
             report_collections: BTreeSet::new(),
+            reporting_completions: BTreeSet::new(),
             has_normal_effects: false,
             references: None,
             memory_decisions: BTreeMap::new(),
@@ -596,7 +599,7 @@ where
 
         let kind = operation.kind();
 
-        self.retain_operation_reports(state, *operation);
+        self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind);
 
         if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {

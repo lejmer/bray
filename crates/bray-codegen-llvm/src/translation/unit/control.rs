@@ -223,6 +223,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_switch(tag, cancelled_route, &cases))?;
             }
+            MirTerminatorKind::TakeCallReport { completed, report } => {
+                self.translate_normal_call_report(completed, report)?;
+            }
             MirTerminatorKind::CheckCallOutcome {
                 completed,
                 panicked,
@@ -723,12 +726,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let report = self.operand(report)?;
 
             let outcome = super::support::native_run_outcome_value(
-                self.types.context(),
-                &self.builder,
-                self.request.target(),
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                report,
-            )?;
+self.types.context(),
+&self.builder,
+self.request.target(),
+bray_runtime_abi::NativeRunState::COMPLETED,
+None,
+Some(report),
+)?;
 
             llvm(self.builder.build_store(destination, outcome))?;
         }

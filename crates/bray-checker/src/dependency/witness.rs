@@ -22,9 +22,18 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
         .semantic_values()
         .intern_callable_instance(instance).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in deferred_result: {error:?}"));
 
-    Ok(DependencyContractTemplateData::new([
-        DependencyRequirement::result_call(callable, requirement, call_inputs(call)),
-    ]))
+    let inputs = call_inputs(call);
+    let template = DependencyContractTemplateData::new([
+        DependencyRequirement::result_call(callable, requirement, inputs.iter().cloned(), bray_symbols::DependencyCallOutput::Value),
+    ]).with_abnormal_reports([DependencyRequirement::result_call(callable, requirement,
+        inputs.iter().cloned(), bray_symbols::DependencyCallOutput::AbnormalReport)]);
+    let body = call.phase_behaviors().deferred_execution().unwrap_or(call.phase_behaviors().invocation());
+    // The verified phase contract excludes admission and insertion of normal incidents.
+    // Totality alone establishes no such absence.
+    Ok(if body.execution_properties().contains(&bray_symbols::ExecutionProperty::Pure) {
+        template
+    } else { template.with_completion_reports([DependencyRequirement::result_call(callable, requirement,
+        inputs, bray_symbols::DependencyCallOutput::CompletionReport)]) })
 }
 
 fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
@@ -85,8 +94,8 @@ struct EquationFrame {
 
 struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     request: CheckerUnitView<'a, C>,
-    active: std::collections::BTreeSet<super::parameters::ResultKey>,
-    results: std::collections::BTreeMap<super::parameters::ResultKey, Vec<DependencyRequirement>>,
+    active: std::collections::BTreeSet<(super::parameters::ResultKey, bray_symbols::DependencyCallOutput)>,
+    results: std::collections::BTreeMap<(super::parameters::ResultKey, bray_symbols::DependencyCallOutput), Vec<DependencyRequirement>>,
     changed: bool,
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
@@ -122,10 +131,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
     fn selected_result(
         &mut self,
         key: super::parameters::ResultKey,
+        output: bray_symbols::DependencyCallOutput,
     ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let (selected, contextual_self) = key;
 
-        let key = self.parameters.key(self.request, key)?;
+        let key = (self.parameters.key(self.request, key)?, output);
 
         if !self.active.insert(key) {
             // Recursive calls read the preceding approximation while this result is recomputed.
@@ -139,8 +149,12 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let template = instantiate_template(request, template, (selected, contextual_self))?;
 
-        let result =
-            DependencyContractTemplateData::new(self.requirements(template.requirements())?);
+        let requirements = match output {
+            bray_symbols::DependencyCallOutput::Value => template.requirements(),
+            bray_symbols::DependencyCallOutput::CompletionReport => template.completion_reports().unwrap_or(&[]),
+            bray_symbols::DependencyCallOutput::AbnormalReport => template.abnormal_reports().unwrap_or(&[]),
+        };
+        let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
 
         self.active.remove(&key);
 
@@ -291,7 +305,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                     result.extend(self.variable(*depth, *ordinal)?)
                 }
                 DependencyRequirement::ResultCall {
-                    callable,
+                    output, callable,
                     requirement,
                     inputs,
                 } => {
@@ -324,7 +338,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                         }
                     };
 
-                    let resolved = self.selected_result(key)?;
+                    let resolved = self.selected_result(key, *output)?;
 
                     let mapped = map_call_inputs(&resolved, inputs).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in requirements: {error:?}"));
 
@@ -367,7 +381,7 @@ fn map_call_inputs(
     })
 }
 
-pub(super) fn map_requirements(
+pub(crate) fn map_requirements(
     requirements: &[DependencyRequirement],
     map: &mut impl FnMut(
         &DependencySubject,

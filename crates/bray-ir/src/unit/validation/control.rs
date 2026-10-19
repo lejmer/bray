@@ -183,6 +183,15 @@ pub(super) fn validate_terminator(
             validate_cleanup_start(unit, block_id, edges.panicked())?;
             validate_cleanup_start(unit, block_id, edges.cancelled())?;
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            if !block.operations().last().and_then(|operation| unit.operation(*operation))
+                .is_some_and(|operation| matches!(operation.kind(), crate::MirOperationKind::Call(_)
+                    | crate::MirOperationKind::Async(crate::MirAsyncOperation::CommitAwaitedCompletion { .. }))) {
+                return None;
+            }
+            validate_local_edge(unit, block_id, completed)?;
+            super::operation::validate_place(unit, report, block_id, None)?;
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
@@ -239,6 +248,7 @@ pub(super) fn validate_terminator(
                 | MirTerminatorKind::InlineAssembly(_)
                 | MirTerminatorKind::ContinueCleanup(_)
                 | MirTerminatorKind::CheckCallOutcome { .. }
+                | MirTerminatorKind::TakeCallReport { .. }
                 | MirTerminatorKind::Return {
                     value: None,
                     report: None

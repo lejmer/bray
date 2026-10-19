@@ -306,7 +306,8 @@ impl Lowerer<'_> {
                 &value,
                 owner_type,
                 Some(owner_type),
-            )?
+            false,
+)?
         } else {
             (block, value)
         };

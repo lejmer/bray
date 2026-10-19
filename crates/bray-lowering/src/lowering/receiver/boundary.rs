@@ -127,7 +127,7 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::Return {
                 value: None,
-                report: None,
+                report: self.pending_report(),
             },
         )?;
 

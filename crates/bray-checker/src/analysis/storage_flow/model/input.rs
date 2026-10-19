@@ -234,7 +234,7 @@ impl StorageFlowInput {
         };
 
         input.prepare_locations(storage, cleanup);
-        input.prepare_report_dependencies(storage, liveness, dependencies);
+        input.prepare_report_dependencies(storage, liveness, dependencies, cleanup);
         input.prepare_variant_payloads(footprint.references.iter().map(|(path, _)| path));
 
         input.prepare_reference_constructions(request, storage, values)?;
@@ -267,7 +267,7 @@ impl StorageFlowInput {
         Ok((input, diagnostics))
     }
 
-    fn prepare_locations(
+    pub(super) fn prepare_locations(
         &mut self,
         storage: &StoragePlan,
         cleanup: &crate::analysis::guarantee::CleanupPlan,

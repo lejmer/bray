@@ -123,6 +123,7 @@ where
         storage,
         memory,
         graph,
+        &prepared.cleanup,
     );
 
     let mut excluded = std::collections::BTreeSet::new();

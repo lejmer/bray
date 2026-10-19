@@ -47,8 +47,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.capacity_error(cause))?;
 
+        let reports = body.unit.blocks().iter().any(|block| matches!(
+            block.terminator().kind(), MirTerminatorKind::Return { report: Some(_), .. }
+        ));
         let (block, result) =
-            self.check_lifecycle_value(builder, block, source, result, callable.result.ty())?;
+            self.check_lifecycle_value(builder, block, source, result, callable.result.ty(), reports)?;
 
         let Some(parameter) = parameter else {
             return Ok((block, result));
@@ -399,7 +402,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder,
                 entry,
                 source,
-                finish,
+                MirEdge::new(finish, []),
                 state,
                 MirOperand::Value(report),
             )

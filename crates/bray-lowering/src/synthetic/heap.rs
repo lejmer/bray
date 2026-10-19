@@ -67,6 +67,7 @@ pub fn lower_heap_storage<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        pending_reports: None,
         frame: None,
         frame_states: Vec::new(),
         continuation: None,

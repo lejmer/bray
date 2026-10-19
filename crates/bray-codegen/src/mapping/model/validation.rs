@@ -364,6 +364,7 @@ fn terminator_runtime_references(
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::ForwardRunResult { .. }
         | MirTerminatorKind::CheckCallOutcome { .. }
+        | MirTerminatorKind::TakeCallReport { .. }
         | MirTerminatorKind::BeginCleanup(_)
         | MirTerminatorKind::ContinueCleanup(_)
         | MirTerminatorKind::Panic { .. }

@@ -493,7 +493,7 @@ impl InterfaceSemantics {
                 scopes.pop();
             }
             InterfaceDependencyRequirementValue::ResultCall {
-                callable,
+                output: _, callable,
                 requirement,
                 inputs,
             } => {

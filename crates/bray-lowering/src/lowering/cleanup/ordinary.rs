@@ -76,13 +76,14 @@ impl Lowerer<'_> {
             input_exit,
         )?;
 
-        self.set_destination(
-            lifecycle,
-            source,
-            destination,
-            pending
-                .as_ref()
-                .map(|place| MirOperand::Move(Self::retained_place(place))),
+        let InputExit::Scope(scope_depth) = input_exit else {
+            unreachable!("ordinary scope cleanup has its lexical destination depth");
+        };
+
+        self.set_ordinary_destination(
+            lifecycle, source, destination,
+            pending.as_ref().map(|place| MirOperand::Move(Self::retained_place(place))),
+            scope_depth, exit,
         )
     }
 
@@ -226,11 +227,18 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         released_owner: Option<TypeId>,
         shielded: bool,
-        value: Option<MirOperand>,
+        mut value: Option<MirOperand>,
+        occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     ) -> Result<(MirBlockId, Option<MirOperand>), LoweringError> {
+        // The receiver shares immutable collection paths with the surrounding source boundary.
+        let outcome = occurrence.and_then(|site| self.completion_report_outcome(site)).cloned();
         let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
         else {
-            return Ok((block, value));
+            let completed = match outcome {
+                Some(outcome) => outcome.take_completed_report(&mut self.builder, block, source, &mut value)?,
+                None => block,
+            };
+            return Ok((completed, value));
         };
 
         if released_owner.is_some() || shielded {
@@ -263,15 +271,22 @@ impl Lowerer<'_> {
             }
         }
 
-        crate::continuation::check_call_outcome(
+        let completed_report = outcome.as_ref().map(|outcome|
+            outcome.incoming_report(&mut self.builder, source)).transpose()?;
+        let (completed, mut value) = crate::continuation::check_call_outcome(
             &mut self.builder,
             block,
             source,
             panicked,
             cancelled,
             report,
+            completed_report,
             value,
-        )
-        .map_err(Into::into)
+        )?;
+        let completed = match outcome {
+            Some(outcome) => outcome.retain_completed_report(&mut self.builder, completed, source, &mut value)?,
+            None => completed,
+        };
+        Ok((completed, value))
     }
 }

@@ -81,6 +81,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             return Ok(collection.clone());
         }
 
+        let outcome = self.allocate_outcome(builder, source)?;
+        outcome.begin(builder, block, source).map_err(|cause| self.capacity_error(cause))?;
+        Ok(outcome)
+    }
+
+    pub(super) fn allocate_outcome(
+        &self,
+        builder: &mut MirUnitBuilder,
+        source: &MirSourceAnchor,
+    ) -> Result<CleanupOutcome, C::Error> {
         let boolean = self
             .context
             .representation_type(RepresentationRole::ScalarBool)?;
@@ -98,15 +108,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(super::super::SyntheticLoweringError::SemanticValue)?;
 
-        CleanupOutcome::new(
+        CleanupOutcome::allocate(
             builder,
-            block,
             source,
             boolean,
             report,
             unit,
             builder.target().runtime_abi(),
             states,
+            bray_ir::MirStorageKind::Temporary,
         )
         .map_err(|cause| self.capacity_error(cause))
     }
@@ -155,7 +165,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
-        Ok(completed)
+        outcome.forward_incidents(builder, completed, source, self.pending_reports.as_ref(), value)
+            .map_err(invalid)
     }
 
     pub(super) fn check_lifecycle_value(
@@ -165,6 +176,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         value: bray_ir::MirValueId,
         result: bray_symbols::TypeId,
+        reports: bool,
     ) -> Result<(MirBlockId, bray_ir::MirValueId), C::Error> {
         if let Some(collection) = &self.collection {
             let (completed, result, failed) = collection
@@ -173,6 +185,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     block,
                     source,
                     Some(bray_ir::MirOperand::Value(value)),
+                    reports,
                 )
                 .map_err(|cause| self.capacity_error(cause))?;
 
@@ -219,6 +232,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let report = bray_ir::MirPlace::new(report_storage, [], report_type);
 
         let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
+        let normal_report = if reports {
+            Some(self.pending_reports.as_ref().expect("standalone reporting lifecycle has its pending owner")
+                .incoming_report(builder, source).map_err(invalid)?)
+        } else { None };
 
         builder.set_terminator(
             block,
@@ -227,7 +244,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
                 panicked: bray_ir::MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: bray_ir::MirCallFailureEdge::new(cancelled, report.clone()),
-                completed_report: None,
+                completed_report: normal_report,
             },
         );
 
@@ -253,7 +270,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
-        Ok((completed, value_parameter))
+        let mut value = Some(bray_ir::MirOperand::Value(value_parameter));
+        let completed = if reports {
+            self.pending_reports.as_ref().expect("normal lifecycle report has its owner")
+                .retain_completed_report(builder, completed, source, &mut value).map_err(invalid)?
+        } else { completed };
+        let Some(bray_ir::MirOperand::Value(value)) = value else { unreachable!("lifecycle result is forwarded by its completion parameter") };
+        Ok((completed, value))
     }
 
     fn finish_cleanup_propagation(
@@ -264,6 +287,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         mut terminator: MirTerminatorKind,
     ) -> Result<(), C::Error> {
         let invalid = |cause| self.capacity_error(cause);
+        let mut block = block;
+        if let Some(pending) = &self.pending_reports {
+            let (state, report) = match &mut terminator {
+                MirTerminatorKind::PropagatePanic { report, .. } => (bray_ir::MirCleanupState::Panicked, report),
+                MirTerminatorKind::PropagateCancellation { report, .. } => (bray_ir::MirCleanupState::Cancelled, report),
+                _ => panic!("cleanup propagation carries an owned abnormal report"),
+            };
+            let retained = builder.push_block(source.clone(), builder.block_kind(block)).map_err(invalid)?;
+            pending.retain_report(builder, block, source, MirEdge::new(retained, []), state, report.clone()).map_err(invalid)?;
+            *report = pending.report();
+            block = retained;
+        }
 
         if builder.block_kind(block) != MirBlockKind::CleanupBroadcast {
             builder.set_terminator(block, source.clone(), terminator);

@@ -288,6 +288,10 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
             collect_cleanup_edge_values(edges.panicked(), demands);
             collect_cleanup_edge_values(edges.cancelled(), demands);
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            collect_edge_values(completed, demands);
+            collect_place_values(report, demands);
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,

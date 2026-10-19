@@ -299,12 +299,13 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
     )?;
 
     let outcome = native_run_outcome_value(
-        context,
-        builder,
-        request.target(),
-        NativeRunState::PANICKED,
-        report,
-    )?;
+context,
+builder,
+request.target(),
+NativeRunState::PANICKED,
+None,
+Some(report),
+)?;
 
     resolve_callback_outcome(context, module, request, builder, trampoline, outcome)?;
     llvm(builder.build_unconditional_branch(finished))?;

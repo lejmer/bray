@@ -11,6 +11,7 @@ mod outgoing;
 mod owned;
 mod parts;
 mod projection;
+mod reports;
 mod receiver;
 mod replacement;
 mod representation;

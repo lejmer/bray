@@ -30,14 +30,13 @@ pub(super) fn map_requirements<E>(
                     map_requirements(result, depth.saturating_add(1), transform)?,
                 ),
                 DependencyRequirement::ResultCall {
-                    callable,
+                    output, callable,
                     requirement,
                     inputs,
                 } => DependencyRequirement::result_call(
                     *callable,
                     *requirement,
-                    map_inputs(inputs, depth, transform)?,
-                ),
+                    map_inputs(inputs, depth, transform)?, *output, ),
                 DependencyRequirement::Guarded(guarded) => DependencyRequirement::guarded(
                     guarded.guard().clone(),
                     map_requirements(guarded.requirements(), depth, transform)?,

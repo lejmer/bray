@@ -90,7 +90,7 @@ impl Lowerer<'_> {
                 Ok(outcome.check(&mut self.builder, block, source)?)
             } else {
                 Ok(self
-                    .check_ordinary_cleanup(block, source, Some(owner), false, None)?
+                    .check_ordinary_cleanup(block, source, Some(owner), false, None, None)?
                     .0)
             };
         }
@@ -276,6 +276,8 @@ impl Lowerer<'_> {
                 invocation,
             ),
             payloads,
+            self.input.dependency_contracts().lifecycle_dependencies()[&callable.callable]
+                .completion_reports().is_some(),
         )?;
 
         // Keep the owner broadcastable throughout finalizer mutation. Destruction
@@ -343,13 +345,10 @@ impl Lowerer<'_> {
 
         let [panicked, cancelled] = transfers;
 
-        Ok(outcome.dispatch(
-            &mut self.builder,
-            block,
-            source,
-            panicked,
-            cancelled,
-            &mut None,
-        )?)
+        let completed = outcome.dispatch(
+            &mut self.builder, block, source, panicked, cancelled, &mut None,
+        )?;
+
+        self.forward_cleanup_incidents(completed, source, outcome, &mut None)
     }
 }

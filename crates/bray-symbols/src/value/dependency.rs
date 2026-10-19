@@ -189,6 +189,8 @@ pub enum DependencyRequirement {
     Guarded(GuardedDependencyRequirement),
     /// A deferred callable result, optionally awaiting implementation selection.
     ResultCall {
+        /// The selected value or owned report output.
+        output: DependencyCallOutput,
         /// The declaration and its generic arguments.
         callable: super::CallableInstanceId,
         /// The subject and trait application selecting an implementation, when needed.
@@ -196,6 +198,17 @@ pub enum DependencyRequirement {
         /// Dependencies of each actual input in the enclosing contract.
         inputs: Arc<[DependencyCallInput]>,
     },
+}
+
+/// The owned output selected from one checked callable summary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DependencyCallOutput {
+    /// The ordinary returned value.
+    Value,
+    /// Reports accompanying normal completion.
+    CompletionReport,
+    /// Reports accompanying panic or cancellation.
+    AbnormalReport,
 }
 
 /// The storage and value dependencies supplied to one symbolic result call.
@@ -260,8 +273,10 @@ impl DependencyRequirement {
         callable: super::CallableInstanceId,
         requirement: Option<crate::ImplementationRequirementKey>,
         inputs: impl IntoIterator<Item = DependencyCallInput>,
+        output: DependencyCallOutput,
     ) -> Self {
         Self::ResultCall {
+            output,
             callable,
             requirement,
             inputs: sorted_unique_shared_slice(inputs),

@@ -227,7 +227,7 @@ impl SemanticValueStore {
                 Ok(DependencyRequirement::variable(*depth, *ordinal))
             }
             DependencyRequirement::ResultCall {
-                callable,
+                output, callable,
                 requirement,
                 inputs,
             } => {
@@ -255,8 +255,7 @@ impl SemanticValueStore {
                 Ok(DependencyRequirement::result_call(
                     callable,
                     requirement,
-                    inputs,
-                ))
+                    inputs, *output, ))
             }
             DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(
                 self.substitute_dependency_subject(subject, substitution)?,

@@ -5,7 +5,7 @@ use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, StorageAccessId};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
-    MirSourceAnchor, MirSwitchCase, MirTerminatorKind,
+    MirSourceAnchor, MirStorageKind, MirSwitchCase, MirTerminatorKind,
 };
 use bray_symbols::ConstantValueId;
 
@@ -91,9 +91,8 @@ impl Lowerer<'_> {
         CleanupOutcome::state_constants(self.input.semantic_values(), ty).map_err(Into::into)
     }
 
-    pub(in crate::lowering) fn create_cleanup_outcome(
+    pub(in crate::lowering) fn allocate_cleanup_outcome(
         &mut self,
-        block: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<CleanupOutcome, LoweringError> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
@@ -101,17 +100,28 @@ impl Lowerer<'_> {
         let unit = self.representation_type(RepresentationRole::Unit)?;
         let states = self.cleanup_state_constants()?;
 
-        CleanupOutcome::new(
+        CleanupOutcome::allocate(
             &mut self.builder,
-            block,
             source,
             boolean,
             report,
             unit,
             self.input.target().runtime_abi(),
             states,
+            MirStorageKind::Temporary,
         )
         .map_err(Into::into)
+    }
+
+    pub(in crate::lowering) fn create_cleanup_outcome(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<CleanupOutcome, LoweringError> {
+        let outcome = self.allocate_cleanup_outcome(source)?;
+        outcome.begin(&mut self.builder, block, source)?;
+
+        Ok(outcome)
     }
 
     pub(in crate::lowering) fn suspension_cleanup_edge(
@@ -131,7 +141,8 @@ impl Lowerer<'_> {
             .create_cleanup_outcome(broadcast, source)?
             .with_retention(Some(Arc::new(retention)));
 
-        outcome.initialize_cancellation(&mut self.builder, broadcast, source, None)?;
+        let broadcast = self.seed_pending_failure(&outcome, broadcast, source,
+            CleanupFailure::Cancellation(None), CleanupDestination::PropagateCancellation)?;
         self.cleanup_outcome = Some(outcome);
 
         let lifecycle = self.resolve_cleanup(
@@ -207,19 +218,7 @@ impl Lowerer<'_> {
 
         machine.outcome.begin(&mut self.builder, current, source)?;
 
-        match failure {
-            CleanupFailure::Panic(report) => {
-                machine
-                    .outcome
-                    .initialize_panic(&mut self.builder, current, source, report)?
-            }
-            CleanupFailure::Cancellation(report) => machine.outcome.initialize_cancellation(
-                &mut self.builder,
-                current,
-                source,
-                report,
-            )?,
-        }
+        let current = self.seed_pending_failure(&machine.outcome, current, source, failure, destination)?;
 
         let temporaries = self.input_cleanup(input_exit);
 

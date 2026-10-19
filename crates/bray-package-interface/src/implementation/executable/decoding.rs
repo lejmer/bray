@@ -2191,6 +2191,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 item: self.block_id()?,
                 exhausted: self.edge()?,
             }),
+            18 => Ok(MirTerminatorKind::TakeCallReport {
+                completed: self.edge()?,
+                report: self.place()?,
+            }),
             17 => Ok(MirTerminatorKind::CheckCallOutcome {
                 completed: self.edge()?,
                 panicked: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),

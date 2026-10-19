@@ -24,7 +24,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             self.push_selected_call(builder, block, source, storage_place, borrow, borrow.result)?;
 
         let (block, borrowed) =
-            self.check_lifecycle_value(builder, block, source, borrowed, borrow.result.ty())?;
+            self.check_lifecycle_value(builder, block, source, borrowed, borrow.result.ty(), self.context.callable_completion_reports(borrow.callable)?)?;
 
         let temporary = builder
             .push_storage(

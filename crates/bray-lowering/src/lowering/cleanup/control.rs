@@ -200,7 +200,7 @@ impl Lowerer<'_> {
 
                 MirTaskTerminalState::Completed {
                     value: MirOperand::Value(result),
-                    report: None,
+                    report: self.pending_report(),
                 }
             }
             TerminalState::Panicked(report_type) => {
@@ -290,7 +290,16 @@ impl Lowerer<'_> {
 
         if self.input_cleanup(input_exit).is_empty() && plans.iter().all(|plan| !plan.has_cleanup())
         {
-            return self.set_direct_exit(current, source, entry, destination, value);
+            match &entry {
+                CleanupEntry::Ordinary => return self.set_ordinary_destination(current, source,
+                    destination, value.map(|(value, _)| value), scope_depth, exit),
+                CleanupEntry::Panic(_) | CleanupEntry::Cancellation(_)
+                    if !self.has_pending_failure_reports(destination, matches!(entry, CleanupEntry::Panic(_))) =>
+                {
+                    return self.set_direct_exit(current, source, entry, destination, value);
+                }
+                CleanupEntry::Panic(_) | CleanupEntry::Cancellation(_) => {}
+            }
         }
 
         match entry {
@@ -711,7 +720,7 @@ impl Lowerer<'_> {
         }
     }
 
-    pub(super) fn set_destination(
+    pub(in crate::lowering) fn set_destination(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
@@ -744,7 +753,7 @@ impl Lowerer<'_> {
             CleanupDestination::Goto(target) => {
                 MirTerminatorKind::Goto(MirEdge::new(target, value))
             }
-            CleanupDestination::Return => MirTerminatorKind::Return { value: value, report: None },
+            CleanupDestination::Return => MirTerminatorKind::Return { value, report: self.pending_report() },
             CleanupDestination::PropagatePanic => MirTerminatorKind::PropagatePanic {
                 report: value.unwrap_or_else(|| {
                     panic!(

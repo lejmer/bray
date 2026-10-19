@@ -45,7 +45,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                 let callable = retain_parameters(values, *callable, relevant.get(target))
                     .and_then(|callable| values.intern_callable_instance(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in solve_parameters: {error:?}"));
 
-                requirements.push(DependencyRequirement::result_call(callable, None, []));
+                requirements.push(DependencyRequirement::result_call(callable, None, [], bray_symbols::DependencyCallOutput::Value, ));
             }
 
             let template = values

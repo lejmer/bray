@@ -261,11 +261,12 @@ pub(super) fn encode_dependency_requirement(
             }
         }
         InterfaceDependencyRequirementValue::ResultCall {
-            callable,
+            output, callable,
             requirement,
             inputs,
         } => {
             encoder.write_u32(if requirement.is_some() { 3 } else { 4 });
+            encoder.write_u32(output.to_wire());
             encoder.write_u32(callable.raw());
 
             if let Some((subject, application)) = requirement {

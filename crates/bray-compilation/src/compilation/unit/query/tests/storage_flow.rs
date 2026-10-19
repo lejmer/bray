@@ -8,6 +8,75 @@ use bray_diagnostics::{
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn normal_reports_follow_calls_and_consumed_futures() {
+    for (execution, invocation) in [("", "collect(resource)"), ("async ", "await collect(resource)")] {
+        let source = r#"
+        module app;
+        struct Value
+        {
+            value: bool;
+            func read() -> bool
+            {
+                return self.value;
+            }
+        }
+        struct Failure
+        {
+            value: &Value;
+            destruct()
+            {
+                assert(self.value.read());
+            }
+        }
+        struct Resource
+        {
+            value: Value;
+            enter() -> &Value
+            {
+                return &self.value;
+            }
+            exit(pos lease: &Value) -> Result<unit, Failure>
+            {
+                return Error(Failure { value = lease });
+            }
+        }
+        Executionfunc collect(pos resource: &Resource) -> Result<unit, Failure>
+        {
+            let _ = with lease = resource
+            {
+                return Ok(unit);
+            };
+            return Ok(unit);
+        }
+        async func caller(pos resource: &Resource)
+        {
+            let _ = Invocation;
+        }
+        "#.replace("Execution", execution).replace("Invocation", invocation);
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+        assert!(!diagnostics.has_errors(), "{execution}: {diagnostics:#?}");
+        for name in ["collect", "caller"] {
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(&compilation, name);
+            assert!(summary.completion_reports().is_some_and(|requirements| !requirements.is_empty()),
+                "{execution}{name}: {summary:#?}");
+            let key = crate::test_support::source_function_body_key(&compilation, name);
+            let lowered = compilation.lowered_unit(key).expect("report-producing body lowers");
+            assert!(!lowered.diagnostics().has_errors(), "{:#?}", lowered.diagnostics());
+            let unit = lowered.value().as_ref().expect("checked report-producing body lowers")
+                .mir().expect("checked report-producing body has MIR");
+            assert!(unit.is_valid(), "{execution}{name} preserves MIR ownership and edge contracts");
+            assert!(unit.blocks().iter().any(|block| matches!(block.terminator().kind(),
+                bray_ir::MirTerminatorKind::Return { report: Some(_), .. }
+            )) || unit.operations().iter().any(|operation| matches!(operation.kind(),
+                bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
+                    state: bray_ir::MirTaskTerminalState::Completed { report: Some(_), .. }, .. })
+            )), "{execution}{name} publishes its retained reports");
+        }
+    }
+}
+
+#[test]
 fn retained_scoped_exit_errors_keep_borrowed_origins_alive() {
     for (parameter, escapes) in [("Resource", true), ("&Resource", false)] {
         let source = r#"

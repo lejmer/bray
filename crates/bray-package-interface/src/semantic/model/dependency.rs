@@ -119,9 +119,11 @@ impl InterfaceDependencyRequirement {
         callable: super::InterfaceCallableInstanceId,
         requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
         inputs: impl IntoIterator<Item = InterfaceDependencyCallInput>,
+        output: bray_symbols::DependencyCallOutput,
     ) -> Self {
         Self {
             value: InterfaceDependencyRequirementValue::ResultCall {
+                output,
                 callable,
                 requirement,
                 inputs: sorted_unique_shared_slice(inputs),
@@ -172,6 +174,8 @@ pub enum InterfaceDependencyRequirementValue {
     },
     /// A deferred callable result, optionally awaiting implementation selection.
     ResultCall {
+        /// The selected value or owned report output.
+        output: bray_symbols::DependencyCallOutput,
         /// Callable instance.
         callable: super::InterfaceCallableInstanceId,
         /// Subject and trait application selecting an implementation, when needed.

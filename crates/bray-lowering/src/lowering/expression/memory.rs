@@ -256,7 +256,8 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-            )?;
+            false,
+)?;
 
             return Ok(LoweredExpression::continuing(
                 completed,

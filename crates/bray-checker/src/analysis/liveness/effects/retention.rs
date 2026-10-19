@@ -16,9 +16,20 @@ impl OperationEffects {
         selections: &bray_bound_tree::CheckedSemanticSelections,
         storage: &StoragePlan,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
         use bray_bound_tree::{BoundExecutionSite, CallReportOutput, SemanticSelection};
+
+        let reporting = cleanup.reporting_accesses(dependencies)
+            .map(|access| storage.root_identity(access).expect("selected cleanup retains its owner"))
+            .collect::<BTreeSet<_>>();
+        let mut reporting_scopes = BTreeMap::<_, BTreeSet<_>>::new();
+        for requirement in cleanup.requirements.iter().filter(|requirement| !requirement.transfers() && reporting.contains(&requirement.identity())) {
+            if let Some(scope) = requirement.owner() {
+                reporting_scopes.entry(scope).or_default().insert(requirement.identity());
+            }
+        }
 
         for (occurrence, call) in dependencies.calls() {
             let (BoundExecutionSite::ScopedEnter(expression)
@@ -58,8 +69,23 @@ impl OperationEffects {
                     .operation(*id)
                     .expect("report retention operation belongs to its graph")
             }) {
-                let AnalysisOperationKind::Call { invocation, phase } = operation.kind() else {
-                    continue;
+                if let AnalysisOperationKind::ScopeExit { block: exited, .. } = operation.kind() {
+                    for owner in std::iter::successors(Some(boundary), |owner| graph.report_parent(*owner)) {
+                        self.report_owner_inputs.entry(owner.into()).or_default()
+                            .extend(reporting_scopes.get(&exited).into_iter().flatten().copied());
+                    }
+                }
+                if let Some(bray_bound_tree::BoundExpression::Await(awaited)) = operation.kind().occurrence().expression()
+                    .and_then(|expression| request.view().expression(expression)) {
+                    for owner in std::iter::successors(Some(boundary), |owner| graph.report_parent(*owner)) {
+                        self.value_inputs.retain_input(owner, awaited.operand());
+                    }
+                }
+                let (invocation, phase) = match operation.kind() {
+                    AnalysisOperationKind::Call { invocation, phase } => (invocation, phase),
+                    AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(expression))
+                        if dependencies.calls().contains_key(&expression.into()) => (expression.into(), AnalysisCallPhase::Completion),
+                    _ => continue,
                 };
 
                 let Some(call) = dependencies.calls().get(&invocation) else {
@@ -179,6 +205,15 @@ impl OperationEffects {
 
         loop {
             let mut changed = false;
+            for (owner, roots) in &self.report_owner_inputs {
+                let retained = roots.iter().flat_map(|root| value_sources_by_root.get(root).into_iter().flatten())
+                    .flat_map(|source| retained_subtree_subjects(&self.value_inputs, *source, &retained_by_expression))
+                    .collect::<BTreeSet<_>>();
+                let output = retained_by_expression.entry(*owner).or_default();
+                let previous = output.len();
+                output.extend(retained);
+                changed |= output.len() != previous;
+            }
 
             for (initializer, bindings) in &initializations {
                 let retained = retained_subtree_subjects(

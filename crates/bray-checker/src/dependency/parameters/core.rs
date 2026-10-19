@@ -68,7 +68,7 @@ impl ResultParameters {
             let local = self.local_requirements(
                 request,
                 key,
-                template.requirements(),
+                &template.all_requirements().cloned().collect::<Vec<_>>(),
                 &mut pending,
                 &mut edges,
             )?;
@@ -100,12 +100,12 @@ impl ResultParameters {
         let values = request.semantic_values();
 
         super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
-            let (callable, requirement, inputs) = match item {
+            let (callable, requirement, inputs, output) = match item {
                 DependencyRequirement::ResultCall {
-                    callable,
+                    output, callable,
                     requirement,
                     inputs,
-                } => (*callable, requirement, inputs),
+                } => (*callable, requirement, inputs, output),
                 _ => return None,
             };
 
@@ -122,8 +122,7 @@ impl ResultParameters {
                         return Ok(vec![DependencyRequirement::result_call(
                             callable,
                             Some(*requirement),
-                            inputs,
-                        )]);
+                            inputs, *output, )]);
                     };
 
                     target
@@ -138,8 +137,7 @@ impl ResultParameters {
                         values
                             .intern_callable_instance(target.0).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in local_requirements: {error:?}")),
                         None,
-                        [],
-                    ),
+                        [], bray_symbols::DependencyCallOutput::Value, ),
                 )?;
 
                 let Some(DependencyRequirement::ResultCall {
@@ -166,8 +164,7 @@ impl ResultParameters {
                 Ok(vec![DependencyRequirement::result_call(
                     empty,
                     *requirement,
-                    inputs,
-                )])
+                    inputs, *output, )])
             })())
         })
     }
@@ -182,7 +179,7 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
     let selection = instantiate(
         request,
         key,
-        DependencyRequirement::result_call(callable, Some(requirement), []),
+        DependencyRequirement::result_call(callable, Some(requirement), [], bray_symbols::DependencyCallOutput::Value, ),
     )?;
 
     let Some(DependencyRequirement::ResultCall {

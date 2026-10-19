@@ -117,6 +117,7 @@ pub(crate) fn check_call_outcome(
     panicked: MirBlockId,
     cancelled: MirBlockId,
     report: MirPlace,
+    completed_report: Option<MirPlace>,
     value: Option<MirOperand>,
 ) -> Result<(MirBlockId, Option<MirOperand>), MirCapacityError> {
     let kind = builder.block_kind(block);
@@ -152,7 +153,7 @@ pub(crate) fn check_call_outcome(
             completed: MirEdge::new(completed, value),
             panicked: MirCallFailureEdge::new(panicked, report.clone()),
             cancelled: MirCallFailureEdge::new(cancelled, report),
-            completed_report: None,
+            completed_report,
         },
     );
 
@@ -180,20 +181,31 @@ pub(crate) fn transfer_cleanup(
     builder.set_terminator(block, source.clone(), next);
 }
 
+/// Threads a continuation's values through an intermediate cleanup block.
+pub(crate) fn forward_cleanup_edge(
+    builder: &mut MirUnitBuilder,
+    source: &MirSourceAnchor,
+    intermediate: MirBlockId,
+    continuation: &MirEdge,
+) -> Result<(MirEdge, MirEdge), MirCapacityError> {
+    let mut parameters = Vec::with_capacity(continuation.arguments().len());
+    for operand in continuation.arguments() {
+        let parameter = builder.push_block_parameter(intermediate, source.clone(), builder.operand_type(operand))?;
+        parameters.push(MirOperand::Value(parameter));
+    }
+    // MIR edges own their operand lists and share immutable projection paths.
+    Ok((MirEdge::new(intermediate, continuation.arguments().iter().cloned()),
+        MirEdge::new(continuation.target(), parameters)))
+}
+
 pub(crate) fn forward_cleanup_result(
     builder: &mut MirUnitBuilder,
     source: &MirSourceAnchor,
     target: MirBlockId,
     value: &mut Option<MirOperand>,
 ) -> Result<MirEdge, MirCapacityError> {
-    let incoming = value.take();
-
-    if let Some(incoming) = &incoming {
-        let ty = builder.operand_type(incoming);
-        let parameter = builder.push_block_parameter(target, source.clone(), ty)?;
-
-        *value = Some(MirOperand::Value(parameter));
-    }
-
-    Ok(MirEdge::new(target, incoming))
+    let continuation = MirEdge::new(target, value.take());
+    let (incoming, outgoing) = forward_cleanup_edge(builder, source, target, &continuation)?;
+    *value = outgoing.arguments().first().cloned();
+    Ok(incoming)
 }

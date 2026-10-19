@@ -94,10 +94,16 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
-        let requirements = input_requirements(call);
+        let requirements = input_requirements(call).collect::<Vec<_>>();
+        let body = call.phase_behaviors().deferred_execution().unwrap_or(call.phase_behaviors().invocation());
+        let template = DependencyContractTemplateData::new(requirements.iter().cloned())
+            .with_abnormal_reports(requirements.iter().cloned());
+        let template = if body.execution_properties().contains(&bray_symbols::ExecutionProperty::Pure) {
+            template
+        } else { template.with_completion_reports(requirements) };
 
         store
-            .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+            .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
     let instance = match call.target() {

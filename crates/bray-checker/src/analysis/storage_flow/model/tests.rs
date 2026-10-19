@@ -8,10 +8,7 @@ use crate::test_support::{error_type, expression_unit, push_expression};
 
 #[test]
 fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
-    use crate::CheckerUnitView;
-    use crate::test_support::{TestCheckerContext, callable_entry};
-    use bray_bound_tree::{Liveness, StorageAccess, StorageAccessPurpose, StorageAccessRoot};
-    use std::collections::BTreeSet;
+    use bray_bound_tree::{StorageAccess, StorageAccessPurpose, StorageAccessRoot};
 
     let (unit, expressions) = expression_unit(BoundUnitId::new(92), |tree, origin| {
         (0..2)
@@ -64,46 +61,8 @@ fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
 
     let storage = builder.finish();
 
-    let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
-        .expect("test liveness must build");
-
-    let context = TestCheckerContext::new(false);
-    let semantic_context = callable_entry(unit.key());
-    let request = CheckerUnitView::new(&unit, &semantic_context, &context);
-
-    let (input, _) = super::StorageFlowInput::new(
-        &mut crate::asynchronous::CleanupShapeResolver::new(request),
-        request,
-        &storage,
-        BTreeSet::new(),
-        &liveness,
-        &bray_bound_tree::CheckedDependencyContracts::try_new(
-            &unit,
-            &storage,
-            [],
-            [],
-            [],
-            [],
-            false,
-        )
-        .expect("empty test dependencies"),
-        &crate::dependency::ValueInputs::default(),
-        &bray_bound_tree::CheckedSemanticSelections::try_new(
-            &unit,
-            &bray_bound_tree::CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []),
-            [],
-        )
-        .expect("empty test selections"),
-        &crate::analysis::guarantee::CleanupPlan::default(),
-        &bray_bound_tree::CheckedMemoryOperations::try_new(
-            unit.unit(),
-            unit.key().kind(),
-            [],
-            false,
-        )
-        .expect("empty test memory operations"),
-    )
-    .expect("test storage indexes must build");
+    let mut input = super::StorageFlowInput::default();
+    input.prepare_locations(&storage, &crate::analysis::guarantee::CleanupPlan::default());
 
     assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
 

@@ -296,12 +296,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let outcome = self.allocate_temporary(outcome_type, "root.entry.outcome")?;
 
         let initial = native_run_outcome_value(
-            context,
-            &self.builder,
-            self.request.target(),
-            NativeRunState::RUNTIME_FAILURE,
-            usize.const_int(4, false).into(),
-        )?;
+context,
+&self.builder,
+self.request.target(),
+NativeRunState::RUNTIME_FAILURE,
+Some(usize.const_int(4, false)),
+None,
+)?;
 
         llvm(self.builder.build_store(outcome, initial))?;
 

@@ -53,6 +53,9 @@ pub trait SyntheticLoweringContext {
         helper: MirStandardLibraryHelper,
     ) -> Result<CallableInstanceData, Self::Error>;
 
+    /// Returns whether this selected callable can transfer a normal owned report.
+    fn callable_completion_reports(&self, callable: CallableInstanceData) -> Result<bool, Self::Error>;
+
     /// Demands the checked body and substitutions for a selected consuming source destructor.
     fn destruction_body(
         &self,
@@ -65,6 +68,7 @@ pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Size
     // The current generated destructor's explicit invocation argument.
     pub(crate) abandoned: Option<bray_ir::MirOperand>,
     pub(crate) collection: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(crate) pending_reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(crate) frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
     pub(crate) frame_states: Vec<bray_ir::MirFrameState>,
     pub(crate) continuation: Option<bray_ir::MirBlockId>,

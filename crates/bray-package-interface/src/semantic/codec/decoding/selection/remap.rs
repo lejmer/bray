@@ -602,7 +602,7 @@ fn remap_dependency_requirement(
             }
         }
         InterfaceDependencyRequirementValue::ResultCall {
-            callable,
+            output: _, callable,
             requirement,
             inputs,
         } => {

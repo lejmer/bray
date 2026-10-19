@@ -133,13 +133,14 @@ impl Lowerer<'_> {
                 let (current, value) = if matches!(invocation_result, BoundCallResult::Immediate(_))
                 {
                     lowerer.finish_typed_call_panic_check(
-                        expression,
+                        BoundExecutionSite::ScopedEnter(expression),
                         current,
                         &source,
                         &MirOperand::Value(value),
                         invocation_result.ty(),
                         None,
-                    )?
+                    true,
+)?
                 } else {
                     (current, MirOperand::Value(value))
                 };
@@ -163,8 +164,9 @@ impl Lowerer<'_> {
                             .expect("scope entry await publishes its completion");
 
                         lowerer.finish_typed_call_panic_check(
-                            expression, current, &source, &value, result, None,
-                        )?
+                            BoundExecutionSite::ScopedEnter(expression), current, &source, &value, result, None,
+                        true,
+)?
                     } else {
                         (current, value)
                     };
@@ -382,6 +384,7 @@ impl Lowerer<'_> {
                     }
 
                     (block, completion) = lowerer.check_scoped_exit_call(
+                        expression,
                         block,
                         source,
                         ordinary_shield,
@@ -540,15 +543,17 @@ impl Lowerer<'_> {
 
     fn check_scoped_exit_call(
         &mut self,
+        expression: BoundExpressionId,
         block: MirBlockId,
         source: &MirSourceAnchor,
         shielded: bool,
         continuations: &mut Vec<MirBlockId>,
         value: MirOperand,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let reports = self.input.storage_flow().completion_reports(BoundExecutionSite::ScopedExit(expression));
         if let Some(outcome) = &self.cleanup_outcome {
             let (completed, value, continuation) =
-                outcome.check_completion(&mut self.builder, block, source, Some(value))?;
+                outcome.check_completion(&mut self.builder, block, source, Some(value), reports)?;
 
             continuations.push(continuation);
 
@@ -558,7 +563,8 @@ impl Lowerer<'_> {
             ))
         } else {
             let (completed, value) =
-                self.check_ordinary_cleanup(block, source, None, shielded, Some(value))?;
+                self.check_ordinary_cleanup(block, source, None, shielded, Some(value),
+                    Some(BoundExecutionSite::ScopedExit(expression)))?;
 
             Ok((
                 completed,

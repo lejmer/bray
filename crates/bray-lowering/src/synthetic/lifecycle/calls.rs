@@ -119,6 +119,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     callable.result,
                 ),
                 payloads,
+                self.context.callable_completion_reports(callable.callable)?,
             )
             .map_err(|cause| self.capacity_error(cause))?;
 
@@ -265,7 +266,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let value = self.push_selected_call(builder, block, source, place, callable, result)?;
 
         if callable.result.execution() == CallableExecution::Synchronous {
-            self.check_lifecycle_value(builder, block, source, value, callable.result.ty())
+            self.check_lifecycle_value(builder, block, source, value, callable.result.ty(), self.context.callable_completion_reports(callable.callable)?)
         } else {
             Ok((block, value))
         }

@@ -62,7 +62,7 @@ impl SelectionParameters {
             let mut edges = Vec::new();
 
             let local =
-                selection_requirements(values, template.requirements(), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
+                selection_requirements(values, &template.all_requirements().cloned().collect::<Vec<_>>(), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             let local = values
                 .intern_dependency_contract_template(DependencyContractTemplateData::new(local)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
@@ -88,12 +88,12 @@ fn selection_requirements(
     edges: &mut Vec<(CallableInstanceData, CallableDefinitionId)>,
 ) -> Result<Vec<DependencyRequirement>, SemanticValueStoreError> {
     super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
-        let (callable, requirement, inputs) = match item {
+        let (callable, requirement, inputs, output) = match item {
             DependencyRequirement::ResultCall {
-                callable,
+                output, callable,
                 requirement,
                 inputs,
-            } => (*callable, requirement, inputs),
+            } => (*callable, requirement, inputs, output),
             _ => return None,
         };
 
@@ -117,8 +117,7 @@ fn selection_requirements(
             Ok(vec![DependencyRequirement::result_call(
                 empty,
                 *requirement,
-                inputs,
-            )])
+                inputs, *output, )])
         })())
     })
 }

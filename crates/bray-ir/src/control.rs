@@ -510,6 +510,13 @@ pub enum MirTerminatorKind {
         /// Distinct successor edges.
         edges: MirRunResultEdges,
     },
+    /// Transfer a normal report after a call proved unable to unwind.
+    TakeCallReport {
+        /// Continuation receiving the ordinary call result.
+        completed: MirEdge,
+        /// Destination receiving the call's owned report.
+        report: crate::MirPlace,
+    },
     /// Continue after a call with distinct normal, panic, and cancellation paths.
     CheckCallOutcome {
         /// Normal continuation after the call completed.
@@ -625,7 +632,8 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallOutcome { completed, .. } => visit(completed)?,
+            Self::CheckCallOutcome { completed, .. }
+            | Self::TakeCallReport { completed, .. } => visit(completed)?,
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
@@ -696,6 +704,7 @@ impl MirTerminatorKind {
                 visit(edges.panicked().edge().target());
                 visit(edges.cancelled().edge().target());
             }
+            Self::TakeCallReport { completed, .. } => visit(completed.target()),
             Self::CheckCallOutcome {
                 completed,
                 panicked,
@@ -760,6 +769,7 @@ impl MirTerminatorKind {
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
             | Self::CheckCallOutcome { .. }
+            | Self::TakeCallReport { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::Panic { .. }

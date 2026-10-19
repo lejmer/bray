@@ -1861,6 +1861,12 @@ fn inspection_terminator(
 
             "forward_run_result"
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            parts.edge("completed", completed, None, &context)?;
+            parts.place("report", report, &context)?;
+
+            "take_call_report"
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,

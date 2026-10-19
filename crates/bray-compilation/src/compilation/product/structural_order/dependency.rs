@@ -52,7 +52,7 @@ impl OrderEncoder<'_, '_> {
                 ],
             ),
             DependencyRequirement::ResultCall {
-                callable,
+                output, callable,
                 requirement,
                 inputs,
             } => {
@@ -83,6 +83,9 @@ impl OrderEncoder<'_, '_> {
                 term(
                     "result_call",
                     [
+                        term(match output { bray_symbols::DependencyCallOutput::Value => "value",
+                            bray_symbols::DependencyCallOutput::CompletionReport => "completion_report",
+                            bray_symbols::DependencyCallOutput::AbnormalReport => "abnormal_report" }, []),
                         self.symbol(callable.definition().symbol())?,
                         self.substitution(callable.substitution())?,
                         sequence(requirement),

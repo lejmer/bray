@@ -1332,6 +1332,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(item.slot());
                 self.edge(exhausted)?;
             }
+            MirTerminatorKind::TakeCallReport { completed, report } => {
+                self.wire.write_u32(18);
+                self.edge(completed)?;
+                self.place(report)?;
+            }
             MirTerminatorKind::CheckCallOutcome {
                 completed,
                 panicked,

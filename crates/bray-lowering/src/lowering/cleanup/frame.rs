@@ -19,7 +19,7 @@ impl Lowerer<'_> {
     ) -> Result<bray_ir::MirFrameRetention, LoweringError> {
         let broadcast = self.frame_broadcast(source, occurrence, false)?;
 
-        let initialized = match &self.completion_cleanup {
+        let mut initialized = match &self.completion_cleanup {
             Some(place) => vec![place.storage()],
             None => {
                 let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
@@ -29,6 +29,12 @@ impl Lowerer<'_> {
                 self.retained_storages(suspension.retained_subjects())?
             }
         };
+
+        for outcome in self.pending_reports.iter().chain(self.catch_targets.iter().filter_map(|catch| catch.reports.as_ref()))
+            .filter(|_| self.completion_cleanup.is_none())
+        {
+            initialized.extend(outcome.collection().places().map(|place| place.storage()));
+        }
 
         Ok(bray_ir::MirFrameRetention::new(
             broadcast,

@@ -59,6 +59,7 @@ impl State {
     pub(crate) fn merge_abnormal(&mut self, incoming: &Self) {
         merge_map(&mut self.call_definitions, &incoming.call_definitions);
         merge_reports(&mut self.abnormal_reports, &incoming.reports);
+        self.abnormal_reports.get_or_insert_default();
     }
 
     pub(crate) fn prepare_reports(
@@ -69,6 +70,45 @@ impl State {
     ) {
         self.report_candidates
             .insert((occurrence, output), requirements);
+    }
+
+    pub(crate) fn report_candidate(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        output: bray_bound_tree::CallReportOutput,
+    ) -> Option<&BTreeSet<DependencyRequirement>> {
+        self.report_candidates.get(&(occurrence, output))
+    }
+
+    pub(crate) fn owner_requirements(
+        &self,
+        storage: &bray_bound_tree::StoragePlan,
+        root: bray_bound_tree::StorageIdentityId,
+        formal: Option<bray_symbols::DependencySubjectRoot>,
+    ) -> BTreeSet<DependencyRequirement> {
+        if let Some(formal) = formal {
+            return BTreeSet::from([DependencyRequirement::direct(bray_symbols::DependencySubject::root(formal),
+                bray_symbols::DependencyRequirementKind::ValueDependencies)]);
+        }
+        let mut values = BTreeSet::new();
+        for binding in storage.binding_targets(bray_bound_tree::StorageBinding::Identity(root)) {
+            if let bray_bound_tree::StorageBindingTarget::Local(binding) = binding {
+                values.extend(self.locals.get(&binding).into_iter().flatten().cloned());
+            }
+        }
+        match storage.identity(root) {
+            Some(bray_bound_tree::StorageIdentity::Temporary(expression)
+                | bray_bound_tree::StorageIdentity::Result(bray_bound_tree::AnyBoundNodeId::Expression(expression))
+                | bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
+                values.extend(self.value_requirements(expression).cloned());
+            }
+            _ => {},
+        }
+        values
+    }
+
+    pub(crate) fn value_requirements(&self, expression: BoundExpressionId) -> impl Iterator<Item = &DependencyRequirement> {
+        self.values.get(&expression).into_iter().flatten()
     }
 
     pub(crate) fn commit_reports(
