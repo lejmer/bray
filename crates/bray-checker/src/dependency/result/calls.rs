@@ -34,7 +34,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
         result.extend(
             self.mapped_result_values(template.template.requirements(), |root| {
-                crate::dependency::result_argument(call, root)
+                crate::dependency::result_argument(call.arguments(), call.receiver(), root)
             })?,
         );
 
@@ -57,7 +57,13 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         if recursive {
             let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
 
-            crate::dependency::defaults::expand_result_defaults(self.request, call, &template)
+            crate::dependency::defaults::expand_result_defaults(
+                self.request,
+                call.arguments(),
+                call.receiver(),
+                super::super::returned::declaration_source(call),
+                &template,
+            )
         } else {
             crate::dependency::call_result_template(self.request, call, |callable| {
                 self.request.callable_result_dependencies(callable)
@@ -179,6 +185,31 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
         match occurrence {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
+                if let Some(SemanticSelection::Operation(operation)) =
+                    self.selections.expression(expression)
+                {
+                    let template = crate::dependency::call::operation_result_dependencies(
+                        self.request,
+                        expression,
+                        operation,
+                    )?
+                    .expect("report-producing operator retains its source invocation");
+
+                    let reports = template.immediate_reports(false);
+
+                    let requirements = if output.is_abnormal() {
+                        reports.abnormal_reports()
+                    } else {
+                        reports.completion_reports()
+                    };
+
+                    return requirements
+                        .map(|requirements| {
+                            self.operation_values(expression, operation, requirements)
+                        })
+                        .transpose();
+                }
+
                 let Some(SemanticSelection::Call(call)) = self.selections.expression(expression)
                 else {
                     panic!("report-producing invocation retains its selected call");
@@ -208,7 +239,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 requirements
                     .map(|requirements| {
                         self.mapped_result_values(requirements, |root| {
-                            crate::dependency::result_argument(call, root)
+                            crate::dependency::result_argument(
+                                call.arguments(),
+                                call.receiver(),
+                                root,
+                            )
                         })
                     })
                     .transpose()
@@ -241,19 +276,63 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
                 requirements
                     .map(|requirements| {
-                        if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
+                        let mapped = if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
                             self.map_exit_values(scoped, requirements)
                         } else {
                             self.mapped_result_values(requirements, |root| {
                                 (root == bray_symbols::DependencySubjectRoot::Receiver)
                                     .then_some(scoped.initializer())
                             })
-                        }
+                        };
+
+                        mapped
                     })
                     .transpose()
             }
             _ => panic!("report-producing operation has a selected invocation: {occurrence:?}"),
         }
+    }
+
+    pub(super) fn operation_values(
+        &self,
+        expression: BoundExpressionId,
+        operation: &bray_bound_tree::SelectedOperation,
+        requirements: &[DependencyRequirement],
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let inputs =
+            crate::dependency::call::operation_inputs(self.request.view(), expression, operation);
+
+        Ok(
+            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
+                let Some((_, input)) = inputs
+                    .iter()
+                    .find(|(root, _)| *root == subject.subject_root())
+                else {
+                    return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
+                };
+
+                match *input {
+                    crate::dependency::call::OperationInput::Borrow(operand, _)
+                        if kind == DependencyRequirementKind::ValueDependencies
+                            && !subject.projections().is_empty() =>
+                    {
+                        self.mapped_input_values(operand, subject.projections(), kind)
+                    }
+                    crate::dependency::call::OperationInput::Borrow(operand, _) => Ok(self
+                        .borrowed_values(operand, subject.projections())
+                        .into_iter()
+                        .collect()),
+                    crate::dependency::call::OperationInput::Value(operand)
+                    | crate::dependency::call::OperationInput::Nullable(Some(operand)) => {
+                        self.mapped_input_values(operand, subject.projections(), kind)
+                    }
+                    crate::dependency::call::OperationInput::Nullable(None) => Ok(Vec::new()),
+                }
+            })
+            .expect("operation inputs preserve checked dependency equation bindings")
+            .into_iter()
+            .collect(),
+        )
     }
 
     fn mapped_result_values(
@@ -267,48 +346,52 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
                 };
 
-                // A supplied borrow retains its referent and original loan dependencies.
-                // Requiring the slot containing that borrow would invent a caller loan,
-                // especially when the containing value is consumed.
-                if kind == DependencyRequirementKind::ValueDependencies
-                    || self.types.expression(argument).is_some_and(|ty| matches!(
-                        self.request.semantic_values().type_data(ty.ty()).as_ref(),
-                        bray_symbols::TypeData::Borrow { .. }
-                    ))
-                {
-                    return Ok(self
-                        .projected_values(argument, subject.projections())
-                        .into_iter()
-                        .collect());
-                }
-
-                let sources = self.state.sources.get(&argument);
-
-                if sources.is_none_or(BTreeSet::is_empty) {
-                    return Ok(vec![DependencyRequirement::direct(
-                        bray_symbols::DependencySubject::root(
-                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
-                        ),
-                        kind,
-                    )]);
-                }
-
-                Ok(sources
-                    .into_iter()
-                    .flatten()
-                    .map(|source| {
-                        DependencyRequirement::direct(
-                            super::sources::source_subject(
-                                source,
-                                subject.projections().iter().copied(),
-                            ),
-                            kind,
-                        )
-                    })
-                    .collect())
+                self.mapped_input_values(argument, subject.projections(), kind)
             }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in mapped_result_values: {error:?}"))
             .into_iter()
             .collect(),
         )
+    }
+    fn mapped_input_values(
+        &self,
+        argument: BoundExpressionId,
+        path: &[bray_symbols::DependencyProjection],
+        kind: DependencyRequirementKind,
+    ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+        // A supplied borrow retains its referent and original loan dependencies.
+        // Requiring the slot containing that borrow would invent a caller loan,
+        // especially when the containing value is consumed.
+        if kind == DependencyRequirementKind::ValueDependencies
+            || self.types.expression(argument).is_some_and(|ty| {
+                matches!(
+                    self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                )
+            })
+        {
+            return Ok(self.projected_values(argument, path).into_iter().collect());
+        }
+
+        let sources = self.state.sources.get(&argument);
+
+        if sources.is_none_or(BTreeSet::is_empty) {
+            return Ok(vec![DependencyRequirement::direct(
+                bray_symbols::DependencySubject::root(
+                    bray_symbols::DependencySubjectRoot::EvaluationStorage,
+                ),
+                kind,
+            )]);
+        }
+
+        Ok(sources
+            .into_iter()
+            .flatten()
+            .map(|source| {
+                DependencyRequirement::direct(
+                    super::sources::source_subject(source, path.iter().copied()),
+                    kind,
+                )
+            })
+            .collect())
     }
 }

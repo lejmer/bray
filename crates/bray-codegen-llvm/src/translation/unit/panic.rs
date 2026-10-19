@@ -193,50 +193,47 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let cancelled = native_run_state_is(
-            &self.builder,
-            state,
-            NativeRunState::CANCELLED,
-            "call.cancelled",
-        )?;
-
-        let function = self
-            .builder
-            .get_insert_block()
-            .and_then(inkwell::basic_block::BasicBlock::get_parent)
-            .expect("checked MIR translation requires an established mapping or value");
-
-        let propagate_cancellation = self
-            .types
-            .context()
-            .append_basic_block(function, "call.propagate_cancellation");
-
-        let inspect_panic = self
-            .types
-            .context()
-            .append_basic_block(function, "call.inspect_panic");
-
-        llvm(self.builder.build_conditional_branch(
-            cancelled,
-            propagate_cancellation,
-            inspect_panic,
-        ))?;
-
-        self.builder.position_at_end(propagate_cancellation);
-
         let (_, moved_reports) = self.take_control_source()?;
 
-        let cancellation_route = self.route_call_failure(
-            cancelled_edge,
-            context,
-            NativeRunState::CANCELLED,
-            &moved_reports,
-        )?;
+        if !super::edge::empty_unreachable_target(self.unit, cancelled_edge.target()) {
+            let cancelled = native_run_state_is(
+                &self.builder,
+                state,
+                NativeRunState::CANCELLED,
+                "call.cancelled",
+            )?;
 
-        self.builder.position_at_end(propagate_cancellation);
-        llvm(self.builder.build_unconditional_branch(cancellation_route))?;
+            let function = self.function;
 
-        self.builder.position_at_end(inspect_panic);
+            let propagate_cancellation = self
+                .types
+                .context()
+                .append_basic_block(function, "call.propagate_cancellation");
+
+            let inspect_panic = self
+                .types
+                .context()
+                .append_basic_block(function, "call.inspect_panic");
+
+            llvm(self.builder.build_conditional_branch(
+                cancelled,
+                propagate_cancellation,
+                inspect_panic,
+            ))?;
+
+            self.builder.position_at_end(propagate_cancellation);
+
+            let cancellation_route = self.route_call_failure(
+                cancelled_edge,
+                context,
+                NativeRunState::CANCELLED,
+                &moved_reports,
+            )?;
+
+            self.builder.position_at_end(propagate_cancellation);
+            llvm(self.builder.build_unconditional_branch(cancellation_route))?;
+            self.builder.position_at_end(inspect_panic);
+        }
 
         let pending = native_run_state_is(
             &self.builder,

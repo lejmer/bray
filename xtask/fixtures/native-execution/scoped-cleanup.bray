@@ -15,6 +15,16 @@ extern trusted func deny_allocation() -> u32
 extern trusted func restore_allocation(pos before: u32) -> u32
     uses(foreign_call);
 
+@abi(c)
+@symbol(name = "bray_allocation_probe_expect_cleanup")
+extern trusted func expect_cleanup()
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_observe_cleanup")
+extern trusted func observe_cleanup()
+    uses(foreign_call);
+
 internal static ENTRIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 internal static EXITS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
@@ -35,7 +45,8 @@ struct Capture
 {
     verify_totals: bool;
 
-    destruct()
+    trusted destruct()
+        uses(foreign_call)
     {
         core.atomic.fetch_add<usize, 0>(&CAPTURES, value = 1);
 
@@ -43,6 +54,7 @@ struct Capture
         {
             assert(core.atomic.load<usize, 1>(&ERRORS) == 20, "report sink lost an error payload");
             assert(core.atomic.load<usize, 1>(&CAPTURES) == 20, "report sink lost an inactive capture");
+            trusted observe_cleanup();
         }
     }
 }
@@ -449,6 +461,8 @@ async func abnormal_entry(pos cancel: bool)
 trusted async func main()
     uses(foreign_call)
 {
+    trusted expect_cleanup();
+
     await normal(false, false, false);
     await normal(false, false, true);
     await normal(false, true, false);

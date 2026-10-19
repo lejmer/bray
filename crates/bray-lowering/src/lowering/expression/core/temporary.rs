@@ -166,7 +166,18 @@ impl Lowerer<'_> {
 
         let Some(temporary) = temporary else {
             if required {
-                return self.materialize_synthetic_temporary(current, lowered.source, value, ty);
+                let place = self.materialize_synthetic_place(
+                    current,
+                    Self::retained_source(&lowered.source),
+                    value,
+                    ty,
+                )?;
+
+                return Ok(LoweredExpression::continuing(
+                    current,
+                    Some(MirOperand::Move(place)),
+                    lowered.source,
+                ));
             }
 
             return Ok(LoweredExpression::continuing(
@@ -231,13 +242,13 @@ impl Lowerer<'_> {
         ))
     }
 
-    pub(in crate::lowering) fn materialize_synthetic_temporary(
+    pub(in crate::lowering) fn materialize_synthetic_place(
         &mut self,
         current: bray_ir::MirBlockId,
         source: bray_ir::MirSourceAnchor,
         value: MirOperand,
         ty: TypeId,
-    ) -> Result<LoweredExpression, LoweringError> {
+    ) -> Result<MirPlace, LoweringError> {
         let storage = self.builder.push_storage(
             Self::retained_source(&source),
             MirStorageKind::Temporary,
@@ -257,10 +268,6 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(MirOperand::Move(place)),
-            source,
-        ))
+        Ok(place)
     }
 }

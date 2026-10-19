@@ -19,18 +19,20 @@ pub(super) struct InputTemporary {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum InputCleanup {
     Value(Option<AsyncCleanupPhases>),
+    Array {
+        phases: Option<AsyncCleanupPhases>,
+        element: TypeId,
+        first: MirOperand,
+        end: MirOperand,
+    },
     ScopeAdmission(BoundExpressionId),
     ScopedUse(BoundExpressionId),
 }
 
 impl InputTemporary {
     pub(super) const fn requires_cleanup(&self, phase: MirCleanupPhase) -> bool {
-        let phases = match self.action {
-            InputCleanup::Value(Some(phases)) => phases,
-            InputCleanup::Value(None) => return false,
-            InputCleanup::ScopeAdmission(_) | InputCleanup::ScopedUse(_) => {
-                return matches!(phase, MirCleanupPhase::LifecycleResolution);
-            }
+        let Some(phases) = self.action.phases() else {
+            return false;
         };
 
         match phase {
@@ -108,25 +110,62 @@ impl Lowerer<'_> {
 
     pub(super) fn materialize_owned_input(
         &mut self,
-        expression: BoundExpressionId,
         block: MirBlockId,
         source: &MirSourceAnchor,
         value: MirOperand,
         ty: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let lowered =
-            self.materialize_synthetic_temporary(block, Self::retained_source(source), value, ty)?;
-
-        let Some(MirOperand::Move(place)) = lowered.value else {
-            panic!(
-                "lowering contract violation: MissingOperationResult {value:?}",
-                value = expression
-            );
-        };
+        let place =
+            self.materialize_synthetic_place(block, Self::retained_source(source), value, ty)?;
 
         let phases = self.input_cleanup_phases(ty);
 
-        if phases.is_some() {
+        self.track_input(
+            block,
+            source,
+            Self::retained_place(&place),
+            InputCleanup::Value(phases),
+        )?;
+
+        Ok(MirOperand::Move(place))
+    }
+
+    pub(super) fn track_array_input(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+        element: TypeId,
+        range: [MirOperand; 2],
+    ) -> Result<(), LoweringError> {
+        let [first, end] = range;
+
+        let phases = self.input_cleanup_phases(place.ty());
+
+        self.track_input(
+            block,
+            source,
+            place,
+            InputCleanup::Array {
+                phases,
+                element,
+                first,
+                end,
+            },
+        )
+    }
+
+    fn track_input(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+        action: InputCleanup,
+    ) -> Result<(), LoweringError> {
+        // A partial array is owned exactly by its range. It has no whole-value
+        // initialization flag. Ordinary inputs need a guard because a call can
+        // consume their complete value before a later input fails.
+        if matches!(action, InputCleanup::Value(Some(_))) {
             let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
             let guard = self.new_initialization_guard(block, source, boolean, &[], true)?;
 
@@ -140,14 +179,14 @@ impl Lowerer<'_> {
         }
 
         self.input_temporaries.push(InputTemporary {
-            place: Self::retained_place(&place),
+            place,
             source: Self::retained_source(source),
             scope_depth: self.active_scopes.len(),
             catch_depth: self.catch_targets.len(),
-            action: InputCleanup::Value(phases),
+            action,
         });
 
-        Ok(MirOperand::Move(place))
+        Ok(())
     }
 
     pub(super) fn track_scope_admission(
@@ -180,7 +219,13 @@ impl Lowerer<'_> {
         let cleanup = self
             .input
             .cleanup_type(ty)
-            .expect("checked temporary type retains its cleanup shape")
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked temporary {ty:?} ({:?}) retains its cleanup shape in {:?}",
+                    self.input.semantic_values().type_data(ty),
+                    self.input.unit().key()
+                )
+            })
             .cleanup();
 
         match cleanup {
@@ -201,7 +246,9 @@ impl Lowerer<'_> {
                 }
 
                 match temporary.action {
-                    InputCleanup::Value(phases) => phases.is_some(),
+                    InputCleanup::Value(_) | InputCleanup::Array { .. } => {
+                        temporary.action.phases().is_some()
+                    }
                     InputCleanup::ScopeAdmission(_) => true,
                     InputCleanup::ScopedUse(expression) => {
                         let bray_bound_tree::BoundExpression::Structured(bound) = self
@@ -272,13 +319,30 @@ impl Lowerer<'_> {
 
                 return result;
             }
-            InputCleanup::Value(_) => {}
+            InputCleanup::Value(_) | InputCleanup::Array { .. } => {}
         }
 
         let guard = self
             .initialization_guards
             .get(&temporary.place.storage())
             .map(|state| Self::retained_place(&state.guard));
+
+        if let InputCleanup::Array {
+            element,
+            ref first,
+            ref end,
+            ..
+        } = temporary.action
+        {
+            return self.push_array_input_cleanup(
+                block,
+                phase,
+                temporary,
+                guard,
+                element,
+                [first, end],
+            );
+        }
 
         self.push_guarded_cleanup(
             block,
@@ -291,6 +355,84 @@ impl Lowerer<'_> {
             None,
         )
         .map(|(block, _)| block)
+    }
+    fn push_array_input_cleanup(
+        &mut self,
+        block: MirBlockId,
+        phase: MirCleanupPhase,
+        temporary: &InputTemporary,
+        guard: Option<MirPlace>,
+        element: TypeId,
+        range: [&MirOperand; 2],
+    ) -> Result<MirBlockId, LoweringError> {
+        let source = &temporary.source;
+
+        let (block, _) = self.guarded_cleanup_region(
+            block,
+            source,
+            Self::retained_place(&temporary.place),
+            guard,
+            None,
+            |lowerer, block, place, _| {
+                let integer = lowerer.builder.operand_type(range[1]);
+                let boolean = lowerer.representation_type(RepresentationRole::ScalarBool)?;
+
+                let one =
+                    crate::operand::integer_constant(lowerer.input.semantic_values(), integer, 1)?;
+
+                let cleanup = crate::cleanup_loop::ReverseCleanupLoop::new(
+                    &mut lowerer.builder,
+                    block,
+                    source,
+                    Self::retained_operand(range[1]),
+                    boolean,
+                    [Self::retained_operand(range[0]), one],
+                    None,
+                )?;
+
+                let projected = bray_ir::MirPlace::new(
+                    place.storage(),
+                    place
+                        .projections()
+                        .iter()
+                        .cloned()
+                        .chain([bray_ir::MirProjection::new(
+                            bray_ir::MirProjectionKind::Index(MirOperand::Copy(
+                                Self::retained_place(&cleanup.counter),
+                            )),
+                            place.ty(),
+                            element,
+                        )]),
+                    element,
+                );
+
+                let (completed, _) = lowerer.push_guarded_cleanup(
+                    cleanup.body,
+                    source,
+                    phase,
+                    projected,
+                    None,
+                    None,
+                    false,
+                    None,
+                )?;
+
+                cleanup.close(&mut lowerer.builder, completed, source, None)?;
+
+                Ok((cleanup.continuation, None))
+            },
+        )?;
+
+        Ok(block)
+    }
+}
+
+impl InputCleanup {
+    const fn phases(&self) -> Option<AsyncCleanupPhases> {
+        match self {
+            Self::Value(phases) | Self::Array { phases, .. } => *phases,
+            Self::ScopeAdmission(_) | Self::ScopedUse(_) => Some(AsyncCleanupPhases::Lifecycle),
+        }
     }
 }
 

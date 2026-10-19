@@ -2,227 +2,107 @@
 
 ## Resume contract
 
-Continue the authorized stack through BRA-619, verification, maintainability audit, independent PR review and pushed fixes.
-Do not stop at status answers, restarts, checkpoints or PR boundaries. No merge or manual Done is authorized. Delete this
-temporary record when accepted. No handoff survives the stack. After compaction actually reread AGENTS.md,
-coding-conventions.md, crates.md, BRA-505-retained-incidents.md and this file.
-
-No language feature, syntax, weaker authority, Rust runtime frame, TLS report owner, deferred destruction queue,
-generalized suspended synchronous body, post-failure allocation or downstream semantic validation pass. Runtime ownership
-stays in Bray. Work top down, reuse owning results and remove superseded mechanisms. Correctness, compilation speed,
-execution speed, binary size and maintainability are separate acceptance criteria. Batch tests, then format. Use only
-release xtask. Preserve the user's C formatting. This batch changes no C files. Preserve the existing C formatting.
-
-## Workspace and publication
+Finish the authorized stack through BRA-619, independent reviews on the pushed PR and pushed fixes. Do not stop at
+status answers, restarts or checkpoints. No merge or manual Done. Delete all6 repository stack handoffs after acceptance.
+The full rule plan, closed inventory and recovery guide remain tracked in Linear. Update their completion evidence before
+removing the repository copies. Preserve the broader initiative plan. Read this record and the repository rules after
+compaction. Work top down. No new language feature/syntax, weaker authority, Rust runtime frame/owner, post-failure
+allocation, second cleanup mechanism or downstream semantic reproof. Compiler speed, generated speed, size and maintenance
+are independent gates. Preserve the user's Allman C style. Run formatting/style only when preparing commits.
 
 Only edit C:/Users/anton/.codex/worktrees/bra-553-host-bootstrap/bray.
-Branch feature/bra-619-scoped-cleanup-acceptance, base reviewed BRA-626 d69592ca0.
-Latest pushed checkpoint 087bb035b, following f5be6ce4d, f12e6e62b and c329313fd.
-Draft PR https://github.com/lejmer/bray/pull/614. BRA-619 remains In Progress. Independent COMMENT review5574343981
-at087bb035b reports no additional findings in the report-boundary changes. No inline comments. Its artifacts were verified
-through the GitHub review listing. It explicitly does not approve incomplete native acceptance or the remaining audits.
-BRA-561 PR611, BRA-505 PR612 and BRA-626 PR613 are ready. Preserve their branches and old BRA-619 recovery6bbcb4a3.
-Do not replay completed work or restart old reviews. Destination verified git@github.com:lejmer/bray.git, PUBLIC
-lejmer/bray, authenticated lejmer. Reuse this evidence unless destination or authentication changes.
+Branch feature/bra-619-scoped-cleanup-acceptance, base BRA-626 d69592ca0. Previous pushed checkpoint197cf2b37. Draft PR614:
+https://github.com/lejmer/bray/pull/614. BRA-619 In Progress, UUID d7445bfb-951f-4680-92f3-45cd45bee06f.
+BRA-561 PR611, BRA-505 PR612 and BRA-626 PR613 are ready. Preserve their branches and old recovery6bbcb4a3.
+Destination verified PUBLIC lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. Commit and push authorized.
+Git always uses -c core.safecrlf=false -c core.autocrlf=false, including git apply. Use UTF-8/LF.
+Worktree writes, Git and native/toolchain execution require escalation. No active build/test/native session remains.
+No source writes during builds. No parallel Cargo. Tests/xtasks use20 workers, final costs separately1 and24.
+Test binaries --test-threads20, Cargo-j20. Xtask processes inherit affinity1048575,20 cores. Performance affinity16777215.
+Release xtask only. Shared target C:/Users/anton/source/repos/bray/target, build dir target/cargo. Compiler tools Rust1.99.
+BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX=target/toolchains/llvm/active. Native-only RUSTUP_TOOLCHAIN=
+1.98.1-x86_64-pc-windows-msvc, TMP/TEMP=target/native/bra-505. Never delete shared outputs or task logs.
+Use rg --files before unfamiliar paths. No wildcard paths in PowerShell. Bound output before tool return.
 
-The tracked Linear rule plan and coverage inventory retain the initiative order. Earlier semantic proof:
-https://github.com/lejmer/bray/blob/d69592ca0/docs/handoff/runtime-stack-semantic-proof.md.
-Auto-review rejected copying the full proof to a new Linear document. No document was created. Do not retry.
+## Final implementation and review matrix
 
-## Established implementation
+- Selected enter/exit, entry admission, failed entry, guarded transfers, completion, nonlocal propagation, panic,
+  cancellation and shields share the existing lifecycle expansion. Authority remains exact, including imported transfers.
+- CleanupOutcome owns normal and abnormal reports through source/catch/await/native boundaries. Root completion moves
+  non-panic reports to the existing incident chain before FINISHED. No Rust owner/frame/TLS queue, ABI or schema bump.
+- DependencyCallOutput value/completion/abnormal outputs share checked witness inference, recursive equations and wire
+  metadata. Known immutable callable values reuse CallableReference selection. No second call graph or result solver.
+- Source operators, custom indexing, explicit conversion, type-form construction and defaults publish through the existing
+  CheckedDependencyContracts.calls table. Ordinary and implicit calls now share publication and failure-only diagnostic
+  lookup. Source argument conversions are NOT a missing callable path: Bray permits only explicit source conversion.
+  Contextual argument plans adapt literals, nullable presence and callable contracts without invoking source conversion.
+- OperationInput distinguishes actual values, implicit loans and synthesized nullable bounds. Exact StorageAccessId is
+  retained. Anonymous aggregate loans propagate through the existing liveness fixed point. Portable value-dependency
+  remapping conservatively drops unproved callee-entry discriminants, never authority guards at the actual call site.
+- Conversion lowering owns all source/target components, tests nullable presence and loops over arrays. Existing input
+  temporaries and ReverseCleanupLoop own source suffix/target prefix. No extent unrolling or extra whole-array flag.
+  LLVM's unchecked source-conversion invocation is removed. CleanupShapeResolver publishes all component/input shapes.
+- Explicit conversions previously fell through planner Read. They now share ValueTransfer planning with await, as the
+  specification requires. Scalar, tuple, array, nullable and identity moved-source regressions pass. This fixes native
+  double source destruction after catch disposal. Copy and explicit-borrow behavior retain existing transfer rules.
+- Custom index inputs reuse typed stabilization across later bounds, and nullable bounds use existing owned input cleanup.
+  The production fixture regression asserts MIR.is_valid. Temporary validator instrumentation is fully removed, with no
+  bray-ir source diff. Scoped storage planning belongs to existing call.rs. Input shapes belong to the existing resolver.
+- Checked NotEntered cancellation omits impossible cleanup only for exact direct declarations without trait dispatch,
+  defaults or source argument conversions. Graph construction and lowering consume the same SelectedCall method.
+  LLVM consumes the resulting empty Unreachable edge, preserving unoptimized report forwarding without report copies.
+- A Known/Inferred report-presence metadata experiment was removed entirely before acceptance. It added representations
+  without removing generic MIR work. Do not restart it. None versus Some([]) remains meaningful and conservative.
 
-- Selected enter/exit invocation, execution requirements, admission, frame retention and pending transfers are preserved.
-  Exit admission precedes entry. Separate admitted and entered guards preserve failed-entry ownership.
-- Repeated semantic occurrences retire dependencies only when every reachable occurrence retires them. Actual lifecycle
-  hooks require whole-value cleanup. Inactive scoped protocols can partially move their represented fields.
-- Structural source cleanup uses Lowerer::push_operation before the shared outcome check. The deleted resolve wrapper
-  bypassed initialization retirement and caused duplicate destruction. Result(Completion), rather than Bound(ScopedUse),
-  owns successful with completion. The old interpretation made valid tails unreachable.
-- Large native aggregates use private addressable snapshots without changing ABI/layout or clearing ordinary moved bytes.
-  This fixes SROA expansion. Native report empty-slot ownership remains explicit.
-- Source and catch report collections use StorageFlow demand and existing CleanupOutcome. Allocate and initialize Normal
-  plus EmptyPanicReport without entering a shield. Capture normal call/await reports before another call resets context.
-  Local cleanup forwards Incidents. Catch success and nonlocal transfers forward leaving collections to their survivor.
-  Panic/cancellation adopt the previous owner. Normal Return/Completed publishes it. Frame retention includes the physical
-  slots, and inactive/stored-result callbacks cannot read body collections whose initialization never ran.
-- Report merges thread ordinary SSA values through MirEdge arguments using forward_cleanup_edge. No runtime value temp.
-  The cleanup outcome root is thin, with model/state/reports/calls/finalization submodules.
-- MIR Return.report, CheckCallOutcome.completed_report, TakeCallReport and Completed.report carry owned reports. Every
-  walker, codec, mapping and native consumer handles them. The existing checked-call inventory is reused.
-- native_run_outcome_value takes separate optional integer result and report fields. All seven producers agree. No ABI
-  or schema version bump. Version1 remains the only version.
-- One output selector on DependencyRequirement::ResultCall distinguishes Value, CompletionReport and AbnormalReport.
-  Existing substitution, interface metadata, witness fixed points, relevance, remapping and structural identity preserve
-  it. Report requirements use the existing storage/liveness/retirement analyses, not a second solver or validation pass.
-- Direct await snapshots the consumed Future's dependencies. Factory sites are not frame identities. Default-provider
-  evaluation reports are separate from lazy body execution. Generated lifecycle helpers forward normal reports too.
-- Suppression handles earlier headless incidents without losing a later primary panic.
+## Fresh acceptance
 
-## Current uncommitted repair and proof
+All2456 release tests pass at20 threads: bound-tree124, checker332, LLVM94, compilation1868, lowering38. Full compilation
+87.24s, no skips/exclusions. Source-query group328 passed in9.68s, including actual operation fixture MIR validity.
+Logs target/bra-619-owned-conversion-build.log and bra-619-owned-conversion-bray_*.log.
+Fresh release tools build2m07s. The unchanged original operation fixture also passes an isolated native development run.
+Full native smoke passes bootstrap, foreign entry, async-values, ordinary-finalization, scoped-cleanup, operation-cleanup
+and async-tasks in BOTH development/release. The smoke stage takes89.6s. Standard-library planning17.9s at20 cores.
+Foreign entry100k calls0.336s. Logs bra-619-owned-conversion-isolated.log, tools.log and native.log.
+The C atexit observer independently confirms final sink-held capture destruction. Scoped totals23 entries,17 exits,
+9 finalizers,19 pre-sink captures/incidents and20 after sink disposal, with allocation denial and exact stderr intact.
+Operation fixture verifies13 sources,9 targets,19 incidents across successful composition and failure mid-tuple/array/nullable.
+Rustfmt, mutating release style and explicit release format pass. Logs bra-619-final-{rustfmt,style,format}.log.
+Git diff --check passes. No new unsafe, user English diagnostics, version bump or test-only acceptance bypass.
 
-Output-specific parameter relevance now follows the selected output through the existing graph and memoization keys.
-Report inference uses the same deferred_result path as ordinary values during recursive body inference. The direct
-report lookup had repeatedly expanded the preceding approximation. Both previously cancelled recursive tests now pass.
-Predicate outputs use their established effect-free contract. Treating predicates as arbitrary report-producing callbacks
-was invalid and caused the production lock and scoped authority failures.
+Isolated whole-process check costs, three samples each, median seconds,1 versus24 workers:
+64 catches0.185299/0.1865733,128 catches0.481114/0.4938919,256 catches1.5985605/1.6607162.
+24 independent bodies of64 catches3.4685979/2.1629291. All24 samples exit0, with no overlapping builds/tests.
+Before cancellation-path repair the serial256 case took43.6049s, earlier73.508s. Single-body work stays serial.
+Logs bra-619-final-costs.json and final-cost-*.log. PeakWorkingSet64 was unavailable, do not report it as0.
+Captured native sizes: scoped development6672384 bytes/release5396992, prior retained RkzoXt6846976/5569536.
+Operation development2465792 bytes. These fixture measurements do not claim final initiative-wide Rust/C++ size parity.
+Broader compiler/runtime cost gates remain owned by their existing initiative issues.
 
-An unconstrained callback can return normally while retaining a scoped exit Incident that borrows its argument, even
-when Incident is absent from the callback's explicit Result type. The new concrete source regression proves the producer
-has nonempty normal report dependencies, accepts caller-owned input and rejects a local borrow. It covers both an opaque
-callback parameter and a known immutable function value. The former positive fixture calling an arbitrary callback with
-&local was therefore not universally safe. It now tests caller-owned input. Do not restore a report-free default for
-opaque callbacks or weaken their authority. The dependency spec now explains this existing ownership rule.
+## Remaining publication and review
 
-Known immutable callable values need their producer's exact contract. Named reference selection already publishes a
-CallableReference with its exact instance. CheckedSemanticSelections now consumes that identity when constructing the
-final table, and records it on an indirect call without changing runtime dispatch. Mutable aliases are not resolved to
-an initial producer. Source-component discovery follows this established identity. The earlier candidate-time
-GenericDeclaration/CallableSignature queries were redundant and have been removed. Binding subjects and immutable
-initializers have one BoundTree implementation. The superseded checker pattern/source module is deleted.
+The current checkpoint preserves the implementation above. Mechanically finish the AGENTS/DRY/type/API/cost audit, count production
+and tests separately, commit/push PR614 and update its description. Keep Conventional Commit title lowercase, broad
+imperative Change Summary and Related Issues with ID-only links. No test/agent material in description.
+Start fresh independent reviewers only AFTER the pushed PR contains the commit. They must publish their own GitHub
+review summaries and actionable inline comments. Verify artifacts, fix/push and re-review material fixes. No builds by agents.
+All PR comments begin Posted by GPT-6 on behalf of lejmer: followed by a blank line.
+Old review5575387982 has P2 comment4316901997, threadPRRT_kwDOTFaIPc6uCFHJ. The independent C observer and both native
+profiles now address it. Reply/resolve only after the fix is pushed. Old reviews5574343981/5575163628 are historical.
+No agent is running. After clean review, update the tracked Linear plan/inventory/execution documents with completion
+and costs, remove all6 handoffs, push removal, mark PR614 Ready and BRA-619 In Review. Never merge or mark Done.
 
-A source/imported regression calls the same known mutable callback twice and requires no normal report collection.
-The imported fixture now uses the existing dependency_contracts API. The current debug test build includes this fixture.
+## Projection audit correction
 
-## Verification and active native finding
-
-The current checkpoint passes 320 source-query, 143 code-generation, 332 checker and 38 lowering tests.
-The connected full compiler run passed 1850 tests and exposed ten test assumptions. Focused reruns pass after correcting
-cleanup destruction expectations, accepting the required report-suppression runtime call, and disambiguating a fixture's
-retain function from the production runtime declaration. The outgoing-capacity expectations remain one and zero.
-The existing 64/128/256-path inference scale test passes but takes 609.87s in debug. Obtain release cost evidence before
-acceptance. Logs use target/bra-619-checkpoint-*.log, bra-619-connected-compilation-tests.log and bra-619-empty-scale.log.
-
-Destructor body handoff now accepts an owned normal report. Return validation still checks its operand. Native fixed-result
-callbacks consume their implicit reports through the existing report consumer. Bray calls publish them to the caller.
-Native inferred contracts exclude those consumed implicit reports while preserving ordinary value dependencies and reports
-from caller-evaluated defaults. Regression coverage checks both boundaries.
-
-StorageFlow retains abnormal report lifetime dependencies without demanding a normal pending collection. Joins and catch
-forwarding preserve both properties. Completed and abnormal candidate snapshots retire together after selection. Empty
-caught values use the existing implicit-empty assignment representation. No-op StaticFinalize no longer allocates an empty
-pending collection. Reporting synchronous finalizers initialize that collection before invocation.
-
-The fresh standard-library build passes. Native smoke passes bootstrap, foreign entry, async-values and ordinary-finalization
-in both profiles, then fails the scoped cleanup total: entries23, exits17, errors18, captures18, finalizers9. A bounded destructor trace shows two retained report payloads are destroyed only after the final assertion fails.
-The explicit result error is destroyed during its catch cleanup. Investigate discarded catch report lifetimes, including
-nullable and result propagation, before changing suspension or finalizer lowering.
-Do not weaken the required totals of20. Retained product:
-target/native/bra-505/bray-runtime-artifact-smoke-bj4T13/scoped-cleanup-development/scoped-cleanup.exe.
-The release binary predates the latest candidate-state retirement and native Bray-ABI assertion. Rebuild before acceptance.
-
-Actual production-source MIR and lifecycle expansion are retained in target/bra-619-{current,expanded}-*-compact.mir.
-The local error is slot65, initialized with guard66. Its finalizer abandonment flag is selected after quiescence resumes,
-so it does not cross the newly expanded suspension. No flag-spilling change is justified by this observation. Trace the
-actual guarded owner and report chain. No temporary inspection test or native debuggee remains. No review has started.
-
-## Connected native handoff and cleanup costs
-
-Root completion now takes the terminal progress and incident chain through execution.take_terminal, preserving the
-established native_report_callbacks witness. Non-panic reports move into the existing incident chain before FINISHED.
-NativeRun.drive has payload-free Completed and Cancelled observations, so leaving their report in progress silently
-disposed it instead of transferring it to the mandatory host sink. No Rust runtime owner or authority relaxation is added.
-
-Explicit lexical blocks retire the main-level nullable/result catch discard owners before the counter checks. The one
-cancelled task's error remains owned by the mandatory sink, as required by async-and-concurrency/cancellation.md.
-Main checks19 errors/captures before return. The retained inactive Capture checks the exact complete20/20 totals when
-reporting destroys it. Entry23, exit17, finalizer9, ordering, inactive body exclusion and denied allocation remain checked.
-The fresh full smoke passes bootstrap, foreign entry, async-values, ordinary-finalization, scoped-cleanup and async-tasks
-in both profiles. Log target/bra-619-sink-owner-native-smoke.log. Standard-library planning remains17.9s. No debuggee remains.
-
-The first alias optimization indexes reachable Storage and Returned origins by the exact roots already established by
-target_relationship. Entry/allocation origins remain disjoint under that rule. Heap/non-owned candidates retain the full
-comparison. The existing returned_borrow_regions_bound_aliases_without_claiming_argument_identity test checks this path.
-A second index inside transitive_regions showed no additional gain and was removed.
-
-Independent cost review5575163628 at087bb035b identifies repeated local observation reconstruction. Its actual PR artifact
-was verified. Missing local bindings/discard roots are now excluded from pre-initialization observation fabrication.
-Present and external roots keep their invalidation. Whole stable roots reuse the established value directly, while
-projected stable fields keep parent reconstruction. The sole caller rebuilds current, so invalidate_cleanup's redundant
-Unknown rewrite is deleted. Assumption, witness-carrier, allocation-owner and pending-entry invalidation is unchanged.
-
-All332 checker tests pass. Rustfmt, release mutating style and Bray format pass. The release64/128/256 caught-input cost
-changes from1.005/7.651/73.508s to0.793/5.307/43.605s. The last measurement overlaps the small formatting pass and is not
-an isolated acceptance sample. Logs target/bra-619-sparse-cleanup-*.log and costs.json. Scaling remains unresolved.
-The graph still has quadratically many cancellation-path cleanups of earlier discarded report owners. Do not claim that
-representation reductions alone resolve this architecture cost. Diagnostic scripts/logs stay ignored under target.
-
-An exact source counterexample now confirms the operation gap: first.add(&second) rejects a normal report borrowing an
-owned parameter at return with E7113, while first + second is accepted. Sources/logs are target/bra-619-{method,operator}-report.*.
-Connect operations to the existing call/report contracts with actual implicit borrow, synthesized nullable and projected
-conversion inputs. Do not fake source expression IDs, equate stored values with their borrows, or weaken the negative case.
-
-The independent operation audit proves these concrete mapping requirements before implementation:
-
-- Operator and custom element inputs are implicit borrows of sourceT. Treating their carried dependencies as those ofT
-  loses the actual&T referent. Reuse DependencyCallInput's value/storage distinction.
-- Custom slice bounds are synthesized nullable values, including absent bounds. Do not invent a BoundExpressionId or
-  pretend that call-owned nullable storage belongs to the caller.
-- Type-form constructor inputs can reuse existing selected call explicit/default mapping and default expansion.
-  Structural field/union defaults have no value arguments and need the constructed named type's existing substitution.
-- Production compilation/operation/conversion.rs recursively selects trait-backed composite children. The earlier
-  checker-only claim that composites contain only builtin leaves was wrong. LLVM currently invokes those child helpers
-  directly, without checked outcome/report capture between children. Lower source-calling composites through existing
-  checked-call and temporary cleanup paths. Keep builtin-only conversion on the ordinary Convert path.
-- Lowering/expression/value.rs type-form completion passes false to finish_typed_call_panic_check. Capture its established
-  completion report after owning operation contracts exist. Default calls already capture through the checked value path.
-- Keep CheckedDependencyContracts.calls as the one downstream publication and collect_operation_behavior as the existing
-  invocation/default inventory. Extend exact input mapping in its owner. Add no general invocation graph or semantics table.
-
-The reviewer ruled out a proposed opaque zero-argument Bray callable/provider defect: callable-address conversion accepts
-only Native ABI, which consumes implicit reports, and ordinary Bray callable values are capture-free. Do not implement that
-unreachable hypothesis. Current reviewer work is finished and started no builds or source edits.
-
-## Remaining acceptance and architectural checks
-
-1. Native acceptance passes with entries23, exits17, complete errors20/captures20 and finalizers9. The pre-report totals19
-   prove sink retention and the retained capture checks complete totals20 after reporting. Preserve both checks, ordering,
-   inactive body exclusion, allocation denial and the exact two stderr incident lines.
-2. Complete the operation coverage audit. Source calls, scoped calls, direct awaits, parameter defaults and lifecycle
-   calls are connected. A concrete gap remains: dependency/check.rs skips SemanticSelection::Operation, and
-   storage_flow/check/analysis/reports.rs says these operations invoke no source callable. That is false for selected
-   operators, conversions, custom indexing and type-form construction. behavior::collect_operation_behavior already owns
-   the invocation/default inventory. Use that existing owner and actual input mappings. Do not add a second call walker,
-   treat missing handling as no effect, or hide missing semantics with a broad fallback. Include field defaults and
-   temporary/discarded/replacement owners in the composition matrix.
-3. Report presence is distinct from dependency emptiness. None versus Some([]) currently distinguishes absence from an
-   independent report, but resolving a symbolic report call to an absent provider loses this distinction. A generic
-   report-free specialization can acquire needless pending storage/joins and an inlining barrier. Close the owning
-   summary/presence boundary before claiming cost acceptance. Do not treat [] as absence, drop independent reports,
-   infer absence from total, or rely on LLVM to remove avoidable work. Use established results during specialization.
-4. Verify imported reporting contracts, recursive/generic/opaque composition, returned callable/Future values and the
-   total-destructor outgoing-capacity shortcut. Total alone excludes abnormal return, not normal incidents. Outgoing
-   admission concerns callback error/panic payloads, while already-owned normal reports have their own admitted backing.
-   Check that distinction against the actual producer before changing the approved zero-capacity rule.
-5. Complete mechanical maintainability/DRY audit, production/test growth accounting and formatting. Release mutating
-   style, Rustfmt and Bray format are mandatory after tests pass. Update plan evidence, checkpoint/push, then dispatch a
-   fresh independent review on pushed PR614. The reviewer must post actual summary/inline artifacts. Resolve findings,
-   push fixes and re-review until clean. Only then ready/In Review. No Done or merge. Remove stale handoffs before acceptance.
-
-## Prior native evidence and costs
-
-At c329 fresh product vL9bks passed entries23 and exits17 but errors/captures were12 instead of20. The eight missing
-incidents matched six nonlocal transfers plus nullable/result propagation. Source pending report ownership repairs that
-missing transfer. This older product does not validate the new source report implementation. All earlier bootstrap,
-foreign entry, async-values and ordinary-finalization smokes passed in both profiles.
-Retained failure: target/native/bra-505/bray-runtime-artifact-smoke-vL9bks/scoped-cleanup-development/scoped-cleanup.exe.
-Logs bra-619-pending-native-{smoke,panic,counts}.log. Counter offsets .data RVA0x5e2000: entries+2712, exits+2720,
-errors+2704, captures+2672, finalizers+2688. Older nL6Inc duplicate destruction, L5EJSv unreachable join, EcWNsS pre-admission
-denial and Xh3zAJ discarded try result have established causes/fixes. Do not re-debug them.
-
-Old object generation exceeded36GB after SROA expanded a resume from62,494 to1,151,009 instructions. The aggregate repair
-emits LLVM plus objects in35.883s with four workers, sampled near1.1GB under8GB,134.78MiB combined. No optimizer disabled.
-Matching-package IR target/bra-619-retirement-ir-product was132.88MiB,9,943blocks and7,099operations before completion
-publication repair. Reuse evidence unless changed inputs justify another measurement.
-
-## Execution and efficiency
-
-Shared CARGO_TARGET_DIR=C:/Users/anton/source/repos/bray/target, CARGO_BUILD_BUILD_DIR=that target/cargo.
-BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX use target/toolchains/llvm/active. Compiler tools use default Rust1.99.
-Native provider packaging uses process-local RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-msvc and TMP/TEMP=target/native/bra-505.
-Native LLVM, linker and executable workflows run outside the sandbox. Worktree writes and Git need escalation. Never clean
-shared storage. Drive C had41.7GB free before the current builds. No task-owned debuggee remains.
-
-Use rg --files before unfamiliar paths. Never pass wildcard paths to rg in PowerShell. Do not guess file paths. Keep tool
-output bounded, and parse large logs for selected facts. Python always uses explicit UTF-8. Stage codemods before writing.
-After Python check LASTEXITCODE before Cargo. Ignored applied scripts include target/bra-619-output-relevance.py,
-thread-report-results.py, callable-source.py and reuse-callable-references.py. Do not rerun applied scripts.
+The final audit found that child conversion effects also need aggregate-relative subjects. Tuple/nullable receiver paths
+now share projection with lifetime requirements. A uniform array summary has no one constant element, so it explicitly
+uses the established unresolved-alias effect meaning. Atomic and escape remain distinct. The new
+DependencyStorageEffect.unresolved helper reuses that existing policy in ordinary effect inference as well, deleting the
+prior repeated classification. No new wire data, pass or runtime operation is introduced.
+Actual source cases verify tuple/nullable indirect prefixes and array unresolved effects. All329 source-query tests,
+332 checker tests and206 symbol tests pass. Log bra-619-projected-effects-{build,tests,checker,symbols}.log.
+The native operation fixture now also mutates4 distinct external owners through tuple, nullable and array conversion.
+Its source/MIR validity regression passes. Fresh native execution of this updated fixture in both profiles and final
+performance after rebuilding release tools remain required. The full89.6s native run above predates this added mutation
+matrix. Do not describe the new matrix as native-proven yet. Format/style and checkpoint/push are the next actions.
+The complete PR before this last correction has6330 net production physical lines,3261 test/fixture lines and26 tooling
+lines, with inline cfg(test) items classified separately. Retain these as growth evidence, not as proof of simplification.

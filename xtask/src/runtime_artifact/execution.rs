@@ -43,6 +43,11 @@ pub(super) fn smoke_test(
             0,
         ),
         (
+            "operation-cleanup",
+            include_str!("../../fixtures/native-execution/operation-cleanup.bray"),
+            0,
+        ),
+        (
             "async-tasks",
             include_str!("../../fixtures/native-execution/async_tasks.bray"),
             0,

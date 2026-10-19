@@ -1,5 +1,5 @@
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
-use bray_bound_tree::{SelectedArgument, SelectedCall};
+use bray_bound_tree::{SelectedArgument, SelectedReceiver};
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
     DependencySubjectRoot,
@@ -53,12 +53,14 @@ impl CallResultDependencies {
 /// Replaces omitted inputs with their declaration-owned provider dependencies.
 pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&SelectedReceiver>,
+    instance: Option<bray_symbols::CallableInstanceData>,
     template: &DependencyContractTemplateData,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut defaults = std::collections::BTreeMap::new();
 
-    for argument in call.arguments() {
+    for argument in arguments {
         let SelectedArgument::Default {
             parameter,
             provider,
@@ -72,19 +74,12 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
         )?;
 
-        let provider = super::resolved_result_template(
-            request,
-            match call.target() {
-                bray_bound_tree::BoundCallableTarget::Declaration(instance) => Some(instance),
-                _ => None,
-            },
-            provider,
-        )?;
+        let provider = super::resolved_result_template(request, instance, provider)?;
 
         defaults.insert(*parameter, provider);
     }
 
-    let mut expanded = expand(request, call, template, &defaults)?;
+    let mut expanded = expand(request, arguments, receiver, template, &defaults)?;
 
     for (completion, requirements) in [
         (true, template.completion_reports()),
@@ -93,7 +88,8 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         if let Some(requirements) = requirements {
             let reports = expand(
                 request,
-                call,
+                arguments,
+                receiver,
                 &DependencyContractTemplateData::new(requirements.iter().cloned()),
                 &defaults,
             )?;
@@ -131,7 +127,8 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             ) {
                 let output = expand(
                     request,
-                    call,
+                    arguments,
+                    receiver,
                     &DependencyContractTemplateData::new(requirements.iter().cloned()),
                     &defaults,
                 )?;
@@ -168,7 +165,8 @@ type Defaults = std::collections::BTreeMap<
 
 fn expand<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&SelectedReceiver>,
     template: &DependencyContractTemplateData,
     defaults: &Defaults,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
@@ -193,11 +191,14 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             let definitions = definitions
                 .iter()
                 .map(|definition| {
-                    expand_witness_input_defaults(request, call, definition, defaults)
+                    expand_witness_input_defaults(
+                        request, arguments, receiver, definition, defaults,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let roots = expand_witness_input_defaults(request, call, &roots, defaults)?;
+            let roots =
+                expand_witness_input_defaults(request, arguments, receiver, &roots, defaults)?;
 
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
@@ -218,7 +219,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                expand_call_inputs(request, call, &inputs, defaults)?,
+                expand_call_inputs(request, arguments, receiver, &inputs, defaults)?,
                 output,
             ));
 
@@ -249,7 +250,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         if from_default
             && *kind == DependencyRequirementKind::StorageAlive
-            && default_borrows_argument_storage(call, subject, request)?
+            && default_borrows_argument_storage(arguments, receiver, subject, request)?
         {
             escaping_evaluation_inputs.insert(subject.subject_root());
             continue;
@@ -257,7 +258,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         let default = match subject.subject_root() {
             DependencySubjectRoot::Parameter(ordinal) => {
-                call.arguments().iter().find_map(|argument| match argument {
+                arguments.iter().find_map(|argument| match argument {
                     SelectedArgument::Default {
                         parameter,
                         ordinal: actual,
@@ -306,7 +307,8 @@ fn expand<C: CheckerRequestContext + ?Sized>(
                 .borrows()
                 .iter()
                 .filter(|relation| {
-                    super::result_argument(call, relation.entry().subject_root()).is_some()
+                    super::result_argument(arguments, receiver, relation.entry().subject_root())
+                        .is_some()
                 })
                 .cloned(),
         ),
@@ -319,7 +321,8 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
 fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&SelectedReceiver>,
     inputs: &[bray_symbols::DependencyCallInput],
     defaults: &Defaults,
 ) -> Result<Vec<bray_symbols::DependencyCallInput>, CheckerQueryError<C::UpstreamError>> {
@@ -328,8 +331,20 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
         .map(|input| {
             Ok(bray_symbols::DependencyCallInput::new(
                 input.root(),
-                expand_witness_input_defaults(request, call, input.values(), defaults)?,
-                expand_witness_input_defaults(request, call, input.storage(), defaults)?,
+                expand_witness_input_defaults(
+                    request,
+                    arguments,
+                    receiver,
+                    input.values(),
+                    defaults,
+                )?,
+                expand_witness_input_defaults(
+                    request,
+                    arguments,
+                    receiver,
+                    input.storage(),
+                    defaults,
+                )?,
             ))
         })
         .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
@@ -337,12 +352,13 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
 
 fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&SelectedReceiver>,
     requirements: &[DependencyRequirement],
     defaults: &Defaults,
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(requirements.iter().cloned());
-    let expanded = expand(request, call, &template, defaults)?;
+    let expanded = expand(request, arguments, receiver, &template, defaults)?;
 
     let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
         DependencyRequirement::direct(
@@ -361,7 +377,8 @@ fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
 }
 
 fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&SelectedReceiver>,
     subject: &bray_symbols::DependencySubject,
     request: CheckerUnitView<'_, C>,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
@@ -373,7 +390,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
 
     let mut ty = match root {
         DependencySubjectRoot::Parameter(ordinal) => {
-            match call.arguments().iter().find(|argument| match argument {
+            match arguments.iter().find(|argument| match argument {
                 SelectedArgument::Explicit {
                     ordinal: actual, ..
                 }
@@ -391,7 +408,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
             }
         }
         DependencySubjectRoot::Receiver => {
-            let receiver = call.receiver().unwrap_or_else(|| {
+            let receiver = receiver.unwrap_or_else(|| {
                 panic!("default_borrows_argument_storage requires borrowed result receiver")
             });
 
@@ -434,7 +451,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
 pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
-    call: &SelectedCall,
+    selection: &bray_bound_tree::SemanticSelection,
     root: DependencySubjectRoot,
     id: bray_diagnostics::DiagnosticId,
 ) -> bray_diagnostics::Diagnostic {
@@ -442,11 +459,25 @@ pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
 
     let source = request.source(origin.source_anchor());
 
-    let argument = super::result_argument(call, root)
+    let argument = match selection {
+        bray_bound_tree::SemanticSelection::Call(call) => {
+            super::result_argument(call.arguments(), call.receiver(), root)
+        }
+        bray_bound_tree::SemanticSelection::Operation(operation) => {
+            super::call::operation_inputs(request.view(), expression, operation)
+                .into_iter()
+                .find(|(actual, _)| *actual == root)
+                .and_then(|(_, input)| input.expression())
+        }
+        _ => unreachable!("escaping evaluation belongs to the selected invocation"),
+    };
+
+    let argument = argument
         .or_else(|| match request.view().expression(expression) {
             Some(bray_bound_tree::BoundExpression::Call(call)) => Some(call.callee()),
-            _ => None,
-        }).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires checked expression type or node, expression: {expression:?}, id: {id:?}"));
+            _ => Some(expression),
+        })
+        .expect("escaping evaluation has its source expression");
 
     let argument = crate::diagnostic::bound_node_origin(request, argument.into()).unwrap_or_else(|| panic!("escaping_evaluation_diagnostic requires bound node source origin, expression: {expression:?}, id: {id:?}"));
 

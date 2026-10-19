@@ -292,16 +292,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ConversionTarget::NullablePresent => {
                 self.construct_nullable_present(conversion.target_type(), value)
             }
-            ConversionTarget::Trait { fulfillment, .. } => {
-                let helper = next_helper(helpers, &MirHelperReference::Conversion(*fulfillment));
-
-                let value = self.invoke_helper(helper, &[value])?;
-
-                self.materialize_call_result(value, conversion.target_type())
-            }
-            ConversionTarget::TraitConstraint { .. } => {
+            ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
                 panic!(
-                    "checked MIR construction translation violated an established compiler contract"
+                    "source conversion calls must be lowered through checked MIR outcomes before LLVM translation"
                 )
             }
             ConversionTarget::Composite(children) => {

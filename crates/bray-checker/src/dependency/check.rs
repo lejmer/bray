@@ -91,25 +91,40 @@ where
 
     for entry in selections.entries() {
         let contract = match entry.selection() {
-            SemanticSelection::Call(call) => {
-                match selected_call_contracts(
-                    request,
-                    storage,
-                    entry.expression(),
-                    call,
-                    value_inputs,
-                ) {
-                    Ok((contracts, escaping)) => {
+            SemanticSelection::Call(_) | SemanticSelection::Operation(_) => {
+                let selected = match entry.selection() {
+                    SemanticSelection::Call(call) => selected_call_contracts(
+                        request,
+                        storage,
+                        entry.expression(),
+                        call,
+                        value_inputs,
+                    )
+                    .map(Some),
+                    SemanticSelection::Operation(operation) => {
+                        super::call::selected_operation_contracts(
+                            request,
+                            storage,
+                            entry.expression(),
+                            operation,
+                            value_inputs,
+                        )
+                    }
+                    _ => {
+                        unreachable!("invocation contract dispatch retains its selected operation")
+                    }
+                };
+
+                match selected {
+                    Ok(Some((contracts, escaping))) => {
                         if let Some(root) = escaping.first().copied() {
-                            let diagnostic = super::defaults::escaping_evaluation_diagnostic(
+                            diagnostics.add(super::defaults::escaping_evaluation_diagnostic(
                                 request,
                                 entry.expression(),
-                                call,
+                                entry.selection(),
                                 root,
                                 crate::diagnostic::diagnostic_id(diagnostics.len()),
-                            );
-
-                            diagnostics.add(diagnostic);
+                            ));
 
                             is_recovered = true;
                         }
@@ -130,6 +145,7 @@ where
 
                         Ok(invocation)
                     }
+                    Ok(None) => continue,
                     Err(error) => Err(error),
                 }
             }
@@ -173,7 +189,6 @@ where
             | SemanticSelection::CallableReference(_)
             | SemanticSelection::StaticReference(_)
             | SemanticSelection::Predicate(_)
-            | SemanticSelection::Operation(_)
             | SemanticSelection::Propagation(_) => continue,
         };
 
@@ -219,7 +234,7 @@ where
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    let contracts = match CheckedDependencyContracts::try_new(
+    let contracts = CheckedDependencyContracts::try_new(
         request.unit(),
         storage,
         expressions,
@@ -229,40 +244,28 @@ where
         is_recovered,
     )
     .and_then(|contracts| contracts.try_with_calls(calls))
-    {
-        Ok(contracts) => contracts.with_lifecycle_dependencies(lifecycle_dependencies),
-        Err(error) => {
-            panic!(
-                "Durable dependency-contract construction rejected an exact invariant. in check_dependency_contracts, value0: {:?}",
-                error
-            );
-        }
-    };
+    .expect(
+        "checked source access plans and selected invocations define valid dependency contracts",
+    )
+    .with_lifecycle_dependencies(lifecycle_dependencies);
 
-    let contracts = match prepare_static_carriers(request, contracts) {
-        Ok(contracts) => contracts,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
-    };
+    let prepared = prepare_static_carriers(request, contracts).and_then(|contracts| {
+        let variants = super::projection::prepare_variants(
+            request,
+            &contracts,
+            storage,
+            value_inputs,
+            selections,
+        )?;
 
-    let variants = match super::projection::prepare_variants(
-        request,
-        &contracts,
-        storage,
-        value_inputs,
-        selections,
-    ) {
-        Ok(variants) => variants,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+        Ok(contracts.with_projection_variants(variants))
+    });
 
-    CheckerOutcome::Complete(DiagnosticResult::new(
-        contracts.with_projection_variants(variants),
-        diagnostics,
-    ))
+    match prepared {
+        Ok(contracts) => CheckerOutcome::Complete(DiagnosticResult::new(contracts, diagnostics)),
+        Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 fn borrow_requirements(

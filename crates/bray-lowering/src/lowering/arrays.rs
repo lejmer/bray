@@ -201,32 +201,7 @@ impl Lowerer<'_> {
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
-        let borrow_type = self.input.semantic_values().intern_type(TypeData::Borrow {
-            kind: BorrowKind::Shared,
-            target: place.ty(),
-        })?;
-
-        let borrowed = self.push_cleanup_value(
-            block,
-            source,
-            MirOperationKind::Borrow {
-                kind: BorrowKind::Shared,
-                place: Self::retained_place(place),
-            },
-            borrow_type,
-        )?;
-
-        let length = self.push_cleanup_value(
-            block,
-            source,
-            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
-                CheckedMemoryOperationKind::SequenceLength,
-                [borrowed],
-                [borrow_type],
-                Some(usize_type),
-            ))),
-            usize_type,
-        )?;
+        let length = self.sequence_length(block, source, place)?;
 
         let zero = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 0)?;
         let one = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 1)?;
@@ -279,6 +254,42 @@ impl Lowerer<'_> {
             cleanup.continuation_value.zip(value.map(|(_, ty)| ty)),
         ))
     }
+    pub(super) fn sequence_length(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: &MirPlace,
+    ) -> Result<MirOperand, LoweringError> {
+        let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
+
+        let borrow_type = self.input.semantic_values().intern_type(TypeData::Borrow {
+            kind: BorrowKind::Shared,
+            target: place.ty(),
+        })?;
+
+        let borrowed = self.push_cleanup_value(
+            block,
+            source,
+            MirOperationKind::Borrow {
+                kind: BorrowKind::Shared,
+                place: Self::retained_place(place),
+            },
+            borrow_type,
+        )?;
+
+        self.push_cleanup_value(
+            block,
+            source,
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                CheckedMemoryOperationKind::SequenceLength,
+                [borrowed],
+                [borrow_type],
+                Some(usize_type),
+            ))),
+            usize_type,
+        )
+    }
+
     fn push_cleanup_value(
         &mut self,
         block: MirBlockId,

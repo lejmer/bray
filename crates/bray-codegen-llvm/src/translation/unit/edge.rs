@@ -34,15 +34,18 @@ pub(super) fn reachable_blocks(
                 completed,
                 panicked,
                 cancelled,
-                completed_report,
-            } if forwards_call_outcomes => {
+                ..
+            } => {
                 pending.push(completed.target());
 
-                if !direct_panic_propagation(unit, panicked) {
+                if !forwards_call_outcomes || !direct_panic_propagation(unit, panicked) {
                     pending.push(panicked.target());
                 }
 
-                if !direct_cancellation_propagation(unit, cancelled) {
+                if !empty_unreachable_target(unit, cancelled.target())
+                    && (!forwards_call_outcomes
+                        || !direct_cancellation_propagation(unit, cancelled))
+                {
                     pending.push(cancelled.target());
                 }
             }
@@ -51,6 +54,16 @@ pub(super) fn reachable_blocks(
     }
 
     reachable
+}
+
+pub(super) fn empty_unreachable_target(unit: &MirUnit, target: MirBlockId) -> bool {
+    let block = unit
+        .block(target)
+        .expect("checked call outcome retains its target block");
+
+    block.operations().is_empty()
+        && block.parameters().is_empty()
+        && matches!(block.terminator().kind(), MirTerminatorKind::Unreachable)
 }
 
 pub(super) fn create_blocks<'context>(
@@ -499,6 +512,26 @@ mod tests {
         assert_eq!(
             reachable_blocks(&unit, false, [unit.entry()]),
             [entry, completed, panicked, cancelled].into()
+        );
+    }
+
+    #[test]
+    fn impossible_cancellation_is_not_a_report_route() {
+        let (mut builder, source, [entry, completed, panicked, cancelled], _) =
+            propagation_builder(Some(3));
+
+        builder.set_terminator(cancelled, source, MirTerminatorKind::Unreachable);
+
+        let unit = builder.finish(entry);
+
+        assert_eq!(
+            reachable_blocks(&unit, true, [entry]),
+            [entry, completed].into()
+        );
+
+        assert_eq!(
+            reachable_blocks(&unit, false, [entry]),
+            [entry, completed, panicked].into()
         );
     }
 

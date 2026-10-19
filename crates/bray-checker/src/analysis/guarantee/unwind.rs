@@ -108,7 +108,15 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
         if valid
             && matches!(
                 expressions.selections().expression(expression),
-                Some(bray_bound_tree::SemanticSelection::Call(_))
+                Some(
+                    bray_bound_tree::SemanticSelection::Call(_)
+                        | bray_bound_tree::SemanticSelection::Operation(
+                            bray_bound_tree::SelectedOperation::Operator { .. }
+                                | bray_bound_tree::SelectedOperation::CompoundAssignment(_)
+                                | bray_bound_tree::SelectedOperation::Index { .. }
+                                | bray_bound_tree::SelectedOperation::Conversion(_)
+                        )
+                )
             )
         {
             calls.insert(

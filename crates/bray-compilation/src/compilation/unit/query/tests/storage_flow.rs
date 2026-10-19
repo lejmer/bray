@@ -191,7 +191,10 @@ fn callable_reports_preserve_borrows_absent_from_the_explicit_result_type() {
             struct Resource
             {
                 value: &bool;
-                enter() -> &bool { return self.value; }
+                enter() -> &bool
+                {
+                    return self.value;
+                }
                 exit(pos lease: &bool) -> Result<unit, Incident>
                 {
                     return Error(Incident { value = lease });
@@ -254,6 +257,313 @@ fn callable_reports_preserve_borrows_absent_from_the_explicit_result_type() {
             }
         }
     }
+}
+
+#[test]
+fn operator_reports_preserve_the_same_operand_borrows_as_method_calls() {
+    let callers = [
+        (
+            r#"
+            func caller(pos first: Value, pos second: Value) -> Value
+            {
+                return Invocation;
+            }
+            "#,
+            Some(DiagnosticKind::CheckingEscapingStorageDependency),
+        ),
+        (
+            r#"
+            func caller()
+            {
+                let mut first = Value { value = true };
+                let second = Value { value = false };
+                {
+                    let _ = catch
+                    {
+                        let _ = Invocation;
+                        first.value = false;
+                        panic("");
+                        yield unit;
+                    };
+                }
+            }
+            "#,
+            Some(DiagnosticKind::CheckingConflictingBorrow),
+        ),
+        (
+            r#"
+            func caller()
+            {
+                let mut first = Value { value = true };
+                let second = Value { value = false };
+                {
+                    let _ = catch
+                    {
+                        let _ = Invocation;
+                        panic("");
+                        yield unit;
+                    };
+                }
+                first.value = false;
+            }
+            "#,
+            None,
+        ),
+    ];
+
+    for invocation in ["first.add(&second)", "first + second"] {
+        for (caller, expected) in callers {
+            let source = r#"
+        module app;
+        struct Value
+        {
+            mut value: bool;
+        }
+        struct Incident
+        {
+            value: &bool;
+        }
+        struct Resource
+        {
+            value: &bool;
+            enter() -> &bool
+            {
+                return self.value;
+            }
+            exit(pos lease: &bool) -> Result<unit, Incident>
+            {
+                return Error(Incident { value = lease });
+            }
+        }
+        impl ValueAdd = Value(Add<Value>)
+        {
+            type Output = Value;
+            func add(pos rhs: &Value) -> Value
+            {
+                let resource = Resource { value = &self.value };
+                let _ = with lease = resource
+                {
+                    return Value { value = rhs.value };
+                };
+                return Value { value = rhs.value };
+            }
+        }
+        Caller
+        "#
+            .replace("Caller", caller)
+            .replace("Invocation", invocation);
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                diagnostics.has_errors(),
+                expected.is_some(),
+                "{invocation}: {diagnostics:#?}"
+            );
+
+            if let Some(expected) = expected {
+                // A future conflicting write can also make the retained output
+                // inadmissible at invocation, before storage flow reaches that write.
+                if expected == DiagnosticKind::CheckingConflictingBorrow
+                    && diagnostics.iter().any(|diagnostic| {
+                        diagnostic.kind() == DiagnosticKind::CheckingEscapingStorageDependency
+                    })
+                {
+                    assert_goal_state_diagnostic_kind(
+                        &diagnostics,
+                        DiagnosticKind::CheckingEscapingStorageDependency,
+                    );
+                } else {
+                    assert_goal_state_diagnostic_kind(&diagnostics, expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn conversion_reports_retain_borrows_across_composite_inputs() {
+    for invocation in [
+        "source as Target",
+        "(source, second) as (Target, Target)",
+        "[source, second] as [Target; 2]",
+        "present as Target?",
+    ] {
+        for local in [false, true] {
+            let input = if local {
+                "let value = true; let input = &value;"
+            } else {
+                ""
+            };
+
+            let parameter = if local { "" } else { "pos input: &bool" };
+
+            let source = r#"
+            module app;
+            struct Source
+            {
+                value: &bool;
+            }
+            struct Target
+            {
+                value: &bool;
+            }
+            struct Incident
+            {
+                value: &bool;
+            }
+            struct Resource
+            {
+                value: &bool;
+                enter() -> &bool
+                {
+                    return self.value;
+                }
+                exit(pos lease: &bool) -> Result<unit, Incident>
+                {
+                    return Error(Incident { value = lease });
+                }
+            }
+            impl SourceConversion = Source(ConvertTo<Target>)
+            {
+                consume func convert() -> Target
+                {
+                    let resource = Resource { value = self.value };
+                    let _ = with lease = resource
+                    {
+                        return Target { value = self.value };
+                    };
+                    return Target { value = self.value };
+                }
+            }
+            func caller(Parameter)
+            {
+                Input
+                let source = Source { value = input };
+                let second = Source { value = input };
+                let present: Source? = Source { value = input };
+                let _ = Invocation;
+            }
+            "#
+            .replace("Parameter", parameter)
+            .replace("Input", input)
+            .replace("Invocation", invocation);
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            if diagnostics.has_errors() != local {
+                let summary = crate::compilation::result_dependencies::source_function_dependencies(
+                    &application,
+                    "caller",
+                );
+
+                let contracts = application
+                    .dependency_contracts(crate::test_support::source_function_body_key(
+                        &application,
+                        "caller",
+                    ))
+                    .expect("checked caller publishes dependency contracts");
+
+                let reports = contracts
+                    .value()
+                    .calls()
+                    .iter()
+                    .map(|(site, call)| (site, call.reports()))
+                    .collect::<Vec<_>>();
+
+                panic!(
+                    "{invocation}, local={local}: {diagnostics:#?}, summary={summary:#?}, reports={reports:#?}"
+                );
+            }
+
+            if local {
+                assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_index_reports_retain_the_selector_borrow() {
+    let application = compilation(
+        r#"
+    module app;
+    struct Indexed
+    {
+        value: i32;
+    }
+    struct Incident
+    {
+        value: &i32;
+    }
+    struct Resource
+    {
+        value: &i32;
+        enter() -> &i32
+        {
+            return self.value;
+        }
+        exit(pos lease: &i32) -> Result<unit, Incident>
+        {
+            return Error(Incident { value = lease });
+        }
+    }
+    impl ElementAccess = Indexed(ElementIndex<i32>)
+    {
+        type Output = i32;
+        func index(pos selector: &i32) -> &i32
+        {
+            let resource = Resource { value = selector };
+            let _ = with lease = resource
+            {
+                return &self.value;
+            };
+            return &self.value;
+        }
+    }
+    func caller(pos indexed: &Indexed, pos selector: i32) -> i32
+    {
+        return indexed[selector];
+    }
+    "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    if !diagnostics.has_errors() {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "caller",
+        );
+
+        let contracts = application
+            .dependency_contracts(crate::test_support::source_function_body_key(
+                &application,
+                "caller",
+            ))
+            .expect("checked caller publishes dependency contracts");
+
+        let reports = contracts
+            .value()
+            .calls()
+            .iter()
+            .map(|(site, call)| (site, call.reports()))
+            .collect::<Vec<_>>();
+
+        panic!(
+            "selector report must retain its caller-owned storage, summary={summary:#?}, reports={reports:#?}"
+        );
+    }
+
+    assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::CheckingEscapingStorageDependency,
+    );
 }
 
 #[test]
@@ -909,5 +1219,285 @@ fn native_callbacks_consume_only_their_implicit_report_outputs() {
             !call.result().requirements().is_empty(),
             "explicit result dependencies remain visible: {call:#?}"
         );
+    }
+}
+
+#[test]
+fn non_cancelling_calls_keep_panicking_reports_inside_the_catch_owner() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Value
+        {
+            mut value: bool;
+        }
+        struct Incident
+        {
+            value: &bool;
+        }
+        struct Resource
+        {
+            value: &bool;
+            enter() -> &bool
+            {
+                return self.value;
+            }
+            exit(pos lease: &bool) -> Result<unit, Incident>
+            {
+                return Error(Incident { value = lease });
+            }
+        }
+        func collect(pos value: &Value, pos fail: bool)
+        {
+            let resource = Resource { value = &value.value };
+            let _ = with lease = resource
+            {
+                if fail
+                {
+                    panic("");
+                }
+                return;
+            };
+        }
+        func caller()
+        {
+            let mut value = Value { value = true };
+            {
+                let _ = catch
+                {
+                    collect(&value, true);
+                    panic("");
+                    yield unit;
+                };
+            }
+            value.value = false;
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn optional_conversion_children_preserve_possible_normal_completion() {
+    for (source, target, expected) in [
+        ("Doomed?", "Target?", true),
+        ("[Doomed; 0]", "[Target; 0]", true),
+        ("[Doomed; 1]", "[Target; 1]", false),
+        ("Doomed", "Target", false),
+    ] {
+        let source = r#"
+        module app;
+        struct Doomed {}
+        struct Target {}
+        impl DoomedConversion = Doomed(ConvertTo<Target>)
+        {
+            consume func convert() -> Target
+            {
+                panic("");
+            }
+        }
+        func caller(pos value: Input) -> Output
+        {
+            return value as Output;
+        }
+        "#
+        .replace("Input", source)
+        .replace("Output", target);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "caller",
+        );
+
+        assert_eq!(
+            summary.normal_completion(),
+            expected,
+            "{source}: {summary:#?}"
+        );
+    }
+}
+
+#[test]
+fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
+    let application = compilation(include_str!(
+        "../../../../../../../xtask/fixtures/native-execution/operation-cleanup.bray"
+    ));
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let lowered = application.lowered_unit(key).unwrap();
+
+    let mir = lowered
+        .value()
+        .as_ref()
+        .unwrap()
+        .mir()
+        .expect("checked fixture produces MIR");
+
+    assert!(
+        mir.is_valid(),
+        "operation cleanup fixture must publish valid MIR: {mir:#?}"
+    );
+}
+
+#[test]
+fn explicit_conversions_consume_noncopyable_source_storage() {
+    for (value, target) in [
+        ("Source {}", "Target"),
+        ("(Source {}, Source {})", "(Target, Target)"),
+        ("[Source {}]", "[Target; 1]"),
+        ("present()", "Target?"),
+        ("Source {}", "Source"),
+    ] {
+        let source = r#"
+        module app;
+        struct Source
+        {
+            destruct() {}
+        }
+        struct Target {}
+        impl Conversion = Source(ConvertTo<Target>)
+        {
+            consume func convert() -> Target
+            {
+                return Target {};
+            }
+        }
+        func present() -> Source?
+        {
+            return Source {};
+        }
+        func caller()
+        {
+            let value = Input;
+            let converted = value as Output;
+            let moved_again = value;
+        }
+        "#
+        .replace("Input", value)
+        .replace("Output", target);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingUseOfMovedStorage),
+            "conversion must consume its owned source: {source} {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn composite_conversion_effects_use_the_aggregate_input_paths() {
+    use bray_symbols::{
+        DependencyProjection, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    for (input, output, expected) in [
+        (
+            "(Source, Source)",
+            "(Target, Target)",
+            vec![
+                DependencyProjection::TupleElement(SymbolOrdinal::new(0)),
+                DependencyProjection::TupleElement(SymbolOrdinal::new(1)),
+            ],
+        ),
+        (
+            "Source?",
+            "Target?",
+            vec![DependencyProjection::NullableValue],
+        ),
+        ("[Source; 2]", "[Target; 2]", vec![]),
+    ] {
+        let source = r#"
+        module app;
+        struct Value
+        {
+            mut active: bool;
+        }
+        struct Source
+        {
+            value: &mut Value;
+        }
+        struct Target {}
+        impl Conversion = Source(ConvertTo<Target>)
+        {
+            consume func convert() -> Target
+            {
+                let mut reference = self.value;
+                reference.active = true;
+                return Target {};
+            }
+        }
+        func caller(pos value: Input) -> Output
+        {
+            return value as Output;
+        }
+        "#
+        .replace("Input", input)
+        .replace("Output", output);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+
+        let contracts = application
+            .dependency_contracts(crate::test_support::source_function_body_key(
+                &application,
+                "caller",
+            ))
+            .unwrap();
+
+        let effects = contracts
+            .value()
+            .calls()
+            .values()
+            .flat_map(|call| call.effects())
+            .collect::<Vec<_>>();
+
+        let indirect = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let actual = indirect
+            .iter()
+            .map(|reference| {
+                assert_eq!(reference.subject_root(), DependencySubjectRoot::Receiver);
+
+                *reference
+                    .projections()
+                    .first()
+                    .expect("composite reference retains its aggregate prefix")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected, "{source}: {effects:#?}");
+
+        if expected.is_empty() {
+            assert!(
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                "{effects:#?}"
+            );
+        }
     }
 }

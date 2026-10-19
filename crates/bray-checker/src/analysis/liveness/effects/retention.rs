@@ -197,41 +197,53 @@ impl OperationEffects {
             .collect::<BTreeMap<bray_bound_tree::BoundExecutionSite, _>>();
 
         for (identity, provenance) in storage.identity_entries() {
-            if let bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } =
-                provenance
-            {
-                initializations
-                    .entry(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression))
-                    .or_default()
-                    .push(StorageBinding::Identity(identity));
-            }
+            let occurrence = match provenance {
+                bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
+                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
+                }
+                bray_bound_tree::StorageIdentity::Temporary(expression)
+                    if !self.value_inputs.is_independent(expression) =>
+                {
+                    expression.into()
+                }
+                _ => continue,
+            };
+
+            initializations
+                .entry(occurrence)
+                .or_default()
+                .push(StorageBinding::Identity(identity));
         }
 
         let value_sources_by_root =
             index_value_sources_by_root(storage, &initializations, &self.value_inputs);
 
-        for expression in self.owner_dependencies.keys().copied().collect::<Vec<_>>() {
-            let nested_borrows = retained_storage_borrows(
-                storage,
-                &value_sources_by_root,
-                self.owner_dependencies
-                    .get(&expression)
-                    .into_iter()
-                    .flat_map(|subjects| subjects.iter().copied()),
-                self,
-            );
-
-            self.owner_dependencies
-                .entry(expression)
-                .or_default()
-                .extend(nested_borrows);
-        }
+        let owners = self.owner_dependencies.keys().copied().collect::<Vec<_>>();
 
         // Keep seed contracts immutable while local ownership propagation reaches its fixed point.
         let mut retained_by_expression = self.owner_dependencies.clone();
 
         loop {
             let mut changed = false;
+
+            for owner in &owners {
+                let nested = retained_storage_borrows(
+                    storage,
+                    &value_sources_by_root,
+                    retained_by_expression
+                        .get(owner)
+                        .into_iter()
+                        .flat_map(|subjects| subjects.iter().copied()),
+                    &self.value_inputs,
+                    &retained_by_expression,
+                );
+
+                let output = retained_by_expression.entry(*owner).or_default();
+                let previous = output.len();
+
+                output.extend(nested);
+                changed |= output.len() != previous;
+            }
 
             for (owner, roots) in &self.report_owner_inputs {
                 let retained = roots
@@ -422,7 +434,8 @@ fn retained_storage_borrows(
     storage: &StoragePlan,
     value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
-    effects: &OperationEffects,
+    inputs: &ValueInputs,
+    retained: &BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut borrows = BTreeSet::new();
     let mut pending = subjects.into_iter().collect::<Vec<_>>();
@@ -439,21 +452,13 @@ fn retained_storage_borrows(
                 }
 
                 for initializer in value_sources_by_root.get(&root).into_iter().flatten() {
-                    pending.extend(retained_subtree_subjects(
-                        &effects.value_inputs,
-                        *initializer,
-                        &effects.owner_dependencies,
-                    ));
+                    pending.extend(retained_subtree_subjects(inputs, *initializer, retained));
                 }
 
                 if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
                     storage.identity(root)
                 {
-                    pending.extend(retained_subtree_subjects(
-                        &effects.value_inputs,
-                        expression,
-                        &effects.owner_dependencies,
-                    ));
+                    pending.extend(retained_subtree_subjects(inputs, expression, retained));
                 }
             }
             BoundDependencySubject::StorageAccess(access) => {

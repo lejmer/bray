@@ -342,7 +342,7 @@ where
         .map_err(DependencyContractInstantiationError::Resolution)
 }
 
-fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
+pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     template: &DependencyContractTemplateData,
     context: &mut CallInstantiationContext<'_, C>,
 ) -> Result<
@@ -366,7 +366,7 @@ fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     ))
 }
 
-fn concrete_report_requirements(
+pub(super) fn concrete_report_requirements(
     requirements: &[DependencyRequirement],
 ) -> Vec<DependencyRequirement> {
     requirements

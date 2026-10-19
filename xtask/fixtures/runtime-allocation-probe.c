@@ -9,6 +9,7 @@ static atomic_uint live_allocations;
 static atomic_size_t allocated_bytes;
 static void (*allocation_callback)(void);
 static void (*release_callback)(void);
+static atomic_bool cleanup_observed;
 
 uint32_t bray_allocation_probe_begin(void)
 {
@@ -21,6 +22,25 @@ uint32_t bray_allocation_probe_end(uint32_t before)
 {
     atomic_store(&reject_allocations, 0);
     return atomic_load(&allocation_attempts) - before;
+}
+
+// Observe destruction independently after the product has drained its report sink.
+static void verify_cleanup_observed(void)
+{
+    if (!atomic_load(&cleanup_observed))
+        abort();
+}
+
+void bray_allocation_probe_expect_cleanup(void)
+{
+    if (atexit(verify_cleanup_observed) != 0)
+        abort();
+}
+
+void bray_allocation_probe_observe_cleanup(void)
+{
+    if (atomic_exchange(&cleanup_observed, 1))
+        abort();
 }
 
 static void* allocate_report_memory(size_t bytes, size_t alignment)

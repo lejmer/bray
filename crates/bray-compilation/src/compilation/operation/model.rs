@@ -115,8 +115,14 @@ impl ConversionPlan {
                 target,
                 ConversionTarget::Composite(conversions.into()),
             ),
-            implementation_selections,
-            compiler_known_operations,
+            implementation_selections: unique_conversion_evidence(
+                implementation_selections,
+                ImplementationSelectionEvidence::requirement,
+            ),
+            compiler_known_operations: unique_conversion_evidence(
+                compiler_known_operations,
+                CompilerKnownOperationEvidence::requirement,
+            ),
         }
     }
 
@@ -147,6 +153,28 @@ impl ConversionPlan {
         .with_implementation_selections(self.implementation_selections)
         .with_compiler_known_operations(self.compiler_known_operations)
     }
+}
+
+fn unique_conversion_evidence<T: Eq + std::fmt::Debug>(
+    mut evidence: Vec<T>,
+    requirement: impl Fn(&T) -> bray_symbols::ImplementationRequirementKey,
+) -> Vec<T> {
+    evidence.sort_unstable_by_key(&requirement);
+
+    evidence.dedup_by(|first, second| {
+        if requirement(first) != requirement(second) {
+            return false;
+        }
+
+        assert_eq!(
+            first, second,
+            "composite conversion repeats conflicting evidence for one implementation requirement"
+        );
+
+        true
+    });
+
+    evidence
 }
 
 impl SemanticResolution {

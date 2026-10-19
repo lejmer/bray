@@ -157,7 +157,13 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.with_requirements(input_requirements(call));
     }
 
-    super::defaults::expand_result_defaults(request, call, &template)
+    super::defaults::expand_result_defaults(
+        request,
+        call.arguments(),
+        call.receiver(),
+        declaration_source(call),
+        &template,
+    )
 }
 
 pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
@@ -372,12 +378,13 @@ fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
 
 /// Resolves a portable input root to the expression selected at this call site.
 pub(crate) fn result_argument(
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&bray_bound_tree::SelectedReceiver>,
     root: DependencySubjectRoot,
 ) -> Option<bray_bound_tree::BoundExpressionId> {
     match root {
         DependencySubjectRoot::Parameter(parameter) => {
-            call.arguments().iter().find_map(|argument| match argument {
+            arguments.iter().find_map(|argument| match argument {
                 SelectedArgument::Explicit {
                     ordinal,
                     expression,
@@ -386,7 +393,7 @@ pub(crate) fn result_argument(
                 _ => None,
             })
         }
-        DependencySubjectRoot::Receiver => call.receiver().map(|receiver| receiver.expression()),
+        DependencySubjectRoot::Receiver => receiver.map(|receiver| receiver.expression()),
         _ => None,
     }
 }
@@ -402,7 +409,13 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
-        .filter_map(|relation| result_argument(call, relation.entry().subject_root()))
+        .filter_map(|relation| {
+            result_argument(
+                call.arguments(),
+                call.receiver(),
+                relation.entry().subject_root(),
+            )
+        })
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut pending = template.requirements().iter().collect::<Vec<_>>();
@@ -410,7 +423,11 @@ pub(crate) fn result_inputs(
     while let Some(requirement) = pending.pop() {
         match requirement {
             DependencyRequirement::Direct { subject, .. } => {
-                inputs.extend(result_argument(call, subject.subject_root()));
+                inputs.extend(result_argument(
+                    call.arguments(),
+                    call.receiver(),
+                    subject.subject_root(),
+                ));
             }
             DependencyRequirement::Guarded(guarded) => {
                 let subject = match guarded.guard() {
@@ -418,7 +435,12 @@ pub(crate) fn result_inputs(
                     | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
                 };
 
-                inputs.extend(result_argument(call, subject.subject_root()));
+                inputs.extend(result_argument(
+                    call.arguments(),
+                    call.receiver(),
+                    subject.subject_root(),
+                ));
+
                 pending.extend(guarded.requirements());
             }
             DependencyRequirement::ResultCall { inputs, .. } => {
@@ -502,7 +524,8 @@ impl super::ValueInputs {
                         return None;
                     };
 
-                    let argument = result_argument(call, subject.subject_root())?;
+                    let argument =
+                        result_argument(call.arguments(), call.receiver(), subject.subject_root())?;
 
                     Some((argument, subject.projections().to_vec()))
                 })

@@ -422,18 +422,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if let Some(effect) = effect {
-            let effect = if effect == DependencyStorageEffect::Unknown
-                && kind == DependencyMutationKind::Atomic
-            {
-                DependencyStorageEffect::Atomic
-            } else {
-                effect
-            };
-
-            let effect = if effect == DependencyStorageEffect::Unknown
-                && kind == DependencyMutationKind::Escape
-            {
-                DependencyStorageEffect::Escape
+            let effect = if effect == DependencyStorageEffect::Unknown {
+                DependencyStorageEffect::unresolved(kind)
             } else {
                 effect
             };

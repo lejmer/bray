@@ -91,6 +91,47 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         }
     }
 
+    pub(super) fn borrowed_values(
+        &self,
+        operand: BoundExpressionId,
+        path: &[DependencyProjection],
+    ) -> BTreeSet<DependencyRequirement> {
+        let reborrowed = self.reborrowed_receiver(operand);
+
+        let kind = if reborrowed.is_some() {
+            DependencyRequirementKind::ValueDependencies
+        } else {
+            DependencyRequirementKind::StorageAlive
+        };
+
+        let mut sources = self
+            .state
+            .sources
+            .get(&operand)
+            .cloned()
+            .unwrap_or_default();
+
+        if sources.is_empty()
+            && let Some(receiver) = reborrowed
+        {
+            return self.projected_values(receiver, path);
+        }
+
+        if sources.is_empty() && self.borrows_evaluation_storage(operand) {
+            sources.insert((
+                DependencySubject::root(DependencySubjectRoot::EvaluationStorage),
+                true,
+            ));
+        }
+
+        sources
+            .into_iter()
+            .map(|source| {
+                DependencyRequirement::direct(source_subject(&source, path.iter().copied()), kind)
+            })
+            .collect()
+    }
+
     pub(super) fn bind_pattern(
         &mut self,
         root: bray_bound_tree::BoundPatternId,

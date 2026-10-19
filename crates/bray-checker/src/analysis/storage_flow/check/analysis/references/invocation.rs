@@ -438,7 +438,9 @@ pub(super) fn invocation_argument(
     root: DependencySubjectRoot,
 ) -> Option<BoundExpressionId> {
     match selections.expression(occurrence.expression()?)? {
-        SemanticSelection::Call(call) => crate::dependency::result_argument(call, root),
+        SemanticSelection::Call(call) => {
+            crate::dependency::result_argument(call.arguments(), call.receiver(), root)
+        }
         SemanticSelection::ScopedUse(scoped)
             if matches!(occurrence, BoundExecutionSite::ScopedEnter(_))
                 && root == DependencySubjectRoot::Receiver =>

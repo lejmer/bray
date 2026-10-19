@@ -1,0 +1,439 @@
+module operation_cleanup;
+
+internal static SOURCES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static TARGETS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static EXITS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static INCIDENTS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Incident
+{
+    value: usize;
+
+    destruct()
+    {
+        assert(self.value == 619, "operation cleanup lost its incident payload");
+
+        core.atomic.fetch_add<usize, 0>(&INCIDENTS, value = 1);
+    }
+}
+
+struct Resource
+{
+    enter() -> unit {}
+
+    exit(pos lease: unit) -> Result<unit, Incident>
+    {
+        core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
+
+        return Error(
+            Incident
+            {
+                value = 619
+            }
+        );
+    }
+}
+
+struct Source
+{
+    value: usize;
+
+    destruct()
+    {
+        core.atomic.fetch_add<usize, 0>(&SOURCES, value = 1);
+    }
+}
+
+struct Target
+{
+    value: usize;
+
+    destruct()
+    {
+        core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
+    }
+}
+
+impl SourceConversion = Source(ConvertTo<Target>)
+{
+    consume func convert() -> Target
+    {
+        if self.value == 0
+        {
+            panic("conversion stops before the next owner is initialized");
+        }
+
+        let resource = Resource
+        {
+        };
+
+        let _ = with lease = resource
+        {
+            return Target
+            {
+                value = self.value
+            };
+        };
+
+        return Target
+        {
+            value = self.value
+        };
+    }
+}
+
+struct MutableValue
+{
+    mut active: bool;
+}
+
+struct MutationSource
+{
+    value: &mut MutableValue;
+}
+
+struct MutationTarget
+{
+}
+
+impl MutationConversion = MutationSource(ConvertTo<MutationTarget>)
+{
+    consume func convert() -> MutationTarget
+    {
+        let mut reference = self.value;
+
+        reference.active = true;
+
+        return MutationTarget
+        {
+        };
+    }
+}
+
+struct Doomed
+{
+}
+
+impl DoomedConversion = Doomed(ConvertTo<Target>)
+{
+    consume func convert() -> Target
+    {
+        panic("an absent conversion payload must never be invoked");
+    }
+}
+
+func default_value() -> usize
+{
+    let resource = Resource
+    {
+    };
+
+    let _ = with lease = resource
+    {
+        return 619;
+    };
+
+    return 619;
+}
+
+struct Constructed
+{
+    value: usize;
+
+    construct(pos value: usize, extra: usize = default_value()) -> Self
+    {
+        assert(extra == 619, "type-form default lost its value");
+
+        let resource = Resource
+        {
+        };
+
+        let _ = with lease = resource
+        {
+            return
+            {
+                value = value
+            };
+        };
+
+        return
+        {
+            value = value
+        };
+    }
+
+    destruct()
+    {
+        core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
+    }
+}
+
+struct Defaulted
+{
+    value: usize = default_value();
+}
+
+union DefaultUnion
+{
+    Value(value: usize = default_value());
+}
+
+struct Indexed
+{
+    value: usize;
+}
+
+impl ElementAccess = Indexed(ElementIndex<usize>)
+{
+    type Output = usize;
+
+    func index(pos selector: &usize) -> &usize
+    {
+        let resource = Resource
+        {
+        };
+
+        let _ = with lease = resource
+        {
+            return &self.value;
+        };
+
+        return &self.value;
+    }
+}
+
+impl SliceAccess = Indexed(SliceIndex<usize>)
+{
+    type Output = usize;
+
+    func slice(pos start: usize?, pos end: usize?) -> &usize
+    {
+        let resource = Resource
+        {
+        };
+
+        let _ = with lease = resource
+        {
+            return &self.value;
+        };
+
+        return &self.value;
+    }
+}
+
+func main() -> i32
+{
+    let mut first = MutableValue
+    {
+        active = false
+    };
+
+    let mut second = MutableValue
+    {
+        active = false
+    };
+
+    let mut third = MutableValue
+    {
+        active = false
+    };
+
+    let mut fourth = MutableValue
+    {
+        active = false
+    };
+
+    let mutation_pair = (
+        MutationSource
+        {
+            value = &mut first
+        },
+        MutationSource
+        {
+            value = &mut second
+        }
+    ) as(MutationTarget, MutationTarget);
+
+    let mutation_present: MutationSource? = MutationSource
+    {
+        value = &mut third
+    };
+
+    let mutation_nullable = mutation_present as MutationTarget?;
+
+    let mutation_array = [
+        MutationSource
+        {
+            value = &mut fourth
+        }
+    ] as[MutationTarget; 1];
+
+    assert(
+        first.active && second.active && third.active && fourth.active,
+        "composite conversion lost its reference mutation"
+    );
+
+    let never_present: Doomed? = none;
+    let absent_target = never_present as Target?;
+
+    let empty: [Doomed; 0] = [
+        Doomed
+        {
+        }; 0
+    ];
+
+    let empty_targets = empty as[Target; 0];
+
+    {
+        let _ = catch
+        {
+            let pair = (
+                Source
+                {
+                    value = 1
+                },
+                Source
+                {
+                    value = 2
+                }
+            ) as(Target, Target);
+
+            let values = [
+                Source
+                {
+                    value = 3
+                },
+                Source
+                {
+                    value = 4
+                },
+                Source
+                {
+                    value = 5
+                }
+            ] as[Target; 3];
+
+            let present: Source? = Source
+            {
+                value = 6
+            };
+
+            let converted = present as Target?;
+            let absent: Source? = none;
+            let converted_absent = absent as Target?;
+            let constructed = Constructed(619);
+
+            let defaulted = Defaulted
+            {
+            };
+
+            let variant: DefaultUnion = Value();
+
+            let indexed = Indexed
+            {
+                value = 619
+            };
+
+            let selector: usize = 0;
+            let lower_bound: usize = 1;
+            let upper_bound: usize = 2;
+            let element = indexed[selector];
+            let complete = indexed.slice(none, none);
+            let lower = indexed[lower_bound..];
+            let upper = indexed[..upper_bound];
+            let bounded = indexed[default_value()..default_value()];
+
+            assert(core.atomic.load<usize, 1>(&SOURCES) == 6, "conversion failed to consume each source once");
+            assert(core.atomic.load<usize, 1>(&INCIDENTS) == 0, "operation report was destroyed before its owner");
+            assert(core.atomic.load<usize, 1>(&EXITS) == 17, "an operation skipped its selected exit");
+            assert(element == 619 && lower == 619 && upper == 619 && bounded == 619, "indexing lost its result");
+            assert(defaulted.value == 619 && constructed.value == 619, "construction lost its result");
+
+            panic("consume the retained operation reports");
+
+            yield unit;
+        };
+    }
+
+    assert(core.atomic.load<usize, 1>(&SOURCES) == 6, "conversion destroyed a source twice");
+    assert(core.atomic.load<usize, 1>(&TARGETS) == 7, "conversion or construction lost a target owner");
+
+    assert(core.atomic.load<usize, 1>(&INCIDENTS) == 17, "operation composition lost a retained exit report");
+
+    {
+        let _ = catch
+        {
+            let values = (
+                Source
+                {
+                    value = 1
+                },
+                Source
+                {
+                    value = 0
+                },
+                Source
+                {
+                    value = 3
+                }
+            ) as(Target, Target, Target);
+
+            yield unit;
+        };
+    }
+
+    assert_cleanup_counts(9, 8, 18);
+
+    {
+        let _ = catch
+        {
+            let values = [
+                Source
+                {
+                    value = 1
+                },
+                Source
+                {
+                    value = 0
+                },
+                Source
+                {
+                    value = 3
+                }
+            ] as[Target; 3];
+
+            yield unit;
+        };
+    }
+
+    assert_cleanup_counts(12, 9, 19);
+
+    {
+        let _ = catch
+        {
+            let present: Source? = Source
+            {
+                value = 0
+            };
+
+            let converted = present as Target?;
+
+            yield unit;
+        };
+    }
+
+    assert_cleanup_counts(13, 9, 19);
+
+    return 0;
+}
+
+func assert_cleanup_counts(pos sources: usize, pos targets: usize, pos incidents: usize)
+{
+    assert(core.atomic.load<usize, 1>(&SOURCES) == sources, "failed conversion lost or repeated source destruction");
+    assert(core.atomic.load<usize, 1>(&TARGETS) == targets, "failed conversion lost or repeated target destruction");
+    assert(core.atomic.load<usize, 1>(&EXITS) == incidents, "failed conversion ran an unexpected exit");
+    assert(core.atomic.load<usize, 1>(&INCIDENTS) == incidents, "failed conversion lost a retained exit report");
+}

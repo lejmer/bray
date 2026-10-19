@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpressionId, SelectedOperation, SemanticSelection, StorageAccessId,
-    StorageAccessPurpose,
+    StorageAccessPurpose, StorageIdentity,
 };
 use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
 
@@ -38,10 +38,10 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         }
 
         if let Some(receiver) = selection.and_then(bray_bound_tree::SelectedCall::receiver) {
-            self.plan_receiver(
+            self.plan_invocation_input(
                 receiver.expression().into(),
                 receiver.expression(),
-                receiver.mode(),
+                Self::call_receiver_purpose(receiver.mode()),
             )?;
         }
 
@@ -80,22 +80,29 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         }
     }
 
-    pub(super) fn plan_receiver(
+    pub(super) fn plan_invocation_input(
         &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         expression: BoundExpressionId,
-        mode: bray_symbols::ReceiverMode,
+        purpose: StorageAccessPurpose,
     ) -> Result<bray_bound_tree::StorageAccessId, PlanError<C::UpstreamError>> {
-        let source = self.plan_expression(expression, Some(StorageAccessPurpose::Read))?;
-        let purpose = Self::call_receiver_purpose(mode);
+        if !matches!(purpose, StorageAccessPurpose::Borrow(_)) && occurrence == expression.into() {
+            return self.plan_expression(expression, Some(purpose));
+        }
 
-        let existing = self.has_fresh_borrow(expression, source);
+        let source = self.plan_expression(expression, Some(StorageAccessPurpose::Read))?;
 
         let source = if let StorageAccessPurpose::Borrow(kind) = purpose
-            && !existing
+            && !(self.has_fresh_borrow(expression, source)
+                && self
+                    .builder()
+                    .access(source)
+                    .and_then(|access| access.root().borrow_capability())
+                    .and_then(|capability| self.builder().borrow_capability(capability))
+                    .is_some_and(|capability| capability.kind() == kind))
         {
-            // Receiver dispatch reaches the object through existing borrows. Its invocation
-            // loan must retain that referent, not the local slot containing the reference.
+            // Invocation borrows reach the referent through existing borrows,
+            // rather than retaining the local slot containing the reference.
             let target = self
                 .request
                 .semantic_values()
@@ -106,7 +113,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             self.borrow_access(
                 occurrence
                     .expression()
-                    .expect("receiver occurrence has an expression"),
+                    .expect("invocation input occurrence has an expression"),
                 source,
                 kind,
                 self.expression_type(expression).ty(),
@@ -120,11 +127,11 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 occurrence,
                 occurrence
                     .expression()
-                    .expect("receiver occurrence has an expression"),
+                    .expect("invocation input occurrence has an expression"),
                 purpose,
                 source,
             )
-            .unwrap_or_else(|error| panic!("receiver access must match its invocation: {error:?}"));
+            .unwrap_or_else(|error| panic!("input access must match its invocation: {error:?}"));
 
         Ok(source)
     }
@@ -169,5 +176,69 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         self.expression_accesses.insert(expression, borrowed);
 
         Ok(())
+    }
+    pub(super) fn plan_scoped_use(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundStructuredExpression,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let ([initializer], [pattern], [body]) = (
+            expression.operands(),
+            expression.patterns(),
+            expression.blocks(),
+        ) else {
+            panic!("with occurrence {id:?} retains its initializer, pattern and body");
+        };
+
+        let Some(SemanticSelection::ScopedUse(scoped)) = self.selections.expression(id) else {
+            self.plan_expression(*initializer, Some(StorageAccessPurpose::Read))?;
+            self.plan_block(*body)?;
+
+            return self.recovery_access(id);
+        };
+
+        let receiver = scoped
+            .enter()
+            .1
+            .receiver()
+            .expect("selected enter has a receiver");
+
+        let capability_type = scoped.capability_type();
+
+        self.plan_invocation_input(
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+            *initializer,
+            Self::call_receiver_purpose(receiver.mode()),
+        )?;
+
+        let capability = self.protocol_access(
+            id,
+            StorageIdentity::ScopedCapability {
+                expression: id,
+                pattern: *pattern,
+            },
+            capability_type,
+        )?;
+
+        self.builder_mut()
+            .plan_access(
+                (*pattern).into(),
+                id,
+                StorageAccessPurpose::Initialize,
+                capability,
+            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+
+        self.builder_mut()
+            .plan_occurrence_access(
+                bray_bound_tree::BoundExecutionSite::ScopedExit(id),
+                id,
+                StorageAccessPurpose::ValueTransfer,
+                capability,
+            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+
+        self.plan_pattern(*pattern, id, capability)?;
+        self.plan_block(*body)?;
+
+        self.temporary_access(id)
     }
 }

@@ -110,7 +110,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             )) if matches!(
                 self.execution.semantics.selections().expression(expression),
                 Some(SemanticSelection::Call(_))
-            ) =>
+            ) || self.dependencies.calls().contains_key(&expression.into()) =>
             {
                 self.prepare_call_reports(state, expression.into());
 
@@ -347,27 +347,25 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
     ) -> Option<&'analysis bray_bound_tree::BoundCallDependencyContracts> {
         match occurrence {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                if !matches!(
-                    self.execution.semantics.selections().expression(expression),
-                    Some(SemanticSelection::Call(_))
-                ) {
-                    // CFG call phases also delimit compiler-owned evaluation and with results.
-                    // Their selected operations do not invoke a source callable here.
-                    return None;
+                let contract = self.dependencies.calls().get(&occurrence);
+
+                if matches!(self.execution.semantics.selections().expression(expression), Some(SemanticSelection::Call(_))) {
+                    return Some(contract.expect("selected source invocation retains its dependency contracts"));
                 }
+
+                // Call phases also delimit compiler-owned evaluation without a source invocation.
+                contract
             }
-            BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_) => {}
+            BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_) => {
+                Some(self.dependencies.calls().get(&occurrence).unwrap_or_else(|| {
+                    panic!("selected scoped invocation retains its dependency contracts: {occurrence:?}")
+                }))
+            }
+            // Replacement failure follows the committed source invocation. Its reports
+            // come from the selected lifecycle transition, not the source call snapshot.
+            BoundExecutionSite::Cleanup(_) => None,
             _ => panic!("call phase requires an expression invocation: {occurrence:?}"),
         }
-
-        Some(
-            self.dependencies
-                .calls()
-                .get(&occurrence)
-                .unwrap_or_else(|| {
-                    panic!("selected invocation retains its dependency contracts: {occurrence:?}")
-                }),
-        )
     }
 
     pub(super) fn retain_cleanup_reports(

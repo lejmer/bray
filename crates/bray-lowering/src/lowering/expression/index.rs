@@ -44,7 +44,9 @@ impl Lowerer<'_> {
             ),
         };
 
-        match target {
+        let retained = self.input_temporaries.len();
+
+        let result = match target {
             IndexTarget::Custom {
                 borrow_kind,
                 fulfillment,
@@ -81,7 +83,11 @@ impl Lowerer<'_> {
                 "lowering contract violation: MissingSemanticSelection {value:?}",
                 value = id
             ),
-        }
+        };
+
+        self.input_temporaries.truncate(retained);
+
+        result
     }
 
     #[expect(
@@ -146,6 +152,12 @@ impl Lowerer<'_> {
             self.expression_source(receiver),
         )?;
 
+        let lowered = if self.later_evaluation_may_change_block(operands.iter().skip(1).copied()) {
+            self.materialize_typed_for_later_evaluation(receiver, lowered, receiver_type)?
+        } else {
+            lowered
+        };
+
         let Some(continuation) = lowered.block else {
             return Ok(lowered);
         };
@@ -162,8 +174,26 @@ impl Lowerer<'_> {
 
         match kind {
             BoundStructuredExpressionKind::ElementIndex => {
-                for operand in operands.into_iter().skip(1) {
+                for (index, operand) in operands.iter().copied().enumerate().skip(1) {
                     let lowered = self.lower_implicit_shared_borrow(id, operand, block)?;
+
+                    let borrowed_type =
+                        self.input.semantic_values().intern_type(TypeData::Borrow {
+                            kind: bray_symbols::BorrowKind::Shared,
+                            target: self.expression_type(operand),
+                        })?;
+
+                    let lowered = if self
+                        .later_evaluation_may_change_block(operands[index + 1..].iter().copied())
+                    {
+                        self.materialize_typed_for_later_evaluation(
+                            operand,
+                            lowered,
+                            borrowed_type,
+                        )?
+                    } else {
+                        lowered
+                    };
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);
@@ -195,38 +225,29 @@ impl Lowerer<'_> {
                     .semantic_values()
                     .intern_type(TypeData::Nullable(bound_type))?;
 
-                for bound in [bounds.lower(), bounds.upper()] {
-                    let Some(bound) = bound else {
-                        arguments.push(Self::immediate_operand(
-                            nullable_type,
-                            MirImmediateValue::NullableAbsent,
-                        ));
+                let bounds = [bounds.lower(), bounds.upper()];
 
-                        continue;
-                    };
-
-                    let lowered = self.lower_expression(bound, block)?;
+                for (index, bound) in bounds.into_iter().enumerate() {
+                    let lowered = self.lower_index_bound(bound, block, nullable_type, &source)?;
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);
                     };
 
-                    let Some(value) = lowered.value else {
-                        panic!(
-                            "lowering contract violation: MissingOperationResult {value:?}",
-                            value = bound
-                        );
-                    };
+                    let value = lowered
+                        .value
+                        .expect("custom slice supplies its nullable bound");
 
                     block = continuation;
 
-                    let value = self.push_nullable_present(
-                        bound,
-                        block,
-                        Self::retained_source(&source),
-                        value,
-                        nullable_type,
-                    )?;
+                    let value = if bound.is_some()
+                        && self.later_evaluation_may_change_block(
+                            bounds[index + 1..].iter().flatten().copied(),
+                        ) {
+                        self.materialize_owned_input(block, &source, value, nullable_type)?
+                    } else {
+                        value
+                    };
 
                     arguments.push(value);
                 }
@@ -261,6 +282,49 @@ impl Lowerer<'_> {
             self.push_checked_call(id, block, Self::retained_source(&source), call, result_type)?;
 
         Ok(LoweredExpression::continuing(block, Some(value), source))
+    }
+
+    fn lower_index_bound(
+        &mut self,
+        bound: Option<BoundExpressionId>,
+        block: MirBlockId,
+        nullable_type: TypeId,
+        source: &bray_ir::MirSourceAnchor,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let Some(bound) = bound else {
+            return Ok(LoweredExpression::continuing(
+                block,
+                Some(Self::immediate_operand(
+                    nullable_type,
+                    MirImmediateValue::NullableAbsent,
+                )),
+                Self::retained_source(source),
+            ));
+        };
+
+        let lowered = self.lower_expression(bound, block)?;
+
+        let Some(block) = lowered.block else {
+            return Ok(lowered);
+        };
+
+        let value = lowered
+            .value
+            .expect("present custom slice bound produces its value");
+
+        let value = self.push_nullable_present(
+            bound,
+            block,
+            Self::retained_source(source),
+            value,
+            nullable_type,
+        )?;
+
+        Ok(LoweredExpression::continuing(
+            block,
+            Some(value),
+            Self::retained_source(source),
+        ))
     }
 
     fn index_bound_type(&self, requirement: ImplementationRequirementKey) -> TypeId {

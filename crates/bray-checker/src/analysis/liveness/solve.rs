@@ -826,7 +826,18 @@ mod tests {
         let storage = builder.finish();
         let mut effects = OperationEffects::from_storage_plan(&bound_unit, &storage, &memory);
 
-        effects.retain_input_dependencies(&bound_unit);
+        let dependencies = bray_bound_tree::CheckedDependencyContracts::try_new(
+            &bound_unit,
+            &storage,
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .expect("test call retains its checked empty dependency table");
+
+        effects.retain_input_dependencies(&bound_unit, &dependencies);
 
         let Some(effect) = effects.effect(AnyBoundNodeId::Expression(*call)) else {
             panic!("call input retention must produce one operation effect");

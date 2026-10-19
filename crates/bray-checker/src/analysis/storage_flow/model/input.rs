@@ -96,6 +96,10 @@ impl StorageFlowInput {
 
         for call in dependencies.calls().values() {
             collect_retained_storage(call.result().requirements(), &mut retained_storage);
+
+            for (_, report) in call.report_outputs() {
+                collect_retained_storage(report.requirements(), &mut retained_storage);
+            }
         }
 
         let atomic_operations = memory.operations().iter().any(|operation| {

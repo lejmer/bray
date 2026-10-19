@@ -129,7 +129,27 @@ where
         );
 
         self.push_exit(failure, AnalysisExitKind::Panic, invocation.node());
-        self.push_exit(failure, AnalysisExitKind::Cancellation, invocation.node());
+
+        if self.invocation_may_cancel(invocation) {
+            self.push_exit(failure, AnalysisExitKind::Cancellation, invocation.node());
+        }
+    }
+
+    fn invocation_may_cancel(&self, invocation: bray_bound_tree::BoundExecutionSite) -> bool {
+        let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) =
+            invocation
+        else {
+            return true;
+        };
+
+        let Some(bray_bound_tree::SemanticSelection::Call(call)) = self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+        else {
+            return true;
+        };
+
+        call.may_enter_current_run_cancellation()
     }
 
     pub(super) fn push_cleanup_failures(

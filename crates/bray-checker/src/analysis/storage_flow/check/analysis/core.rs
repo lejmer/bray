@@ -552,35 +552,36 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
-        if matches!(
-            operation.kind(),
+        let kind = operation.kind();
+
+        match kind {
             AnalysisOperationKind::Result {
                 phase: crate::analysis::model::AnalysisResultPhase::Begin,
                 ..
+            } => {
+                self.execution.transfer_operation(
+                    state
+                        .execution
+                        .as_mut()
+                        .expect("reachable storage state has execution facts"),
+                    kind,
+                    None,
+                    None,
+                );
+
+                return;
             }
-        ) {
-            self.execution.transfer_operation(
-                state
-                    .execution
-                    .as_mut()
-                    .expect("reachable storage state has execution facts"),
-                operation.kind(),
-                None,
-                None,
-            );
+            AnalysisOperationKind::Suspension {
+                occurrence,
+                kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
+            } => {
+                // Entry already transferred these inputs. Record live storage
+                // without evaluating or transferring them again.
+                self.record_suspension(state, occurrence);
 
-            return;
-        }
-
-        if let AnalysisOperationKind::Suspension {
-            occurrence,
-            kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
-        } = operation.kind()
-        {
-            // Entry already transferred the invocation's inputs. Suspension records
-            // their live storage without evaluating or transferring them again.
-            self.record_suspension(state, occurrence);
-            return;
+                return;
+            }
+            _ => {}
         }
 
         if let Some(occurrence) = operation.cleanup_suspension() {
@@ -596,8 +597,6 @@ where
             .execution
             .take()
             .expect("reachable storage state has execution facts");
-
-        let kind = operation.kind();
 
         self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind);
@@ -722,15 +721,7 @@ where
                         Some(bray_bound_tree::BoundExpression::Assignment(_))
                     )
                 {
-                    self.assignments
-                        .entry(expression)
-                        .and_modify(|previous| {
-                            if *previous != assignment_path {
-                                *previous = None;
-                            }
-                        })
-                        // Target paths share immutable projections with the transition.
-                        .or_insert_with(|| assignment_path.clone());
+                    self.record_assignment_path(expression, assignment_path.as_ref());
                 }
 
                 if let Some(effects) = invalidation
@@ -770,6 +761,17 @@ where
 
         self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
 
+        if completing
+            && self
+                .storage
+                .node_plans(kind.node())
+                .any(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        {
+            // The operator has completed and published retained outputs. End its
+            // remaining input loans before the assignment installs that result.
+            self.end_last_use_borrows(state, kind.occurrence());
+        }
+
         let memory_status = self.apply_storage_operation(
             state,
             operation,
@@ -789,6 +791,22 @@ where
         );
 
         state.refinements = refinements;
+    }
+
+    fn record_assignment_path(
+        &mut self,
+        expression: BoundExpressionId,
+        path: Option<&crate::analysis::storage_flow::memory::Place>,
+    ) {
+        self.assignments
+            .entry(expression)
+            .and_modify(|previous| {
+                if previous.as_ref() != path {
+                    *previous = None;
+                }
+            })
+            // Target paths share immutable projections with the transition.
+            .or_insert_with(|| path.cloned());
     }
 
     fn complete_operation(

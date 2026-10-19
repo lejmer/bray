@@ -446,12 +446,31 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_cancellation(
-            cancelled,
-            source,
-            expression.into(),
-            Some(MirOperand::Move(report)),
-        )?;
+        let may_cancel = match (
+            occurrence,
+            self.input.semantic_selections().expression(expression),
+        ) {
+            (
+                bray_bound_tree::BoundExecutionSite::Node(_),
+                Some(bray_bound_tree::SemanticSelection::Call(call)),
+            ) => call.may_enter_current_run_cancellation(),
+            _ => true,
+        };
+
+        if may_cancel {
+            self.finish_cancellation(
+                cancelled,
+                source,
+                expression.into(),
+                Some(MirOperand::Move(report)),
+            )?;
+        } else {
+            self.set_terminator(
+                cancelled,
+                Self::retained_source(source),
+                MirTerminatorKind::Unreachable,
+            )?;
+        }
 
         let mut result = Some(MirOperand::Value(result));
 

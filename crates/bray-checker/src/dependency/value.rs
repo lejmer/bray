@@ -164,7 +164,7 @@ impl ValueInputs {
 
         inputs.filter_independent(request, types)?;
         inputs.collect_propagation(request, selections)?;
-        inputs.collect_source_inputs(request.unit(), patterns);
+        inputs.collect_source_inputs(request.unit(), selections, patterns);
 
         Ok(inputs)
     }
@@ -172,6 +172,7 @@ impl ValueInputs {
     fn collect_source_inputs(
         &mut self,
         unit: &BoundUnit,
+        selections: &CheckedSemanticSelections,
         patterns: &bray_bound_tree::CheckedPatterns,
     ) {
         let mut pending = unit
@@ -180,6 +181,47 @@ impl ValueInputs {
             .filter(|(expression, _)| !self.is_independent(*expression))
             .map(|(expression, _)| expression)
             .collect::<Vec<_>>();
+
+        // An independent value can still be borrowed by an implicit invocation.
+        // Keep its source identity even when the operation's result carries no dependencies.
+        for entry in selections.entries() {
+            match entry.selection() {
+                SemanticSelection::Operation(operation) => pending.extend(
+                    super::call::operation_inputs(unit.view(), entry.expression(), operation)
+                        .into_iter()
+                        .filter_map(|(_, input)| match input {
+                            super::call::OperationInput::Borrow(expression, _) => Some(expression),
+                            super::call::OperationInput::Value(_)
+                            | super::call::OperationInput::Nullable(_) => None,
+                        }),
+                ),
+                SemanticSelection::Call(call) => {
+                    pending.extend(
+                        call.receiver()
+                            .filter(|receiver| {
+                                matches!(
+                                    receiver.mode(),
+                                    bray_symbols::ReceiverMode::Shared
+                                        | bray_symbols::ReceiverMode::Mutable
+                                )
+                            })
+                            .map(|receiver| receiver.expression()),
+                    );
+                }
+                SemanticSelection::ScopedUse(scoped) => {
+                    if scoped.enter().1.receiver().is_some_and(|receiver| {
+                        matches!(
+                            receiver.mode(),
+                            bray_symbols::ReceiverMode::Shared
+                                | bray_symbols::ReceiverMode::Mutable
+                        )
+                    }) {
+                        pending.push(scoped.initializer());
+                    }
+                }
+                _ => {}
+            }
+        }
 
         for (pattern, source) in &self.pattern_subjects {
             let mut nested = vec![*pattern];

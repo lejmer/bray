@@ -202,6 +202,23 @@ impl SelectedCall {
         &self.phase_behaviors
     }
 
+    /// Whether this invocation, including omitted defaults and argument conversions,
+    /// can enter current-run cancellation. Indirect and trait dispatch stay conservative.
+    pub fn may_enter_current_run_cancellation(&self) -> bool {
+        !matches!(self.target(), BoundCallableTarget::Declaration(_))
+            || self.resolution().trait_dispatch().is_some()
+            || self.evaluates_defaults()
+            || self.arguments().iter().any(|argument| {
+                matches!(argument,
+                SelectedArgument::Explicit { conversion, .. } if conversion.invokes_source())
+            })
+            || self
+                .phase_behaviors()
+                .invocation()
+                .current_run_cancellation()
+                == bray_symbols::CurrentRunCancellation::MayEnter
+    }
+
     /// Returns the checked receiver mapping for an instance call.
     pub const fn receiver(&self) -> Option<&SelectedReceiver> {
         self.receiver.as_ref()

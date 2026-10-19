@@ -91,7 +91,7 @@ impl Lowerer<'_> {
         let retained = self.input_temporaries.len();
 
         let value = if self.input_cleanup_phases(completion).is_some() {
-            self.materialize_owned_input(id, block, &source, value, completion)?
+            self.materialize_owned_input(block, &source, value, completion)?
         } else {
             value
         };

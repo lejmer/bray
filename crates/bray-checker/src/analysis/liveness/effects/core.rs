@@ -122,7 +122,7 @@ impl OperationEffects {
         }
 
         effects.retain_owned_call_dependencies(request, storage);
-        effects.retain_input_dependencies(request.unit());
+        effects.retain_input_dependencies(request.unit(), dependencies);
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -302,17 +302,22 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_input_dependencies(&mut self, unit: &BoundUnit) {
+    pub(in crate::analysis::liveness) fn retain_input_dependencies(
+        &mut self,
+        unit: &BoundUnit,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) {
         let inputs = unit
             .tree()
             .expressions()
-            .filter(|(_, node)| {
-                matches!(
-                    node,
-                    BoundExpression::Call(_)
-                        | BoundExpression::Await(_)
-                        | BoundExpression::Assignment(_)
-                )
+            .filter(|(expression, node)| {
+                dependencies.calls().contains_key(&(*expression).into())
+                    || matches!(
+                        node,
+                        BoundExpression::Call(_)
+                            | BoundExpression::Await(_)
+                            | BoundExpression::Assignment(_)
+                    )
             })
             .map(|(expression, node)| {
                 let subjects = node
