@@ -402,6 +402,18 @@ fn check_selected_async_operations<C>(
     C: CheckerRequestContext + ?Sized,
 {
     for expression in cleanup.scoped_error_quiescence.values().copied() {
+        let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
+            panic!("selected scoped cleanup retains its invocation: {expression:?}");
+        };
+
+        if matches!(
+            scoped.exit_result(),
+            bray_bound_tree::BoundCallResult::LazyFuture(_)
+        ) {
+            // The selected asynchronous call already checks its execution context.
+            continue;
+        }
+
         add_suspension_context_diagnostic(
             request,
             execution,

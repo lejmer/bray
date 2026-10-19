@@ -77,25 +77,17 @@ struct BodyLocal
     }
 }
 
-struct State
-{
-    fail_entry: bool;
-    fail_exit: bool;
-    mut panic_exit: bool = false;
-    mut pending: Future<unit>?;
-}
-
 struct Capability
 {
-    state: &mut State;
+    outcome: Result<unit, Failure>;
+    panic_exit: bool;
 }
 
-func prepare(pos fail_entry: bool, pos fail_exit: bool) -> State
+async func prepared_failure() -> Failure
 {
-    return State
+    return Failure
     {
-        fail_entry = fail_entry,
-        fail_exit = fail_exit,
+        marker = 619,
         pending = inactive(
             Capture
             {
@@ -104,102 +96,90 @@ func prepare(pos fail_entry: bool, pos fail_exit: bool) -> State
     };
 }
 
-func failure(pos state: &mut State) -> Failure
+async func prepared_entry(
+    pos fail_entry: bool,
+    pos fail_exit: bool,
+    pos panic_exit: bool
+) -> Result<Capability, Failure>
 {
-    let stored = std.memory.replace_value(&mut state.pending, none);
-
-    match consume stored
+    if fail_entry
     {
-        case ?pending
-        {
-            return Failure
-            {
-                marker = 619,
-                pending = pending
-            };
-        }
-        case none { panic("scoped state was consumed twice"); }
+        return Error(await prepared_failure());
     }
-}
 
-func begin(pos state: &mut State) -> Result<Capability, Failure>
-{
-    core.atomic.fetch_add<usize, 0>(&ENTRIES, value = 1);
-
-    if state.fail_entry
+    let outcome: Result<unit, Failure> = if fail_exit
     {
-        return Error(failure(state));
+        yield Error(await prepared_failure());
     }
+    else
+    {
+        yield Ok(unit);
+    };
 
     return Ok(
         Capability
         {
-            state = state
+            outcome = outcome,
+            panic_exit = panic_exit
         }
     );
 }
 
-func finish(pos capability: Capability) -> Result<unit, Failure>
-{
-    core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
-
-    if capability.state.panic_exit
-    {
-        panic("");
-    }
-
-    if capability.state.fail_exit
-    {
-        return Error(failure(capability.state));
-    }
-
-    return Ok(unit);
-}
-
 struct Scope
 {
-    mut state: State;
+    entry: Result<Capability, Failure>;
 
-    mut enter() -> Result<Capability, Failure>
+    consume enter() -> Result<Capability, Failure>
     {
-        return begin(&mut self.state);
+        core.atomic.fetch_add<usize, 0>(&ENTRIES, value = 1);
+
+        return self.entry;
     }
 
     exit(pos capability: Capability) -> Result<unit, Failure>
     {
-        return finish(capability);
+        core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
+
+        return capability.outcome;
     }
 }
 
 struct AsyncScope
 {
-    mut state: State;
+    entry: Result<Capability, Failure>;
 
-    async mut enter() -> Result<Capability, Failure>
+    async consume enter() -> Result<Capability, Failure>
     {
         await std.task.yield_now();
+        core.atomic.fetch_add<usize, 0>(&ENTRIES, value = 1);
 
-        return begin(&mut self.state);
+        return self.entry;
     }
 
     async exit(pos capability: Capability) -> Result<unit, Failure>
     {
         await std.task.yield_now();
+        core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
 
-        return finish(capability);
+        if capability.panic_exit
+        {
+            panic("");
+        }
+
+        return capability.outcome;
     }
 }
 
 async func normal(pos asynchronous: bool, pos fail_entry: bool, pos fail_exit: bool)
 {
-    let state = prepare(fail_entry, fail_exit);
+    let entry = await prepared_entry(fail_entry, fail_exit, false);
     let mut body = false;
 
     let result: Result<i32, Failure> = if asynchronous
     {
-        let mut scope = AsyncScope
+        let scope = AsyncScope
         {
-            state = state
+            entry = entry
         };
 
         yield with capability = scope
@@ -215,9 +195,9 @@ async func normal(pos asynchronous: bool, pos fail_entry: bool, pos fail_exit: b
     }
     else
     {
-        let mut scope = Scope
+        let scope = Scope
         {
-            state = state
+            entry = entry
         };
 
         yield with capability = scope
@@ -251,9 +231,9 @@ trusted async func transfer_sync(pos mode: usize) -> Result<i32, Failure>
     {
         iteration += 1;
 
-        let mut scope = Scope
+        let scope = Scope
         {
-            state = prepare(false, true)
+            entry = await prepared_entry(false, true, false)
         };
 
         core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
@@ -293,9 +273,9 @@ trusted async func transfer_async(pos mode: usize) -> Result<i32, Failure>
     {
         iteration += 1;
 
-        let mut scope = AsyncScope
+        let scope = AsyncScope
         {
-            state = prepare(false, true)
+            entry = await prepared_entry(false, true, false)
         };
 
         core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
@@ -327,20 +307,25 @@ trusted async func transfer_async(pos mode: usize) -> Result<i32, Failure>
 
 async func normal_unit()
 {
-    let mut scope = AsyncScope
+    let scope = AsyncScope
     {
-        state = prepare(false, true)
+        entry = await prepared_entry(false, true, false)
     };
 
     let outcome: Result<unit, Failure> = with capability = scope {};
-    let _ = std.testing.assert_error<unit, Failure>(outcome);
+
+    match consume outcome
+    {
+        case Error(error) {}
+        case Ok(_) { panic("unit scope did not return its exit error"); }
+    }
 }
 
 async func nullable() -> Result<unit, Failure>?
 {
-    let mut scope = AsyncScope
+    let scope = AsyncScope
     {
-        state = prepare(false, true)
+        entry = await prepared_entry(false, true, false)
     };
 
     let absent: i32? = none;
@@ -356,13 +341,12 @@ async func nullable() -> Result<unit, Failure>?
 
 async func propagate_error() -> Result<unit, Failure>
 {
-    let mut scope = AsyncScope
+    let scope = AsyncScope
     {
-        state = prepare(false, true)
+        entry = await prepared_entry(false, true, false)
     };
 
-    let mut state = prepare(false, false);
-    let failed: Result<unit, Failure> = Error(failure(&mut state));
+    let failed: Result<unit, Failure> = Error(await prepared_failure());
 
     let _ = with capability = scope
     {
@@ -375,9 +359,9 @@ async func propagate_error() -> Result<unit, Failure>
 
 async func panic_scope(pos forward: bool)
 {
-    let mut scope = AsyncScope
+    let scope = AsyncScope
     {
-        state = prepare(false, true)
+        entry = await prepared_entry(false, true, false)
     };
 
     let _ = with capability = scope
@@ -403,13 +387,9 @@ async func panic_scope(pos forward: bool)
 
 async func cancel_scope(pos panic_exit: bool)
 {
-    let mut state = prepare(false, true);
-
-    state.panic_exit = panic_exit;
-
-    let mut scope = AsyncScope
+    let scope = AsyncScope
     {
-        state = state
+        entry = await prepared_entry(false, true, panic_exit)
     };
 
     let _ = with capability = scope
@@ -435,7 +415,7 @@ trusted async func main()
     assert(core.atomic.load<usize, 1>(&ENTRIES) == 8);
     assert(core.atomic.load<usize, 1>(&EXITS) == 4);
     assert(core.atomic.load<usize, 1>(&ERRORS) == 6);
-    assert(core.atomic.load<usize, 1>(&CAPTURES) == 8);
+    assert(core.atomic.load<usize, 1>(&CAPTURES) == 6);
     assert(core.atomic.load<usize, 1>(&FINALIZERS) == 6);
 
     await normal_unit();
@@ -455,13 +435,19 @@ trusted async func main()
 
             let _ = catch
             {
-                let value = if asynchronous
+                let outcome = if asynchronous
                 {
-                    yield std.testing.assert_ok<i32, Failure>(await trusted transfer_async(mode));
+                    yield await trusted transfer_async(mode);
                 }
                 else
                 {
-                    yield std.testing.assert_ok<i32, Failure>(await trusted transfer_sync(mode));
+                    yield await trusted transfer_sync(mode);
+                };
+
+                let value = match consume outcome
+                {
+                    case Ok(value) { yield value; }
+                    case Error(error) { panic("exit error replaced the pending return"); }
                 };
 
                 let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
@@ -515,7 +501,11 @@ trusted async func main()
 
     let _ = catch
     {
-        let error = std.testing.assert_error<unit, Failure>(await propagate_error());
+        let error = match consume await propagate_error()
+        {
+            case Error(error) { yield error; }
+            case Ok(_) { panic("result propagation lost its original error"); }
+        };
 
         assert(error.marker == 619);
 
@@ -552,7 +542,7 @@ trusted async func main()
     assert(!core.atomic.load<bool, 1>(&ENTERED_INACTIVE), "quiescence entered an inactive Future body");
     assert(core.atomic.load<usize, 1>(&ENTRIES) == 21);
     assert(core.atomic.load<usize, 1>(&EXITS) == 17);
-    assert(core.atomic.load<usize, 1>(&ERRORS) == 19);
-    assert(core.atomic.load<usize, 1>(&CAPTURES) == 22);
-    assert(core.atomic.load<usize, 1>(&FINALIZERS) == 8, "suppressed error finalization was replayed");
+    assert(core.atomic.load<usize, 1>(&ERRORS) == 20);
+    assert(core.atomic.load<usize, 1>(&CAPTURES) == 20);
+    assert(core.atomic.load<usize, 1>(&FINALIZERS) == 9, "suppressed error finalization was replayed");
 }

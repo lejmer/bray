@@ -1899,3 +1899,52 @@ fn imported_scoped_exit_retains_its_owned_error_quiescence() {
         );
     }
 }
+
+#[test]
+fn inactive_scoped_protocols_do_not_require_whole_value_cleanup() {
+    let declarations = r#"
+        module api;
+        struct Value
+        {
+            number: i32;
+        }
+        struct Resource
+        {
+            value: Value;
+            enter() -> bool
+            {
+                return true;
+            }
+            exit(pos lease: bool) {}
+        }
+    "#;
+
+    let provider = compilation(declarations);
+
+    let source = compilation(&format!(
+        r#"{declarations}
+        func extract(pos resource: Resource) -> Value
+        {{
+            return resource.value;
+        }}
+        "#
+    ));
+
+    let imported = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func extract(pos resource: example.package.api.Resource) -> example.package.api.Value
+        {
+            return resource.value;
+        }
+        "#,
+    );
+
+    for compilation in [&source, &imported] {
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}

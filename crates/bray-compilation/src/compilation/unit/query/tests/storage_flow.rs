@@ -8,6 +8,80 @@ use bray_diagnostics::{
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn repeated_scoped_exit_paths_preserve_later_parameter_uses() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Failure
+        {
+            pending: Future<unit>;
+        }
+        struct Capability
+        {
+            outcome: Result<unit, Failure>;
+        }
+        async func pending() {}
+        async func prepare(pos first: bool, pos second: bool) -> Result<Capability, Failure>
+        {
+            if first
+            {
+                return Error(Failure { pending = pending() });
+            }
+
+            let outcome: Result<unit, Failure> = if second
+            {
+                yield Error(Failure { pending = pending() });
+            }
+            else
+            {
+                yield Ok(unit);
+            };
+
+            return Ok(Capability { outcome = outcome });
+        }
+        struct Scope
+        {
+            entry: Result<Capability, Failure>;
+            consume enter() -> Result<Capability, Failure>
+            {
+                return self.entry;
+            }
+            exit(pos capability: Capability) -> Result<unit, Failure>
+            {
+                return capability.outcome;
+            }
+        }
+        async func caller(pos first: bool, pos second: bool)
+        {
+            let scope = Scope { entry = await prepare(first, second) };
+            let outcome: Result<i32, Failure> = with capability = scope
+            {
+                yield 42;
+            };
+
+            match consume outcome
+            {
+                case Ok(value)
+                {
+                    assert(!first && !second && value == 42);
+                }
+                case Error(_)
+                {
+                    assert(first || second);
+                }
+            }
+        }
+        "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
 fn storage_flow_rejects_mutation_without_parameter_authority() {
     let compilation = compilation(concat!(
         "module app;\n",

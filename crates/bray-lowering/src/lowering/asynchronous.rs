@@ -95,7 +95,8 @@ impl Lowerer<'_> {
             value
         };
 
-        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+        let retention = self.frame_retention(&source, id.into())?;
+        let cancellation = self.suspension_cleanup_edge(&source, id.into(), retention)?;
 
         let resume = self.builder.push_block(
             Self::retained_source(&source),
@@ -128,6 +129,8 @@ impl Lowerer<'_> {
             self.builder.block_kind(current),
         )?;
 
+        let retention = self.frame_retention(&source, occurrence)?;
+
         let cancellation = match occurrence {
             bray_bound_tree::BoundExecutionSite::ScopedExit(_)
             | bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
@@ -148,10 +151,9 @@ impl Lowerer<'_> {
                     MirEdge::new(unreachable, []),
                 )
             }
-            _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
+            _ => self.suspension_cleanup_edge(&source, occurrence.node(), retention.clone())?,
         };
 
-        let retention = self.frame_retention(&source, occurrence)?;
         let state = MirFrameState::new(self.next_frame_state()?, resume, retention);
 
         // Composition consumes the future. Keep source initialization guards in the

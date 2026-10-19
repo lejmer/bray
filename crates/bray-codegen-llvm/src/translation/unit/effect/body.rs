@@ -215,7 +215,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperationKind::Host(operation) => self.translate_host_operation(id, operation)?,
         };
 
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         if let Some(id) = operation.result() {
             let value = result
@@ -275,9 +275,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let destination = self.place(destination)?;
         let value = self.operand(value)?;
 
-        // A transferred source can alias its destination, including self-replacement.
-        // Retire the source before installing the already-evaluated value.
-        self.clear_moved_places()?;
+        // Report transfer installs the native empty representation before a possibly
+        // overlapping destination receives its already-evaluated value.
+        self.clear_moved_reports()?;
 
         llvm(self.builder.build_store(destination, value))?;
 

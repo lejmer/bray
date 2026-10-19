@@ -161,6 +161,7 @@ fn collect_liveness(
     kind: bray_bound_tree::BoundUnitKind,
 ) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
+    let mut continuing_uses = BTreeSet::new();
     let mut live_across_scopes = Vec::new();
     let mut live_across_suspensions = Vec::new();
     let mut is_recovered = false;
@@ -228,6 +229,15 @@ fn collect_liveness(
             } else if let Some(effect) = effects.operation_effect(operation) {
                 is_recovered |= effects.recovered_nodes.contains(&operation.kind().node());
 
+                continuing_uses.extend(
+                    effect
+                        .uses()
+                        .chain(effect.definitions())
+                        .filter(|subject| state.contains(subject))
+                        .copied()
+                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
+                );
+
                 last_uses.extend(
                     effect
                         .uses()
@@ -255,6 +265,10 @@ fn collect_liveness(
             transfer_operation(&mut state, operation, effects, universe);
         }
     }
+
+    // One source occurrence can execute on normal and abnormal cleanup paths.
+    // Its published retirement decision must hold at every reachable graph occurrence.
+    last_uses.retain(|last_use| !continuing_uses.contains(last_use));
 
     if graph.edges().iter().any(|edge| {
         reachability.is_edge_reachable(edge.id()) && edge.kind() == AnalysisEdgeKind::Recovery

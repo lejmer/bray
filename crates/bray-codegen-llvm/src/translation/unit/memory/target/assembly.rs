@@ -272,7 +272,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         if destinations.is_some() {
-            self.clear_moved_places()?;
+            self.clear_moved_reports()?;
         }
 
         let fallthrough = destinations.map(|(default, _)| default);

@@ -18,14 +18,6 @@ impl Plan {
                 continue;
             };
 
-            // Async exit already publishes the checked continuation reused by error quiescence.
-            if matches!(
-                scoped.exit_result(),
-                bray_bound_tree::BoundCallResult::LazyFuture(_)
-            ) {
-                continue;
-            }
-
             if crate::representation::type_representation(request, scoped.exit().1.result())
                 != Some(bray_compiler_known::RepresentationRole::Result)
             {

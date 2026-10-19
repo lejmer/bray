@@ -175,7 +175,8 @@ impl CleanupOutcome {
         mut self,
         retention: Option<std::sync::Arc<bray_ir::MirFrameRetention>>,
     ) -> Self {
-        self.retention = retention;
+        // A nested synchronous step must not discard its enclosing frame.
+        self.retention = retention.or(self.retention);
 
         self
     }

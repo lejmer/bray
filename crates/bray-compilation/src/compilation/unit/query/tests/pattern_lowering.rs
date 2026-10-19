@@ -71,11 +71,14 @@ fn observed_call_result_patterns_evaluate_their_subject_once() {
 
 #[test]
 fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
-    for lifecycle in [
-        "",
-        "destruct() {}",
-        "finalize() {}",
-        "consume enter() -> bool { return true; } exit(pos lease: bool) {}",
+    for (lifecycle, whole_value_cleanup) in [
+        ("", false),
+        ("destruct() {}", true),
+        ("finalize() {}", true),
+        (
+            "consume enter() -> bool { return true; } exit(pos lease: bool) {}",
+            false,
+        ),
     ] {
         for (declaration, body) in [
             (
@@ -97,7 +100,7 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
             let storage = compilation.storage_plan(key.clone()).unwrap();
             let flow = compilation.storage_flow(key.clone()).unwrap();
 
-            if lifecycle.is_empty() {
+            if !whole_value_cleanup {
                 assert!(
                     !flow.diagnostics().has_errors(),
                     "{source}: {:?}",
@@ -128,7 +131,7 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
                 "{source}"
             );
 
-            if lifecycle.is_empty() {
+            if !whole_value_cleanup {
                 assert!(
                     flow.value()
                         .exits()

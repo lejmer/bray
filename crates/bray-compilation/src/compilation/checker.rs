@@ -777,9 +777,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         let lifecycle = surface.value().lifecycle_members().iter().fold(
             TypeLifecycle::None,
             |current, member| match member.slot() {
-                TypeAssociatedLifecycleSlot::Finalizer
-                | TypeAssociatedLifecycleSlot::ScopeEnter
-                | TypeAssociatedLifecycleSlot::ScopeExit => TypeLifecycle::Graceful,
+                TypeAssociatedLifecycleSlot::Finalizer => TypeLifecycle::Graceful,
                 TypeAssociatedLifecycleSlot::Destructor if current == TypeLifecycle::None => {
                     TypeLifecycle::Destruction
                 }

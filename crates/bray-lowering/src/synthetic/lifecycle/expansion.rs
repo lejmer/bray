@@ -79,6 +79,12 @@ fn selected_cleanup(
     operation: &MirOperationKind,
 ) -> Option<(MirGeneratedLifecycleRole, &MirPlace, &MirCleanupCollection)> {
     let (role, place, collection) = match operation {
+        // Cancellation broadcast cannot suspend. Keep its shared synchronous helper
+        // instead of copying the structural traversal into every retained frame state.
+        MirOperationKind::Cleanup {
+            phase: bray_ir::MirCleanupPhase::TaskCancellation,
+            ..
+        } => return None,
         MirOperationKind::Cleanup {
             phase,
             place,

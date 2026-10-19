@@ -29,10 +29,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR control translation requires an established mapping or value",
                 );
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
-                let then_route = self.route_edge(then_edge, "branch.then", &pending_moves)?;
-                let else_route = self.route_edge(else_edge, "branch.else", &pending_moves)?;
+                let then_route = self.route_edge(then_edge, "branch.then", &moved_reports)?;
+                let else_route = self.route_edge(else_edge, "branch.else", &moved_reports)?;
 
                 self.builder.position_at_end(source);
 
@@ -61,10 +61,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
                 let otherwise_route =
-                    self.route_edge(otherwise, "switch.otherwise", &pending_moves)?;
+                    self.route_edge(otherwise, "switch.otherwise", &moved_reports)?;
 
                 let mut llvm_cases = Vec::with_capacity(cases.len());
 
@@ -72,7 +72,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let route = self.route_edge(
                         case.edge(),
                         &format!("switch.case.{index}"),
-                        &pending_moves,
+                        &moved_reports,
                     )?;
 
                     llvm_cases.push((value, route));
@@ -111,7 +111,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirTerminatorKind::Unreachable => {
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_unreachable())?;
             }
             MirTerminatorKind::InlineAssembly(assembly) => {
@@ -120,7 +120,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::Panic { cleanup, .. }
             | MirTerminatorKind::CancelCurrentRun { cleanup } => {
                 self.add_edge_arguments(cleanup.edge())?;
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
 
                 llvm(
                     self.builder
@@ -161,12 +161,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     }
                 };
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
-                let matched_route = self.route_edge(matched, "pattern.matched", &pending_moves)?;
+                let matched_route = self.route_edge(matched, "pattern.matched", &moved_reports)?;
 
                 let unmatched_route =
-                    self.route_edge(unmatched, "pattern.unmatched", &pending_moves)?;
+                    self.route_edge(unmatched, "pattern.unmatched", &moved_reports)?;
 
                 self.builder.position_at_end(source);
 
@@ -224,16 +224,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let cancelled =
                     self.union_variant_tag(result_type, edges.cancelled_variant(), tag.get_type())?;
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
                 let completed_route =
-                    self.route_edge(edges.completed(), "run.completed", &pending_moves)?;
+                    self.route_edge(edges.completed(), "run.completed", &moved_reports)?;
 
                 let panicked_route =
-                    self.route_edge(edges.panicked().edge(), "run.panicked", &pending_moves)?;
+                    self.route_edge(edges.panicked().edge(), "run.panicked", &moved_reports)?;
 
                 let cancelled_route =
-                    self.route_edge(edges.cancelled().edge(), "run.cancelled", &pending_moves)?;
+                    self.route_edge(edges.cancelled().edge(), "run.cancelled", &moved_reports)?;
 
                 let cases = [
                     (completed, completed_route),
@@ -427,10 +427,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .copied()
             .expect("checked MIR control translation requires an established mapping or value");
 
-        let (source, pending_moves) = self.take_control_source()?;
+        let (source, moved_reports) = self.take_control_source()?;
 
-        let item_route = self.route_target(item, "iterate.item", &pending_moves)?;
-        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &pending_moves)?;
+        let item_route = self.route_target(item, "iterate.item", &moved_reports)?;
+        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &moved_reports)?;
 
         phi.add_incoming(&[(&element, item_route)]);
         self.builder.position_at_end(source);
@@ -712,7 +712,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     }
                 }
 
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Direct { coercion, .. } => {
@@ -727,7 +727,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     None => value,
                 };
 
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
 
                 llvm(self.builder.build_return(Some(&value)))?;
             }
@@ -749,7 +749,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.convert(value, source_type, *pointee)?;
 
                 llvm(self.builder.build_store(destination, value))?;
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
         }

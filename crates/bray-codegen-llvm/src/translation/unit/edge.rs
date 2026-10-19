@@ -188,7 +188,7 @@ use super::support::llvm;
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_goto(&mut self, edge: &MirEdge) -> Result<(), CodegenFailure> {
         self.add_edge_arguments(edge)?;
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         llvm(
             self.builder
@@ -206,16 +206,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .get_insert_block()
             .expect("checked MIR translation requires an established mapping or value");
 
-        Ok((source, std::mem::take(&mut self.pending_moves)))
+        Ok((source, std::mem::take(&mut self.moved_reports)))
     }
 
     pub(super) fn route_edge(
         &mut self,
         edge: &MirEdge,
         name: &str,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         self.add_edge_arguments(edge)?;
         self.finish_route(edge.target())?;
@@ -227,9 +227,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         target: bray_ir::MirBlockId,
         name: &str,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         self.finish_route(target)?;
 
@@ -241,7 +241,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         edge: &MirCallFailureEdge,
         context: PointerValue<'context>,
         state: bray_runtime_abi::NativeRunState,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
         let (name, direct) = if state == bray_runtime_abi::NativeRunState::PANICKED {
             ("call.panicked", direct_panic_propagation(self.unit, edge))
@@ -254,12 +254,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )
         };
 
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         // An empty propagation path transfers this same report back to the caller.
         // Keep its ownership in the incoming context instead of materializing a temporary.
         if self.panic_report_context == Some(context) && direct {
-            self.clear_moved_places()?;
+            self.clear_moved_reports()?;
             self.return_propagated_outcome()?;
 
             return Ok(route);
@@ -302,19 +302,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(route)
     }
 
-    fn begin_route(&mut self, name: &str, pending_moves: &[MirPlace]) -> BasicBlock<'context> {
-        debug_assert!(self.pending_moves.is_empty());
+    fn begin_route(&mut self, name: &str, moved_reports: &[MirPlace]) -> BasicBlock<'context> {
+        debug_assert!(self.moved_reports.is_empty());
 
         let route = self.types.context().append_basic_block(self.function, name);
 
         self.builder.position_at_end(route);
-        self.pending_moves.extend_from_slice(pending_moves);
+        self.moved_reports.extend_from_slice(moved_reports);
 
         route
     }
 
     fn finish_route(&mut self, target: bray_ir::MirBlockId) -> Result<(), CodegenFailure> {
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         llvm(self.builder.build_unconditional_branch(self.block(target)))?;
 

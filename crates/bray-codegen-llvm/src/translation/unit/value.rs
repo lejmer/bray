@@ -44,8 +44,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperand::Move(place) => {
                 let pointer = self.place(place)?;
 
-                if !self.pending_moves.contains(place) {
-                    self.pending_moves.push(place.clone());
+                if self.type_mapping(place.ty()).is_some_and(|mapping| {
+                    mapping.behavior() == Some(CodegenTypeBehavior::PanicReport)
+                }) && !self.moved_reports.contains(place)
+                {
+                    // Native report slots use an empty value after ownership transfer.
+                    self.moved_reports.push(place.clone());
                 }
 
                 llvm(
@@ -105,23 +109,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.mapped_constant_as(semantic_type, representation, kind)
     }
 
-    pub(super) fn clear_moved_places(&mut self) -> Result<(), CodegenFailure> {
-        let moved = std::mem::take(&mut self.pending_moves);
+    pub(super) fn clear_moved_reports(&mut self) -> Result<(), CodegenFailure> {
+        let moved = std::mem::take(&mut self.moved_reports);
 
         for place in moved {
-            let ownership_bearing = self.type_mapping(place.ty()).is_some_and(|mapping| {
-                matches!(
-                    mapping.kind(),
-                    CodegenTypeKind::Aggregate(_)
-                        | CodegenTypeKind::Array { .. }
-                        | CodegenTypeKind::Union { .. }
-                )
-            });
-
-            if !ownership_bearing {
-                continue;
-            }
-
             let pointer = self.place(&place)?;
             let value_type = self.types.map(place.ty())?;
 

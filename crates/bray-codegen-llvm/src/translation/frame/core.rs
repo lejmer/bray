@@ -28,12 +28,12 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .frame_descriptor()
         .expect("protected-frame translation requires an established mapping or value");
 
-    let context_type = frame_context_type(context, instance, types)?;
-
     let storage = request
         .mappings()
         .symbol(&CodegenSymbolKey::CleanupStorage(instance.key().clone()))
         .expect("protected frame must publish its cleanup storage descriptor");
+
+    let context_type = frame_context_type(context, storage.name().as_str(), instance, types)?;
 
     let identity = instance
         .protected_frame_identity()
@@ -129,6 +129,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
 
 fn frame_context_type<'context>(
     context: &'context Context,
+    name: &str,
     instance: &CodegenInstance,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<StructType<'context>, CodegenFailure> {
@@ -159,7 +160,11 @@ fn frame_context_type<'context>(
 
     fields.push(crate::native::activation::header_type(context, types.target()).into());
 
-    Ok(context.struct_type(&fields, false))
+    let context_type = context.opaque_struct_type(&format!("{name}.context"));
+
+    context_type.set_body(&fields, false);
+
+    Ok(context_type)
 }
 
 fn translate_constructor<'context>(

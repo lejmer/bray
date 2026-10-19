@@ -55,11 +55,14 @@ struct AbnormalCleanupRoute {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum AbnormalCleanupStep {
-    ScopedExit {
-        expression: bray_bound_tree::BoundExpressionId,
-        exit: AnyBoundNodeId,
-    },
+struct AbnormalCleanupStep {
+    occurrence: Option<bray_bound_tree::BoundExecutionSite>,
+    operation: AbnormalCleanupOperation,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum AbnormalCleanupOperation {
+    ScopedExit(bray_bound_tree::BoundExpressionId),
     Place {
         place: bray_ir::MirPlace,
         source: MirSourceAnchor,
@@ -68,12 +71,8 @@ enum AbnormalCleanupStep {
         access: StorageAccessId,
         place: bray_ir::MirPlace,
         completed: bool,
-        exit: AnyBoundNodeId,
     },
-    Temporary {
-        temporary: InputTemporary,
-        exit: Option<AnyBoundNodeId>,
-    },
+    Temporary(InputTemporary),
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -119,6 +118,7 @@ impl Lowerer<'_> {
         &mut self,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
+        retention: bray_ir::MirFrameRetention,
     ) -> Result<MirCleanupEdge, LoweringError> {
         let plans = self.cleanup_plans(0, exit);
 
@@ -127,7 +127,9 @@ impl Lowerer<'_> {
             MirBlockKind::CleanupBroadcast,
         )?;
 
-        let outcome = self.create_cleanup_outcome(broadcast, source)?;
+        let outcome = self
+            .create_cleanup_outcome(broadcast, source)?
+            .with_retention(Some(Arc::new(retention)));
 
         outcome.initialize_cancellation(&mut self.builder, broadcast, source, None)?;
         self.cleanup_outcome = Some(outcome);
@@ -447,10 +449,18 @@ impl Lowerer<'_> {
     ) -> Result<Vec<AbnormalCleanupStep>, LoweringError> {
         let mut steps = Vec::new();
 
+        let occurrence = plans
+            .last()
+            .map(|plan| bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()))
+            .or(self.cleanup_occurrence);
+
         if let Some(place) = abandoned {
-            steps.push(AbnormalCleanupStep::Place {
-                place: place.clone(),
-                source: Self::retained_source(source),
+            steps.push(AbnormalCleanupStep {
+                occurrence,
+                operation: AbnormalCleanupOperation::Place {
+                    place: place.clone(),
+                    source: Self::retained_source(source),
+                },
             });
         }
 
@@ -460,9 +470,9 @@ impl Lowerer<'_> {
             if phase == MirCleanupPhase::LifecycleResolution
                 && let Some(expression) = plan.scoped_exit()
             {
-                steps.push(AbnormalCleanupStep::ScopedExit {
-                    expression,
-                    exit: plan.exit(),
+                steps.push(AbnormalCleanupStep {
+                    occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
+                    operation: AbnormalCleanupOperation::ScopedExit(expression),
                 });
             }
 
@@ -483,29 +493,25 @@ impl Lowerer<'_> {
                 &mut temporaries,
                 phase,
                 depth,
-                Some(plan.exit()),
+                Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
             );
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
-                steps.push(AbnormalCleanupStep::Access {
-                    access: *access,
-                    place: self.place_for_access(*access, false)?,
-                    completed: self.input.finalizer_is_complete(plan.exit(), *access),
-                    exit: plan.exit(),
+                steps.push(AbnormalCleanupStep {
+                    occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
+                    operation: AbnormalCleanupOperation::Access {
+                        access: *access,
+                        place: self.place_for_access(*access, false)?,
+                        completed: self.input.finalizer_is_complete(plan.exit(), *access),
+                    },
                 });
             }
         }
 
-        Self::push_abnormal_temporary_steps(
-            &mut steps,
-            &mut temporaries,
-            phase,
-            0,
-            plans.last().map(AsyncScopeExitPlan::exit),
-        );
+        Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, 0, occurrence);
 
         Ok(steps)
     }
@@ -515,7 +521,7 @@ impl Lowerer<'_> {
         temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
         phase: MirCleanupPhase,
         scope_depth: usize,
-        exit: Option<AnyBoundNodeId>,
+        occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         loop {
             let Some(temporary) =
@@ -525,9 +531,9 @@ impl Lowerer<'_> {
             };
 
             if temporary.requires_cleanup(phase) {
-                steps.push(AbnormalCleanupStep::Temporary {
-                    temporary: temporary.clone(),
-                    exit,
+                steps.push(AbnormalCleanupStep {
+                    occurrence,
+                    operation: AbnormalCleanupOperation::Temporary(temporary.clone()),
                 });
             }
         }
@@ -563,19 +569,13 @@ impl Lowerer<'_> {
 
             self.cleanup_outcome = Some(machine.outcome.clone());
 
-            let end = match &step {
-                AbnormalCleanupStep::ScopedExit { expression, exit } => {
-                    let previous = self
-                        .cleanup_occurrence
-                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
+            let previous = std::mem::replace(&mut self.cleanup_occurrence, step.occurrence);
 
-                    let end = self.push_scope_exit(entry, source, *expression, None, None)?;
-
-                    self.cleanup_occurrence = previous;
-
-                    end
+            let end = match &step.operation {
+                AbnormalCleanupOperation::ScopedExit(expression) => {
+                    self.push_scope_exit(entry, source, *expression, None, None)?
                 }
-                AbnormalCleanupStep::Place {
+                AbnormalCleanupOperation::Place {
                     place,
                     source: cleanup_source,
                 } => {
@@ -591,16 +591,11 @@ impl Lowerer<'_> {
                     )?
                     .0
                 }
-                AbnormalCleanupStep::Access {
+                AbnormalCleanupOperation::Access {
                     access,
                     place,
                     completed,
-                    exit,
                 } => {
-                    let previous = self
-                        .cleanup_occurrence
-                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
-
                     let result = self.push_cleanup_place(
                         entry,
                         source,
@@ -611,25 +606,14 @@ impl Lowerer<'_> {
                         None,
                     )?;
 
-                    self.cleanup_occurrence = previous;
-
                     result.0
                 }
-                AbnormalCleanupStep::Temporary { temporary, exit } => {
-                    let previous = self.cleanup_occurrence;
-
-                    self.cleanup_occurrence = exit
-                        .map(bray_bound_tree::BoundExecutionSite::Cleanup)
-                        .or(previous);
-
-                    let end = self.push_input_cleanup_temporary(entry, phase, temporary)?;
-
-                    self.cleanup_occurrence = previous;
-
-                    end
+                AbnormalCleanupOperation::Temporary(temporary) => {
+                    self.push_input_cleanup_temporary(entry, phase, temporary)?
                 }
             };
 
+            self.cleanup_occurrence = previous;
             self.cleanup_outcome = None;
 
             self.set_terminator(

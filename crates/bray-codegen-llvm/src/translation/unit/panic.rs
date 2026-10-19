@@ -53,7 +53,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let report = self.operand(report)?;
 
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         self.propagate_failure(NativeRunState::PANICKED, report, runtime)
     }
@@ -64,7 +64,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let report = self.operand(report)?;
 
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         self.propagate_failure(
             NativeRunState::CANCELLED,
@@ -201,13 +201,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(propagate_cancellation);
 
-        let (_, pending_moves) = self.take_control_source()?;
+        let (_, moved_reports) = self.take_control_source()?;
 
         let cancellation_route = self.route_call_failure(
             cancelled_edge,
             context,
             NativeRunState::CANCELLED,
-            &pending_moves,
+            &moved_reports,
         )?;
 
         self.builder.position_at_end(propagate_cancellation);
@@ -224,10 +224,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (source, _) = self.take_control_source()?;
 
-        let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
+        let completed_route = self.route_edge(completed, "call.completed", &moved_reports)?;
 
         let panicked_route =
-            self.route_call_failure(panicked, context, NativeRunState::PANICKED, &pending_moves)?;
+            self.route_call_failure(panicked, context, NativeRunState::PANICKED, &moved_reports)?;
 
         self.builder.position_at_end(source);
 
