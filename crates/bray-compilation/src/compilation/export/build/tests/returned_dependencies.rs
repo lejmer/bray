@@ -2393,3 +2393,73 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
         }
     }
 }
+
+#[test]
+fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
+    use bray_symbols::{
+        DependencyProjection, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value { mut active: bool; }
+        struct Indexed { mut output: i32; mut visits: usize; target: &mut Value; }
+        impl IndexAccess = Indexed(MutableElementIndex<i32>)
+        {
+            type Output = i32;
+            mut func index(pos selector: &i32) -> &mut i32
+            {
+                self.visits = 1;
+                self.target.active = true;
+                return &mut self.output;
+            }
+        }
+        func owned(pos mut indexed: Indexed) { let _ = &mut indexed[0]; }
+        func borrowed(pos indexed: &mut Indexed) { let _ = &mut indexed[0]; }
+    "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Indexed;
+        using example.package.api.owned;
+        using example.package.api.borrowed;
+        func owned(pos indexed: example.package.api.Indexed) { example.package.api.owned(indexed); }
+        func borrowed(pos indexed: &mut example.package.api.Indexed) { example.package.api.borrowed(indexed); }
+    "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for application in [&provider, &consumer] {
+        for name in ["owned", "borrowed"] {
+            let flow = application
+                .storage_flow(source_function_body_key(application, name))
+                .unwrap();
+
+            let effects = flow.value().dependencies().effects();
+
+            assert!(
+                !effects
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                "{name}: {effects:#?}"
+            );
+
+            assert!(effects.iter().any(|effect| matches!(effect,
+                DependencyStorageEffect::Indirect { reference, .. }
+                if reference.subject_root() == DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))
+                    && matches!(reference.projections(), [DependencyProjection::ProductField(_)])
+            )), "{name}: {effects:#?}");
+        }
+    }
+}

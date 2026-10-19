@@ -4,7 +4,7 @@ use super::templates::operation_result_dependencies;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundDependencyContract, BoundExpressionId, SelectedOperation,
-    StorageAccessPurpose, StoragePlan,
+    StoragePlan,
 };
 use bray_symbols::{DependencyContractTemplateData, DependencySubjectRoot};
 
@@ -33,14 +33,10 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             let operand = input.expression()?;
 
             let subject = match input {
-                OperationInput::Borrow(_, kind) => {
-                    let plan = storage
-                        .expression_plans(operand)
-                        .find(|plan| plan.purpose() == StorageAccessPurpose::Borrow(kind))
-                        .expect("selected invocation operand retains its implicit borrow");
-
-                    plan.access()
-                }
+                OperationInput::Borrow(_, _) => input
+                    .borrow_plan(storage)
+                    .expect("borrow input has a plan")
+                    .access(),
                 OperationInput::Value(_) | OperationInput::Nullable(_) => {
                     expression_access(storage, operand)
                         .expect("selected invocation input retains its storage access")
@@ -120,7 +116,23 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             let mut projections = subject.projections();
 
             match input {
-                Some(OperationInput::Borrow(_, kind)) => {
+                Some(input @ OperationInput::Borrow(_, kind)) => {
+                    let capability = storage
+                        .borrow_for_plan(
+                            input.borrow_plan(storage).expect("borrow input has a plan"),
+                        )
+                        .expect("checked borrow plan retains its capability");
+
+                    let referent = storage
+                        .borrow_capability(capability)
+                        .expect("checked borrow retains its record")
+                        .access();
+
+                    ty = storage
+                        .access(referent)
+                        .expect("checked loan retains its referent access")
+                        .reached_type();
+
                     ty = request
                         .semantic_values()
                         .intern_type(bray_symbols::TypeData::Borrow { kind, target: ty })

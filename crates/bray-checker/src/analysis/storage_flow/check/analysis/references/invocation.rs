@@ -385,7 +385,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if let Some(SemanticSelection::Operation(operation)) = occurrence
                 .expression()
                 .and_then(|expression| self.execution.semantics.selections().expression(expression))
-                && let Some((_, crate::dependency::OperationInput::Borrow(_, kind))) =
+                && let Some((_, input @ crate::dependency::OperationInput::Borrow(_, _))) =
                     crate::dependency::operation_inputs(
                         self.request.view(),
                         occurrence.expression()?,
@@ -394,20 +394,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .into_iter()
                     .find(|(actual, _)| *actual == root)
             {
-                let access = self
+                let capability = self
                     .storage
-                    .expression_plans(argument)
-                    .find(|plan| {
-                        plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind)
-                    })
-                    .expect("checked operation input retains its implicit borrow")
-                    .access();
+                    .borrow_for_plan(
+                        input
+                            .borrow_plan(self.storage)
+                            .expect("borrow input has a plan"),
+                    )
+                    .expect("checked borrow plan retains its capability");
 
-                return self
-                    .storage
-                    .borrow_capability_entries()
-                    .find(|(id, loan)| loan.access() == access && state.memory.has_borrow(*id))
-                    .map(|(capability, _)| Source::Borrow(capability));
+                return state
+                    .memory
+                    .has_borrow(capability)
+                    .then_some(Source::Borrow(capability));
             }
 
             let owner = if matches!(occurrence, BoundExecutionSite::ScopedEnter(_)) {

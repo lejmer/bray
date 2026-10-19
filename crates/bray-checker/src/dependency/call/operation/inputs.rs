@@ -12,6 +12,22 @@ pub(crate) enum OperationInput {
 }
 
 impl OperationInput {
+    pub(crate) fn borrow_plan(
+        self,
+        storage: &bray_bound_tree::StoragePlan,
+    ) -> Option<bray_bound_tree::StorageAccessPlan> {
+        let Self::Borrow(expression, kind) = self else {
+            return None;
+        };
+
+        Some(
+            storage
+                .expression_plans(expression)
+                .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
+                .expect("selected invocation input retains its implicit borrow plan"),
+        )
+    }
+
     pub(crate) fn expression(self) -> Option<BoundExpressionId> {
         match self {
             Self::Value(expression) | Self::Borrow(expression, _) => Some(expression),
