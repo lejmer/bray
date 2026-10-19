@@ -960,7 +960,14 @@ mod tests {
 
         let completed = checked_memory_continuation(&mut builder, entry, &source, types);
 
-        builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            completed,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
         let allocation = helper_instance_key(172, 1, mir.target());
@@ -1404,7 +1411,14 @@ mod tests {
             size,
         );
 
-        builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            completed,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(root);
 
@@ -1633,11 +1647,19 @@ mod tests {
                     cancelled,
                     MirPlace::new(report, [], types.allocation),
                 ),
+                completed_report: None,
             },
         );
 
         for block in [panicked, cancelled] {
-            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
+            builder.set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            );
         }
 
         completed

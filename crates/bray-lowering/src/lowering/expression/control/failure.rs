@@ -398,6 +398,7 @@ impl Lowerer<'_> {
                 completed: MirEdge::new(completed, [Self::retained_operand(value)]),
                 panicked: MirCallFailureEdge::new(panicked, Self::retained_place(&report)),
                 cancelled: MirCallFailureEdge::new(cancelled, Self::retained_place(&report)),
+                completed_report: None,
             },
         )?;
 

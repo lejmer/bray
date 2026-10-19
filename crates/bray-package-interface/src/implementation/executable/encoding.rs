@@ -1238,9 +1238,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
                 self.edge(otherwise)?;
             }
-            MirTerminatorKind::Return(value) => {
+            MirTerminatorKind::Return { value, report } => {
                 self.wire.write_u32(5);
                 self.optional_operand(value.as_ref())?;
+                self.optional_operand(report.as_ref())?;
             }
             MirTerminatorKind::Unreachable => self.wire.write_u32(6),
             MirTerminatorKind::Suspend {
@@ -1335,6 +1336,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 completed,
                 panicked,
                 cancelled,
+                completed_report,
             } => {
                 self.wire.write_u32(17);
                 self.edge(completed)?;
@@ -1342,6 +1344,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.place(panicked.report())?;
                 self.wire.write_u32(cancelled.target().slot());
                 self.place(cancelled.report())?;
+                write_bool(&mut self.wire, completed_report.is_some());
+
+                if let Some(report) = completed_report {
+                    self.place(report)?;
+                }
             }
         }
 
@@ -2475,9 +2482,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(9);
 
                 match state {
-                    bray_ir::MirTaskTerminalState::Completed(value) => {
+                    bray_ir::MirTaskTerminalState::Completed { value, report } => {
                         self.wire.write_u32(0);
                         self.operand(value)?;
+                        self.optional_operand(report.as_ref())?;
                     }
                     bray_ir::MirTaskTerminalState::Cancelled(report) => {
                         self.wire.write_u32(1);

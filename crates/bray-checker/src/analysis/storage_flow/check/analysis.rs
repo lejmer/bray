@@ -6,6 +6,7 @@ mod escape;
 mod memory;
 mod observations;
 mod references;
+mod reports;
 mod snapshot;
 mod terminal;
 

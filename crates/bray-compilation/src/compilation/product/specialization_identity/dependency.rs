@@ -17,6 +17,14 @@ impl StructuralValueEncoder<'_, '_> {
         self.digest.write_u8(u8::from(data.normal_completion()));
         self.dependency_requirements(data.requirements())?;
 
+        for reports in [data.completion_reports(), data.abnormal_reports()] {
+            self.digest.write_u8(u8::from(reports.is_some()));
+
+            if let Some(requirements) = reports {
+                self.dependency_requirements(requirements)?;
+            }
+        }
+
         self.digest
             .write_u8(u8::from(data.returned_input().is_some()));
 

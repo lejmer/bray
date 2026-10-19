@@ -211,7 +211,10 @@ mod tests {
                 builder.set_terminator(
                     cleanup.continuation,
                     source,
-                    MirTerminatorKind::Return(cleanup.continuation_value.map(MirOperand::Value)),
+                    MirTerminatorKind::Return {
+                        value: cleanup.continuation_value.map(MirOperand::Value),
+                        report: None,
+                    },
                 );
 
                 let unit = builder.finish(entry);
@@ -299,7 +302,10 @@ mod tests {
                         else_edge
                     }
                 }
-                MirTerminatorKind::Return(value) => {
+                MirTerminatorKind::Return {
+                    value,
+                    report: None,
+                } => {
                     return (
                         visited,
                         value

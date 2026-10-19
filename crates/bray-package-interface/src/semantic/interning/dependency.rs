@@ -30,6 +30,28 @@ impl InternState {
                 continue;
             };
 
+            let mut contract = DependencyContractTemplateData::new(requirements);
+
+            if let Some(requirements) = &input.completion_reports {
+                let Some(requirements) =
+                    self.convert_dependency_requirements(requirements, symbols)?
+                else {
+                    continue;
+                };
+
+                contract = contract.with_completion_reports(requirements);
+            }
+
+            if let Some(requirements) = &input.abnormal_reports {
+                let Some(requirements) =
+                    self.convert_dependency_requirements(requirements, symbols)?
+                else {
+                    continue;
+                };
+
+                contract = contract.with_abnormal_reports(requirements);
+            }
+
             let mut borrows = Vec::with_capacity(input.borrows.len());
 
             for relation in input.borrows.iter() {
@@ -92,7 +114,7 @@ impl InternState {
 
             self.dependency_contracts[index] = Some(
                 store.intern_dependency_contract_template(
-                    DependencyContractTemplateData::new(requirements)
+                    contract
                         .with_borrows(borrows)
                         .with_carriers(carriers)
                         .with_returned_input(returned_input)

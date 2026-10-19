@@ -81,7 +81,10 @@ fn negative_integer_literals_publish_representable_mir_constants() {
             .blocks()
             .iter()
             .find_map(|block| match block.terminator().kind() {
-                MirTerminatorKind::Return(Some(MirOperand::Constant { value, .. })) => Some(*value),
+                MirTerminatorKind::Return {
+                    value: Some(MirOperand::Constant { value, .. }),
+                    report: None,
+                } => Some(*value),
                 _ => None,
             })
             .expect("negative literal must lower directly to a typed constant");
@@ -149,7 +152,10 @@ fn runtime_default_expression_roots_lower_to_mir() {
             .blocks()
             .last()
             .map(|block| block.terminator().kind()),
-        Some(MirTerminatorKind::Return(Some(MirOperand::Constant { .. })))
+        Some(MirTerminatorKind::Return {
+            value: Some(MirOperand::Constant { .. }),
+            report: None
+        })
     ));
 }
 
@@ -167,7 +173,10 @@ fn constant_references_lower_to_closed_mir_operands() {
             .blocks()
             .last()
             .map(|block| block.terminator().kind()),
-        Some(MirTerminatorKind::Return(Some(MirOperand::Constant { .. })))
+        Some(MirTerminatorKind::Return {
+            value: Some(MirOperand::Constant { .. }),
+            report: None
+        })
     ));
 }
 

@@ -34,6 +34,7 @@ pub(super) fn reachable_blocks(
                 completed,
                 panicked,
                 cancelled,
+                completed_report,
             } if forwards_call_outcomes => {
                 pending.push(completed.target());
 
@@ -266,12 +267,43 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(route);
         }
 
-        let destination = self.place(edge.report())?;
+        self.take_call_report(context, edge.report())?;
 
+        self.finish_route(edge.target())?;
+
+        Ok(route)
+    }
+
+    pub(super) fn route_call_completion(
+        &mut self,
+        edge: &MirEdge,
+        report: Option<&MirPlace>,
+        context: PointerValue<'context>,
+        moved_reports: &[MirPlace],
+    ) -> Result<BasicBlock<'context>, CodegenFailure> {
+        let route = self.begin_route("call.completed", moved_reports);
+
+        if let Some(report) = report {
+            self.take_call_report(context, report)?;
+        }
+
+        self.add_edge_arguments(edge)?;
+        self.finish_route(edge.target())?;
+
+        Ok(route)
+    }
+
+    fn take_call_report(
+        &mut self,
+        context: PointerValue<'context>,
+        destination: &MirPlace,
+    ) -> Result<(), CodegenFailure> {
         let layout = self
-            .type_mapping(edge.report().ty())
+            .type_mapping(destination.ty())
             .and_then(bray_codegen::CodegenTypeMapping::layout)
             .expect("call panic report types must have represented codegen layouts");
+
+        let destination = self.place(destination)?;
 
         let alignment = crate::conversion::target_value(
             layout.alignment().get(),
@@ -298,9 +330,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         super::support::llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
 
-        self.finish_route(edge.target())?;
-
-        Ok(route)
+        Ok(())
     }
 
     fn begin_route(&mut self, name: &str, moved_reports: &[MirPlace]) -> BasicBlock<'context> {
@@ -603,6 +633,7 @@ mod tests {
                 completed: MirEdge::new(completed, []),
                 panicked: MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: MirCallFailureEdge::new(cancelled, other),
+                completed_report: None,
             },
         );
 
@@ -663,8 +694,12 @@ mod tests {
                 completed: MirEdge::new(completed, []),
                 panicked: MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: MirCallFailureEdge::new(cancelled, report.clone()),
+                completed_report: None,
             },
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
             MirTerminatorKind::PropagatePanic {
                 report: MirOperand::Move(report.clone()),
                 runtime: panic,

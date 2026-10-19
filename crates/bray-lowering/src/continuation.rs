@@ -152,6 +152,7 @@ pub(crate) fn check_call_outcome(
             completed: MirEdge::new(completed, value),
             panicked: MirCallFailureEdge::new(panicked, report.clone()),
             cancelled: MirCallFailureEdge::new(cancelled, report),
+            completed_report: None,
         },
     );
 

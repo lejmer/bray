@@ -122,6 +122,7 @@ where
         &dependencies,
         storage,
         memory,
+        graph,
     );
 
     let mut excluded = std::collections::BTreeSet::new();

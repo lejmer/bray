@@ -218,6 +218,34 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     }
                 }
                 BoundExpression::Structured(value)
+                    if value.kind() == BoundStructuredExpressionKind::With =>
+                {
+                    let mut values = self.state.values.get(&id).cloned().unwrap_or_default();
+
+                    if let Some(SemanticSelection::ScopedUse(scoped)) =
+                        self.selections.expression(id)
+                    {
+                        if scoped.enter().1.result() != scoped.capability_type() {
+                            values.extend(self.scoped_values(scoped)?);
+                        }
+
+                        if crate::representation::type_representation(
+                            self.request,
+                            scoped.exit().1.result(),
+                        ) == Some(bray_compiler_known::RepresentationRole::Result)
+                        {
+                            values.extend(self.exit_values(scoped)?);
+                        }
+                    }
+
+                    values
+                }
+                BoundExpression::Structured(value)
+                    if value.kind() == BoundStructuredExpressionKind::Catch =>
+                {
+                    self.state.values.get(&id).cloned().unwrap_or_default()
+                }
+                BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
                 {
                     let operand = value.operands().first().copied().unwrap_or_else(|| {

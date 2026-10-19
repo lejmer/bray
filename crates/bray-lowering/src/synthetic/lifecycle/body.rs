@@ -168,7 +168,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder.set_terminator(
                     end,
                     source.clone(),
-                    MirTerminatorKind::Return(return_value),
+                    MirTerminatorKind::Return {
+                        value: return_value,
+                        report: None,
+                    },
                 );
             }
             MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_, _) => {
@@ -181,7 +184,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     target.runtime_abi(),
                 )?;
 
-                builder.set_terminator(end, source.clone(), MirTerminatorKind::Return(None));
+                builder.set_terminator(
+                    end,
+                    source.clone(),
+                    MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
+                );
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -290,7 +300,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder.set_terminator(
             lifecycle_end,
             source.clone(),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         Ok(())

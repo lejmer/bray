@@ -1,11 +1,11 @@
 use crate::storage::local_initialization_destinations;
-use crate::{CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness,
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
     StoragePlan,
 };
-use bray_symbols::BorrowKind;
+use bray_symbols::{BorrowKind, CallableSignatureQuery};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
@@ -34,6 +34,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) terminal_dependencies: bool,
     pub(in crate::analysis::storage_flow) terminal_receiver: Option<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) graceful_types: BTreeSet<bray_symbols::TypeId>,
+    pub(in crate::analysis::storage_flow) value_dependencies:
+        BTreeMap<StorageIdentityId, BTreeSet<BoundDependencySubject>>,
     pub(super) cleanup_dependency_owners:
         BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
     pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
@@ -75,7 +77,6 @@ impl StorageFlowInput {
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
-        mutable_storage: BTreeSet<StorageIdentityId>,
         liveness: &Liveness,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         values: &crate::dependency::ValueInputs,
@@ -84,8 +85,11 @@ impl StorageFlowInput {
         memory: &bray_bound_tree::CheckedMemoryOperations,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
     where
-        C: CheckerRequestContext + ?Sized,
+        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
+        let (mutable_storage, mut diagnostics) =
+            crate::analysis::storage_flow::authority::mutable_storage(request, storage)?;
+
         let initialization_destinations = local_initialization_destinations(request, storage);
 
         let mut retained_storage = BTreeSet::new();
@@ -230,6 +234,7 @@ impl StorageFlowInput {
         };
 
         input.prepare_locations(storage, cleanup);
+        input.prepare_report_dependencies(storage, liveness, dependencies);
         input.prepare_variant_payloads(footprint.references.iter().map(|(path, _)| path));
 
         input.prepare_reference_constructions(request, storage, values)?;
@@ -251,12 +256,13 @@ impl StorageFlowInput {
                 request, storage, &input,
             )?;
 
-        let (cleanup_free, diagnostics) =
+        let (cleanup_free, cleanup_diagnostics) =
             crate::asynchronous::cleanup_free_storage(cleanup_shapes, request, storage)?;
 
         input.prepare_cleanup_retention(request, storage, liveness, cleanup);
         input.prepare_storage_retirement(storage, liveness, &cleanup_free);
         input.cleanup_free_storage = cleanup_free;
+        diagnostics.add_range(cleanup_diagnostics);
 
         Ok((input, diagnostics))
     }

@@ -1210,7 +1210,10 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
 
         assert!(matches!(
             block.terminator().kind(),
-            MirTerminatorKind::Return(None)
+            MirTerminatorKind::Return {
+                value: None,
+                report: None
+            }
         ));
     }
 
@@ -2366,7 +2369,10 @@ fn destructor_receiver_tail_retains_normal_completion() {
                 !handoffs.contains_key(&id)
                     && matches!(
                         mir.block(id).unwrap().terminator().kind(),
-                        MirTerminatorKind::Return(None)
+                        MirTerminatorKind::Return {
+                            value: None,
+                            report: None
+                        }
                     )
             }),
             "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
@@ -2613,7 +2619,7 @@ fn scoped_result_completion_reaches_the_following_return() {
                 mir.blocks().iter().any(|block| {
                     matches!(
                         block.terminator().kind(),
-                        MirTerminatorKind::Return(Some(_))
+                        MirTerminatorKind::Return { value: Some(_), .. }
                     )
                 })
             } else {
@@ -2621,7 +2627,7 @@ fn scoped_result_completion_reaches_the_following_return() {
                     matches!(
                         operation.kind(),
                         MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
-                            state: bray_ir::MirTaskTerminalState::Completed(_),
+                            state: bray_ir::MirTaskTerminalState::Completed { .. },
                             ..
                         })
                     )

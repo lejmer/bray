@@ -205,7 +205,10 @@ impl Lowerer<'_> {
             self.set_terminator(
                 entry,
                 Self::retained_source(source),
-                MirTerminatorKind::Return(None),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
             )?;
 
             return Ok(entry);
@@ -340,7 +343,10 @@ impl Lowerer<'_> {
         self.set_terminator(
             completed,
             Self::retained_source(source),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         )?;
 
         // The retained descriptor shares immutable paths with subsequent state entries.

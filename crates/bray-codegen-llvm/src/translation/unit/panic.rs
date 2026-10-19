@@ -115,6 +115,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         block: bray_ir::MirBlockId,
         completed: &MirEdge,
+        completed_report: Option<&bray_ir::MirPlace>,
         panicked: &bray_ir::MirCallFailureEdge,
         cancelled_edge: &bray_ir::MirCallFailureEdge,
     ) -> Result<(), CodegenFailure> {
@@ -224,7 +225,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (source, _) = self.take_control_source()?;
 
-        let completed_route = self.route_edge(completed, "call.completed", &moved_reports)?;
+        let completed_route =
+            self.route_call_completion(completed, completed_report, context, &moved_reports)?;
 
         let panicked_route =
             self.route_call_failure(panicked, context, NativeRunState::PANICKED, &moved_reports)?;

@@ -46,6 +46,7 @@ impl OperationEffects {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
+        graph: &crate::analysis::model::ControlFlowGraph,
     ) -> Self
     where
         C: CheckerRequestContext + ?Sized,
@@ -55,6 +56,7 @@ impl OperationEffects {
 
         effects.value_inputs = value_inputs;
         effects.add_selected_call_dependencies(selections, storage, dependencies);
+        effects.retain_report_dependencies(request, graph, selections, storage, dependencies);
 
         for plan in storage.access_plans() {
             let access = storage

@@ -141,8 +141,8 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    let mut result =
-        template.with_requirements(super::witness::resolve(request, template.requirements())?);
+    let mut result = template
+        .try_map_requirements(|requirements| super::witness::resolve(request, requirements))?;
 
     if template
         .effects()
@@ -312,7 +312,9 @@ fn append_cleanup_call_effects<C: CheckerRequestContext + ?Sized>(
     Ok(())
 }
 
-fn input_requirements(call: &SelectedCall) -> impl Iterator<Item = DependencyRequirement> + '_ {
+pub(super) fn input_requirements(
+    call: &SelectedCall,
+) -> impl Iterator<Item = DependencyRequirement> + '_ {
     call.arguments()
         .iter()
         .map(|argument| match argument {

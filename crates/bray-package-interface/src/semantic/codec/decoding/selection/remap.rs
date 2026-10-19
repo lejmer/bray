@@ -238,8 +238,13 @@ fn remap_dependency_contract(
     mut contract: crate::InterfaceDependencyContract,
     maps: &RecordMaps,
 ) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
-    for requirement in Arc::make_mut(&mut contract.requirements) {
-        remap_dependency_requirement(requirement, maps)?;
+    for requirements in std::iter::once(&mut contract.requirements)
+        .chain(contract.completion_reports.iter_mut())
+        .chain(contract.abnormal_reports.iter_mut())
+    {
+        for requirement in Arc::make_mut(requirements) {
+            remap_dependency_requirement(requirement, maps)?;
+        }
     }
 
     let borrows = contract

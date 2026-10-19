@@ -224,7 +224,14 @@ pub fn lower_executable_host(
         None,
     )?;
 
-    builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+    builder.set_terminator(
+        entry,
+        source,
+        MirTerminatorKind::Return {
+            value: None,
+            report: None,
+        },
+    );
 
     Ok(builder.finish(entry))
 }
@@ -446,7 +453,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("host operation must be valid: {error:?}"));
         }
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }

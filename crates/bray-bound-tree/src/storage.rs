@@ -38,7 +38,8 @@ pub use replacement::{
     StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
 };
 pub use scope::{
-    StorageScopeBuildError, StorageScopeOwners, storage_expression_republishes_destructor_receiver,
-    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
+    StorageScopeBuildError, StorageScopeOwners, scoped_exit_completes_result,
+    storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
+    storage_identity_transfers_at_unit_exit,
 };
 pub use shape::StorageCleanupType;

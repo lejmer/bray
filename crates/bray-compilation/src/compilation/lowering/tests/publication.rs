@@ -116,14 +116,22 @@ fn lowering_is_deterministic_across_worker_widths() {
     );
 
     let (
-        MirTerminatorKind::Return(Some(MirOperand::Constant {
-            value: serial_value,
-            ty: serial_type,
-        })),
-        MirTerminatorKind::Return(Some(MirOperand::Constant {
-            value: parallel_value,
-            ty: parallel_type,
-        })),
+        MirTerminatorKind::Return {
+            value:
+                Some(MirOperand::Constant {
+                    value: serial_value,
+                    ty: serial_type,
+                }),
+            ..
+        },
+        MirTerminatorKind::Return {
+            value:
+                Some(MirOperand::Constant {
+                    value: parallel_value,
+                    ty: parallel_type,
+                }),
+            ..
+        },
     ) = (
         serial_block.terminator().kind(),
         parallel_block.terminator().kind(),

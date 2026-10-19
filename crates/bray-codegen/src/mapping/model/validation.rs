@@ -360,7 +360,7 @@ fn terminator_runtime_references(
         | MirTerminatorKind::RangeIterate { .. }
         | MirTerminatorKind::Switch { .. }
         | MirTerminatorKind::InlineAssembly(_)
-        | MirTerminatorKind::Return(_)
+        | MirTerminatorKind::Return { .. }
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::ForwardRunResult { .. }
         | MirTerminatorKind::CheckCallOutcome { .. }

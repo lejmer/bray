@@ -413,8 +413,11 @@ impl Lowerer<'_> {
                         )?;
 
                         let error = if lowerer.cleanup_outcome.is_none()
-                            && lowerer.scoped_exit_completes_result(expression, exit)
-                        {
+                            && bray_bound_tree::scoped_exit_completes_result(
+                                lowerer.input.unit().view(),
+                                expression,
+                                exit,
+                            ) {
                             let pending = pending.expect(
                             "normal fallible with completion retains its pending result storage",
                         );
@@ -561,40 +564,6 @@ impl Lowerer<'_> {
                 completed,
                 value.expect("completed scoped exit retains its result"),
             ))
-        }
-    }
-
-    fn scoped_exit_completes_result(
-        &self,
-        expression: BoundExpressionId,
-        exit: Option<bray_bound_tree::AnyBoundNodeId>,
-    ) -> bool {
-        let Some(bray_bound_tree::BoundExpression::Structured(scoped)) =
-            self.input.unit().view().expression(expression)
-        else {
-            panic!("selected scoped use retains its with expression");
-        };
-
-        let [body] = scoped.blocks() else {
-            panic!("selected scoped use retains its body");
-        };
-
-        let syntax = self
-            .input
-            .unit()
-            .view()
-            .block(*body)
-            .expect("scoped body belongs to its unit")
-            .origin()
-            .source_anchor()
-            .syntax();
-
-        match exit {
-            Some(bray_bound_tree::AnyBoundNodeId::Block(block)) => block == *body,
-            Some(bray_bound_tree::AnyBoundNodeId::Expression(transfer)) => {
-                matches!(self.input.unit().view().expression(transfer), Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Yield && transfer.target() == Some(syntax))
-            }
-            _ => false,
         }
     }
 

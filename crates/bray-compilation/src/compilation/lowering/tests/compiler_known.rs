@@ -508,7 +508,7 @@ fn standard_testing_failure_lowers_to_structured_failure_control() {
 
     assert!(caught.blocks().iter().any(|block| matches!(
         block.terminator().kind(),
-        MirTerminatorKind::Return(Some(_))
+        MirTerminatorKind::Return { value: Some(_), .. }
     )));
 
     assert!(

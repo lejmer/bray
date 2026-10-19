@@ -780,7 +780,14 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap();
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let unit = builder.finish(entry);
 
@@ -837,7 +844,10 @@ mod tests {
             &mut builder,
             continuation,
             source,
-            MirTerminatorKind::Return(Some(MirOperand::Value(parameter))),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(parameter)),
+                report: None,
+            },
         );
 
         let unit = finish(builder, entry);
@@ -939,7 +949,10 @@ mod tests {
             &mut builder,
             entry,
             source.clone(),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         set_terminator(
@@ -1018,7 +1031,10 @@ mod tests {
             &mut builder,
             lifecycle,
             source,
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         let unit = finish(builder, entry);
@@ -1063,7 +1079,10 @@ mod tests {
             &mut builder,
             lifecycle,
             source,
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         assert!(!builder.finish(entry).is_valid());
@@ -1095,7 +1114,10 @@ mod tests {
             &mut builder,
             lifecycle,
             source,
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         assert!(!builder.finish(entry).is_valid());
@@ -1117,10 +1139,21 @@ mod tests {
             &mut builder,
             entry,
             source.clone(),
-            MirTerminatorKind::Return(Some(MirOperand::Value(foreign))),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(foreign)),
+                report: None,
+            },
         );
 
-        set_terminator(&mut builder, other, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            other,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1150,7 +1183,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         };
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1187,7 +1228,10 @@ mod tests {
                 &mut builder,
                 entry,
                 source.clone(),
-                MirTerminatorKind::Return(None),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
             );
 
             if count == 1 {
@@ -1227,7 +1271,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         };
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1262,7 +1314,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         };
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1299,7 +1359,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         };
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1336,7 +1404,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         }
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert!(!builder.finish(entry).is_valid());
     }
@@ -1390,6 +1466,7 @@ mod tests {
                     completed: MirEdge::new(completed, []),
                     panicked: crate::MirCallFailureEdge::new(panicked, report.clone()),
                     cancelled: crate::MirCallFailureEdge::new(cancelled, report),
+                    completed_report: None,
                 },
             );
 
@@ -1398,7 +1475,10 @@ mod tests {
                     &mut builder,
                     block,
                     source.clone(),
-                    MirTerminatorKind::Return(None),
+                    MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
                 );
             }
 
@@ -1491,7 +1571,15 @@ mod tests {
             Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
         }
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let descriptor = frame_descriptor(frame, entry, ty);
 

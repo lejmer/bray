@@ -6,5 +6,6 @@ mod values;
 pub(crate) use solve::analyze_storage_liveness_with_graph;
 
 pub(crate) use effects::OperationEffects;
+pub(in crate::analysis) use effects::dependency_subjects;
 
 pub(crate) use values::ValueRetention;

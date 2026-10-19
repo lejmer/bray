@@ -28,6 +28,8 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
+    pub(in crate::analysis::storage_flow) reports:
+        BTreeMap<Option<BoundExpressionId>, BTreeSet<bray_bound_tree::BoundDependencySubject>>,
     pub(in crate::analysis::storage_flow) recovered: bool,
 }
 
@@ -83,6 +85,7 @@ impl StorageFlowState {
         storage: &StoragePlan,
     ) {
         if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
+            || self.report_retains(bray_bound_tree::BoundDependencySubject::Storage(identity))
             || self.recovered
             || self.active_borrows.iter().any(|borrow| {
                 storage
@@ -96,12 +99,14 @@ impl StorageFlowState {
         self.forget_storage(identity);
     }
 
-    pub(in crate::analysis::storage_flow) fn retains_borrow_for_cleanup(
+    pub(in crate::analysis::storage_flow) fn retains_borrow(
         &self,
         borrow: BorrowCapabilityId,
         input: &StorageFlowInput,
     ) -> bool {
-        input
+        self.report_retains(bray_bound_tree::BoundDependencySubject::BorrowCapability(
+            borrow,
+        )) || input
             .cleanup_dependency_owners
             .get(&bray_bound_tree::BoundDependencySubject::BorrowCapability(
                 borrow,
@@ -109,7 +114,7 @@ impl StorageFlowState {
             .is_some_and(|owners| self.has_live_cleanup_owner(owners))
     }
 
-    pub(in crate::analysis::storage_flow) fn retained_cleanup_dependencies<'a>(
+    pub(in crate::analysis::storage_flow) fn retained_dependencies<'a>(
         &'a self,
         input: &'a StorageFlowInput,
     ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
@@ -117,6 +122,36 @@ impl StorageFlowState {
             .cleanup_dependency_owners
             .iter()
             .filter_map(|(subject, owners)| self.has_live_cleanup_owner(owners).then_some(*subject))
+            .chain(
+                self.reports
+                    .values()
+                    .flat_map(|subjects| subjects.iter().copied()),
+            )
+    }
+
+    pub(in crate::analysis::storage_flow) fn report_retains(
+        &self,
+        subject: bray_bound_tree::BoundDependencySubject,
+    ) -> bool {
+        self.reports
+            .values()
+            .any(|subjects| subjects.contains(&subject))
+    }
+
+    pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
+        &mut self,
+        boundary: BoundExpressionId,
+        parent: Option<BoundExpressionId>,
+        caught: bool,
+    ) {
+        if let Some(subjects) = self.reports.remove(&Some(boundary)) {
+            if !caught {
+                self.reports.entry(parent).or_default().extend(subjects);
+            }
+        }
+
+        self.result_dependencies
+            .transfer_report_boundary(boundary, parent, caught);
     }
 
     fn has_live_cleanup_owner(&self, owners: &BTreeSet<StorageIdentityId>) -> bool {
@@ -259,6 +294,7 @@ impl StorageFlowState {
             active_borrows,
             memory,
             result_dependencies: Default::default(),
+            reports: BTreeMap::new(),
             recovered: false,
         }
     }
@@ -288,6 +324,24 @@ impl StorageFlowState {
         let dependencies_changed = self
             .result_dependencies
             .merge(&incoming.result_dependencies);
+
+        let mut reports_changed = false;
+
+        for (boundary, subjects) in &incoming.reports {
+            match self.reports.entry(*boundary) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    // Joined paths own independent sets of retained semantic identities.
+                    entry.insert(subjects.clone());
+                    reports_changed = true;
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let previous = entry.get().len();
+
+                    entry.get_mut().extend(subjects);
+                    reports_changed |= entry.get().len() != previous;
+                }
+            }
+        }
 
         let refinements_changed = self.refinements.intersect(&incoming.refinements);
         let live_count = self.live.len();
@@ -352,6 +406,7 @@ impl StorageFlowState {
         self.recovered |= incoming.recovered;
 
         dependencies_changed
+            || reports_changed
             || execution_changed
             || refinements_changed
             || self.live.len() != live_count

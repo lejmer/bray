@@ -25,8 +25,9 @@ where
         for borrow in state.active_borrows.iter().copied() {
             let subject = BoundDependencySubject::BorrowCapability(borrow);
 
-            if !self.liveness.is_owner_retained(subject)
-                || !self.liveness.is_live_across_scope(block, exit, subject)
+            if !state.report_retains(subject)
+                && (!self.liveness.is_owner_retained(subject)
+                    || !self.liveness.is_live_across_scope(block, exit, subject))
             {
                 continue;
             }
@@ -69,11 +70,13 @@ where
         // Returned contracts can retain storage directly without a syntactic returned loan.
         // Exact reference identity is not needed to reject a dependency on a dying local.
         for access in self.input.retained_storage.iter().copied() {
-            if !self.liveness.is_live_across_scope(
-                block,
-                exit,
-                BoundDependencySubject::StorageAccess(access),
-            ) || self.borrow_reaches_external_storage(access)
+            if (!state.report_retains(BoundDependencySubject::StorageAccess(access))
+                && !self.liveness.is_live_across_scope(
+                    block,
+                    exit,
+                    BoundDependencySubject::StorageAccess(access),
+                ))
+                || self.borrow_reaches_external_storage(access)
                 || self.has_permanent_literal_storage(access)
             {
                 continue;

@@ -5,7 +5,7 @@ use bray_symbols::TypeId;
 use crate::{
     MirAsyncOperation, MirBlockId, MirCleanupEdge, MirEdge, MirFrameInitializer,
     MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause,
-    MirStorageId, MirTaskTerminalState, MirTerminatorKind, MirValueId,
+    MirStorageId, MirTerminatorKind, MirValueId,
 };
 
 pub(crate) trait MirLocalIdMapping {
@@ -200,9 +200,9 @@ pub(super) fn remap_terminator(
                 *alternate = mappings.block(*alternate);
             }
         }
-        MirTerminatorKind::Return(value) => {
-            if let Some(value) = value {
-                value.remap_local_ids(mappings);
+        MirTerminatorKind::Return { value, report } => {
+            for operand in value.iter_mut().chain(report.iter_mut()) {
+                operand.remap_local_ids(mappings);
             }
         }
         MirTerminatorKind::Suspend {
@@ -228,8 +228,14 @@ pub(super) fn remap_terminator(
             completed,
             panicked,
             cancelled,
+            completed_report,
         } => {
             remap_edge(completed, mappings);
+
+            if let Some(report) = completed_report {
+                report.remap_local_ids(mappings);
+            }
+
             panicked.target = mappings.block(panicked.target);
             panicked.report.remap_local_ids(mappings);
             cancelled.target = mappings.block(cancelled.target);
@@ -328,13 +334,11 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         MirAsyncOperation::DestroyTerminalTask { task } => task.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => task.remap_local_ids(mappings),
-        MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value)
-            | MirTaskTerminalState::Panicked(value)
-            | MirTaskTerminalState::Cancelled(value) => {
-                value.remap_local_ids(mappings);
+        MirAsyncOperation::PublishTerminalState { state, .. } => {
+            for operand in state.operands_mut() {
+                operand.remap_local_ids(mappings);
             }
-        },
+        }
         MirAsyncOperation::TransferCleanupIncident {
             incident, report, ..
         } => {

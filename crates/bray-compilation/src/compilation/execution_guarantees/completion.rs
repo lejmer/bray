@@ -1109,7 +1109,7 @@ mod tests {
 
             assert!(mir.blocks().iter().any(|block| matches!(
                 block.terminator().kind(),
-                bray_ir::MirTerminatorKind::Return(Some(_))
+                bray_ir::MirTerminatorKind::Return { value: Some(_), .. }
             )));
         }
     }

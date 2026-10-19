@@ -752,7 +752,14 @@ mod tests {
                     .push_operation(block, source.clone(), operation, None)
                     .unwrap();
 
-                builder.set_terminator(block, source, bray_ir::MirTerminatorKind::Return(None));
+                builder.set_terminator(
+                    block,
+                    source,
+                    bray_ir::MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
+                );
 
                 CodegenInstance::non_generic(builder.finish(block))
             })

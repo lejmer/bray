@@ -47,7 +47,40 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         defaults.insert(*parameter, provider);
     }
 
-    expand(request, call, template, &defaults)
+    let mut expanded = expand(request, call, template, &defaults)?;
+
+    for (completion, requirements) in [
+        (true, template.completion_reports()),
+        (false, template.abnormal_reports()),
+    ] {
+        if let Some(requirements) = requirements {
+            let reports = expand(
+                request,
+                call,
+                &DependencyContractTemplateData::new(requirements.iter().cloned()),
+                &defaults,
+            )?;
+
+            expanded
+                .escaping_evaluation_inputs
+                .extend(reports.escaping_evaluation_inputs);
+
+            expanded.template = if completion {
+                expanded
+                    .template
+                    .with_completion_reports(reports.template.requirements().iter().cloned())
+            } else {
+                expanded
+                    .template
+                    .with_abnormal_reports(reports.template.requirements().iter().cloned())
+            };
+        }
+    }
+
+    expanded.escaping_evaluation_inputs.sort();
+    expanded.escaping_evaluation_inputs.dedup();
+
+    Ok(expanded)
 }
 
 type Defaults = std::collections::BTreeMap<

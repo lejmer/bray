@@ -198,7 +198,10 @@ impl Lowerer<'_> {
                     result_type,
                 )?;
 
-                MirTaskTerminalState::Completed(MirOperand::Value(result))
+                MirTaskTerminalState::Completed {
+                    value: MirOperand::Value(result),
+                    report: None,
+                }
             }
             TerminalState::Panicked(report_type) => {
                 let report = self.builder.push_block_parameter(
@@ -236,7 +239,10 @@ impl Lowerer<'_> {
         self.set_terminator(
             block,
             Self::retained_source(source),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         )?;
 
         self.terminal_state_blocks.insert(terminal, block);
@@ -738,7 +744,7 @@ impl Lowerer<'_> {
             CleanupDestination::Goto(target) => {
                 MirTerminatorKind::Goto(MirEdge::new(target, value))
             }
-            CleanupDestination::Return => MirTerminatorKind::Return(value),
+            CleanupDestination::Return => MirTerminatorKind::Return { value: value, report: None },
             CleanupDestination::PropagatePanic => MirTerminatorKind::PropagatePanic {
                 report: value.unwrap_or_else(|| {
                     panic!(

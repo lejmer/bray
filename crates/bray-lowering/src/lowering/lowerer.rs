@@ -222,18 +222,31 @@ impl<'unit> Lowerer<'unit> {
                     block,
                     Self::retained_source(&completion.source),
                     MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
-                        state: MirTaskTerminalState::Completed(value),
+                        state: MirTaskTerminalState::Completed {
+                            value,
+                            report: None,
+                        },
                         runtime: self.runtime_reference(RuntimeAbiRole::TerminalPublication),
                     }),
                     None,
                 )?;
 
-                self.set_terminator(block, completion.source, MirTerminatorKind::Return(None))?;
+                self.set_terminator(
+                    block,
+                    completion.source,
+                    MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
+                )?;
             } else {
                 self.set_terminator(
                     block,
                     completion.source,
-                    MirTerminatorKind::Return(completion.value),
+                    MirTerminatorKind::Return {
+                        value: completion.value,
+                        report: None,
+                    },
                 )?;
             }
         }
@@ -462,7 +475,10 @@ mod tests {
 
         assert!(matches!(
             mir.blocks()[0].terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Value(_)),
+                ..
+            }
         ));
     }
 
@@ -557,12 +573,22 @@ mod tests {
             .set_terminator(
                 consumed,
                 source.clone(),
-                MirTerminatorKind::Return(Some(MirOperand::Value(parameter))),
+                MirTerminatorKind::Return {
+                    value: Some(MirOperand::Value(parameter)),
+                    report: None,
+                },
             )
             .unwrap();
 
         lowerer
-            .set_terminator(retained, source, MirTerminatorKind::Return(None))
+            .set_terminator(
+                retained,
+                source,
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            )
             .unwrap();
 
         let mir = lowerer.builder.finish(entry);
@@ -783,7 +809,7 @@ mod tests {
                         && cases.iter().any(|case| {
                             matches!(
                                 mir.block(case.edge().target()).unwrap().terminator().kind(),
-                                MirTerminatorKind::Return(Some(_))
+                                MirTerminatorKind::Return { value: Some(_), .. }
                             )
                         }) =>
                 {
@@ -806,7 +832,10 @@ mod tests {
         let returned_report = destinations
             .iter()
             .find_map(|destination| match destination {
-                MirTerminatorKind::Return(Some(report)) => Some(report),
+                MirTerminatorKind::Return {
+                    value: Some(report),
+                    report: None,
+                } => Some(report),
                 _ => None,
             })
             .expect("return route must transfer the collected report");
@@ -945,7 +974,10 @@ mod tests {
 
         assert!(matches!(
             mir.blocks()[2].terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Value(_)),
+                ..
+            }
         ));
     }
 
@@ -967,10 +999,13 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Immediate {
-                value: bray_ir::MirImmediateValue::NullableAbsent,
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Immediate {
+                    value: bray_ir::MirImmediateValue::NullableAbsent,
+                    ..
+                }),
                 ..
-            }))
+            }
         )));
     }
 

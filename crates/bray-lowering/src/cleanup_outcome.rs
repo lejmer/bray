@@ -637,20 +637,31 @@ impl CleanupOutcome {
             MirTerminatorKind::Goto(MirEdge::new(retained, [])),
         );
 
-        let commit = if incoming == MirCleanupState::Cancelled {
+        let stronger: &[MirCleanupState] = match incoming {
+            MirCleanupState::Normal => {
+                panic!("retaining a report requires an incident, cancellation or panic outcome")
+            }
+            MirCleanupState::Incidents => &[MirCleanupState::Cancelled, MirCleanupState::Panicked],
+            MirCleanupState::Cancelled => &[MirCleanupState::Panicked],
+            MirCleanupState::Panicked => &[],
+        };
+
+        let commit = if stronger.is_empty() {
+            retained
+        } else {
             let commit = builder.push_block(source.clone(), kind)?;
 
             self.switch(
                 builder,
                 retained,
                 source,
-                [(MirCleanupState::Panicked, MirEdge::new(completed, []))],
+                stronger
+                    .iter()
+                    .map(|state| (*state, MirEdge::new(completed, []))),
                 MirEdge::new(commit, []),
             );
 
             commit
-        } else {
-            retained
         };
 
         self.store_state(builder, commit, source, incoming)?;

@@ -477,8 +477,13 @@ pub enum MirTerminatorKind {
     ///
     /// The separate payload keeps assembly descriptors out of ordinary terminator slots.
     InlineAssembly(Box<MirInlineAssemblyTerminator>),
-    /// Return from this unit.
-    Return(Option<MirOperand>),
+    /// Return the ordinary payload and any retained cleanup report from this unit.
+    Return {
+        /// Ordinary result payload, absent for a void result.
+        value: Option<MirOperand>,
+        /// Owned incidents preserved without changing normal completion.
+        report: Option<MirOperand>,
+    },
     /// End a path that cannot continue.
     Unreachable,
     /// Suspend a protected frame and retain its checked resume state.
@@ -509,6 +514,8 @@ pub enum MirTerminatorKind {
     CheckCallOutcome {
         /// Normal continuation after the call completed.
         completed: MirEdge,
+        /// Destination for an owned report accompanying normal completion, when observed.
+        completed_report: Option<crate::MirPlace>,
         /// Abnormal continuation receiving the propagated panic report.
         panicked: MirCallFailureEdge,
         /// Cancellation continuation after ownership transferred into the call.
@@ -624,7 +631,7 @@ impl MirTerminatorKind {
             | Self::Panic { cleanup, .. }
             | Self::CancelCurrentRun { cleanup } => visit(&mut cleanup.edge)?,
             Self::InlineAssembly(_)
-            | Self::Return(_)
+            | Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. } => {}
@@ -693,6 +700,7 @@ impl MirTerminatorKind {
                 completed,
                 panicked,
                 cancelled,
+                ..
             } => {
                 visit(completed.target());
                 visit(panicked.target());
@@ -702,7 +710,7 @@ impl MirTerminatorKind {
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
             | Self::CancelCurrentRun { cleanup } => visit(cleanup.edge().target()),
-            Self::Return(_)
+            Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. } => {}
@@ -745,7 +753,7 @@ impl MirTerminatorKind {
             | Self::RangeIterate { .. }
             | Self::Switch { .. }
             | Self::InlineAssembly(_)
-            | Self::Return(_)
+            | Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. }

@@ -155,14 +155,12 @@ impl SemanticValueStore {
     ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(contract);
 
-        let requirements = self.substitute_contextual_dependency_requirements(
-            template.requirements(),
-            context,
-            replacement,
-        )?;
+        let substituted = template.try_map_requirements(|requirements| {
+            self.substitute_contextual_dependency_requirements(requirements, context, replacement)
+        })?;
 
         // Formal storage paths carry no contextual Self type. Share their immutable identities.
-        self.intern_dependency_contract_template(template.with_requirements(requirements))
+        self.intern_dependency_contract_template(substituted)
     }
 
     fn substitute_contextual_call_inputs(

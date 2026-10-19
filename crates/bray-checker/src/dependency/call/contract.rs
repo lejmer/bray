@@ -84,6 +84,21 @@ where
         ]));
     }
 
+    let reports = instantiate_reports(
+        &template.template,
+        &mut result_context,
+        &crate::dependency::returned::input_requirements(call).collect::<Vec<_>>(),
+    )?;
+
+    let instantiated = if matches!(
+        call.resolution().result(),
+        bray_bound_tree::BoundCallResult::LazyFuture(_)
+    ) {
+        instantiated.with_deferred_reports(reports)
+    } else {
+        instantiated.with_reports(reports)
+    };
+
     Ok((
         super::references::with_references(
             request,
@@ -282,13 +297,17 @@ where
 
     instantiated = instantiated.with_normal_completion(template.normal_completion());
 
-    if result.is_some() {
+    {
         let mut context = CallInstantiationContext::hidden(
             request,
             storage,
             (root, input),
             result,
-            Some(scoped.initializer()),
+            matches!(
+                occurrence,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+            )
+            .then_some(scoped.initializer()),
         );
 
         context.set_result_values(values);
@@ -312,10 +331,67 @@ where
             &concrete,
             &mut context,
         )?);
+
+        instantiated = instantiated.with_reports(instantiate_reports(
+            &template,
+            &mut context,
+            &[DependencyRequirement::direct(
+                DependencySubject::root(root),
+                DependencyRequirementKind::ValueDependencies,
+            )],
+        )?);
     }
 
     super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
         .map_err(DependencyContractInstantiationError::Resolution)
+}
+
+fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
+    template: &DependencyContractTemplateData,
+    context: &mut CallInstantiationContext<'_, C>,
+    opaque_inputs: &[DependencyRequirement],
+) -> Result<
+    bray_bound_tree::BoundCallReports,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+> {
+    let mut instantiate = |requirements: Option<&[DependencyRequirement]>| {
+        requirements
+            .map(|requirements| {
+                let symbolic = requirements.iter().any(|requirement| {
+                    matches!(
+                        requirement,
+                        DependencyRequirement::ResultCall { .. }
+                            | DependencyRequirement::FixedPoint { .. }
+                            | DependencyRequirement::Variable { .. }
+                    )
+                });
+
+                // An unresolved abstract result can retain any supplied input. Concrete
+                // outputs retain only the dependencies established by their body analysis.
+                let concrete = DependencyContractTemplateData::new(
+                    requirements
+                        .iter()
+                        .filter(|requirement| {
+                            !matches!(
+                                requirement,
+                                DependencyRequirement::ResultCall { .. }
+                                    | DependencyRequirement::FixedPoint { .. }
+                                    | DependencyRequirement::Variable { .. }
+                            )
+                        })
+                        .chain(opaque_inputs.iter().filter(|_| symbolic))
+                        .cloned(),
+                );
+
+                BoundDependencyContract::try_instantiate(&concrete, context)
+            })
+            .transpose()
+    };
+
+    Ok(bray_bound_tree::BoundCallReports::new(
+        instantiate(template.completion_reports())?,
+        instantiate(template.abnormal_reports())?,
+    ))
 }
 
 fn instantiate_hidden_call<C>(

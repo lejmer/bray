@@ -101,6 +101,8 @@ where
 
         let mut collector = self.collector();
 
+        collector.report_boundary = block.report_boundary();
+
         for operation in block.operations() {
             let operation = self
                 .graph
@@ -211,6 +213,32 @@ where
                 .propagate_reference_result(&mut incoming, expression);
         }
 
+        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence)) =
+            edge.refinement()
+        {
+            let mut collector = self.collector();
+
+            collector.report_boundary = self
+                .graph
+                .block(edge.source())
+                .expect("call source exists")
+                .report_boundary();
+
+            collector.retain_call_reports(
+                &mut incoming,
+                occurrence,
+                bray_bound_tree::CallReportOutput::Abnormal,
+            );
+        }
+
+        for boundary in self.graph.exited_report_boundaries(edge) {
+            incoming.transfer_report_boundary(
+                boundary,
+                self.graph.report_parent(boundary),
+                edge.kind() == AnalysisEdgeKind::Catch,
+            );
+        }
+
         let ends = self
             .edge_lifetime_ends
             .get(&edge.id())
@@ -229,7 +257,7 @@ where
                         .storage
                         .borrow_capability(id)
                         .is_some_and(|borrow| borrow.entry_binding().is_none())
-                        && !incoming.retains_borrow_for_cleanup(id, self.input))
+                        && !incoming.retains_borrow(id, self.input))
                     .then_some(id)
                 })
                 .collect::<BTreeSet<_>>();

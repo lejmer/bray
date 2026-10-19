@@ -1033,7 +1033,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("literal store must build: {error:?}"));
         }
 
-        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let (mir, _) = reconstruct_reachable(&builder.finish(entry))
             .unwrap_or_else(|error| panic!("literal test MIR must reconstruct: {error:?}"));
@@ -1153,7 +1160,14 @@ mod tests {
             }
         }
 
-        builder.set_terminator(current, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            current,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
 
@@ -1239,7 +1253,14 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("nullable query must build: {error:?}"));
 
-        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
 

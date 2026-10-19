@@ -81,12 +81,16 @@ pub(super) fn decode_dependency_contract(
     let normal_completion =
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
-    let requirement_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-    let mut requirements = context.allocate_items(reader, requirement_count)?;
+    let requirements = decode_dependency_requirements(reader, limits, context, 0)?;
+    let mut reports = [None, None];
 
-    for _ in 0..requirement_count {
-        requirements.push(decode_dependency_requirement(reader, limits, context, 0)?);
+    for output in &mut reports {
+        if super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)? {
+            *output = Some(decode_dependency_requirements(reader, limits, context, 0)?);
+        }
     }
+
+    let [completion_reports, abnormal_reports] = reports;
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut borrows = context.allocate_items(reader, count)?;
@@ -146,7 +150,17 @@ pub(super) fn decode_dependency_contract(
         });
     }
 
-    Ok(InterfaceDependencyContract::new(requirements)
+    let mut contract = InterfaceDependencyContract::new(requirements);
+
+    if let Some(requirements) = completion_reports {
+        contract = contract.with_completion_reports(requirements);
+    }
+
+    if let Some(requirements) = abnormal_reports {
+        contract = contract.with_abnormal_reports(requirements);
+    }
+
+    Ok(contract
         .with_borrows(borrows)
         .with_carriers(carriers)
         .with_returned_input(returned_input)
@@ -641,6 +655,28 @@ mod tests {
     }
 
     #[test]
+    fn report_outputs_preserve_presence_and_separate_requirements() {
+        let decoded = decode_words(
+            &[1, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 2, 0, 5],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            decoded,
+            InterfaceDependencyContract::new([])
+                .with_completion_reports([])
+                .with_abnormal_reports([InterfaceDependencyRequirement::new(
+                    InterfaceDependencySubject::new(
+                        InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                        []
+                    ),
+                    InterfaceDependencyRequirementKind::ValueDependencies,
+                )])
+        );
+    }
+
+    #[test]
     fn witness_dependencies_decode_separate_value_and_storage_inputs() {
         let words = [
             1, // Normal completion is possible.
@@ -649,6 +685,7 @@ mod tests {
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
+            0, 0, // No normal or abnormal report output.
             0, 0, 0, 2, 0,
             5, // No reference relations, returned input or carriers. Unknown effects and escapes.
         ];
@@ -720,7 +757,7 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 2, 0, 5];
+        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5];
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =

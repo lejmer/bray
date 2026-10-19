@@ -825,9 +825,12 @@ mod tests {
         builder.set_terminator(
             entry,
             source,
-            MirTerminatorKind::Return(Some(MirOperand::Value(
-                second.result().expect("duplicate has a result"),
-            ))),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(
+                    second.result().expect("duplicate has a result"),
+                )),
+                report: None,
+            },
         );
 
         let unit = builder.finish(entry);
@@ -849,7 +852,10 @@ mod tests {
         assert_eq!(rewritten.operations().len(), 1);
         assert_eq!(mappings.operation(second.operation()), None);
 
-        let MirTerminatorKind::Return(Some(MirOperand::Value(returned))) = rewritten
+        let MirTerminatorKind::Return {
+            value: Some(MirOperand::Value(returned)),
+            report: None,
+        } = rewritten
             .block(rewritten.entry())
             .expect("entry exists")
             .terminator()
@@ -907,7 +913,14 @@ mod tests {
             )),
         );
 
-        builder.set_terminator(lifecycle, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            lifecycle,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert_round_trip(builder.finish(entry));
     }
@@ -969,10 +982,20 @@ mod tests {
         builder.set_terminator(
             normal,
             source.clone(),
-            MirTerminatorKind::Return(Some(MirOperand::Value(output))),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(output)),
+                report: None,
+            },
         );
 
-        builder.set_terminator(alternate, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            alternate,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         assert_round_trip(builder.finish(entry));
     }
@@ -996,7 +1019,14 @@ mod tests {
         let external_resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let broadcast = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
-        builder.set_terminator(broadcast, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            broadcast,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
@@ -1041,12 +1071,22 @@ mod tests {
             },
         );
 
-        builder.set_terminator(resume, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            resume,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         builder.set_terminator(
             external_resume,
             source.clone(),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         builder.set_terminator(
@@ -1058,7 +1098,14 @@ mod tests {
             )),
         );
 
-        builder.set_terminator(lifecycle, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            lifecycle,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let completion = builder
             .push_storage(source.clone(), MirStorageKind::FrameCompletion, ty)
@@ -1070,7 +1117,10 @@ mod tests {
         builder.set_terminator(
             retained_broadcast,
             source.clone(),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         let retained_storage = builder
@@ -1187,7 +1237,15 @@ mod tests {
                 .unwrap_or_else(|error| panic!("dead storage must be valid: {error:?}"));
 
             push_store(&mut builder, dead, source.clone(), storage, ty);
-            builder.set_terminator(dead, source.clone(), MirTerminatorKind::Return(None));
+
+            builder.set_terminator(
+                dead,
+                source.clone(),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            );
         }
 
         let live_storage = builder
@@ -1221,7 +1279,10 @@ mod tests {
         builder.set_terminator(
             exit,
             source,
-            MirTerminatorKind::Return(Some(MirOperand::Value(exit_value))),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(exit_value)),
+                report: None,
+            },
         );
 
         (builder.finish(entry), dead)

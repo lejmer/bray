@@ -127,10 +127,8 @@ pub(super) fn validate_terminator(
                 return None;
             }
         }
-        MirTerminatorKind::Return(value) => {
-            if let Some(value) = value {
-                validate_operand(unit, value, block_id, None)?;
-            }
+        MirTerminatorKind::Return { value, report } => {
+            validate_return(unit, block_id, value.as_ref(), report.as_ref())?;
         }
         MirTerminatorKind::Unreachable => {}
         MirTerminatorKind::Suspend {
@@ -189,9 +187,14 @@ pub(super) fn validate_terminator(
             completed,
             panicked,
             cancelled,
+            completed_report,
         } => {
             validate_call_outcome_check(unit, block_id, block, completed, panicked)?;
             validate_call_failure_edge(unit, block_id, cancelled)?;
+
+            if let Some(report) = completed_report {
+                super::operation::validate_place(unit, report, block_id, None)?;
+            }
         }
         MirTerminatorKind::BeginCleanup(edge) => {
             // A finalizer may return a new owned error during outer resolution.
@@ -236,13 +239,33 @@ pub(super) fn validate_terminator(
                 | MirTerminatorKind::InlineAssembly(_)
                 | MirTerminatorKind::ContinueCleanup(_)
                 | MirTerminatorKind::CheckCallOutcome { .. }
-                | MirTerminatorKind::Return(None)
+                | MirTerminatorKind::Return {
+                    value: None,
+                    report: None
+                }
                 | MirTerminatorKind::Unreachable
                 | MirTerminatorKind::PropagatePanic { .. }
                 | MirTerminatorKind::PropagateCancellation { .. }
         )
     {
         return None;
+    }
+
+    Some(())
+}
+
+fn validate_return(
+    unit: &MirUnit,
+    block: MirBlockId,
+    value: Option<&crate::MirOperand>,
+    report: Option<&crate::MirOperand>,
+) -> Option<()> {
+    if report.is_some() && unit.kind().protected_frame().is_some() {
+        return None;
+    }
+
+    for operand in value.into_iter().chain(report) {
+        validate_operand(unit, operand, block, None)?;
     }
 
     Some(())

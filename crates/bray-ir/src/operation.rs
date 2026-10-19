@@ -477,8 +477,13 @@ impl MirConstruction {
 /// Terminal state published for one task run.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirTaskTerminalState {
-    /// The task completed with a value.
-    Completed(MirOperand),
+    /// The task completed with a value and any retained cleanup incidents.
+    Completed {
+        /// Ordinary completion payload.
+        value: MirOperand,
+        /// Owned incidents preserved without changing normal completion.
+        report: Option<MirOperand>,
+    },
     /// The task observed cancellation and retains its cleanup incidents.
     Cancelled(MirOperand),
     /// The task panicked with ownership of a panic report.

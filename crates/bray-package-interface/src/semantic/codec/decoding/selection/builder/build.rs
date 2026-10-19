@@ -945,7 +945,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             },
         )?;
 
-        for requirement in &*contract.requirements {
+        for requirement in contract.all_requirements() {
             self.include_dependency_requirement(requirement);
         }
 

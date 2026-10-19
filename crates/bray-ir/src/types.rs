@@ -6,7 +6,7 @@ use bray_symbols::TypeId;
 use crate::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
     MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
-    MirProjectionKind, MirTaskTerminalState, MirTerminatorKind, MirUnit,
+    MirProjectionKind, MirTerminatorKind, MirUnit,
 };
 
 impl MirUnit {
@@ -298,9 +298,9 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
                 types.insert(operand.ty());
             }
         }
-        MirTerminatorKind::Return(value) => {
-            if let Some(value) = value {
-                collect_operand_types(value, types);
+        MirTerminatorKind::Return { value, report } => {
+            for operand in value.iter().chain(report) {
+                collect_operand_types(operand, types);
             }
         }
         MirTerminatorKind::Unreachable => {}
@@ -327,8 +327,14 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             completed,
             panicked,
             cancelled,
+            completed_report,
         } => {
             collect_edge_types(completed, types);
+
+            if let Some(report) = completed_report {
+                collect_place_types(report, types);
+            }
+
             collect_place_types(cancelled.report(), types);
             collect_place_types(panicked.report(), types);
         }
@@ -415,13 +421,11 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         }
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => collect_place_types(task, types),
-        MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value)
-            | MirTaskTerminalState::Panicked(value)
-            | MirTaskTerminalState::Cancelled(value) => {
-                collect_operand_types(value, types);
+        MirAsyncOperation::PublishTerminalState { state, .. } => {
+            for operand in state.operands() {
+                collect_operand_types(operand, types);
             }
-        },
+        }
         MirAsyncOperation::TransferCleanupIncident {
             incident,
             report,
@@ -615,7 +619,14 @@ mod tests {
         builder.set_terminator(entry, source.clone(), branch);
 
         for block in [then_block, else_block] {
-            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
+            builder.set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            );
         }
 
         let unit = builder.finish(entry);

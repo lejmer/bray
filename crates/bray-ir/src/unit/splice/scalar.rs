@@ -193,7 +193,12 @@ pub fn inline_scalar_call(
         callee_ids.parameters = parameter_values[&old].clone();
 
         let kind = match block.terminator().kind() {
-            MirTerminatorKind::Return(value) => {
+            MirTerminatorKind::Return { value, report } => {
+                assert!(
+                    report.is_none(),
+                    "scalar inlining requires a return without an owned report"
+                );
+
                 let arguments = value
                     .iter()
                     .map(|value| {
@@ -336,18 +341,19 @@ fn scalar_body_is_compatible(
     callee
         .blocks()
         .iter()
-        .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Return(_)))
+        .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Return { .. }))
         && callee
             .blocks()
             .iter()
             .all(|block| match block.terminator().kind() {
-                MirTerminatorKind::Return(value) => {
-                    value.as_ref().map(|value| {
-                        concrete_type(
-                            callee.operand_type(value).expect("valid return"),
-                            concrete_types,
-                        )
-                    }) == result_type
+                MirTerminatorKind::Return { value, report } => {
+                    report.is_none()
+                        && value.as_ref().map(|value| {
+                            concrete_type(
+                                callee.operand_type(value).expect("valid return"),
+                                concrete_types,
+                            )
+                        }) == result_type
                 }
                 MirTerminatorKind::Goto(_)
                 | MirTerminatorKind::Branch { .. }

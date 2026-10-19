@@ -594,7 +594,10 @@ fn callable_results_refine_cleanup_after_resolved_branches() {
             mir.blocks().iter().all(|block| {
                 !matches!(
                     block.terminator().kind(),
-                    bray_ir::MirTerminatorKind::Return(None)
+                    bray_ir::MirTerminatorKind::Return {
+                        value: None,
+                        report: None
+                    }
                 )
             }),
             "{name}"

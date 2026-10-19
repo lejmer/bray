@@ -9,6 +9,117 @@ use crate::storage::value_transfer_bindings;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 impl OperationEffects {
+    pub(super) fn retain_report_dependencies<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        graph: &crate::analysis::model::ControlFlowGraph,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        storage: &StoragePlan,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) {
+        use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+        use bray_bound_tree::{BoundExecutionSite, CallReportOutput, SemanticSelection};
+
+        for (occurrence, call) in dependencies.calls() {
+            let (BoundExecutionSite::ScopedEnter(expression)
+            | BoundExecutionSite::ScopedExit(expression)) = occurrence
+            else {
+                continue;
+            };
+
+            let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(*expression)
+            else {
+                panic!("scoped result retention has its selected lifecycle");
+            };
+
+            if crate::representation::type_representation(
+                request,
+                scoped.invocation(*occurrence).1.result(),
+            ) == Some(bray_compiler_known::RepresentationRole::Result)
+            {
+                // Failed entry and ordinary exit errors are payloads of the with result.
+                self.owner_dependencies
+                    .entry((*expression).into())
+                    .or_default()
+                    .extend(super::subjects::dependency_subjects(
+                        call.result().requirements(),
+                        storage,
+                    ));
+            }
+        }
+
+        for block in graph.blocks() {
+            let Some(boundary) = block.report_boundary() else {
+                continue;
+            };
+
+            for operation in block.operations().iter().map(|id| {
+                graph
+                    .operation(*id)
+                    .expect("report retention operation belongs to its graph")
+            }) {
+                let AnalysisOperationKind::Call { invocation, phase } = operation.kind() else {
+                    continue;
+                };
+
+                let Some(call) = dependencies.calls().get(&invocation) else {
+                    continue;
+                };
+
+                if phase == AnalysisCallPhase::Attempt {
+                    if let Some(contract) = call.report(CallReportOutput::Abnormal) {
+                        self.owner_dependencies
+                            .entry(boundary.into())
+                            .or_default()
+                            .extend(super::subjects::dependency_subjects(
+                                contract.requirements(),
+                                storage,
+                            ));
+                    }
+
+                    continue;
+                }
+
+                let mut reports = call
+                    .report(CallReportOutput::Completed)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                if let (BoundExecutionSite::ScopedExit(expression), Some(exit)) =
+                    (invocation, operation.scoped_exit())
+                    && let Some(SemanticSelection::ScopedUse(scoped)) =
+                        selections.expression(expression)
+                    && crate::representation::type_representation(request, scoped.exit().1.result())
+                        == Some(bray_compiler_known::RepresentationRole::Result)
+                    && !bray_bound_tree::scoped_exit_completes_result(
+                        request.view(),
+                        expression,
+                        Some(exit.exit()),
+                    )
+                {
+                    reports.push(call.result());
+                }
+
+                let subjects = reports
+                    .into_iter()
+                    .flat_map(|contract| {
+                        super::subjects::dependency_subjects(contract.requirements(), storage)
+                    })
+                    .collect::<BTreeSet<_>>();
+
+                // Normal incidents can pass through successful nested catches before a later panic.
+                for owner in
+                    std::iter::successors(Some(boundary), |owner| graph.report_parent(*owner))
+                {
+                    self.owner_dependencies
+                        .entry(owner.into())
+                        .or_default()
+                        .extend(subjects.iter().copied());
+                }
+            }
+        }
+    }
+
     pub(super) fn retain_owned_call_dependencies<C>(
         &mut self,
         request: CheckerUnitView<'_, C>,

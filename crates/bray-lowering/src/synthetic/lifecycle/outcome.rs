@@ -178,7 +178,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
             let terminal = match self.continuation {
                 Some(continuation) => MirTerminatorKind::Goto(MirEdge::new(continuation, [])),
-                None => MirTerminatorKind::Return(None),
+                None => MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
             };
 
             builder.set_terminator(failed, source.clone(), terminal);
@@ -224,6 +227,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
                 panicked: bray_ir::MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: bray_ir::MirCallFailureEdge::new(cancelled, report.clone()),
+                completed_report: None,
             },
         );
 

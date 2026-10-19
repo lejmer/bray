@@ -117,6 +117,137 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         })
     }
 
+    pub(crate) fn exit_values(
+        &self,
+        scoped: &bray_bound_tree::SelectedScopedUse,
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let instance = scoped.exit().0;
+
+        let template = self
+            .request
+            .callable_result_dependencies(instance.definition().callable_symbol())?;
+
+        let template = crate::dependency::returned::resolved_result_template(
+            self.request,
+            Some(instance),
+            template,
+        )?;
+
+        self.map_exit_values(scoped, template.requirements())
+    }
+
+    fn map_exit_values(
+        &self,
+        scoped: &bray_bound_tree::SelectedScopedUse,
+        requirements: &[DependencyRequirement],
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let input = self.scoped_values(scoped)?;
+
+        Ok(
+            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
+                if subject.subject_root()
+                    != bray_symbols::DependencySubjectRoot::Parameter(
+                        bray_symbols::SymbolOrdinal::new(0),
+                    )
+                {
+                    return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
+                }
+
+                if kind == DependencyRequirementKind::ValueDependencies {
+                    // The returned capability's dependencies already describe the entry result.
+                    // Keeping the whole set is conservative when its payload has several fields.
+                    Ok(input.iter().cloned().collect())
+                } else {
+                    Ok(vec![DependencyRequirement::direct(
+                        bray_symbols::DependencySubject::root(
+                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
+                        ),
+                        kind,
+                    )])
+                }
+            })
+            .expect("exit requirements retain checked variable binding")
+            .into_iter()
+            .collect(),
+        )
+    }
+
+    pub(crate) fn report_values(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        output: bray_bound_tree::CallReportOutput,
+    ) -> Result<Option<BTreeSet<DependencyRequirement>>, CheckerQueryError<C::UpstreamError>> {
+        use bray_bound_tree::BoundExecutionSite;
+
+        match occurrence {
+            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
+                let Some(SemanticSelection::Call(call)) = self.selections.expression(expression)
+                else {
+                    panic!("report-producing invocation retains its selected call");
+                };
+
+                let template =
+                    crate::dependency::call_result_template(self.request, call, |callable| {
+                        self.request.callable_result_dependencies(callable)
+                    })?;
+
+                let requirements = if output.is_abnormal() {
+                    template.template.abnormal_reports()
+                } else {
+                    template.template.completion_reports()
+                };
+
+                requirements
+                    .map(|requirements| {
+                        self.mapped_result_values(requirements, |root| {
+                            crate::dependency::result_argument(call, root)
+                        })
+                    })
+                    .transpose()
+            }
+            BoundExecutionSite::ScopedEnter(expression)
+            | BoundExecutionSite::ScopedExit(expression) => {
+                let Some(SemanticSelection::ScopedUse(scoped)) =
+                    self.selections.expression(expression)
+                else {
+                    panic!("report-producing scope retains its selected invocation");
+                };
+
+                let instance = scoped.invocation(occurrence).0;
+
+                let template = self
+                    .request
+                    .callable_result_dependencies(instance.definition().callable_symbol())?;
+
+                let template = crate::dependency::returned::resolved_result_template(
+                    self.request,
+                    Some(instance),
+                    template,
+                )?;
+
+                let requirements = if output.is_abnormal() {
+                    template.abnormal_reports()
+                } else {
+                    template.completion_reports()
+                };
+
+                requirements
+                    .map(|requirements| {
+                        if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
+                            self.map_exit_values(scoped, requirements)
+                        } else {
+                            self.mapped_result_values(requirements, |root| {
+                                (root == bray_symbols::DependencySubjectRoot::Receiver)
+                                    .then_some(scoped.initializer())
+                            })
+                        }
+                    })
+                    .transpose()
+            }
+            _ => panic!("report-producing operation has a selected invocation: {occurrence:?}"),
+        }
+    }
+
     fn mapped_result_values(
         &self,
         requirements: &[DependencyRequirement],

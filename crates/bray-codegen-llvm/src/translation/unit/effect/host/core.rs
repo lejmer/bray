@@ -543,7 +543,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_struct_gep(frame_context, pointer, 0, "frame.state.pointer"),
             )?;
 
-        let completion_state = if matches!(state, bray_ir::MirTaskTerminalState::Completed(_)) {
+        let completion_state = if matches!(state, bray_ir::MirTaskTerminalState::Completed { .. }) {
             self.unit
                 .frame_descriptor()
                 .expect("protected frame retains its descriptor")
@@ -564,7 +564,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(state_pointer, terminal))?;
 
         let (kind, payload) = match state {
-            bray_ir::MirTaskTerminalState::Completed(value) => {
+            bray_ir::MirTaskTerminalState::Completed { value, .. } => {
                 let completion = llvm(self.builder.build_struct_gep(
                     frame_context,
                     pointer,
@@ -598,7 +598,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             payload,
         )?;
 
-        self.frame_progress = Some(progress.into());
+        let progress = if let bray_ir::MirTaskTerminalState::Completed {
+            report: Some(report),
+            ..
+        } = state
+        {
+            let report = self.operand(report)?;
+
+            super::super::super::support::insert_value(&self.builder, progress.into(), report, 3)?
+        } else {
+            progress.into()
+        };
+
+        self.frame_progress = Some(progress);
 
         Ok(())
     }

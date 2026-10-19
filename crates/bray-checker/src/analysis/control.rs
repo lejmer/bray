@@ -84,7 +84,7 @@ where
                 self.build_generator_region(id, expression, current)
             }
             BoundStructuredExpressionKind::Catch => {
-                self.build_catch(expression.operands(), expression.blocks(), current)
+                self.build_catch(id, expression.operands(), expression.blocks(), current)
             }
             BoundStructuredExpressionKind::ResultPropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
@@ -423,6 +423,7 @@ where
 
     fn build_catch(
         &mut self,
+        id: BoundExpressionId,
         operands: &[BoundExpressionId],
         blocks: &[BoundBlockId],
         current: AnalysisBlockId,
@@ -434,7 +435,12 @@ where
             scope_depth: self.scope_depth(),
         });
 
-        let mut completion = self.build_operands(operands, current)?;
+        let parent = self.storage.replace_report_boundary(Some(id));
+        let entry = self.push_block();
+
+        self.push_edge(current, entry, AnalysisEdgeKind::Sequential, None);
+
+        let mut completion = self.build_operands(operands, entry)?;
 
         for block in blocks {
             completion = self
@@ -443,6 +449,7 @@ where
         }
 
         self.catches.pop();
+        self.storage.replace_report_boundary(parent);
         self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
 
         Some(Some(join))

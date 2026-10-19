@@ -8,6 +8,59 @@ use bray_diagnostics::{
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn retained_scoped_exit_errors_keep_borrowed_origins_alive() {
+    for (parameter, escapes) in [("Resource", true), ("&Resource", false)] {
+        let source = r#"
+        module app;
+        struct Value
+        {
+            value: bool;
+            func read() -> bool { return self.value; }
+        }
+        struct Failure
+        {
+            value: &Value;
+            destruct() { assert(self.value.read()); }
+        }
+        struct Resource
+        {
+            value: Value;
+            enter() -> &Value { return &self.value; }
+            exit(pos lease: &Value) -> Result<unit, Failure>
+            {
+                return Error(Failure { value = lease });
+            }
+        }
+        async func caller(pos resource: ResourceInput) -> Result<unit, Failure>
+        {
+            let _ = with lease = resource
+            {
+                return Ok(unit);
+            };
+            return Ok(unit);
+        }
+        "#
+        .replace("ResourceInput", parameter);
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingEscapingStorageDependency),
+            escapes,
+            "{parameter}: {diagnostics:#?}"
+        );
+
+        if !escapes {
+            assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
 fn repeated_scoped_exit_paths_preserve_later_parameter_uses() {
     let compilation = compilation(
         r#"

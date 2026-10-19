@@ -85,30 +85,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .build_switch(discriminant, otherwise_route, &llvm_cases),
                 )?;
             }
-            MirTerminatorKind::Return(value) => {
-                if self.frame_context.is_some() {
-                    if value.is_some() {
-                        panic!(
-                            "checked MIR control translation violated an established compiler contract"
-                        );
-                    }
-
-                    if self.frame_broadcast {
-                        self.return_broadcast_outcome(
-                            bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
-                            self.types.context().i64_type().const_zero().into(),
-                        )?;
-                    } else {
-                        let progress = self
-                            .frame_progress
-                            .take()
-                            .expect("source frame return retains its terminal progress");
-
-                        self.return_frame_progress(progress)?;
-                    }
-                } else {
-                    self.translate_return(value.as_ref())?;
-                }
+            MirTerminatorKind::Return { value, report } => {
+                self.translate_return(value.as_ref(), report.as_ref())?
             }
             MirTerminatorKind::Unreachable => {
                 self.clear_moved_reports()?;
@@ -249,7 +227,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 completed,
                 panicked,
                 cancelled,
-            } => self.translate_call_panic(block, completed, panicked, cancelled)?,
+                completed_report,
+            } => self.translate_call_panic(
+                block,
+                completed,
+                completed_report.as_ref(),
+                panicked,
+                cancelled,
+            )?,
         }
 
         Ok(())
@@ -701,7 +686,53 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn translate_return(
         &mut self,
         value: Option<&MirOperand>,
+        report: Option<&MirOperand>,
     ) -> Result<(), CodegenFailure> {
+        if self.frame_context.is_some() {
+            assert!(
+                report.is_none(),
+                "protected frames publish owned reports with their terminal state"
+            );
+
+            if value.is_some() {
+                panic!("checked MIR control translation violated an established compiler contract");
+            }
+
+            if self.frame_broadcast {
+                self.return_broadcast_outcome(
+                    bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
+                    self.types.context().i64_type().const_zero().into(),
+                )?;
+            } else {
+                let progress = self
+                    .frame_progress
+                    .take()
+                    .expect("source frame return retains its terminal progress");
+
+                self.return_frame_progress(progress)?;
+            }
+
+            return Ok(());
+        }
+
+        if let Some(report) = report {
+            let destination = self
+                .panic_report_context
+                .expect("an owned normal report requires the callable's outcome destination");
+
+            let report = self.operand(report)?;
+
+            let outcome = super::support::native_run_outcome_value(
+                self.types.context(),
+                &self.builder,
+                self.request.target(),
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                report,
+            )?;
+
+            llvm(self.builder.build_store(destination, outcome))?;
+        }
+
         match self.signature.result() {
             CodegenResultMapping::Void => {
                 if let Some(value) = value {
