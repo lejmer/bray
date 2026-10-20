@@ -55,7 +55,7 @@ func blocking_operation()
 }
 ```
 
-The ambient surface includes scalar and structural type forms, `string`, integer ranges, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, `core.memory`, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
+The ambient surface includes scalar and structural type forms, `string`, integer ranges, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
 
 Use the closed [conformance catalog](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/conformance-catalog.md) when exact membership is needed.
 
