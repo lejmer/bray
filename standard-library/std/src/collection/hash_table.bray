@@ -1,5 +1,7 @@
 module std.collection;
 
+using core.memory;
+using std.numeric;
 using std.memory;
 
 const HASH_TABLE_EMPTY: u8 = 0;

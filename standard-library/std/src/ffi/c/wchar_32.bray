@@ -1,6 +1,8 @@
 @target(target.c.WCHAR == "i32")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `wchar_t` when `target.c.WCHAR` selects `i32`.

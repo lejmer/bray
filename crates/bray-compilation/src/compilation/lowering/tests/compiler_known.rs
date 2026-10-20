@@ -20,15 +20,16 @@ use crate::test_support::{
 #[test]
 fn qualified_compiler_provided_memory_calls_lower_to_explicit_mir() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "trusted module app;\n",
-            "trusted func main() uses(manual_alloc)\n",
-            "{\n",
-            "    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);\n",
-            "\n",
-            "    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
-            "}\n",
-        ),
+        r#"trusted module app;
+
+using core.memory;
+trusted func main() uses(manual_alloc)
+{
+    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);
+
+    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+}
+"#,
         true,
         true,
     );

@@ -167,6 +167,8 @@ See [contract reasoning](https://github.com/lejmer/bray/blob/develop/docs/langua
 Trusted implementation capabilities and trusted caller obligations are independent. A trusted declaration lists implementation authority in `uses(...)`. Trusted predicate requirements in `requires(...)` describe conditions its caller must establish, preserve, or visibly acknowledge.
 
 ```bray
+using core.memory;
+
 struct ReadableByte
 {
     pointer: RawPointer<u8>;
@@ -227,6 +229,8 @@ See [trusted implementation capabilities](https://github.com/lejmer/bray/blob/de
 `trusted expression` places an explicit trust boundary around exactly one operand. It records acceptance of the trusted caller obligations required by that operand and otherwise preserves the operand's type, value category, ownership, control flow, effects, and finalization behavior.
 
 ```bray
+using core.memory;
+
 trusted func read_pair(pos first: RawPointer<u8>, pos second: RawPointer<u8>) -> u16
     requires(
         trusted core.memory.valid_read<u8>(pointer = first, count = 1),
@@ -259,6 +263,8 @@ See [trust boundaries](https://github.com/lejmer/bray/blob/develop/docs/language
 A declaration that uses a trusted obligation must discharge it internally or preserve it in its public contract. The same rule applies through wrappers, callable values, generic parameters, dynamic dispatch, constructors, lifecycle declarations, exports, and internal declarations.
 
 ```bray
+using core.memory;
+
 callable ByteReader = trusted func(pos pointer: RawPointer<u8>) -> u8
     requires(
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),

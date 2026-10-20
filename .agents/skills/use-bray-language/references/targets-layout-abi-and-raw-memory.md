@@ -30,6 +30,8 @@ const NATIVE_THREADS_AVAILABLE: bool = target.platform.native_threads;
 @target(target.atomic.U64 && target.atomic.U64_ALWAYS_LOCK_FREE)
 module counter_backend
 {
+    using std.atomic;
+
     func add(pos counter: &std.atomic.Atomic<u64>, amount: u64) -> u64
     {
         return counter.fetch_add(
@@ -77,6 +79,9 @@ See [target profiles and properties](https://github.com/lejmer/bray/blob/develop
 Default product and union layout preserves Bray semantics but makes no public physical-layout promise. `@layout(stable)` fixes Bray-defined target layout, `@layout(c)` selects the target C data layout, and `@layout(transparent)` gives a one-storage-field product its field's layout and ABI.
 
 ```bray
+using std.ffi.c;
+using std.memory;
+
 @copy
 @layout(stable, align = 16)
 struct Vector
@@ -176,6 +181,8 @@ See [layout contracts](https://github.com/lejmer/bray/blob/develop/docs/language
 @link(name = "native_math", kind = dynamic)
 trusted module native_math
 {
+    using std.ffi.c;
+
     @copy
     @layout(c)
     struct Point
@@ -232,6 +239,8 @@ For an ABI-qualified capture-free callable `F`, `core.memory.callable_from_point
 
 ```bray
 trusted module raw_example;
+
+using core.memory;
 
 trusted func duplicate_words(
     pos source: RawPointer<u32>,
@@ -309,6 +318,9 @@ See the [raw pointer type](https://github.com/lejmer/bray/blob/develop/docs/lang
 `Uninit<T>` owns protected storage with `T`'s size and alignment without creating a `T`. `std.memory.Output<T>` and `InPlace<T>` provide safe one-step initialization, while trusted extraction and raw-to-borrow conversion require exact state and authority proofs.
 
 ```bray
+using core.memory;
+using std.memory;
+
 func construct_output<T>(pos value: T) -> T
 {
     let mut output: std.memory.Output<T> = std.memory.Output<T>();
@@ -390,6 +402,8 @@ module target_surfaces;
 @target(target.address_space.DEVICE)
 trusted module device_access
 {
+    using core.target;
+
     trusted func load_status(pos pointer: DevicePointer<u32>) -> u32
         requires(
             trusted core.target.device_valid_read<u32>(pointer = pointer, count = 1),
@@ -416,6 +430,8 @@ trusted module device_access
 @target(target.identity.SYSTEM == "windows")
 module platform_handle
 {
+    using std.os.windows;
+
     func retain(pos handle: &std.os.windows.Handle)
     {
         use_handle(handle);
@@ -435,6 +451,9 @@ Target-control declarations make volatile access, address exposure, fences, term
 
 ```bray
 trusted module target_control;
+
+using core.target;
+using core.memory;
 
 trusted func observe_register(pos pointer: RawPointer<u32>) -> (u32, usize)
     requires(
@@ -497,6 +516,8 @@ Inline assembly is a checked trusted target operation with typed tuple inputs an
 
 ```bray
 trusted module assembly_example;
+
+using core.target;
 
 func alternate() -> never
 {

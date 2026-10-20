@@ -152,6 +152,13 @@ Each braced declaration names its complete module path. The blocks are package-l
 
 ## Using declarations and re-exports
 
+Named paths into another logical module require a matching `using`, within the same package and across package
+boundaries. A using covers its path and component-separated descendants, not siblings. Fully qualified spelling,
+local `internal` and `trusted` do not supply a dependency. Enabled split contributions share their logical module's
+dependencies. Independent block modules do not inherit them. Same-module references need no self-import.
+Compiler-known ambient names and `target` properties remain ambient. Named core modules require `using`.
+
+
 [`using`](https://github.com/lejmer/bray/blob/develop/docs/language/modules-and-packages/using-declarations.md) records that the current module intentionally depends on a visible package, module, or declaration path. References remain qualified because `using` participates in checking and tooling without changing unqualified name lookup.
 
 ```bray

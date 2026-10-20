@@ -14,6 +14,11 @@ A module path declared in source is relative to the current package.
 
 It does not include package identity.
 
+The current package is the package selected by the build input. The current module is the logical module identified by
+that package and the source contribution's complete module path. Sharing the current package does not make other
+modules available without `using`. Sharing a parent module path does not create lexical nesting or an implicit
+dependency. Declarations of the current logical module remain available across its enabled split contributions.
+
 When an external path begins with a package identity, that leading component is resolved as the package, not as part of
 the source-declared module path inside that package.
 

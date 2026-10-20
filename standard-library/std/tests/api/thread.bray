@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 module bray.standard_library_tests.thread;
 
+using core.atomic;
 using std.thread;
 using std.thread.IdEquatable;
 using std.task;

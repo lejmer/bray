@@ -1,5 +1,7 @@
 trusted module std.sync.rw_lock.read;
 
+using std.sync;
+
 trusted predicate acquired(marker: &std.sync.rw_lock.Marker);
 
 const func marker<T>(pos guard: &(std.sync.RwLockReadGuard<T>?)) -> &std.sync.rw_lock.Marker

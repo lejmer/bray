@@ -704,6 +704,7 @@ impl DiagnosticKind {
                 interface_components!(&[InterfaceSymbolIdentity]),
             ),
             Self::BindingUnresolvedName
+            | Self::BindingUndeclaredDependency
             | Self::BindingAmbiguousName
             | Self::BindingInaccessibleName
             | Self::BindingMalformedName

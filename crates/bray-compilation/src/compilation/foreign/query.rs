@@ -1331,6 +1331,8 @@ extern trusted func native_read(pos value: Wide)
         let compilation = compilation_with_link(
             r#"trusted module app;
 
+using core.atomic;
+
 @layout(c)
 struct SharedState
 {

@@ -1,5 +1,7 @@
 trusted module std.io;
 
+using std.memory;
+
 trait Reader
 {
     mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>

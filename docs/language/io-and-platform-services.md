@@ -54,6 +54,8 @@ ignored for routine output or handled when the program cares about output failur
 adapters.
 
 ```bray
+using std.io;
+
 std.io.print_line("ready");
 
 try std.io.print_line(message);
@@ -165,6 +167,8 @@ therefore a declared request policy rather than hidden ambient behavior.
 `EnvironmentEntry` is an ordinary owned product. The public process-context declarations are:
 
 ```bray
+using std.path;
+
 struct EnvironmentEntry
 {
     key: std.path.NativeText;
@@ -220,6 +224,9 @@ Arbitrary external programs use an explicit exit representation and are not trea
 owners with no public primary construction. The public raw child-process declarations are:
 
 ```bray
+using std.io;
+using std.path;
+
 union ChildStreamPolicy
 {
     Inherit;
@@ -355,6 +362,8 @@ toolchain's pinned timezone database, so compilation and execution do not depend
 perform runtime downloads.
 
 ```bray
+using std.time;
+
 let date = try std.time.Date(year = 2026, month = 8, day = 30);
 let time = try std.time.TimeOfDay(14, 45, 0, nanosecond = 125000000);
 let local = std.time.LocalDateTime(date, time);

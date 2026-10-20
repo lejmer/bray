@@ -103,6 +103,7 @@ pub(super) fn next_module_prefix(
                 inaccessible = Some((module.id(), length, lookup));
             }
             MemberLookupResult::NotFound
+            | MemberLookupResult::UndeclaredDependency
             | MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
             | MemberLookupResult::Malformed(_)
@@ -253,6 +254,7 @@ pub(super) fn combine_path_prefixes(
         let candidate = match &lookup {
             MemberLookupResult::Found(candidate) => Some(*candidate),
             MemberLookupResult::NotFound
+            | MemberLookupResult::UndeclaredDependency
             | MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
             | MemberLookupResult::Inaccessible(_)
@@ -282,10 +284,23 @@ pub(super) fn path_lookup(
     references: Vec<NameReference>,
     reference_index: usize,
 ) -> PathLookup {
-    PathLookup {
-        result,
-        reference: references.into_iter().nth(reference_index),
-    }
+    let reference = if matches!(result, MemberLookupResult::UndeclaredDependency) {
+        references.first().map(|first| {
+            NameReference::new(
+                references
+                    .iter()
+                    .map(NameReference::text)
+                    .collect::<Vec<_>>()
+                    .join("."),
+                first.span().source_id(),
+                first.span().range(),
+            )
+        })
+    } else {
+        references.into_iter().nth(reference_index)
+    };
+
+    PathLookup { result, reference }
 }
 
 fn module_name_lookup(

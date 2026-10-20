@@ -1,5 +1,7 @@
 trusted module std.io;
 
+using std.memory;
+
 trait Writer
 {
     mut func write(pos source: &[u8]) -> Result<usize, IoError>

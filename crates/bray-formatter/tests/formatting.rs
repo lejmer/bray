@@ -964,6 +964,9 @@ fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
 fn tuple_types_wrap_without_changing_arity() {
     let source = r#"
         module app;
+
+        using internal bray.runtime.bootstrap;
+
         extern func pair() -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords);
         extern func one() -> (bray.runtime.bootstrap.activation.Progress,);
         extern func nested() -> ((bray.runtime.bootstrap.activation.Progress,), bray.runtime.bootstrap.ReportRecords);
@@ -999,6 +1002,9 @@ fn tuple_types_wrap_without_changing_arity() {
 fn nested_contract_call_reserves_its_enclosing_trailing_comma() {
     let source = r#"
         trusted internal module bray.runtime.bootstrap.activation.execution;
+
+        using internal bray.runtime.bootstrap.activation;
+        using core.memory;
         trusted internal func certify(pos cursor: &Cursor, pos root: bool)
             when(!root)
             {
@@ -1022,13 +1028,11 @@ fn nested_contract_call_reserves_its_enclosing_trailing_comma() {
 
 #[test]
 fn wraps_nested_argument_lists_after_long_statement_prefixes() {
-    let source = concat!(
-        "module app;",
-        "func read(){",
-        "let status:std.platform.PlatformStatus=trusted platform_file_metadata(",
-        "handle=handle,metadata=output_pointer);",
-        "}",
-    );
+    let source = r#"module app;
+
+using std.platform;
+
+func read(){let status:std.platform.PlatformStatus=trusted platform_file_metadata(handle=handle,metadata=output_pointer);}"#;
 
     let output = formatted_with_width(source, 120);
 

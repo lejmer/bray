@@ -1,5 +1,7 @@
 trusted module std.sync;
 
+using core.atomic;
+
 /// Acquires a non-reentrant runtime lock represented by an exclusively owned, zero-initialized atomic word.
 trusted func acquire_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
     requires(blocking_execution())

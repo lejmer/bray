@@ -261,6 +261,8 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
         r#"
             module b;
 
+            using a;
+
             export a;
         "#,
     ]);
@@ -312,6 +314,8 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
         "#,
         r#"
             trusted module app.second;
+
+            using app.first;
 
             func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
             {

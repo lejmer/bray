@@ -13,6 +13,7 @@ use bray_syntax::{
     TraitScopeExitRequirementDeclarationSyntax, TypeCallableMemberDeclarationSyntax,
     TypeConstructorMemberDeclarationSyntax, UnionDeclarationSyntax, UnionPayloadFieldSyntax,
     UnionVariantDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 
 use super::syntax::cast_node;
@@ -48,6 +49,11 @@ pub(super) fn declaration_surface(
     declaration_kind: DeclarationKind,
 ) -> DeclarationSurface {
     match declaration_kind {
+        DeclarationKind::Using => {
+            let declaration = cast_node::<UsingDeclarationSyntax>(view, "using declaration");
+
+            DeclarationSurface::empty().with_internal_use(declaration.internal_keyword().is_some())
+        }
         DeclarationKind::Constant => {
             let declaration = cast_node::<ConstantDeclarationSyntax>(view, "constant declaration");
 
@@ -433,7 +439,6 @@ pub(super) fn declaration_surface(
             )
         }
         DeclarationKind::Module
-        | DeclarationKind::Using
         | DeclarationKind::Export
         | DeclarationKind::TraitConstantMember
         | DeclarationKind::TraitTypeMember

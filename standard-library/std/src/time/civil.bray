@@ -1,5 +1,9 @@
 trusted module std.time;
 
+using std.io;
+using std.memory;
+using internal std.platform;
+
 union TimeError
 {
     Unavailable;

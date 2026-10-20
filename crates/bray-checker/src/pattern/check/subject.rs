@@ -157,6 +157,7 @@ where
                         MemberLookupResult::Found(AnySymbolId::StructField(field)) => field,
                         MemberLookupResult::Found(_)
                         | MemberLookupResult::NotFound
+                        | MemberLookupResult::UndeclaredDependency
                         | MemberLookupResult::WrongKind(_)
                         | MemberLookupResult::Ambiguous(_)
                         | MemberLookupResult::Inaccessible(_)

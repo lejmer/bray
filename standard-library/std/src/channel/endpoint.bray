@@ -1,5 +1,9 @@
 trusted module std.channel;
 
+using core.atomic;
+using std.channel.owner;
+using std.run;
+
 struct Sender<T>
 {
     owner: std.channel.owner.Owner<T>;

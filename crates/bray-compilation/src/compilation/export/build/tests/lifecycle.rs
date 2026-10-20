@@ -789,6 +789,8 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
         r#"
         module api;
 
+        using core.atomic;
+
         struct Pair
         {
             first: i32;

@@ -1,6 +1,10 @@
 @target(target.platform.dynamic_loading)
 trusted module std.dynamic;
 
+using std.ffi;
+using std.path;
+using internal std.platform;
+
 @copy
 union LoadPolicy
 {

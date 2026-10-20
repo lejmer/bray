@@ -3,6 +3,8 @@
 The compiler-known manual allocation declarations are under `core.memory`.
 
 ```bray
+using core.memory;
+
 trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
     ensures(
         trusted core.memory.owned_allocation(pointer = result, bytes = bytes, align = align),

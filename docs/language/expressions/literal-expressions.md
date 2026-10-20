@@ -94,6 +94,8 @@ Real literal typing is literal adaptation. It does not create implicit conversio
 values.
 
 ```bray
+using std.numeric;
+
 let x: r64 = 1.0;
 let y: r32 = std.numeric.round_to<r32>(x, rule = NearestEven);
 ```

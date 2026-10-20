@@ -1,5 +1,8 @@
 trusted module std.io;
 
+using std.bytes;
+using std.memory;
+
 struct BufferedReader<Source>
 {
     internal mut source: Source;

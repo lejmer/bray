@@ -1,6 +1,9 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation;
 
+using core.target;
+using internal bray.runtime.bootstrap;
+using core.memory;
 using std.memory;
 
 // Entry authority is established against the run's admitted lanes before this

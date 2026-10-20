@@ -37,6 +37,8 @@ type, no initializer, no generic parameters, and no Bray-owned lifecycle. Refere
 pointer rather than reading the value or creating a borrow.
 
 ```bray
+using std.ffi.c;
+
 @link(name = "c")
 @symbol(name = "errno")
 @thread_local
@@ -70,6 +72,8 @@ initialization stores an ordinary state-machine value such as `std.sync.Once<T>`
 through an explicit source operation.
 
 ```bray
+using std.sync;
+
 static STATE: std.sync.Once<State> = std.sync.Once<State>.empty();
 
 func state() -> &State

@@ -1,5 +1,7 @@
 module std.collection;
 
+using std.memory;
+
 /// Provides the common capacity and storage operations of a deque-backed collection adapter.
 trait DequeAdapter<T>
 {

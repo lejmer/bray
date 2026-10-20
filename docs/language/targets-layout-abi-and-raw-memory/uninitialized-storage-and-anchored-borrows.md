@@ -48,6 +48,8 @@ Raw pointers do not carry lifetime or synchronization authority. Trusted code cr
 only with an explicit dependency root:
 
 ```bray
+using std.memory;
+
 trusted std.memory.borrow_from<T, Owner>(&owner, pointer)
 trusted std.memory.borrow_mut_from<T, Capability>(&mut capability, pointer)
 ```

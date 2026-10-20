@@ -3,7 +3,12 @@
 A **compiler-known declaration** is a language-defined declaration whose identity and contract are known to the
 compiler.
 
-Compiler-known declarations are available in every module without an import, subject to target availability rules.
+Compiler-known names supplied directly in the ambient scope are available in every module without `using`,
+subject to target availability rules. This includes the specified scalar, type-form, predicate and capability names,
+and the ambient `target` properties.
+
+References into named compiler-known modules, such as `core.memory`, `core.atomic` and `core.target`, require a matching
+`using` under the ordinary cross-module dependency rules. The ambient `target` path is distinct from `core.target`.
 
 They participate in ordinary:
 
@@ -17,14 +22,17 @@ They participate in ordinary:
 - contract checking,
 - code generation.
 
-Compiler-known names occupy the ordinary lookup namespace before source declarations are checked.
+Compiler-known declarations occupy their specified declaration scopes before source declarations are checked.
+Ambient names enter each module's ordinary lookup directly.
 
 User code cannot declare another entity with the same ordinary name in the same declaration scope as a compiler-known
 declaration.
 
-Compiler-known declarations are not dependencies.
+Compiler-known identities are supplied by the language, independently of package dependencies. A `using` for a
+named compiler-known module declares the source module's dependency on that namespace. It does not make the
+compiler-known declaration a package-owned declaration.
 
-They are not imported, re-exported, versioned, or shadowed by package declarations.
+Compiler-known identities are not re-exported, versioned, or shadowed by package declarations.
 
 No compiler-known declaration is owned by the `std` package namespace. The `std` root is reserved for ordinary
 standard-library packages, all of which remain subject to ordinary path and `using` rules.

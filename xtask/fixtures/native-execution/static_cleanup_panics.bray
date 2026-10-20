@@ -1,5 +1,8 @@
 module static_cleanup_panics;
 
+using core.target;
+using core.atomic;
+
 struct Counter
 {
     visits: core.atomic.Atomic<usize>;

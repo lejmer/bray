@@ -4,6 +4,9 @@
 )
 trusted module std.io;
 
+using core.memory;
+using internal std.platform;
+
 @abi(c)
 trusted internal func platform_standard_input_read(
     pos destination: RawPointer<u8>,

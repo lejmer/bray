@@ -13,6 +13,8 @@ use super::{BoundArgument, BoundGenericArgument, BoundReferenceTarget};
 pub enum BoundUnresolvedReferenceKind {
     /// No declaration matched the requested name.
     NotFound,
+    /// A named cross-module path has no matching using declaration.
+    UndeclaredDependency,
     /// Matching declarations exist but none belong to the requested lookup namespace.
     WrongKind,
     /// More than one declaration remains viable after lookup.

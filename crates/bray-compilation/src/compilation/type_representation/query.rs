@@ -591,14 +591,15 @@ mod tests {
                     0,
                 ),
                 source_input(
-                    concat!(
-                        "module app.bytes;\n",
-                        "\n",
-                        "struct Buffer\n",
-                        "{\n",
-                        "    storage: app.memory.Storage;\n",
-                        "}\n",
-                    ),
+                    r#"module app.bytes;
+
+using app.memory;
+
+struct Buffer
+{
+    storage: app.memory.Storage;
+}
+"#,
                     1,
                 ),
             ],

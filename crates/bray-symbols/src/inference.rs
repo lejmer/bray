@@ -209,6 +209,9 @@ impl<'graph> HeaderLookup<'graph> {
             match compiler_known.lookup_member_with_access(ambient, name, |_, _| true) {
                 MemberLookupResult::Found(candidate) => HeaderNameResolution::Unique(candidate),
                 MemberLookupResult::NotFound => HeaderNameResolution::NotFound,
+                MemberLookupResult::UndeclaredDependency => {
+                    panic!("identity-only header lookup cannot produce a source dependency failure")
+                }
                 MemberLookupResult::WrongKind(_)
                 | MemberLookupResult::Ambiguous(_)
                 | MemberLookupResult::Inaccessible(_)

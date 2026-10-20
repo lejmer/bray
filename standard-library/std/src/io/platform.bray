@@ -1,5 +1,10 @@
 trusted module std.io;
 
+using core.atomic;
+using std.memory;
+using internal std.platform;
+using std.sync;
+
 internal static INPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 internal static OUTPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 internal static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);

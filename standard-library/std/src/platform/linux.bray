@@ -1,6 +1,11 @@
 @target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
 trusted internal module std.platform;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.linux;
+
 trusted internal func process_identity() -> u64
     uses(foreign_call)
 {

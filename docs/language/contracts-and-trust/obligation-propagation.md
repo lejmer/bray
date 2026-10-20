@@ -6,6 +6,8 @@ or appear in that declaration's public contract.
 This prevents trusted obligations from being hidden by wrappers.
 
 ```bray
+using core.memory;
+
 func bad(pos pointer: RawPointer<u8>) -> u8
 {
     return trusted core.memory.read<u8>(pointer);
@@ -18,6 +20,8 @@ its caller.
 This is valid because the obligation is exposed:
 
 ```bray
+using core.memory;
+
 func read_wrapper(pos pointer: RawPointer<u8>) -> u8
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),

@@ -74,6 +74,8 @@ access, copy, allocation, and deallocation operations of `core.memory`.
 ```bray
 module std.memory;
 
+using core.memory;
+
 func address_of<T>(pos value: &T) -> RawPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
@@ -206,8 +208,11 @@ trusted guarantees required by the raw operation they perform.
 Examples of recognized helper calls:
 
 ```bray
+using std.memory;
+
 let next = std.memory.offset(pointer, elements = 1);
 let value = trusted std.memory.read<u32>(pointer);
+
 trusted std.memory.write<u32>(pointer, value);
 trusted std.memory.copy(source, destination, count = count);
 ```

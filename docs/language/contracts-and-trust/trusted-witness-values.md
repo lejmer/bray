@@ -19,6 +19,8 @@ A declaration introduces a witness value when its successful result carries trus
 those conditions are tied to the returned value, its fields, its owned storage, its borrows, or its dependency contract.
 
 ```bray
+using core.memory;
+
 struct ReadableByte
 {
     pointer: RawPointer<u8>;
@@ -48,6 +50,8 @@ While the witness value is live and valid, its carried trusted guarantees are av
 Those conditions can satisfy matching trusted requirements.
 
 ```bray
+using core.memory;
+
 let readable = trusted assume_readable_byte(pointer);
 
 let byte = core.memory.read<u8>(readable.pointer);

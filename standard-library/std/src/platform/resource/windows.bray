@@ -1,6 +1,9 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module std.platform.resource;
 
+using std.os.windows;
+using internal std.platform;
+
 /// Closes a file or pipe handle and reports whether it was released.
 trusted internal func close(pos handle: u64) -> (std.platform.PlatformStatus, bool)
     uses(foreign_call)

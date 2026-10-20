@@ -1,6 +1,9 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted module std.process;
 
+using core.memory;
+using internal std.platform;
+
 @abi(c)
 trusted internal func platform_process_pipe_read(
     pos handle: u64,

@@ -84,6 +84,7 @@ impl SyntaxAnchor {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationSurface {
     visibility: Option<SyntaxKind>,
+    internal_use: bool,
     modifiers: Box<[SyntaxKind]>,
     modifier_occurrences: Box<[SyntaxKind]>,
     directives: Box<[SyntaxAnchor]>,
@@ -105,6 +106,7 @@ impl DeclarationSurface {
     ) -> Self {
         Self {
             visibility,
+            internal_use: false,
             modifiers: modifiers.into_iter().collect(),
             modifier_occurrences: modifier_occurrences.into_iter().collect(),
             directives: directives.into_iter().collect(),
@@ -135,6 +137,17 @@ impl DeclarationSurface {
         self.body_kind = body_kind;
 
         self
+    }
+
+    pub(crate) const fn with_internal_use(mut self, internal_use: bool) -> Self {
+        self.internal_use = internal_use;
+
+        self
+    }
+
+    /// Returns whether this using declaration acknowledges internal access.
+    pub const fn acknowledges_internal_use(&self) -> bool {
+        self.internal_use
     }
 
     pub(crate) fn empty() -> Self {

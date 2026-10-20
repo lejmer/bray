@@ -1,5 +1,7 @@
 module composition.cleanup;
 
+using core.atomic;
+
 static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 static DEFAULTS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);

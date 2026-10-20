@@ -1,5 +1,6 @@
 module std.collection;
 
+using std.memory;
 using std.hash;
 
 internal struct SetItem<Value>

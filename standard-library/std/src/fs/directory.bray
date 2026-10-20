@@ -1,5 +1,9 @@
 trusted module std.fs;
 
+using std.io;
+using std.memory;
+using std.path;
+
 struct DirectoryEntry
 {
     path: std.path.Path;

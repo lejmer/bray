@@ -1,6 +1,10 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted internal module std.platform.virtual_memory;
 
+using std.memory;
+using internal std.os.unix;
+using internal std.platform;
+
 trusted internal func platform_map(
     pos bytes: usize,
     access: Access,

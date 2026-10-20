@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation.execution;
 
+using core.target;
+using internal bray.runtime.bootstrap;
 using std.memory;
 
 // Successful results are reserved for transfer unless failed cleanup or movement

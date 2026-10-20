@@ -1,5 +1,8 @@
 module std.path;
 
+using std.character;
+using std.numeric;
+using internal std.platform;
 using std.bytes;
 using std.collection;
 using std.memory;

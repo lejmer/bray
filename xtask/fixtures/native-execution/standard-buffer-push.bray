@@ -1,5 +1,7 @@
 module std.bytes;
 
+using std.memory;
+
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let mut buffer: Buffer = try Buffer(capacity = 0);

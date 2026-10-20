@@ -333,6 +333,31 @@ mod tests {
     }
 
     #[test]
+    fn using_internal_acknowledgement_is_separate_from_visibility() {
+        let sources = source_store(["module app; using api; using internal api.details;"]);
+        let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
+        let result = discover_source_unit_declarations(&source_unit);
+
+        let [part] = result.chunk().module_parts() else {
+            panic!("expected one module part");
+        };
+
+        let [ordinary, acknowledged] = part.declarations() else {
+            panic!("expected two using declarations");
+        };
+
+        assert!(!ordinary.surface().acknowledges_internal_use());
+        assert!(acknowledged.surface().acknowledges_internal_use());
+
+        for declaration in [ordinary, acknowledged] {
+            assert_eq!(declaration.kind(), DeclarationKind::Using);
+            assert_eq!(declaration.surface().visibility(), None);
+            assert!(!declaration.surface().is_internal());
+            assert!(declaration.surface().modifiers().is_empty());
+        }
+    }
+
+    #[test]
     fn source_unit_discovery_records_module_level_declarations_in_source_order() {
         let sources = source_store([concat!(
             "module core.io;\n",
@@ -700,16 +725,11 @@ mod tests {
 
     #[test]
     fn source_unit_discovery_records_syntax_anchors_and_surface_metadata() {
-        let source_text = concat!(
-            "@test internal module core { ",
-            "@copy public struct Resource<T> with(copyable) { public mut value: T; } ",
-            "@test @abi(\"C\") public async trusted func main<T, const N: Int>",
-            "(pos value: Int = 1, mut tail: Bool,) -> Unit ",
-            "requires(valid) ensures(done) with(static_ok) uses(core.io) {} ",
-            "public callable Mapper<T> with(copyable) = func(value: T) -> Bool; ",
-            "union Maybe { @tag(1) Some(pos value: Int); } ",
-            "}"
-        );
+        let source_text = r#"@test internal module core {
+
+     using core.io;
+
+ @copy public struct Resource<T> with(copyable) { public mut value: T; } @test @abi("C") public async trusted func main<T, const N: Int>(pos value: Int = 1, mut tail: Bool,) -> Unit requires(valid) ensures(done) with(static_ok) uses(core.io) {} public callable Mapper<T> with(copyable) = func(value: T) -> Bool; union Maybe { @tag(1) Some(pos value: Int); } }"#;
 
         let sources = source_store([source_text]);
         let snapshot = source(&sources, 0);

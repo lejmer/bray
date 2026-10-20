@@ -1,5 +1,7 @@
 trusted module std.sync;
 
+using core.atomic;
+
 struct ManualResetEvent
 {
     internal state: core.atomic.Atomic<u32>;

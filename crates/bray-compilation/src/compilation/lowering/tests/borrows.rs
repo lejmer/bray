@@ -19,33 +19,36 @@ const BORROW_LOWERING_SOURCE: &str = concat!(
 
 #[test]
 fn borrowed_atomic_lock_loop_lowers() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)\n",
-        "{\n",
-        "}\n",
-        "\n",
-        "trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool\n",
-        "{\n",
-        "    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);\n",
-        "\n",
-        "    if acquired\n",
-        "    {\n",
-        "        return true;\n",
-        "    }\n",
-        "\n",
-        "    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
-        "\n",
-        "    while observed != 0\n",
-        "    {\n",
-        "        trusted wait(lock, expected = 2);\n",
-        "        observed = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
-        "    }\n",
-        "\n",
-        "    return true;\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+
+trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)
+{
+}
+
+trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool
+{
+    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
+
+    if acquired
+    {
+        return true;
+    }
+
+    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);
+
+    while observed != 0
+    {
+        trusted wait(lock, expected = 2);
+        observed = core.atomic.exchange<u32, 1>(lock, value = 2);
+    }
+
+    return true;
+}
+"#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),

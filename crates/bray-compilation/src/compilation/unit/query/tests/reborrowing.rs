@@ -12,6 +12,9 @@ use bray_testing::assert_goal_state_diagnostic_kind;
 fn successive_returned_views_retain_their_own_borrow_capabilities() {
     let compilation = compilation(
         r#"module app;
+
+        using core.memory;
+
         struct Holder
         {
             pointer: RawPointer<u8>;

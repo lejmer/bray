@@ -5,7 +5,7 @@ A **path expression** is an expression formed by connecting path components with
 ```bray
 math.sin
 point.x
-pkg.module.Type
+pkg.api.Type
 Shape.Circle
 pair.0
 ```
@@ -53,8 +53,8 @@ A package or module path selects a module path component or declaration from the
 name surface.
 
 ```bray
-pkg.module.Type
-pkg.module.function
+pkg.api.Type
+pkg.api.function
 math.sin
 ```
 
@@ -73,8 +73,13 @@ location.
 
 They do not introduce unqualified names.
 
-A referenced external path must be reachable through the current package or module context, or it must be declared by a
-`using` declaration.
+A named path into another logical module requires a matching `using` declaration. This applies within the current
+package and across package boundaries. Sharing a dotted parent path does not make a module available. A fully qualified
+path identifies the target but does not declare the dependency.
+
+References within the same logical module need no self-import. Dependency coverage follows the namespace path written
+at the reference, including a re-exported path. Selecting a value's members does not itself name its provider module.
+See [Using declarations](../modules-and-packages/using-declarations.md).
 
 ```bray
 using geometry.shapes;
@@ -105,13 +110,15 @@ A path that reaches an internal declaration outside its intended scope requires 
 Call-site acknowledgement uses `internal`.
 
 ```bray
-let x = internal some.module.helper();
+using some.api;
+
+let x = internal some.api.helper();
 ```
 
 Module-level acknowledgement uses `using internal`.
 
 ```bray
-using internal some.module.helper;
+using internal some.api.helper;
 ```
 
 `using internal` acknowledges use of specific internal modules, declarations, or declaration paths.
@@ -493,6 +500,7 @@ A path expression is rejected when resolution fails.
 
 Resolution fails when:
 
+- the path names another module without a matching `using` declaration,
 - a path component does not exist on the resolved left-hand entity,
 - the component exists but is not visible,
 - the component is internal and lacks required acknowledgement,

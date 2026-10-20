@@ -1717,6 +1717,16 @@ const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" is ambiguous"),
 ];
 
+const BINDING_UNDECLARED_DEPENDENCY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("path "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" has no matching using declaration"),
+];
+
+const NOTE_MODULE_DEPENDENCY_REQUIRES_USING: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "declare the referenced package, module or declaration with using in this module",
+)];
+
 const BINDING_INACCESSIBLE_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -2008,6 +2018,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi
         | DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm
         | DiagnosticNoteKind::GenericArgumentCountMustMatch
+        | DiagnosticNoteKind::ModuleDependencyRequiresUsing
         | DiagnosticNoteKind::GenericArgumentRequiresType
         | DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
         | DiagnosticNoteKind::TypeInferenceNeedsConstraint
@@ -2321,6 +2332,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::BindingUnresolvedName => MessageTemplate::new(BINDING_UNRESOLVED_NAME),
         DiagnosticKind::BindingAmbiguousName => MessageTemplate::new(BINDING_AMBIGUOUS_NAME),
         DiagnosticKind::BindingInaccessibleName => MessageTemplate::new(BINDING_INACCESSIBLE_NAME),
+        DiagnosticKind::BindingUndeclaredDependency => {
+            MessageTemplate::new(BINDING_UNDECLARED_DEPENDENCY)
+        }
         DiagnosticKind::BindingWrongNameKind => MessageTemplate::new(BINDING_WRONG_NAME_KIND),
         DiagnosticKind::BindingMalformedName => MessageTemplate::new(BINDING_MALFORMED_NAME),
         DiagnosticKind::BindingNameAlreadyDefined => {
@@ -3052,6 +3066,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi => {
             MessageTemplate::new(NOTE_CALLABLE_ABI_DIRECTIVE_MUST_NAME_SUPPORTED_ABI)
+        }
+        DiagnosticNoteKind::ModuleDependencyRequiresUsing => {
+            MessageTemplate::new(NOTE_MODULE_DEPENDENCY_REQUIRES_USING)
         }
         DiagnosticNoteKind::GenericArgumentCountMustMatch => {
             MessageTemplate::new(NOTE_GENERIC_ARGUMENT_COUNT_MUST_MATCH)

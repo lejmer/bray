@@ -1,5 +1,7 @@
 module std.bytes;
 
+using std.numeric;
+
 /// Encodes one unsigned 64-bit value in little-endian byte order.
 func u64_little_endian(pos value: u64) -> bytes<8>
 {

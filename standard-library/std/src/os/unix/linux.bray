@@ -1,6 +1,11 @@
 @target(target.identity.SYSTEM == "linux")
 trusted internal module std.os.unix;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.linux;
+
 const MAP_ANONYMOUS: i32 = std.os.linux.MAP_ANONYMOUS;
 
 const MAP_PRIVATE: i32 = std.os.linux.MAP_PRIVATE;

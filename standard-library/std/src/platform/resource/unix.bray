@@ -1,6 +1,9 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted internal module std.platform.resource;
 
+using internal std.os.unix;
+using internal std.platform;
+
 /// Closes an ordinary file or pipe descriptor and reports whether it was released.
 trusted internal func close(pos handle: u64) -> (std.platform.PlatformStatus, bool)
 {

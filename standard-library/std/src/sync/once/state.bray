@@ -1,5 +1,7 @@
 trusted module std.sync.once;
 
+using core.atomic;
+
 const EMPTY: u32 = 0;
 
 const INITIALIZING: u32 = 1;

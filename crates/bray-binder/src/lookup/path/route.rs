@@ -73,7 +73,8 @@ where
                 | MemberLookupResult::Inaccessible(_)
                 | MemberLookupResult::Malformed(_)
                 | MemberLookupResult::Ambiguous(_)
-                | MemberLookupResult::WrongKind(_) => Some((lookup, length, access)),
+                | MemberLookupResult::WrongKind(_)
+                | MemberLookupResult::UndeclaredDependency => Some((lookup, length, access)),
                 MemberLookupResult::Found(_) | MemberLookupResult::NotFound => None,
             }
         });

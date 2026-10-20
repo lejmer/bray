@@ -61,6 +61,7 @@ impl Description {
                         )
                     })?;
 
+                target.usings.extend(group.usings.iter().cloned());
                 target.constants.extend(group.constants.iter().cloned());
                 target.functions.extend(group.functions.iter().cloned());
             }
@@ -142,6 +143,8 @@ pub(super) struct BindingGroupDescription {
     pub(super) name: String,
     pub(super) targets: Vec<String>,
     #[serde(default)]
+    pub(super) usings: BTreeSet<String>,
+    #[serde(default)]
     pub(super) constants: Vec<ConstantDescription>,
     #[serde(default)]
     pub(super) functions: Vec<FunctionDescription>,
@@ -153,6 +156,8 @@ pub(super) struct TargetDescription {
     pub(super) target: String,
     pub(super) system: String,
     pub(super) sdk: SdkDescription,
+    #[serde(default)]
+    pub(super) usings: BTreeSet<String>,
     #[serde(default)]
     pub(super) links: Vec<LinkDescription>,
     #[serde(default)]

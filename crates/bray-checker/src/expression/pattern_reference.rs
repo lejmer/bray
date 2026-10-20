@@ -250,6 +250,7 @@ const fn diagnostic_kind(
 ) -> Option<DiagnosticKind> {
     match kind {
         BoundUnresolvedReferenceKind::NotFound => Some(DiagnosticKind::BindingUnresolvedName),
+        BoundUnresolvedReferenceKind::UndeclaredDependency => None,
         BoundUnresolvedReferenceKind::WrongKind => Some(DiagnosticKind::BindingWrongNameKind),
         BoundUnresolvedReferenceKind::Ambiguous => Some(DiagnosticKind::BindingAmbiguousName),
         BoundUnresolvedReferenceKind::Inaccessible => Some(DiagnosticKind::BindingInaccessibleName),

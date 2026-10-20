@@ -2,6 +2,12 @@
   "groups": [
     {
       "name": "posix_base",
+      "usings": [
+        "core.memory",
+        "std.dynamic",
+        "std.ffi",
+        "std.numeric"
+      ],
       "targets": [
         "aarch64-apple-darwin",
         "aarch64-unknown-linux-gnu",

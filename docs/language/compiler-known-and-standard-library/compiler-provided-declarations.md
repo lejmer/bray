@@ -3,7 +3,8 @@
 A **compiler-provided declaration** is a compiler-known declaration whose implementation is supplied by the compiler
 instead of by ordinary Bray source.
 
-Compiler-provided declarations have ordinary declaration surfaces.
+Compiler-provided declarations have ordinary declaration surfaces. A compiler-supplied implementation does not
+make a declaration ambient. References into its named module follow the ordinary `using` dependency rules.
 
 Their declaration surface consists of:
 

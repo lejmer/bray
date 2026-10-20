@@ -1,6 +1,13 @@
 @target(target.identity.SYSTEM == "darwin")
 trusted internal module std.os.unix;
 
+using core.target;
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.darwin;
+using internal std.platform;
+
 const MAP_ANONYMOUS: i32 = std.os.darwin.MAP_ANONYMOUS;
 
 const MAP_PRIVATE: i32 = std.os.darwin.MAP_PRIVATE;

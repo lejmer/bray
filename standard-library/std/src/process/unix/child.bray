@@ -1,6 +1,12 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted module std.process;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal std.os.unix;
+using internal std.platform;
+
 @copy
 internal struct ChildDescriptors
 {

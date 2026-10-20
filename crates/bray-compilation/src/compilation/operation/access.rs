@@ -220,7 +220,8 @@ impl Compilation {
             MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
             | MemberLookupResult::Inaccessible(_)
-            | MemberLookupResult::Malformed(_) => return Ok(None),
+            | MemberLookupResult::Malformed(_)
+            | MemberLookupResult::UndeclaredDependency => return Ok(None),
         };
 
         if !bray_binder::check_member_access(

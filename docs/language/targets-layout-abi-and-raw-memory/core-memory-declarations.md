@@ -52,6 +52,8 @@ here.
 The compiler-known raw pointer creation declarations are under `core.memory`.
 
 ```bray
+using core.memory;
+
 func address_of<T>(pos value: &T) -> RawPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),

@@ -1,6 +1,9 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin" || target.identity.SYSTEM == "windows")
 trusted internal module std.platform;
 
+using core.memory;
+using std.memory;
+
 @abi(c)
 trusted internal func entropy_fill(
     pos destination: RawPointer<u8>,

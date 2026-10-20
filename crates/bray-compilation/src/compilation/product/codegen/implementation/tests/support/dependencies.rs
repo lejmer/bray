@@ -30,18 +30,10 @@ pub(in super::super) fn native_fixture_compilation(
 ) -> crate::Compilation {
     let source = match product_kind {
         ProductKind::Library => {
-            "module application;
-using example.dependency.templates.hot;
-public func forwarded(pos value: i32) -> i32 {
-    return example.dependency.templates.hot(value);
-}
-"
+            "module application;\nusing example.dependency.templates.hot;\npublic func forwarded(pos value: i32) -> i32 {\n    return example.dependency.templates.hot(value);\n}\n"
         }
         ProductKind::Executable => {
-            "module application;
-using example.dependency.templates.hot;
-func main() { let value: i32 = example.dependency.templates.hot(1); }
-"
+            "module application;\nusing example.dependency.templates.hot;\nfunc main() { let value: i32 = example.dependency.templates.hot(1); }\n"
         }
         ProductKind::Test => {
             unreachable!("native fixture only exercises libraries and executables")

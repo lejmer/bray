@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.report.incident;
 
+using core.target;
+using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap;
 

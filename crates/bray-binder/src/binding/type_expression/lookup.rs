@@ -236,14 +236,16 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         let imported_root = self.imports.imported_path_root(module, &references)?;
 
-        Ok(bind_source_path(
+        bind_source_path(
             self.symbols,
+            self.imports.declarations(),
             imported_root,
             module,
             path,
             crate::lookup::NameAccess::Local,
             ordinary,
-        ))
+            &mut |owner, name, access| self.imports.semantic_member_lookup(owner, name, access),
+        )
     }
 
     fn report_lookup<T>(
@@ -260,7 +262,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return;
         };
 
-        let reference = NameReference::new(text, path.source().source_id(), token.range());
+        let reference = if matches!(result, MemberLookupResult::UndeclaredDependency) {
+            NameReference::from_path(path, token.range())
+        } else {
+            NameReference::new(text, path.source().source_id(), token.range())
+        };
 
         if let Some(diagnostic) = lookup_diagnostic(&reference, expected, result) {
             self.diagnostics.add(diagnostic);

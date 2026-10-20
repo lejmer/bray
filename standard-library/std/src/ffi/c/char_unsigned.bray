@@ -1,6 +1,8 @@
 @target(target.c.CHAR == "u8")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `char` when `target.c.CHAR` selects `u8`.

@@ -17,6 +17,8 @@ fn initialized_protected_storage_round_trips_through_an_interface() {
     let provider = compilation(
         r#"
         module api;
+
+        using core.memory;
         struct State { count: u64; ready: bool; }
         static STATE: Uninit<State> = core.memory.uninit_from<State>({ count = 23, ready = true });
         const func protect<T>(pos value: T) -> Uninit<T>
@@ -37,6 +39,8 @@ fn initialized_protected_storage_round_trips_through_an_interface() {
         &provider,
         r#"
         trusted module app;
+
+        using core.memory;
         using example.package.api;
 
         trusted func main() -> u32 uses(unchecked_init)

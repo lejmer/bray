@@ -1,5 +1,8 @@
 module std.ffi.c;
 
+using std.bytes;
+using std.memory;
+
 union StringError
 {
     InteriorNul;

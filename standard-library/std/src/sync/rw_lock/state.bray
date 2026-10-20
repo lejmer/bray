@@ -1,5 +1,7 @@
 trusted module std.sync.rw_lock;
 
+using core.atomic;
+
 const WRITE_LOCKED: u32 = 2_147_483_648;
 
 const WRITER_PENDING_ONE: u32 = 65_536;

@@ -149,6 +149,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             }
             MemberLookupResult::Found(_)
             | MemberLookupResult::NotFound
+            | MemberLookupResult::UndeclaredDependency
             | MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
             | MemberLookupResult::Inaccessible(_)

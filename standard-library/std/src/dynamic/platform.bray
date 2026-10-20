@@ -1,6 +1,13 @@
 @target(target.platform.dynamic_loading)
 trusted module std.dynamic;
 
+using core.memory;
+using std.ffi;
+using std.fs;
+using std.memory;
+using std.path;
+using internal std.platform;
+
 trusted internal func open_dynamic_library_path(
     pos path: &std.path.Path,
     policy: LoadPolicy,

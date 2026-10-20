@@ -1,5 +1,7 @@
 module std.ffi;
 
+using internal std.platform;
+
 @copy
 union ForeignErrorKind
 {

@@ -1,5 +1,7 @@
 trusted module application;
 
+using core.target;
+using core.memory;
 using std.memory;
 using internal std.memory;
 

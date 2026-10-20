@@ -1,5 +1,7 @@
 module bray.standard_library_tests.filesystem;
 
+using std.os.windows;
+using internal std.platform;
 using std.bytes;
 using std.fs;
 using internal std.fs.FileReader;

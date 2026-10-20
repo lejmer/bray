@@ -1,5 +1,7 @@
 trusted module target_control_invalid;
 
+using core.target;
+
 trusted func invalid_assembly() -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {

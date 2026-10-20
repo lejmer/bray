@@ -35,6 +35,8 @@ const FACT_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) const RUNTIME_MEMORY_SOURCE: &str = r#"trusted internal module std.runtime.memory;
 
+using core.memory;
+
 trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
 {
     return core.memory.null<u8>();
@@ -50,6 +52,8 @@ trusted func deallocate(
 "#;
 
 pub(crate) const RUNTIME_TEXT_SOURCE: &str = r#"trusted internal module std.runtime.text;
+
+using core.memory;
 
 internal struct OwnedText
 {

@@ -307,6 +307,9 @@ fn ordinary_async_finalizers_emit_admitted_frame_composition() {
     let (backend, plan) = runtime_native_plan(
         r#"
         module app;
+
+        using core.atomic;
+
         static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
         async func record()
         {
@@ -543,6 +546,8 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
                     let source = format!(
                         r#"
             module app;
+
+            using core.atomic;
             static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
             async func pending() {{}}
             @layout(stable, align = 2048)

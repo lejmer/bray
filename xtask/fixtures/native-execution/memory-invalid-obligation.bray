@@ -1,5 +1,7 @@
 trusted module application;
 
+using core.memory;
+
 trusted func main() -> u8
     uses(raw_memory)
 {

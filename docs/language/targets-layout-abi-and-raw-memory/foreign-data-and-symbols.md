@@ -10,6 +10,8 @@ type.
 a static, it declares provider-owned address-bearing storage.
 
 ```bray
+using std.ffi.c;
+
 @link(name = "c")
 @symbol(name = "errno")
 @thread_local
@@ -41,6 +43,8 @@ borrow. The reference performs symbol-address resolution only. It does not read,
 validate the reached storage.
 
 ```bray
+using std.ffi.c;
+
 let address: RawPointer<std.ffi.c.Int> = errno;
 ```
 
@@ -65,6 +69,8 @@ only through its address.
 `@symbol(...)` on an ordinary non-generic static publishes that Bray-owned storage as a native data symbol.
 
 ```bray
+using std.ffi.c;
+
 @symbol(name = "bray_abi_version")
 static ABI_VERSION: std.ffi.c.UnsignedInt = std.ffi.c.unsigned_int_exact(1);
 
@@ -126,6 +132,8 @@ for `T` produces `RawPointer<T>`. A code lookup for an ABI-qualified callable ty
 representation support, and a live provider dependency.
 
 ```bray
+using core.memory;
+
 callable Transform = @abi(c) func(pos value: i32) -> i32;
 
 trusted func activate_transform(pos address: RawPointer<Transform>) -> Transform

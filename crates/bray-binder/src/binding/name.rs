@@ -128,7 +128,7 @@ where
 {
     let candidates: &[ResolvedName] = match result {
         MemberLookupResult::Found(candidate) => std::slice::from_ref(candidate),
-        MemberLookupResult::NotFound => &[],
+        MemberLookupResult::NotFound | MemberLookupResult::UndeclaredDependency => &[],
         MemberLookupResult::WrongKind(candidates)
         | MemberLookupResult::Ambiguous(candidates)
         | MemberLookupResult::Inaccessible(candidates)

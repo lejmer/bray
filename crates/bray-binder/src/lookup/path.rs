@@ -1,4 +1,5 @@
 mod core;
+mod dependency;
 mod imported;
 mod member;
 mod owner;
@@ -8,9 +9,9 @@ mod route;
 pub(super) use core::classify_pattern_target;
 pub use core::{NameAccess, bind_surface_path_with_member_lookup};
 pub(crate) use core::{
-    PathBindingContext, bind_module_path, bind_source_path, module_using_access,
-    visible_imported_path_root,
+    PathBindingContext, bind_module_path, bind_source_path, visible_imported_path_root,
 };
+pub(crate) use dependency::{lookup_dependency_declared, module_using_access};
 pub use imported::ImportedPathRoot;
 pub(crate) use owner::bind_owner_path;
 pub use owner::bind_owner_surface_path;

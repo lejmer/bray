@@ -1,6 +1,11 @@
 @target(target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME == "aarch64-apple-darwin")
 trusted internal module std.platform;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.darwin;
+
 trusted internal func process_identity() -> u64
     uses(foreign_call)
 {

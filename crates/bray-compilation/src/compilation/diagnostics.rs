@@ -1138,12 +1138,13 @@ func main() {}
 
     #[test]
     fn static_atomic_storage_uses_constant_initialization() {
-        let source = concat!(
-            "module app;\n",
-            "static INPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
-            "static OUTPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
-            "static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
-        );
+        let source = r#"module app;
+
+using core.atomic;
+static INPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+static OUTPUT_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+"#;
 
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));

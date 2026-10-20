@@ -1,5 +1,7 @@
 module std.ffi;
 
+using internal std.platform;
+
 internal struct ForeignResourceState
 {
     internal handle_value: u64;

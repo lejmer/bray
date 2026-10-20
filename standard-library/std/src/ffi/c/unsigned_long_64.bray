@@ -1,6 +1,8 @@
 @target(target.c.UNSIGNED_LONG == "u64")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `unsigned long` when `target.c.UNSIGNED_LONG` selects `u64`.

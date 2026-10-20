@@ -1,5 +1,6 @@
 module async_tasks;
 
+using core.atomic;
 using std.task;
 using std.testing;
 

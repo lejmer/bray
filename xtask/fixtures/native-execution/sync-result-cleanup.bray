@@ -1,5 +1,8 @@
 module sync_result_cleanup;
 
+using core.target;
+using core.atomic;
+
 struct Counter
 {
     visits: core.atomic.Atomic<u32>;

@@ -1,5 +1,9 @@
 trusted module std.sync.spin_lock;
 
+using core.atomic;
+using std.memory;
+using std.sync;
+
 struct State<T>
 {
     tickets: core.atomic.Atomic<u32>;

@@ -1,5 +1,8 @@
 trusted internal module std.platform;
 
+using core.target;
+using core.memory;
+using std.numeric;
 using std.memory;
 
 @copy

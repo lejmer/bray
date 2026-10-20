@@ -1,6 +1,11 @@
 @target(target.c.WCHAR == "u16")
 module std.ffi.c;
 
+using std.bytes;
+using std.character;
+using std.collection;
+using std.string;
+
 /// Returns `StringError.InvalidEncoding` for an invalid surrogate sequence and
 /// `StringError.Allocation` when the decoded Bray string cannot be allocated.
 trusted internal func decode_wide_string(pos value: &BorrowedWideString) -> Result<string, StringError>

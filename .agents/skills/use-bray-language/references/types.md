@@ -156,6 +156,8 @@ A product field is immutable after initialization unless its declaration uses `m
 ### Closed unions, payloads, and recursive ownership
 
 ```bray
+using std.ffi.c;
+
 @copy
 union Response<T>
     with(T: Copyable)

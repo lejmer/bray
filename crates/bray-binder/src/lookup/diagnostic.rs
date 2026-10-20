@@ -4,6 +4,7 @@ use bray_diagnostics::{
 };
 use bray_source::{SourceSpan, TextRange};
 use bray_symbols::MemberLookupResult;
+use bray_syntax::{PathSyntax, SourceSyntaxNode};
 
 use super::binding::NameLookupResult;
 use super::category::ResolvedName;
@@ -25,6 +26,17 @@ impl NameReference {
             text: text.into(),
             span: SourceSpan::new(source, range),
         }
+    }
+
+    pub(crate) fn from_path(path: &PathSyntax, range: TextRange) -> Self {
+        Self::new(
+            path.identifier_tokens()
+                .filter_map(|token| token.text(path.source().text()))
+                .collect::<Vec<_>>()
+                .join("."),
+            path.source().source_id(),
+            range,
+        )
     }
 
     pub(crate) fn text(&self) -> &str {
@@ -57,6 +69,7 @@ pub(crate) fn lookup_diagnostic<T, C>(
     let kind = match result {
         MemberLookupResult::Found(_) => return None,
         MemberLookupResult::NotFound => DiagnosticKind::BindingUnresolvedName,
+        MemberLookupResult::UndeclaredDependency => DiagnosticKind::BindingUndeclaredDependency,
         MemberLookupResult::WrongKind(_) => DiagnosticKind::BindingWrongNameKind,
         MemberLookupResult::Ambiguous(_) => DiagnosticKind::BindingAmbiguousName,
         MemberLookupResult::Inaccessible(_) => DiagnosticKind::BindingInaccessibleName,
@@ -75,6 +88,12 @@ pub(crate) fn lookup_diagnostic<T, C>(
         reference.span(),
     ))
     .with_arg(DiagnosticArg::referenced_name(reference.text()));
+
+    if kind == DiagnosticKind::BindingUndeclaredDependency {
+        diagnostic = diagnostic.with_note(bray_diagnostics::DiagnosticNote::new(
+            bray_diagnostics::DiagnosticNoteKind::ModuleDependencyRequiresUsing,
+        ));
+    }
 
     if kind == DiagnosticKind::BindingWrongNameKind {
         diagnostic = diagnostic.with_arg(DiagnosticArg::expected_name_kind(expected));

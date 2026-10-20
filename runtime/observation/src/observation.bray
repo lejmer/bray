@@ -1,5 +1,7 @@
 trusted internal module bray.runtime.observation;
 
+using core.target;
+using core.atomic;
 using std.fs;
 using std.bytes;
 using std.io;

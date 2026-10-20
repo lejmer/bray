@@ -1,6 +1,8 @@
 @link(name = "bray_allocation_probe")
 trusted module ordinary_finalization;
 
+using core.atomic;
+
 @abi(c)
 @symbol(name = "bray_allocation_probe_begin")
 extern trusted func deny_allocation() -> u32

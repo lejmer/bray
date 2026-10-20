@@ -388,6 +388,20 @@ where
 
             outcome
         }
+        MemberLookupResult::UndeclaredDependency => {
+            let reference = crate::lookup::NameReference::from_path(&path, path.full_range());
+
+            diagnostics.add(
+                crate::lookup::lookup_diagnostic(
+                    &reference,
+                    bray_diagnostics::DiagnosticNameKind::Symbol,
+                    &MemberLookupResult::<ResolvedName>::UndeclaredDependency,
+                )
+                .expect("undeclared overload-arm dependency produces a diagnostic"),
+            );
+
+            DeclarationCandidateOutcome::Ignored
+        }
         MemberLookupResult::NotFound => DeclarationCandidateOutcome::Ignored,
     };
 
@@ -688,6 +702,7 @@ const fn state_for_unresolved_reference(
     match kind {
         BoundUnresolvedReferenceKind::Inaccessible => CallableCandidateTemplateState::Inaccessible,
         BoundUnresolvedReferenceKind::NotFound
+        | BoundUnresolvedReferenceKind::UndeclaredDependency
         | BoundUnresolvedReferenceKind::WrongKind
         | BoundUnresolvedReferenceKind::Ambiguous
         | BoundUnresolvedReferenceKind::Malformed => CallableCandidateTemplateState::Recovered,

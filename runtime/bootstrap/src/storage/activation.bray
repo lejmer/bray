@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.storage;
 
+using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap;
 

@@ -1,6 +1,12 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.process;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.windows;
+using internal std.platform;
+
 @copy
 internal struct WindowsChildHandles
 {

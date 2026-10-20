@@ -51,6 +51,12 @@ pub(super) fn bray(target: &TargetDescription, digest: &str) -> Result<String, S
     writeln!(source, "trusted module std.os.{};", target.system)
         .expect("writing to a string must succeed");
 
+    source.push('\n');
+
+    for dependency in &target.usings {
+        writeln!(source, "using {dependency};").expect("writing to a string must succeed");
+    }
+
     render_scalars(&mut source, target);
 
     for constant in &target.constants {

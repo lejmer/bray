@@ -134,6 +134,9 @@ fn combine_pattern_lookups(
                 }
             }
             MemberLookupResult::NotFound => {}
+            MemberLookupResult::UndeclaredDependency => {
+                return MemberLookupResult::UndeclaredDependency;
+            }
             MemberLookupResult::WrongKind(candidates) => {
                 wrong_kind.extend(candidates);
             }

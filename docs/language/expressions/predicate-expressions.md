@@ -24,6 +24,8 @@ A predicate expression with type `bool` can serve as an ordinary contract requir
 A trusted predicate call can appear in a contract clause when prefixed with `trusted`.
 
 ```bray
+using core.memory;
+
 requires(
     length <= capacity,
     trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),

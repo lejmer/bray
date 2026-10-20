@@ -1,5 +1,7 @@
 module std.memory;
 
+using core.memory;
+
 extern func address_of<T>(pos value: &T) -> RawPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),

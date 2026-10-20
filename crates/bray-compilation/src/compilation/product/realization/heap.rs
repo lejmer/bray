@@ -334,6 +334,8 @@ mod tests {
             PackageIdentity::try_new("std").unwrap(),
             vec![source_input(
                 r#"trusted internal module std.runtime.memory;
+
+using core.memory;
 trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
 {
     return core.memory.null<u8>();

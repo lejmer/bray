@@ -10,6 +10,11 @@ count
 
 A name expression resolves to a visible binding or declaration in expression context.
 
+Local bindings, parameters, declarations of the current logical module, and compiler-known ambient names are available
+without `using`. A name that begins a path into another module does not make that dependency implicit. The complete
+named path must be covered by a `using` declaration. See
+[Using declarations](../modules-and-packages/using-declarations.md).
+
 A name expression can produce a value, an access path, a callable declaration, a callable value, a type-level entity, a
 module entity, a package entity, or another compile-time entity depending on the resolved declaration.
 

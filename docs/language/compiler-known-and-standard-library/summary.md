@@ -5,7 +5,8 @@ Compiler-known declarations have language-defined identity and contracts.
 Compiler-provided declarations are compiler-known declarations whose implementation is supplied by the compiler while
 preserving ordinary declaration surfaces.
 
-Compiler-known declarations are available without imports when target-available.
+Ambient compiler-known names are available without `using` when target-available. References into named
+compiler-known modules require a matching `using` under the ordinary cross-module dependency rules.
 
 The ambient `target` path exposes compiler-known target properties for the selected target profile without occupying
 `std`.

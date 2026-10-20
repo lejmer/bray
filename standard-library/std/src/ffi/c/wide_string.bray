@@ -1,6 +1,11 @@
 @target(target.c.WCHAR == "u16" || target.c.WCHAR == "i32")
 module std.ffi.c;
 
+using std.bytes;
+using std.character;
+using std.collection;
+using std.memory;
+
 @copy
 struct BorrowedWideString
 {

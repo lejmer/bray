@@ -205,6 +205,8 @@ fn imported_visibility_is_capped_by_type_and_module_ancestors() {
                 r#"
                 module app;
 
+                using example.package;
+
                 using internal example.package.{module};
 
                 func check()
@@ -667,6 +669,7 @@ fn internal_reexports_preserve_identity_without_transferring_acknowledgement() {
         r#"
         module api;
 
+        using original;
         using internal original.hidden;
         export original.hidden;
         export original.visible;

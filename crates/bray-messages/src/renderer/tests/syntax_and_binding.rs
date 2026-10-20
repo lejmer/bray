@@ -301,3 +301,42 @@ fn renderer_renders_binding_diagnostics_from_structured_arguments() {
         "alternative patterns must bind the same names"
     );
 }
+
+#[test]
+fn renderer_identifies_an_undeclared_module_dependency_and_its_correction() {
+    let span = SourceSpan::empty(SourceId::new(0), TextSize::new(5));
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(5),
+        DiagnosticKind::BindingUndeclaredDependency,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::NameReference,
+        span,
+    ))
+    .with_arg(DiagnosticArg::referenced_name("codec.decode"))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ModuleDependencyRequiresUsing,
+    ));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(
+        rendered.message(),
+        "path 'codec.decode' has no matching using declaration"
+    );
+
+    assert_eq!(rendered.primary_span(), Some(span));
+
+    assert_eq!(
+        rendered.notes()[0].rendered_kind(),
+        RenderedDiagnosticNoteKind::Help
+    );
+
+    assert_eq!(
+        rendered.notes()[0].message(),
+        "declare the referenced package, module or declaration with using in this module"
+    );
+}

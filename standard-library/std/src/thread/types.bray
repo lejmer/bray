@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted module std.thread;
 
+using core.atomic;
 using std.atomic;
 using std.memory;
 using std.run;

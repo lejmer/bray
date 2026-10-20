@@ -9,13 +9,14 @@ use std::sync::Arc;
 
 #[test]
 fn memory_operations_publish_lazily_from_compiler_known_hooks() {
-    let source = concat!(
-        "module app;\n",
-        "func main()\n",
-        "{\n",
-        "    let pointer = core.memory.null<i32>();\n",
-        "}\n",
-    );
+    let source = r#"module app;
+
+using core.memory;
+func main()
+{
+    let pointer = core.memory.null<i32>();
+}
+"#;
 
     let compilation = compilation_with_target_operations(source, true, false);
 
@@ -92,13 +93,14 @@ fn memory_operations_publish_lazily_from_compiler_known_hooks() {
 
 #[test]
 fn compiler_known_callable_parameters_supply_default_templates() {
-    let source = concat!(
-        "trusted module app;\n",
-        "trusted func main() uses(manual_alloc)\n",
-        "{\n",
-        "    let pointer = trusted core.memory.allocate(bytes = 16, align = 4);\n",
-        "}\n",
-    );
+    let source = r#"trusted module app;
+
+using core.memory;
+trusted func main() uses(manual_alloc)
+{
+    let pointer = trusted core.memory.allocate(bytes = 16, align = 4);
+}
+"#;
 
     let compilation = compilation_with_target_operations(source, true, true);
 
@@ -123,13 +125,14 @@ fn compiler_known_callable_parameters_supply_default_templates() {
 #[test]
 fn unavailable_memory_operations_publish_structured_target_diagnostics() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "module app;\n",
-            "func main()\n",
-            "{\n",
-            "    let pointer = core.memory.null<i32>();\n",
-            "}\n",
-        ),
+        r#"module app;
+
+using core.memory;
+func main()
+{
+    let pointer = core.memory.null<i32>();
+}
+"#,
         false,
         false,
     );
@@ -162,21 +165,24 @@ fn unavailable_memory_operations_publish_structured_target_diagnostics() {
 
 #[test]
 fn invalid_target_control_contracts_publish_structured_diagnostics() {
-    let compilation = compilation(concat!(
-        "trusted module app;\n",
-        "trusted func main() -> i32\n",
-        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-        "{\n",
-        "    return trusted core.target.assembly<((i32, i32), ), (i32, )>(\n",
-        "        template = \"\",\n",
-        "        constraints = \"=reg,reg\",\n",
-        "        clobbers = \"\",\n",
-        "        features = \"\",\n",
-        "        options = 0,\n",
-        "        inputs = ((1, 2),),\n",
-        "    ).0;\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"trusted module app;
+
+using core.target;
+trusted func main() -> i32
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    return trusted core.target.assembly<((i32, i32), ), (i32, )>(
+        template = "",
+        constraints = "=reg,reg",
+        clobbers = "",
+        features = "",
+        options = 0,
+        inputs = ((1, 2),),
+    ).0;
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -194,51 +200,55 @@ fn invalid_target_control_contracts_publish_structured_diagnostics() {
 fn invalid_memory_obligations_publish_structured_semantic_diagnostics() {
     let cases = [
         (
-            concat!(
-                "trusted module app;\n",
-                "trusted func main() -> u8 uses(raw_memory)\n",
-                "{\n",
-                "    let pointer = core.memory.null<u8>();\n",
-                "    return core.memory.read<u8>(pointer);\n",
-                "}\n",
-            ),
+            r#"trusted module app;
+
+using core.memory;
+trusted func main() -> u8 uses(raw_memory)
+{
+    let pointer = core.memory.null<u8>();
+    return core.memory.read<u8>(pointer);
+}
+"#,
             DiagnosticKind::CheckingMissingTrustedMemoryGuarantees,
         ),
         (
-            concat!(
-                "trusted module app;\n",
-                "trusted func main() -> u8 uses(raw_memory)\n",
-                "{\n",
-                "    let pointer = core.memory.null<u8>();\n",
-                "    return trusted core.memory.read<u8>(pointer);\n",
-                "}\n",
-            ),
+            r#"trusted module app;
+
+using core.memory;
+trusted func main() -> u8 uses(raw_memory)
+{
+    let pointer = core.memory.null<u8>();
+    return trusted core.memory.read<u8>(pointer);
+}
+"#,
             DiagnosticKind::CheckingUninitializedRawStorage,
         ),
         (
-            concat!(
-                "trusted module app;\n",
-                "trusted func main() uses(manual_alloc, raw_memory, unchecked_init)\n",
-                "{\n",
-                "    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);\n",
-                "\n",
-                "    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
-                "    trusted core.memory.write<u8>(pointer, 1);\n",
-                "}\n",
-            ),
+            r#"trusted module app;
+
+using core.memory;
+trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);
+
+    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+    trusted core.memory.write<u8>(pointer, 1);
+}
+"#,
             DiagnosticKind::CheckingMemoryOperationAfterDeallocation,
         ),
         (
-            concat!(
-                "trusted module app;\n",
-                "trusted func main() uses(manual_alloc, raw_memory, unchecked_init)\n",
-                "{\n",
-                "    let pointer = trusted core.memory.allocate(bytes = 1, align = 1);\n",
-                "\n",
-                "    trusted core.memory.write<u8>(pointer, 1);\n",
-                "    trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);\n",
-                "}\n",
-            ),
+            r#"trusted module app;
+
+using core.memory;
+trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+
+    trusted core.memory.write<u8>(pointer, 1);
+    trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
+}
+"#,
             DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
         ),
     ];
@@ -289,24 +299,25 @@ fn invalid_memory_obligations_publish_structured_semantic_diagnostics() {
 #[test]
 fn invalidated_memory_reports_every_branch_deallocation_origin() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "trusted module app;\n",
-            "trusted func main(pos condition: bool) uses(manual_alloc, raw_memory, unchecked_init)\n",
-            "{\n",
-            "    let allocated = trusted core.memory.allocate(bytes = 0, align = 1);\n",
-            "    let forwarded = allocated;\n",
-            "    let pointer = forwarded;\n",
-            "    if condition\n",
-            "    {\n",
-            "        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
-            "    }\n",
-            "    else\n",
-            "    {\n",
-            "        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
-            "    }\n",
-            "    trusted core.memory.write<u8>(pointer, 1);\n",
-            "}\n",
-        ),
+        r#"trusted module app;
+
+using core.memory;
+trusted func main(pos condition: bool) uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let allocated = trusted core.memory.allocate(bytes = 0, align = 1);
+    let forwarded = allocated;
+    let pointer = forwarded;
+    if condition
+    {
+        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+    }
+    else
+    {
+        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+    }
+    trusted core.memory.write<u8>(pointer, 1);
+}
+"#,
         true,
         true,
     );
@@ -380,6 +391,8 @@ fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             func forward(pos other: RawPointer<u8>, pos pointer: RawPointer<u8>) -> RawPointer<u8>
             {{
                 return {result};
@@ -448,6 +461,8 @@ fn checked_writes_preserve_unrelated_raw_initialization() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Cell {{ mut value: u8; }}
             func rewrite(pos cell: &mut Cell) {{ cell.value = 2; }}
             trusted func main() -> u8 uses(raw_memory, unchecked_init) {{
@@ -522,6 +537,8 @@ fn raw_memory_aliases_share_consumption_and_retirement() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Payload {{ value: u8; }}
             trusted func main() uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
             {{
@@ -558,6 +575,8 @@ fn raw_memory_aliases_share_consumption_and_retirement() {
 fn conditional_raw_initialization_retains_the_possible_cleanup_obligation() {
     let source = r#"
         trusted module app;
+
+        using core.memory;
         trusted func main(pos initialize: bool) uses(manual_alloc, raw_memory, unchecked_init)
         {
             let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
@@ -654,6 +673,8 @@ fn ordinary_ownership_observes_raw_target_transitions() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Payload {{ value: u8; }}
             struct Pair {{ mut left: Payload; mut right: Payload; }}
             trusted func main() uses(raw_memory, unchecked_init, layout_reinterpret)
@@ -706,6 +727,8 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Payload {{ value: u8; }}
             struct Pair {{ mut left: Payload; mut right: Payload; }}
             trusted func main() uses(raw_memory, unchecked_init)
@@ -781,6 +804,8 @@ fn cleanup_without_external_mutation_preserves_raw_initialization() {
     let compilation = compilation_with_target_operations(
         r#"
         trusted module app;
+
+        using core.memory;
         struct Guard { flag: bool; consume func destroy() {} }
         trusted func main() -> u8 uses(raw_memory, unchecked_init) {
             let mut value: u8 = 1;

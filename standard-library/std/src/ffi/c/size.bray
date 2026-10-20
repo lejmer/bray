@@ -1,6 +1,8 @@
 @target(target.c.SIZE == "usize")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `size_t` when `target.c.SIZE` selects `usize`.

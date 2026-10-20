@@ -91,6 +91,8 @@ pub enum DiagnosticNoteKind {
     DirectiveArgumentMustHaveCompleteForm,
     /// Supply one generic argument for each declared generic parameter.
     GenericArgumentCountMustMatch,
+    /// Declare the cross-module path with using in the referencing module.
+    ModuleDependencyRequiresUsing,
     /// Supply type syntax to a generic type parameter.
     GenericArgumentRequiresType,
     /// Attach generic arguments directly to a declaration name.
@@ -198,6 +200,7 @@ impl DiagnosticNoteKind {
                 "directive_argument_must_have_complete_form"
             }
             Self::GenericArgumentCountMustMatch => "generic_argument_count_must_match",
+            Self::ModuleDependencyRequiresUsing => "module_dependency_requires_using",
             Self::GenericArgumentRequiresType => "generic_argument_requires_type",
             Self::GenericApplicationRequiresDeclaredName => {
                 "generic_application_requires_declared_name"

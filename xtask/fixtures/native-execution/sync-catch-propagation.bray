@@ -1,5 +1,7 @@
 module app;
 
+using core.atomic;
+
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 internal struct CleanupProbe

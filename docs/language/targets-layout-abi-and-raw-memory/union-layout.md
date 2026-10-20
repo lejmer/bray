@@ -56,6 +56,8 @@ union CStatus
 `tag = none` selects untagged overlapping payload storage with no represented discriminant.
 
 ```bray
+using std.ffi.c;
+
 @layout(c, tag = none)
 union NativeValue
 {

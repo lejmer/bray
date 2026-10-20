@@ -135,6 +135,8 @@ pub enum MemberLookupResult<T, C = T> {
     Found(T),
     /// No member occupies the requested ordinary name.
     NotFound,
+    /// A named cross-module path has no matching source using declaration.
+    UndeclaredDependency,
     /// One member occupies the name but has the wrong semantic category.
     WrongKind(Box<[C]>),
     /// More than one accessible member occupies the ordinary name.
@@ -155,6 +157,7 @@ impl<T, C> MemberLookupResult<T, C> {
         match self {
             Self::Found(value) => MemberLookupResult::Found(map_found(value)),
             Self::NotFound => MemberLookupResult::NotFound,
+            Self::UndeclaredDependency => MemberLookupResult::UndeclaredDependency,
             Self::WrongKind(candidates) => MemberLookupResult::WrongKind(
                 candidates
                     .into_vec()
@@ -202,6 +205,7 @@ where
                 None => MemberLookupResult::WrongKind(vec![id].into_boxed_slice()),
             },
             Self::NotFound => MemberLookupResult::NotFound,
+            Self::UndeclaredDependency => MemberLookupResult::UndeclaredDependency,
             Self::WrongKind(candidates) => MemberLookupResult::WrongKind(candidates),
             Self::Ambiguous(candidates) => MemberLookupResult::Ambiguous(candidates),
             Self::Inaccessible(candidates) => MemberLookupResult::Inaccessible(candidates),
