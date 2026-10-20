@@ -564,7 +564,7 @@ pub enum MirTerminatorKind {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirTerminator {
     source: MirSourceAnchor,
-    kind: MirTerminatorKind,
+    pub(crate) kind: MirTerminatorKind,
 }
 
 impl MirTerminator {

@@ -186,7 +186,7 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
-        PackageInterfaceExportError::ExecutionEvidence(diagnostic) => {
+        PackageInterfaceExportError::SourceDiagnostic(diagnostic) => {
             // The emitted diagnostic must outlive the cached export failure.
             diagnostic.as_ref().clone()
         }

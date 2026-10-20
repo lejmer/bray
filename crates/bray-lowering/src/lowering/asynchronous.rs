@@ -104,10 +104,19 @@ impl Lowerer<'_> {
             self.builder.block_kind(block),
         )?;
 
-        self.branch_frame_cancellation(block, &source, resume, cancellation)?;
+        let mut value = Some(value);
+
+        let continuation = crate::continuation::forward_cleanup_result(
+            &mut self.builder,
+            &source,
+            resume,
+            &mut value,
+        )?;
+
+        self.branch_frame_cancellation(block, &source, continuation, cancellation)?;
         self.input_temporaries.truncate(retained);
 
-        Ok(LoweredExpression::continuing(resume, Some(value), source))
+        Ok(LoweredExpression::continuing(resume, value, source))
     }
 
     pub(super) fn lower_awaited_frame(
@@ -187,7 +196,7 @@ impl Lowerer<'_> {
         &mut self,
         current: MirBlockId,
         source: &MirSourceAnchor,
-        resume: MirBlockId,
+        resume: MirEdge,
         cancellation: bray_ir::MirCleanupEdge,
     ) -> Result<(), LoweringError> {
         let cancelled = self
@@ -221,7 +230,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Branch {
                 condition: MirOperand::Value(requested),
                 then_edge: MirEdge::new(cancelled, []),
-                else_edge: MirEdge::new(resume, []),
+                else_edge: resume,
             },
         )?;
 

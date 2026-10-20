@@ -298,7 +298,9 @@ where
         crate::dependency::returned::resolved_result_template(request, Some(callable), template)
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    instantiated = instantiated.with_normal_completion(template.normal_completion());
+    instantiated = instantiated
+        .with_normal_completion(template.normal_completion())
+        .with_normal_storage_preservation(template.preserves_storage_on_normal_return());
 
     {
         let mut context = CallInstantiationContext::hidden(

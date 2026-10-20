@@ -1,7 +1,10 @@
-use bray_binder::BindingQueryContext;
-use bray_bound_tree::{BoundCallableTarget, BoundExpressionId, CheckedTemplateNode, CheckedTemplateNodeId, CheckedTemplateOperation, SelectedArgument, SemanticSelection};
-use crate::fact::FactQueryError;
 use super::build::{SourceTemplateBuilder, incomplete, index};
+use crate::fact::FactQueryError;
+use bray_binder::BindingQueryContext;
+use bray_bound_tree::{
+    BoundCallableTarget, BoundExpressionId, CheckedTemplateNode, CheckedTemplateNodeId,
+    CheckedTemplateOperation, SelectedArgument, SemanticSelection,
+};
 
 impl SourceTemplateBuilder<'_, '_, '_> {
     pub(super) fn call(
@@ -39,16 +42,29 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
         if let Some(receiver) = call.receiver() {
             let operand = self.expression(receiver.expression())?;
+
             let operand = match receiver.mode() {
                 bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable => {
-                    let kind = if receiver.mode() == bray_symbols::ReceiverMode::Shared { bray_symbols::BorrowKind::Shared } else { bray_symbols::BorrowKind::Mutable };
+                    let kind = if receiver.mode() == bray_symbols::ReceiverMode::Shared {
+                        bray_symbols::BorrowKind::Shared
+                    } else {
+                        bray_symbols::BorrowKind::Mutable
+                    };
+
                     let ty = receiver.input_type(self.context.semantic_values())?;
                     let node = CheckedTemplateNodeId::new(index(self.nodes.len()));
-                    self.nodes.push(CheckedTemplateNode::new(CheckedTemplateOperation::Borrow { kind, operand }, ty));
+
+                    self.nodes.push(CheckedTemplateNode::new(
+                        CheckedTemplateOperation::Borrow { kind, operand },
+                        ty,
+                    ));
+
                     node
                 }
-                bray_symbols::ReceiverMode::Consuming | bray_symbols::ReceiverMode::ConsumingMutable => operand,
+                bray_symbols::ReceiverMode::Consuming
+                | bray_symbols::ReceiverMode::ConsumingMutable => operand,
             };
+
             arguments.push(operand);
             ordinals.push(0);
         }
@@ -65,14 +81,17 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             };
 
             arguments.push(self.converted_expression(*expression, conversion)?);
-            ordinals.push(ordinal.checked_add(offset).expect("checked callable ordinal includes its receiver"));
+
+            ordinals.push(
+                ordinal
+                    .checked_add(offset)
+                    .expect("checked callable ordinal includes its receiver"),
+            );
         }
 
         let implementation = match call.witnesses() {
             [] => None,
-            [witness] => Some(
-                self.implementation_reference(witness.witness())?,
-            ),
+            [witness] => Some(self.implementation_reference(witness.witness())?),
             _ => return Err(incomplete("invalid_predicate_dispatch")),
         };
 
@@ -95,17 +114,36 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
         let mut arguments = Vec::with_capacity(predicate.arguments().len());
         let mut ordinals = Vec::with_capacity(predicate.arguments().len());
+
         for argument in predicate.arguments() {
             let value = self.expression(argument.expression())?;
             let node = CheckedTemplateNodeId::new(index(self.nodes.len()));
-            self.nodes.push(CheckedTemplateNode::new(CheckedTemplateOperation::Convert { value, target: argument.ty() }, argument.ty()));
+
+            self.nodes.push(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Convert {
+                    value,
+                    target: argument.ty(),
+                },
+                argument.ty(),
+            ));
+
             arguments.push(node);
-            let parameter = self.context.symbols().predicate_parameter(argument.parameter())
+
+            let parameter = self
+                .context
+                .symbols()
+                .predicate_parameter(argument.parameter())
                 .expect("checked predicate argument retains its selected parameter");
+
             ordinals.push(parameter.ordinal());
         }
 
-        Ok(CheckedTemplateOperation::ordered_call(callable, substitution, arguments, ordinals, None))
+        Ok(CheckedTemplateOperation::ordered_call(
+            callable,
+            substitution,
+            arguments,
+            ordinals,
+            None,
+        ))
     }
-
 }

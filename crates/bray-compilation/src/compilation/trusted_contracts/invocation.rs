@@ -12,9 +12,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<TrustedCallContract>, FactQueryError> {
-        use bray_bound_tree::{
-            SelectedOperation,
-        };
+        use bray_bound_tree::SelectedOperation;
 
         if let SelectedOperation::Construction(construction) = operation
             && let Some(contract) = self.trusted_storage_formation(construction, cancellation)?
@@ -22,7 +20,9 @@ impl Compilation {
             return Ok(Some(contract));
         }
 
-        let Some(target) = operation.invoked_callable() else { return Ok(None); };
+        let Some(target) = operation.invoked_callable() else {
+            return Ok(None);
+        };
 
         let context = self.binding_context(cancellation)?;
 

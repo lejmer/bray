@@ -110,7 +110,7 @@ fn hash_source_origin(
         }
         MirSourceOrigin::GeneratedHelper(_) => {
             digest.write_u8(3);
-            hash_lifecycle_key(mir, digest);
+            hash_generated_helper_key(mir, digest);
         }
         MirSourceOrigin::ImportedExecutable(key) => {
             digest.write_u8(4);
@@ -145,7 +145,7 @@ fn hash_source_anchor(
         }
         MirSourceAnchor::GeneratedHelper(_) => {
             digest.write_u8(3);
-            hash_lifecycle_key(mir, digest);
+            hash_generated_helper_key(mir, digest);
         }
         MirSourceAnchor::ImportedExecutable(key) => {
             digest.write_u8(4);
@@ -168,10 +168,10 @@ fn hash_source_anchor(
     Ok(())
 }
 
-fn hash_lifecycle_key(mir: &MirUnit, digest: &mut StableDigestHasher) {
+fn hash_generated_helper_key(mir: &MirUnit, digest: &mut StableDigestHasher) {
     match mir.key() {
         MirUnitKey::GeneratedLifecycle(key) => key.hash(digest),
-        MirUnitKey::Predicate(_) => digest.write(b"predicate"),
+        MirUnitKey::Predicate(key) => key.hash(digest),
         key => panic!("generated helper source requires a generated MIR key: {key:?}"),
     }
 }

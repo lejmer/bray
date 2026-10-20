@@ -390,10 +390,20 @@ fn validate_operation_references(
             ordinals,
         } => {
             let mut ordered = ordinals.to_vec();
+
             ordered.sort_unstable();
-            if ordered.len() != arguments.len() || ordered.iter().enumerate().any(|(index, ordinal)| usize::try_from(*ordinal).ok() != Some(index)) {
-                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+
+            if ordered.len() != arguments.len()
+                || ordered
+                    .iter()
+                    .enumerate()
+                    .any(|(index, ordinal)| usize::try_from(*ordinal).ok() != Some(index))
+            {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
+
             validate_call_references(context, callable, *substitution, implementation.as_ref())?;
         }
         InterfaceCheckedTemplateOperation::Index { call, .. }

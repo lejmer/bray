@@ -8,3 +8,5 @@ mod tests;
 pub(super) use domain::StorageFlowDomain;
 pub(super) use input::StorageFlowInput;
 pub(in crate::analysis) use state::{StorageAbsence, StorageFlowState};
+
+pub(super) use state::merge_fully_moved;

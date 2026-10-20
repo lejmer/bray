@@ -18,7 +18,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let semantic_arguments = semantic_arguments.as_slice();
 
         let default_helper = match call.target() {
-            MirCallTarget::Predicate(reference) => Some(super::super::support::next_helper(&mut helpers, &bray_ir::MirHelperReference::Predicate(reference.clone()))),
+            MirCallTarget::Predicate(reference) => Some(super::super::support::next_helper(
+                &mut helpers,
+                &bray_ir::MirHelperReference::Predicate(reference.clone()),
+            )),
             MirCallTarget::DefaultValue { provider, .. } => {
                 Some(super::super::support::next_helper(
                     &mut helpers,

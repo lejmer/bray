@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateInputKind, CheckedTemplateKind};
 use bray_package_interface::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateId,
-    InterfaceDeclarationTemplate, InterfaceSupportEntity, InterfaceTargetPropertyDependency,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceDeclarationTemplate,
+    InterfaceSupportEntity, InterfaceTargetPropertyDependency,
 };
 use bray_symbols::{
     AnySymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
@@ -117,9 +117,9 @@ pub(super) fn runtime_default_inputs(
                         .ok_or_else(|| incomplete(parameter.into()))?;
 
                     (
-                        CheckedTemplateInputKind::Parameter(
-                            bray_symbols::SymbolOrdinal::new(ordinal),
-                        ),
+                        CheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
+                            ordinal,
+                        )),
                         AnySymbolId::CallableParameter(parameter),
                     )
                 }

@@ -1,10 +1,7 @@
-use crate::compilation::template::{generic_template_inputs};
+use crate::compilation::template::generic_template_inputs;
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateInputKind, CheckedTemplateKind};
-use bray_package_interface::{
-    InterfacePredicateDefinition,
-    InterfacePredicateDefinitionState,
-};
+use bray_package_interface::{InterfacePredicateDefinition, InterfacePredicateDefinitionState};
 use bray_symbols::{
     AnySymbolId, PredicateDefinitionState, PredicateDefinitionSymbolId,
     PredicateSignatureTemplateQuery, SymbolOrdinal, SymbolQueryRequest,
@@ -104,10 +101,10 @@ pub(super) fn export_predicate_semantics(
         ));
     }
 
-    inputs.extend(generic_template_inputs(
-        compilation,
-        generic_parameters(binder, symbol)?,
-    ).map_err(super::super::fact_query_export_error)?);
+    inputs.extend(
+        generic_template_inputs(compilation, generic_parameters(binder, symbol)?)
+            .map_err(super::super::fact_query_export_error)?,
+    );
 
     let kind = CheckedTemplateKind::PredicateDefinition;
 

@@ -358,9 +358,25 @@ impl MirTerminatorKind {
             Self::Iterate { cursor, .. } | Self::RangeIterate { cursor, .. } => {
                 visit_place_operands(cursor, &mut visit)
             }
+            Self::CheckCallOutcome {
+                panicked,
+                cancelled,
+                completed_report,
+                ..
+            } => {
+                for report in [
+                    Some(panicked.report()),
+                    Some(cancelled.report()),
+                    completed_report.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    visit_place_operands(report, &mut visit);
+                }
+            }
             Self::Goto(_)
             | Self::Unreachable
-            | Self::CheckCallOutcome { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::CancelCurrentRun { .. } => {}
@@ -404,7 +420,7 @@ pub fn for_each_operation_storage(
     operation: &MirOperationKind,
     mut visit: impl FnMut(MirStorageId),
 ) {
-    operation.for_each_operand(|operand| visit_operand_storage(operand, &mut visit));
+    operation.for_each_operand(|operand| visit_operand_root(operand, &mut visit));
 
     if let Some(collection) = operation.cleanup_collection() {
         for place in collection.places() {
@@ -468,14 +484,14 @@ pub fn for_each_operation_storage(
             report,
             ..
         }) => {
-            visit_place_storage(incident, &mut visit);
-            visit_place_storage(report, &mut visit);
+            visit(incident.storage());
+            visit(report.storage());
         }
         MirOperationKind::Async(
             MirAsyncOperation::ResolveTask { task: incident, .. }
             | MirAsyncOperation::RequestTaskCancellation { task: incident, .. },
         ) => {
-            visit_place_storage(incident, &mut visit);
+            visit(incident.storage());
         }
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
@@ -503,7 +519,7 @@ pub fn for_each_terminator_storage(
     terminator: &MirTerminatorKind,
     mut visit: impl FnMut(MirStorageId),
 ) {
-    terminator.for_each_input(|operand| visit_operand_storage(operand, &mut visit));
+    terminator.for_each_input(|operand| visit_operand_root(operand, &mut visit));
 
     match terminator {
         MirTerminatorKind::Goto(edge) => visit_edge_storage(edge, &mut visit),
@@ -553,7 +569,7 @@ pub fn for_each_terminator_storage(
         }
         MirTerminatorKind::TakeCallReport { completed, report } => {
             visit_edge_storage(completed, &mut visit);
-            visit_place_storage(report, &mut visit);
+            visit(report.storage());
         }
         MirTerminatorKind::CheckCallOutcome {
             completed,
@@ -564,11 +580,11 @@ pub fn for_each_terminator_storage(
             visit_edge_storage(completed, &mut visit);
 
             if let Some(report) = completed_report {
-                visit_place_storage(report, &mut visit);
+                visit(report.storage());
             }
 
-            visit_place_storage(panicked.report(), &mut visit);
-            visit_place_storage(cancelled.report(), &mut visit);
+            visit(panicked.report().storage());
+            visit(cancelled.report().storage());
         }
         MirTerminatorKind::BeginCleanup(cleanup)
         | MirTerminatorKind::ContinueCleanup(cleanup)
@@ -586,24 +602,14 @@ pub fn for_each_terminator_storage(
 
 fn visit_edge_storage(edge: &MirEdge, visit: &mut impl FnMut(MirStorageId)) {
     for argument in edge.arguments() {
-        visit_operand_storage(argument, visit);
+        argument.for_each_operand(|operand| visit_operand_root(operand, visit));
     }
 }
 
-fn visit_place_storage(place: &MirPlace, visit: &mut impl FnMut(MirStorageId)) {
-    visit(place.storage());
-
-    visit_place_operands(place, &mut |operand| {
-        visit_operand_storage(operand, visit);
-    });
-}
-
-fn visit_operand_storage(operand: &MirOperand, visit: &mut impl FnMut(MirStorageId)) {
-    operand.for_each_operand(|operand| {
-        if let MirOperand::Copy(place) | MirOperand::Move(place) = operand {
-            visit(place.storage());
-        }
-    });
+fn visit_operand_root(operand: &MirOperand, visit: &mut impl FnMut(MirStorageId)) {
+    if let MirOperand::Copy(place) | MirOperand::Move(place) = operand {
+        visit(place.storage());
+    }
 }
 
 #[cfg(test)]
@@ -664,7 +670,7 @@ mod tests {
 
         super::for_each_terminator_storage(&terminator, |storage| storages.push(storage));
 
-        assert_eq!(storages, [root, selector, root, selector]);
+        assert_eq!(storages, [selector, selector, root, root]);
     }
 
     #[test]
@@ -700,7 +706,55 @@ mod tests {
 
         operation.for_each_operand(|operand| visited.push(operand.clone()));
 
-        assert_eq!(visited, [selector, value]);
+        assert_eq!(visited, [selector.clone(), value]);
+
+        let report = crate::MirPlace::new(
+            crate::MirStorageId::from_slot(unit, 3),
+            [crate::MirProjection::new(
+                crate::MirProjectionKind::Index(selector.clone()),
+                ty,
+                ty,
+            )],
+            ty,
+        );
+
+        let terminator = crate::MirTerminatorKind::CheckCallOutcome {
+            completed: crate::MirEdge::new(crate::MirBlockId::from_slot(unit, 0), []),
+            panicked: crate::MirCallFailureEdge::new(
+                crate::MirBlockId::from_slot(unit, 1),
+                report.clone(),
+            ),
+            cancelled: crate::MirCallFailureEdge::new(
+                crate::MirBlockId::from_slot(unit, 2),
+                report.clone(),
+            ),
+            completed_report: Some(report.clone()),
+        };
+
+        visited.clear();
+        terminator.for_each_input(|operand| visited.push(operand.clone()));
+
+        assert_eq!(
+            visited,
+            [selector.clone(), selector.clone(), selector.clone()]
+        );
+
+        let edge = crate::MirTerminatorKind::Goto(crate::MirEdge::new(
+            crate::MirBlockId::from_slot(unit, 0),
+            [crate::MirOperand::Copy(report)],
+        ));
+
+        let mut storages = Vec::new();
+
+        super::for_each_terminator_storage(&edge, |storage| storages.push(storage));
+
+        assert_eq!(
+            storages,
+            [
+                crate::MirStorageId::from_slot(unit, 0),
+                crate::MirStorageId::from_slot(unit, 3)
+            ]
+        );
     }
 
     #[test]

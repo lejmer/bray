@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_symbols::TypeId;
 
@@ -104,6 +104,8 @@ pub fn inline_scalar_call(
 
     let join = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
+    let retained = continuation_values(caller, call_block, site, &mut continuation);
+    let mut forwarded = BTreeMap::new();
     let mut parameter_values = BTreeMap::new();
 
     for (block_id, _) in callee.blocks_with_ids() {
@@ -121,6 +123,24 @@ pub fn inline_scalar_call(
             block_values.insert(*storage, value);
         }
 
+        if !retained.is_empty() {
+            let values = retained
+                .iter()
+                .map(|value| {
+                    builder.push_block_parameter(
+                        callee_ids.block(block_id),
+                        source.clone(),
+                        caller
+                            .value(*value)
+                            .expect("retained caller value exists")
+                            .ty(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            forwarded.insert(block_id, values);
+        }
+
         parameter_values.insert(block_id, block_values);
     }
 
@@ -132,6 +152,22 @@ pub fn inline_scalar_call(
                 result_type.expect("call result type"),
             )?);
     }
+
+    let retained_parameters = retained
+        .iter()
+        .map(|value| {
+            let parameter = builder.push_block_parameter(
+                join,
+                source.clone(),
+                caller
+                    .value(*value)
+                    .expect("retained caller value exists")
+                    .ty(),
+            )?;
+
+            Ok((*value, parameter))
+        })
+        .collect::<Result<BTreeMap<_, _>, MirCapacityError>>()?;
 
     let mut next_value = builder.value_count();
 
@@ -153,11 +189,20 @@ pub fn inline_scalar_call(
         caller.unit(),
     )?;
 
+    let arguments = scalar_call_arguments(call, &parameters, &caller_ids)
+        .into_iter()
+        .chain(
+            retained
+                .iter()
+                .map(|value| MirOperand::Value(caller_ids.value(*value))),
+        )
+        .collect::<Vec<_>>();
+
     copy_unit_operations(
         caller,
         &mut caller_ids,
         &mut builder,
-        Some((site, join)),
+        Some((site, join, &retained_parameters)),
         None,
     )?;
 
@@ -171,9 +216,11 @@ pub fn inline_scalar_call(
 
     for (old, block) in caller.blocks_with_ids() {
         let terminator = if old == call_block_id {
-            let arguments = scalar_call_arguments(call, &parameters, &caller_ids);
-
-            MirTerminatorKind::Goto(MirEdge::new(callee_ids.block(callee.entry()), arguments))
+            // Each reconstruction owns the edge's operand descriptors.
+            MirTerminatorKind::Goto(MirEdge::new(
+                callee_ids.block(callee.entry()),
+                arguments.iter().cloned(),
+            ))
         } else {
             let mut kind = block.terminator().kind().clone();
 
@@ -189,60 +236,14 @@ pub fn inline_scalar_call(
         );
     }
 
-    for (old, block) in callee.blocks_with_ids() {
-        callee_ids.parameters = parameter_values[&old].clone();
-
-        let kind = match block.terminator().kind() {
-            MirTerminatorKind::Return { value, report } => {
-                assert!(
-                    report.is_none(),
-                    "scalar inlining requires a return without an owned report"
-                );
-
-                let arguments = value
-                    .iter()
-                    .map(|value| {
-                        let mut value = value.clone();
-
-                        value.remap_local_ids(&callee_ids);
-
-                        value
-                    })
-                    .collect::<Vec<_>>();
-
-                MirTerminatorKind::Goto(MirEdge::new(join, arguments))
-            }
-            other => {
-                let mut kind = other.clone();
-
-                remap_terminator(&mut kind, &callee_ids);
-
-                kind.try_for_each_edge_mut::<()>(|edge| {
-                    *edge = MirEdge::new(
-                        edge.target(),
-                        edge.arguments().iter().cloned().chain(
-                            callee_ids
-                                .parameters
-                                .values()
-                                .copied()
-                                .map(MirOperand::Value),
-                        ),
-                    );
-
-                    Ok(())
-                })
-                .expect("callee edges can be extended without failure");
-
-                kind
-            }
-        };
-
-        builder.set_terminator(
-            callee_ids.block(old),
-            block.terminator().source().clone(),
-            kind,
-        );
-    }
+    copy_callee_terminators(
+        callee,
+        &mut callee_ids,
+        &mut builder,
+        join,
+        &parameter_values,
+        &forwarded,
+    );
 
     remap_terminator(&mut continuation, &caller_ids);
     builder.set_terminator(join, call_block.terminator().source().clone(), continuation);
@@ -366,7 +367,11 @@ fn copy_unit_operations(
     unit: &MirUnit,
     ids: &mut LocalIds<'_>,
     builder: &mut MirUnitBuilder,
-    split: Option<(MirOperationId, MirBlockId)>,
+    split: Option<(
+        MirOperationId,
+        MirBlockId,
+        &BTreeMap<MirValueId, MirValueId>,
+    )>,
     parameter_values: Option<&BTreeMap<MirBlockId, BTreeMap<MirStorageId, MirValueId>>>,
 ) -> Result<(), MirCapacityError> {
     for (old, block) in unit.blocks_with_ids() {
@@ -378,9 +383,16 @@ fn copy_unit_operations(
         let mut destination = ids.block(old);
 
         for operation_id in block.operations() {
-            if let Some((site, continuation)) = split
+            if let Some((site, continuation, retained)) = split
                 && *operation_id == site
             {
+                // Uses after the split observe the join's parameters, while the prefix
+                // definitions and callee-entry arguments retain their original identities.
+                for (value, parameter) in retained {
+                    ids.values[value.to_index().expect("retained value has a local slot")] =
+                        Some(*parameter);
+                }
+
                 destination = continuation;
                 continue;
             }
@@ -405,4 +417,122 @@ fn copy_unit_operations(
     }
 
     Ok(())
+}
+
+fn continuation_values(
+    unit: &MirUnit,
+    block: &crate::MirBlock,
+    site: MirOperationId,
+    continuation: &mut MirTerminatorKind,
+) -> BTreeSet<MirValueId> {
+    let mut values = BTreeSet::new();
+
+    let mut visit = |operand: &MirOperand| {
+        if let MirOperand::Value(value) = operand {
+            let origin = unit
+                .value(*value)
+                .expect("valid continuation operand")
+                .origin();
+
+            if matches!(origin, crate::MirValueOrigin::BlockParameter(_))
+                || matches!(origin, crate::MirValueOrigin::Operation(operation) if operation.slot() < site.slot())
+            {
+                values.insert(*value);
+            }
+        }
+    };
+
+    for operation in block
+        .operations()
+        .iter()
+        .skip_while(|operation| **operation != site)
+        .skip(1)
+    {
+        unit.operation(*operation)
+            .expect("valid suffix operation")
+            .kind()
+            .for_each_operand(&mut visit);
+    }
+
+    continuation.for_each_input(&mut visit);
+
+    continuation
+        .try_for_each_edge_mut::<()>(|edge| {
+            for argument in edge.arguments() {
+                argument.for_each_operand(&mut visit);
+            }
+
+            Ok(())
+        })
+        .expect("reading continuation edges cannot fail");
+
+    values
+}
+
+fn copy_callee_terminators(
+    callee: &MirUnit,
+    ids: &mut LocalIds<'_>,
+    builder: &mut MirUnitBuilder,
+    join: MirBlockId,
+    parameters: &BTreeMap<MirBlockId, BTreeMap<MirStorageId, MirValueId>>,
+    forwarded: &BTreeMap<MirBlockId, Vec<MirValueId>>,
+) {
+    for (old, block) in callee.blocks_with_ids() {
+        // Each block resolves parameter reads to its own SSA arguments.
+        ids.parameters = parameters[&old].clone();
+
+        let retained = if forwarded.is_empty() {
+            &[][..]
+        } else {
+            forwarded[&old].as_slice()
+        };
+
+        let kind = match block.terminator().kind() {
+            MirTerminatorKind::Return { value, report } => {
+                assert!(
+                    report.is_none(),
+                    "scalar inlining requires a return without an owned report"
+                );
+
+                let arguments = value
+                    .iter()
+                    .map(|value| {
+                        let mut value = value.clone();
+
+                        value.remap_local_ids(ids);
+
+                        value
+                    })
+                    .chain(retained.iter().copied().map(MirOperand::Value))
+                    .collect::<Vec<_>>();
+
+                MirTerminatorKind::Goto(MirEdge::new(join, arguments))
+            }
+            other => {
+                let mut kind = other.clone();
+
+                remap_terminator(&mut kind, ids);
+
+                kind.try_for_each_edge_mut::<()>(|edge| {
+                    *edge = MirEdge::new(
+                        edge.target(),
+                        edge.arguments().iter().cloned().chain(
+                            ids.parameters
+                                .values()
+                                .copied()
+                                .map(MirOperand::Value)
+                                .chain(retained.iter().copied().map(MirOperand::Value)),
+                        ),
+                    );
+
+                    Ok(())
+                })
+                .expect("callee edges can be extended without failure");
+
+                kind
+            }
+        };
+
+        builder.set_terminator(ids.block(old), block.terminator().source().clone(), kind);
+    }
 }

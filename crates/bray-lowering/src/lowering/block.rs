@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundBlockExpression, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundLocalBinding,
 };
-use bray_ir::{MirBlockId, MirOperand, MirSourceAnchor};
+use bray_ir::{MirBlockId, MirEdge, MirOperand, MirSourceAnchor};
 use bray_symbols::TypeId;
 
 use super::LoweringError;
@@ -116,7 +116,13 @@ impl Lowerer<'_> {
                 bray_ir::MirBlockKind::Ordinary,
             )?;
 
-            self.branch_frame_cancellation(current, &source, resume, cancellation)?;
+            self.branch_frame_cancellation(
+                current,
+                &source,
+                MirEdge::new(resume, []),
+                cancellation,
+            )?;
+
             current = resume;
         }
 

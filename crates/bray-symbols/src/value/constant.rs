@@ -106,7 +106,9 @@ impl IntegerConstant {
     /// Returns the number of significant bits in the unsigned magnitude, or zero for zero.
     pub fn magnitude_bits(&self) -> usize {
         self.magnitude.first().map_or(0, |first| {
-            self.magnitude.len() * 8 - usize::try_from(first.leading_zeros()).expect("one byte's bit count fits the host")
+            self.magnitude.len() * 8
+                - usize::try_from(first.leading_zeros())
+                    .expect("one byte's bit count fits the host")
         })
     }
 

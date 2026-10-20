@@ -1,6 +1,3 @@
-
-
-
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer, export};
 
 #[test]
@@ -81,7 +78,9 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
         consumer.check_diagnostics()
     );
 
-    let result = consumer.codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_)));
+    let result = consumer.codegen_instance_count_for_test(|key| {
+        matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
+    });
 
     assert_eq!(result.unwrap(), 4);
 }

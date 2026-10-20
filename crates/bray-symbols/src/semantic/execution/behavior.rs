@@ -112,6 +112,13 @@ impl CallablePhaseBehavior {
         &self.predicate_requirements
     }
 
+    /// Whether invocation may need ordinary caller-side predicate evaluation.
+    pub fn has_runtime_requirements(&self) -> bool {
+        self.predicate_requirements
+            .iter()
+            .any(|predicate| predicate.requires_runtime_check())
+    }
+
     /// Returns guarantees established by normal completion of this phase.
     pub fn predicate_guarantees(&self) -> &[crate::PredicateSemanticSummary] {
         &self.predicate_guarantees
@@ -198,12 +205,6 @@ impl CallablePhaseBehavior {
     /// Returns whether panic or cancellation can escape this phase.
     pub const fn may_unwind(&self) -> bool {
         self.may_unwind
-    }
-
-    /// Includes the independent outcomes of caller-side runtime requirement evaluation.
-    pub fn include_runtime_requirement_checks(&mut self) {
-        self.may_unwind = true;
-        self.current_run_cancellation = CurrentRunCancellation::MayEnter;
     }
 
     /// Returns whether execution can enter cancellation for its current run.
@@ -308,15 +309,6 @@ impl CallablePhaseBehaviors {
     /// Replaces the invocation's inferred unwind behavior while retaining its other contracts.
     pub fn with_invocation_may_unwind(mut self, may_unwind: bool) -> Self {
         Arc::make_mut(&mut self.invocation).may_unwind = may_unwind;
-
-        self
-    }
-
-    /// Includes requirement helper outcomes in invocation, before deferred execution begins.
-    pub fn with_invocation_requirement_checks(mut self, required: bool) -> Self {
-        if required {
-            Arc::make_mut(&mut self.invocation).include_runtime_requirement_checks();
-        }
 
         self
     }

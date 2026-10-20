@@ -81,6 +81,10 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             )
             .with_normal_completion(
                 template.template.normal_completion() && template.evaluation_completes,
+            )
+            .with_normal_storage_preservation(
+                template.template.preserves_storage_on_normal_return()
+                    && template.evaluation_preserves_storage,
             );
 
     let contracts = super::super::references::with_reference_inputs(

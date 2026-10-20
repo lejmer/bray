@@ -150,12 +150,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     );
                 }
 
-                self.record_escape_effects(
-                    &mut memory,
+                let escaped = self.escape_effects(
+                    &memory,
                     effects.as_deref(),
                     receiver.as_ref().map(std::slice::from_ref).unwrap_or(&[]),
                     false,
+                    self.on_normal_path,
                 );
+
+                memory.escape_regions(escaped);
 
                 let mut invalidation = match effects.as_deref() {
                     Some(effects)
@@ -179,7 +182,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if let Some(effects) = &effects {
-                    self.record_resolved_effects(effects);
+                    self.record_resolved_effects(effects, self.on_normal_path);
                 } else {
                     self.record_effects(
                         &StorageInvalidation::unknown(),

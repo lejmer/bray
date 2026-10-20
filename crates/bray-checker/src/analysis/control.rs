@@ -187,7 +187,9 @@ where
                     suspended,
                     cancellation,
                     AnalysisEdgeKind::RunCancellation,
-                    None,
+                    Some(super::model::AnalysisRefinement::InvocationFailure(
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    )),
                 );
 
                 self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());

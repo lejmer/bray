@@ -32,7 +32,9 @@ mod tests {
                 compilation.check_diagnostics()
             );
 
-            let result = compilation.codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_)));
+            let result = compilation.codegen_instance_count_for_test(|key| {
+                matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
+            });
 
             assert!(result.is_ok(), "{source}: {result:?}");
         }

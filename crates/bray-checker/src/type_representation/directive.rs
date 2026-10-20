@@ -455,7 +455,7 @@ where
                             self.add_union_tag_diagnostic(
                                 DiagnosticUnionTagProblem::InferredValueTooWide {
                                     actual_bits: u64::try_from(maximum.magnitude_bits())
-                                    .unwrap_or(u64::MAX),
+                                        .unwrap_or(u64::MAX),
                                     maximum_bits: 128,
                                 },
                                 definition.span(),
@@ -671,8 +671,7 @@ fn tag_value_outside_type_problem(
         signed,
         width_bits,
         value_negative: value.sign() == IntegerSign::Negative,
-        value_bits: u64::try_from(value.magnitude_bits())
-            .unwrap_or(u64::MAX),
+        value_bits: u64::try_from(value.magnitude_bits()).unwrap_or(u64::MAX),
     }
 }
 

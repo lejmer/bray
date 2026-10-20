@@ -9,7 +9,7 @@ pub(super) fn push_package_interface_export_failure(
     use crate::compilation::PackageInterfaceExportError as Error;
 
     let reason = match error {
-        Error::ExecutionEvidence(diagnostic) => {
+        Error::SourceDiagnostic(diagnostic) => {
             fields.push(text_field(
                 "execution_evidence_diagnostic",
                 format!("{diagnostic:?}"),

@@ -19,10 +19,12 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     );
 
     let contracts = if deferred {
-        contracts.with_deferred_execution(
-            template.effects().iter().cloned(),
-            template.normal_completion(),
-        )
+        contracts
+            .with_deferred_execution(
+                template.effects().iter().cloned(),
+                template.normal_completion(),
+            )
+            .with_deferred_storage_preservation(template.preserves_storage_on_normal_return())
     } else {
         contracts
     };
@@ -59,6 +61,10 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         )?)
         .with_normal_completion(
             dependencies.evaluation_completes && (deferred || template.normal_completion()),
+        )
+        .with_normal_storage_preservation(
+            dependencies.evaluation_preserves_storage
+                && (deferred || template.preserves_storage_on_normal_return()),
         ),
     )
 }
@@ -110,7 +116,8 @@ pub(super) fn with_scoped_references<C: CheckerRequestContext + ?Sized>(
 
     Ok(contracts
         .with_normal_completion(template.normal_completion())
-        .with_effects(template.effects().iter().cloned()))
+        .with_effects(template.effects().iter().cloned())
+        .with_normal_storage_preservation(template.preserves_storage_on_normal_return()))
 }
 
 pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(

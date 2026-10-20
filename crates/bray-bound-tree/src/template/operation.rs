@@ -242,15 +242,37 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         implementation: Option<(Implementation, Substitution)>,
     ) -> Self {
         let arguments = shared_slice(arguments);
-        let ordinals = (0..arguments.len()).map(|ordinal| u32::try_from(ordinal).expect("checked template call fits its ordinal table")).collect::<Vec<_>>();
-        Self::ordered_call(callable, substitution, arguments.iter().copied(), ordinals, implementation)
+
+        let ordinals = (0..arguments.len())
+            .map(|ordinal| {
+                u32::try_from(ordinal).expect("checked template call fits its ordinal table")
+            })
+            .collect::<Vec<_>>();
+
+        Self::Call {
+            callable,
+            substitution,
+            arguments,
+            ordinals: shared_slice(ordinals),
+            implementation,
+        }
     }
 
     /// Retains source evaluation order independently of the selected parameter mapping.
-    pub fn ordered_call(callable: Declaration, substitution: Substitution,
-        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>, ordinals: impl IntoIterator<Item = u32>,
-        implementation: Option<(Implementation, Substitution)>) -> Self {
-        Self::Call { callable, substitution, arguments: shared_slice(arguments), ordinals: shared_slice(ordinals), implementation }
+    pub fn ordered_call(
+        callable: Declaration,
+        substitution: Substitution,
+        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
+        ordinals: impl IntoIterator<Item = u32>,
+        implementation: Option<(Implementation, Substitution)>,
+    ) -> Self {
+        Self::Call {
+            callable,
+            substitution,
+            arguments: shared_slice(arguments),
+            ordinals: shared_slice(ordinals),
+            implementation,
+        }
     }
 
     /// Creates an ordered tuple construction.

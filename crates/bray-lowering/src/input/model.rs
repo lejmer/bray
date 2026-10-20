@@ -33,7 +33,10 @@ pub(crate) enum ScopeExitCleanupStatus {
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
     unwind: Option<&'unit bray_bound_tree::CheckedUnwind>,
-    declaration_preconditions: &'unit BTreeMap<bray_symbols::CallableDefinitionId, super::requirements::DeclarationPreconditions>,
+    declaration_preconditions: &'unit BTreeMap<
+        bray_symbols::CallableDefinitionId,
+        super::requirements::DeclarationPreconditions,
+    >,
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
@@ -67,7 +70,10 @@ pub struct LoweringInput<'unit> {
 }
 
 impl<'unit> LoweringInput<'unit> {
-    pub(crate) fn declaration_preconditions(&self, declaration: bray_symbols::CallableDefinitionId) -> Option<&super::requirements::DeclarationPreconditions> {
+    pub(crate) fn declaration_preconditions(
+        &self,
+        declaration: bray_symbols::CallableDefinitionId,
+    ) -> Option<&super::requirements::DeclarationPreconditions> {
         self.declaration_preconditions.get(&declaration)
     }
 
@@ -108,7 +114,10 @@ impl<'unit> LoweringInput<'unit> {
         constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
         unit_kind: MirUnitKind,
         target: MirTargetContract,
-        declaration_preconditions: &'unit BTreeMap<bray_symbols::CallableDefinitionId, super::requirements::DeclarationPreconditions>,
+        declaration_preconditions: &'unit BTreeMap<
+            bray_symbols::CallableDefinitionId,
+            super::requirements::DeclarationPreconditions,
+        >,
     ) -> Self {
         assert_input_owner(
             unit,

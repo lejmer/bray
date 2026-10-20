@@ -272,3 +272,86 @@ fn ordinary_compound_evidence_cannot_supply_a_trusted_occurrence() {
         );
     }
 }
+
+#[test]
+fn captured_value_evidence_matches_unwrapped_proof_inputs() {
+    let input = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
+    let captured = ExecutionCondition::Entry {
+        condition: Arc::new(input.clone()),
+        captured: true,
+    };
+
+    for value in [true, false] {
+        let mut assumptions = BTreeSet::new();
+
+        captured.clone().assume(value, &mut assumptions);
+
+        assert_eq!(assumptions, BTreeSet::from([(input.clone(), value)]));
+
+        assert_eq!(
+            captured.prove(&assumptions, &mut { ExecutionCondition::WORK_LIMIT }),
+            Some(value)
+        );
+    }
+}
+
+#[test]
+fn entry_evidence_preserves_authority_and_live_observation_boundaries() {
+    let input = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
+    for (condition, captured) in [
+        (input.clone(), false),
+        (ExecutionCondition::Trusted(Arc::new(input.clone())), true),
+        (ExecutionCondition::Borrowed(Arc::new(input.clone())), true),
+    ] {
+        let entry = ExecutionCondition::Entry {
+            condition: Arc::new(condition.clone()),
+            captured,
+        };
+
+        let mut assumptions = BTreeSet::new();
+
+        entry.clone().assume(true, &mut assumptions);
+
+        assert_eq!(assumptions, BTreeSet::from([(entry, true)]));
+
+        assert_eq!(
+            condition.prove(&assumptions, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
+        );
+    }
+}
+
+#[test]
+fn boolean_constants_normalize_symbolic_completion_implications() {
+    use bray_bound_tree::BoundOperator;
+
+    let subject = ExecutionCondition::Result;
+
+    for (operator, identity, absorbing) in [
+        (BoundOperator::LogicalAnd, true, false),
+        (BoundOperator::LogicalOr, false, true),
+    ] {
+        for reversed in [false, true] {
+            let mut operands = vec![subject.clone(), ExecutionCondition::Boolean(identity)];
+
+            if reversed {
+                operands.reverse();
+            }
+
+            assert_eq!(ExecutionCondition::operation(operator, operands), subject);
+
+            let mut operands = vec![subject.clone(), ExecutionCondition::Boolean(absorbing)];
+
+            if reversed {
+                operands.reverse();
+            }
+
+            assert_eq!(
+                ExecutionCondition::operation(operator, operands),
+                ExecutionCondition::Boolean(absorbing)
+            );
+        }
+    }
+}

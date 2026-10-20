@@ -138,7 +138,8 @@ impl<'a> SemanticExporter<'a> {
                 .with_carriers(carriers)
                 .with_returned_input(returned_input)
                 .with_effects(effects)
-                .with_normal_completion(data.normal_completion()),
+                .with_normal_completion(data.normal_completion())
+                .with_normal_storage_preservation(data.preserves_storage_on_normal_return()),
         );
 
         self.dependency_contract_ids.insert(id, exported);

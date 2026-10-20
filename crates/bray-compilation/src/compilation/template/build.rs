@@ -7,8 +7,8 @@ use bray_bound_tree::{
     CheckedSemanticSelections, CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateInput,
     CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
     CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
-    ConstructionInputId, ConstructionTarget, SelectedConstruction,
-    SelectedConstructionInput, SelectedOperation, SemanticSelection,
+    ConstructionInputId, ConstructionTarget, SelectedConstruction, SelectedConstructionInput,
+    SelectedOperation, SemanticSelection,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
@@ -134,10 +134,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                 }
             }
 
-            inputs.push(CheckedTemplateInput::new(
-                input.kind.clone(),
-                input.ty,
-            ));
+            inputs.push(CheckedTemplateInput::new(input.kind.clone(), input.ty));
         }
 
         Ok(Self {
@@ -174,8 +171,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant) => {
                 return Ok(CheckedTemplateOperation::VariantTest {
                     subject: left,
-                    variant: 
-                        self.symbol_key(variant.into())?,
+                    variant: self.symbol_key(variant.into())?,
                 });
             }
             bray_bound_tree::PatternPredicate::NullableAbsent => ConstantBinaryOperation::Equal,
@@ -238,9 +234,10 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         let node_ty = match &operation {
             CheckedTemplateOperation::Input(input) => self
                 .inputs
-                .get(usize::try_from(input.raw()).map_err(|_| {
-                    incomplete("template input index does not fit the host")
-                })?)
+                .get(
+                    usize::try_from(input.raw())
+                        .map_err(|_| incomplete("template input index does not fit the host"))?,
+                )
                 .map(CheckedTemplateInput::ty)
                 .ok_or_else(|| incomplete("missing_template_input"))?,
             _ => ty,
@@ -316,27 +313,29 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             BoundExpression::Structured(expression) => match expression.kind() {
                 BoundStructuredExpressionKind::Conditional => self.conditional(expression, ty),
                 BoundStructuredExpressionKind::Condition => {
-                    let [condition] = expression.operands() else { panic!("checked condition has one Boolean operand"); };
+                    let [condition] = expression.operands() else {
+                        panic!("checked condition has one Boolean operand");
+                    };
+
                     let node = self.expression(*condition)?;
-                    Ok(self.nodes[usize::try_from(node.raw()).expect("checked node fits host")].operation().clone())
+
+                    Ok(
+                        self.nodes[usize::try_from(node.raw()).expect("checked node fits host")]
+                            .operation()
+                            .clone(),
+                    )
                 }
-                BoundStructuredExpressionKind::Absence => {
-                    Ok(CheckedTemplateOperation::Constant {
-                        term: self.nullable_absence_term(ty)?,
-                        usage: Default::default(),
-                    })
-                }
+                BoundStructuredExpressionKind::Absence => Ok(CheckedTemplateOperation::Constant {
+                    term: self.nullable_absence_term(ty)?,
+                    usage: Default::default(),
+                }),
                 BoundStructuredExpressionKind::PatternTest => self.pattern_test(expression),
-                BoundStructuredExpressionKind::Tuple => {
-                    Ok(CheckedTemplateOperation::tuple(
-                        self.expressions(expression.operands())?,
-                    ))
-                }
-                BoundStructuredExpressionKind::Array => {
-                    Ok(CheckedTemplateOperation::array(
-                        self.expressions(expression.operands())?,
-                    ))
-                }
+                BoundStructuredExpressionKind::Tuple => Ok(CheckedTemplateOperation::tuple(
+                    self.expressions(expression.operands())?,
+                )),
+                BoundStructuredExpressionKind::Array => Ok(CheckedTemplateOperation::array(
+                    self.expressions(expression.operands())?,
+                )),
                 BoundStructuredExpressionKind::Borrow => {
                     let [operand] = expression.operands() else {
                         return Err(incomplete("invalid_borrow_operand_count"));
@@ -360,9 +359,8 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
 
                     let node = self.expression(*operand)?;
 
-                    let index = usize::try_from(node.raw()).map_err(|_| {
-                        incomplete("template node index does not fit the host")
-                    })?;
+                    let index = usize::try_from(node.raw())
+                        .map_err(|_| incomplete("template node index does not fit the host"))?;
 
                     let operation = self
                         .nodes
@@ -389,8 +387,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                     Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
                         Ok(CheckedTemplateOperation::Project {
                             subject: self.expression(member.receiver())?,
-                            member: 
-                                self.symbol_key(target.member())?,
+                            member: self.symbol_key(target.member())?,
                         })
                     }
                     Some(SemanticSelection::Operation(SelectedOperation::Construction(
@@ -464,10 +461,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
 
             let value = self.converted_expression(*expression, conversion)?;
 
-            fields.push(ConstantField::new(
-                self.symbol_key((*field).into())?,
-                value,
-            ));
+            fields.push(ConstantField::new(self.symbol_key((*field).into())?, value));
         }
 
         Ok(CheckedTemplateOperation::product(fields))
@@ -486,8 +480,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         }
 
         Ok(CheckedTemplateOperation::Declaration {
-            declaration: 
-                self.symbol_key(variant.into())?,
+            declaration: self.symbol_key(variant.into())?,
             substitution: None,
         })
     }
@@ -522,9 +515,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         };
 
         let substitution = match self.selections.expression(expression) {
-            Some(SemanticSelection::StaticReference(instance)) => {
-                Some(instance.substitution())
-            }
+            Some(SemanticSelection::StaticReference(instance)) => Some(instance.substitution()),
             _ => None,
         };
 
@@ -631,42 +622,66 @@ fn binary_operator(operator: BoundOperator) -> Option<ConstantBinaryOperation> {
 
 impl SourceTemplateBuilder<'_, '_, '_> {
     pub(super) fn symbol_key(&self, symbol: AnySymbolId) -> Result<SymbolKey, FactQueryError> {
-        self.context.symbol_key(symbol)
+        self.context
+            .symbol_key(symbol)
             .map_err(crate::compilation::binder::binding_query_error)?
             .cloned()
             .ok_or_else(|| incomplete("checked template declaration has no stable identity"))
     }
 
-    pub(super) fn declaration_reference(&self, symbol: AnySymbolId, substitution: GenericSubstitutionId)
-        -> Result<(SymbolKey, GenericSubstitutionId), FactQueryError>
-    {
+    pub(super) fn declaration_reference(
+        &self,
+        symbol: AnySymbolId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<(SymbolKey, GenericSubstitutionId), FactQueryError> {
         Ok((self.symbol_key(symbol)?, substitution))
     }
 
-    pub(super) fn implementation_reference(&self, instance: ImplementationInstanceId)
-        -> Result<(SymbolKey, GenericSubstitutionId), FactQueryError>
-    {
-        let data = self.context.semantic_values().implementation_instance_data(instance);
+    pub(super) fn implementation_reference(
+        &self,
+        instance: ImplementationInstanceId,
+    ) -> Result<(SymbolKey, GenericSubstitutionId), FactQueryError> {
+        let data = self
+            .context
+            .semantic_values()
+            .implementation_instance_data(instance);
 
-        Ok((self.symbol_key(data.definition().into_any())?, data.substitution()))
+        Ok((
+            self.symbol_key(data.definition().into_any())?,
+            data.substitution(),
+        ))
     }
 
-    pub(super) fn trait_default_requirement(&self, requirement: bray_symbols::ImplementationRequirementKey)
-        -> Result<(TypeId, GenericSubstitutionId), FactQueryError>
-    {
-        let application = self.context.semantic_values().trait_application_data(requirement.trait_application());
+    pub(super) fn trait_default_requirement(
+        &self,
+        requirement: bray_symbols::ImplementationRequirementKey,
+    ) -> Result<(TypeId, GenericSubstitutionId), FactQueryError> {
+        let application = self
+            .context
+            .semantic_values()
+            .trait_application_data(requirement.trait_application());
 
         Ok((requirement.subject(), application.substitution()))
     }
 
-    fn constant_value_term(&self, value: ConstantValueId) -> Result<ConstantTermId, FactQueryError> {
-        self.context.semantic_values().intern_constant_term(ConstantTermData::Value(value))
+    fn constant_value_term(
+        &self,
+        value: ConstantValueId,
+    ) -> Result<ConstantTermId, FactQueryError> {
+        self.context
+            .semantic_values()
+            .intern_constant_term(ConstantTermData::Value(value))
             .map_err(FactQueryError::from)
     }
 
     fn nullable_absence_term(&self, ty: TypeId) -> Result<ConstantTermId, FactQueryError> {
-        let value = self.context.semantic_values().intern_constant_value(
-            ConstantValueData::new(ty, ConstantValueKind::NullableAbsent))?;
+        let value =
+            self.context
+                .semantic_values()
+                .intern_constant_value(ConstantValueData::new(
+                    ty,
+                    ConstantValueKind::NullableAbsent,
+                ))?;
 
         self.constant_value_term(value)
     }

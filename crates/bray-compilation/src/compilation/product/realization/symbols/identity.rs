@@ -35,7 +35,9 @@ impl Compilation {
             // Compatibility metadata owns package identity beyond the product-key borrow.
             MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
             // Generated lifecycle definitions belong to the selected product package.
-            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::Predicate(_) => return Ok(product_package.clone()),
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::Predicate(_) => {
+                return Ok(product_package.clone());
+            }
             MirUnitKey::ExternalCallable(definition)
             | MirUnitKey::CompilerProvidedCallable(definition) => definition.symbol(),
             MirUnitKey::ImportedExecutable(key) => key.owner(),
@@ -66,10 +68,6 @@ impl Compilation {
         realization: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<BinarySymbolName, CodegenPreparationError> {
-        if let MirUnitKey::Predicate(reference) = realization.key().template() {
-            return self.predicate_symbol_name(target, linkage, realization, reference, cancellation);
-        }
-
         if let Some(provider) =
             self.codegen_runtime_default_provider(realization.key(), cancellation)?
         {
@@ -180,39 +178,6 @@ impl Compilation {
             // Symbol keys are Arc-backed and the generated mapping owns its identity input.
             Ok(definition.clone())
         }
-    }
-}
-
-impl Compilation {
-    fn predicate_symbol_name(&self, target: &CodegenTarget, linkage: CodegenLinkage,
-        realization: &ConcreteCodegenInstance, reference: &bray_ir::MirPredicateReference,
-        cancellation: &CancellationToken) -> Result<BinarySymbolName, CodegenPreparationError> {
-        use crate::compilation::product::specialization_identity::content::{StructuralSemanticValue, structural_semantic_identity};
-        let context = self.binding_context(cancellation)?;
-        let values = self.semantic_value_store()?;
-        let mut hasher = StableDigestHasher::new();
-        hasher.write(b"bray.codegen-predicate-symbol");
-        match reference {
-            bray_ir::MirPredicateReference::Clause { callable, ordinal } => {
-                hasher.write_u8(0);
-                self.portable_codegen_symbol_key(&context, callable.instance().definition().symbol())?.hash(&mut hasher);
-                ordinal.hash(&mut hasher);
-                callable.abi().hash(&mut hasher);
-            }
-            bray_ir::MirPredicateReference::Predicate(predicate) => {
-                hasher.write_u8(1);
-                self.portable_codegen_symbol_key(&context, predicate.definition().into_any())?.hash(&mut hasher);
-            }
-            bray_ir::MirPredicateReference::Condition { condition, input_types } => {
-                hasher.write_u8(2);
-                structural_semantic_identity(values, &context, StructuralSemanticValue::ConstantTerm(*condition))?.hash(&mut hasher);
-                for ty in input_types.iter() {
-                    structural_semantic_identity(values, &context, StructuralSemanticValue::Type(*ty))?.hash(&mut hasher);
-                }
-            }
-        }
-        hash_specialization(realization, &mut hasher);
-        binary_symbol_name(target, linkage, "predicate", hasher.finalize())
     }
 }
 

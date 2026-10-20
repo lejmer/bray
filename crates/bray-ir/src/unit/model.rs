@@ -203,7 +203,7 @@ pub enum MirUnitKey {
     /// MIR synthesized for one type-specialized lifecycle role.
     GeneratedLifecycle(MirGeneratedLifecycleKey),
     /// MIR lowered from a concrete checked predicate graph.
-    Predicate(crate::MirPredicateReference),
+    Predicate(crate::MirPredicateKey),
     /// MIR supplied by the compiler for one exact callable declaration.
     CompilerProvidedCallable(CallableDefinitionId),
     /// A bodyless callable referenced by generated MIR.

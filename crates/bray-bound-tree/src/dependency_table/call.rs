@@ -117,8 +117,10 @@ pub struct BoundCallDependencyContracts {
     retained_inputs: Option<BTreeSet<BoundExpressionId>>,
     reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
     normal_completion: bool,
+    normal_storage_preserved: bool,
     deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
     deferred_completion: bool,
+    deferred_storage_preserved: bool,
 }
 
 impl BoundCallDependencyContracts {
@@ -175,8 +177,10 @@ impl BoundCallDependencyContracts {
             retained_inputs: None,
             reference_paths: BTreeMap::new(),
             normal_completion: true,
+            normal_storage_preserved: false,
             deferred_effects: None,
             deferred_completion: true,
+            deferred_storage_preserved: false,
         }
     }
 
@@ -217,6 +221,34 @@ impl BoundCallDependencyContracts {
     /// Whether normal completion is possible for this selected invocation phase.
     pub const fn normal_completion(&self) -> bool {
         self.normal_completion
+    }
+
+    /// Retains the checked normal-return storage-preservation proof for invocation.
+    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
+        self.normal_storage_preserved = preserved;
+
+        self
+    }
+
+    /// Whether normal invocation preserves storage, apart from input ownership transfers.
+    pub fn preserves_storage_on_normal_return(&self) -> bool {
+        self.normal_storage_preserved || self.effects.is_empty()
+    }
+
+    /// Retains the same proof for the deferred body of a lazy invocation.
+    pub fn with_deferred_storage_preservation(mut self, preserved: bool) -> Self {
+        self.deferred_storage_preserved = preserved;
+
+        self
+    }
+
+    /// Whether normal deferred execution preserves storage.
+    pub fn deferred_preserves_storage_on_normal_return(&self) -> bool {
+        self.deferred_storage_preserved
+            || self
+                .deferred_effects
+                .as_ref()
+                .is_some_and(|effects| effects.is_empty())
     }
 
     /// Records the body effects and outcome separately from lazy frame creation.

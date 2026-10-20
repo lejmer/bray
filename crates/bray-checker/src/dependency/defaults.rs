@@ -10,6 +10,7 @@ pub(crate) struct CallResultDependencies {
     pub(crate) template: DependencyContractTemplateData,
     pub(crate) evaluation_effects: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
     pub(crate) evaluation_completes: bool,
+    pub(crate) evaluation_preserves_storage: bool,
     pub(crate) evaluation_reports: DependencyContractTemplateData,
     pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
 }
@@ -314,6 +315,9 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         ),
         evaluation_effects,
         evaluation_completes,
+        evaluation_preserves_storage: defaults
+            .values()
+            .all(DependencyContractTemplateData::preserves_storage_on_normal_return),
         evaluation_reports: DependencyContractTemplateData::new([]),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })

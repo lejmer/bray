@@ -176,18 +176,6 @@ impl Compilation {
             .available_compiler_known_symbols()
             .symbol_implementation(instance.definition().callable_symbol().into_any());
 
-        if let Some(hook) = hook.filter(|hook| *hook != ImplementationHook::AtomicWait) {
-            return Ok(matches!(
-                hook,
-                ImplementationHook::CurrentRunCancellationPropagation
-                    | ImplementationHook::TestingFail
-                    | ImplementationHook::TaskYield
-                    | ImplementationHook::TaskEventWait
-            ) || bray_checker::implementation_hook_may_propagate_synchronous_panic(
-                Some(hook),
-            ));
-        }
-
         let context = self.binding_context(cancellation)?;
 
         let predicates = context
@@ -196,8 +184,8 @@ impl Compilation {
             >::new(instance.definition().callable_symbol()))
             .map_err(crate::compilation::binder::binding_query_error)?;
 
-        // This analysis has no caller path facts. An ordinary requirement may need a
-        // runtime check, whereas trusted obligations are checked before execution.
+        // This analysis has no caller path facts. Value checks can panic and execution
+        // requirements need entry authority. Trusted evidence is checked separately.
         let values = self.semantic_value_store()?;
         let mut unproved_requirement = predicates.diagnostics().has_errors();
 
@@ -224,6 +212,18 @@ impl Compilation {
 
         if unproved_requirement {
             return Ok(true);
+        }
+
+        if let Some(hook) = hook.filter(|hook| *hook != ImplementationHook::AtomicWait) {
+            return Ok(matches!(
+                hook,
+                ImplementationHook::CurrentRunCancellationPropagation
+                    | ImplementationHook::TestingFail
+                    | ImplementationHook::TaskYield
+                    | ImplementationHook::TaskEventWait
+            ) || bray_checker::implementation_hook_may_propagate_synchronous_panic(
+                Some(hook),
+            ));
         }
 
         if hook == Some(ImplementationHook::AtomicWait) {

@@ -239,11 +239,22 @@ fn renderer_localizes_dependency_interface_context() {
 
 #[test]
 fn contract_integer_capacity_identifies_the_product_and_both_widths() {
-    let diagnostic = Diagnostic::new(DiagnosticId::new(10), DiagnosticKind::NativeProductPreparationFailed, SeverityKind::Error)
-        .with_arg(DiagnosticArg::actual_product_identity("example.math.app"))
-        .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
-        .with_arg(DiagnosticArg::native_product_failure_kind(bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenExactIntegerCapacity { minimum_bits: 65536, maximum_bits: 65535 }));
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(10),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity("example.math.app"))
+    .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenExactIntegerCapacity {
+            minimum_bits: 65536,
+            maximum_bits: 65535,
+        },
+    ));
+
     let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
     assert!(rendered.message().contains("example.math.app"));
     assert!(rendered.message().contains("contract arithmetic"));
     assert!(rendered.message().contains("65536"));

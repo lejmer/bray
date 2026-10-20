@@ -317,8 +317,15 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         })?;
 
         predicates.push(
-            bray_symbols::PredicateSemanticSummary::new(dependency)
-                .with_condition(term, is_trusted),
+            bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(
+                term,
+                bray_symbols::PredicateDomain::checked_condition(
+                    term,
+                    is_trusted,
+                    context.semantic_values(),
+                    compilation.available_compiler_known_symbols(),
+                ),
+            ),
         );
 
         if let Some(requirement) = execution_requirement(

@@ -120,13 +120,20 @@ fn fully_moved_storage_survives_only_when_every_incoming_path_moves_it() {
     let mut left = reachable_state();
     let mut moved = reachable_state();
 
+    left.live.insert(identity);
+    moved.live.insert(identity);
     left.fully_moved.insert(identity);
     moved.fully_moved.insert(identity);
 
     assert!(!left.merge(&moved, None));
     assert_eq!(left.fully_moved, [identity].into_iter().collect());
 
-    assert!(left.merge(&reachable_state(), None));
+    let mut owned = reachable_state();
+
+    owned.live.insert(identity);
+    owned.initialized.insert(identity);
+
+    assert!(left.merge(&owned, None));
     assert!(left.fully_moved.is_empty());
 }
 
@@ -448,4 +455,74 @@ fn abnormal_reports_retain_dependencies_without_requesting_pending_storage() {
     );
 
     assert!(abnormal.report_retains(subject));
+}
+
+#[test]
+fn ownership_join_preserves_moves_when_other_paths_never_create_the_storage() {
+    let (identity, _) = storage_and_expressions(98);
+
+    let states = [None, Some(false), Some(true)];
+
+    let make = |status: Option<bool>| {
+        let mut state = reachable_state();
+
+        if let Some(moved) = status {
+            state.live.insert(identity);
+            state.initialized.insert(identity);
+
+            if moved {
+                state.move_complete_storage(identity);
+            }
+        }
+
+        state
+    };
+
+    for first in states {
+        for second in states {
+            let mut joined = make(first);
+
+            joined.merge(&make(second), None);
+
+            let live = first.is_some() || second.is_some();
+            let owned = first == Some(false) || second == Some(false);
+
+            assert_eq!(
+                joined.live.contains(&identity),
+                live,
+                "{first:?}, {second:?}"
+            );
+
+            assert_eq!(
+                joined.fully_moved.contains(&identity),
+                live && !owned,
+                "{first:?}, {second:?}"
+            );
+
+            assert!(
+                !joined.merge(&make(second), None),
+                "repeating a predecessor must be stable"
+            );
+
+            for third in states {
+                let mut left = joined.clone();
+
+                left.merge(&make(third), None);
+
+                let mut tail = make(second);
+
+                tail.merge(&make(third), None);
+
+                let mut right = make(first);
+
+                right.merge(&tail, None);
+
+                assert_eq!(
+                    (&left.live, &left.fully_moved, &left.initialized),
+                    (&right.live, &right.fully_moved, &right.initialized),
+                    "{first:?}, {second:?}, {third:?}"
+                );
+            }
+        }
+    }
 }

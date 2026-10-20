@@ -475,9 +475,18 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
                 diagnostic_failure_context(detail.context())
             }
-            Kind::CodegenExactIntegerCapacity { minimum_bits, maximum_bits } => diagnostic_failure_context(&[
-                bray_diagnostics::DiagnosticFailureField::new("minimum_bits", bray_diagnostics::DiagnosticFailureValue::Count(*minimum_bits)),
-                bray_diagnostics::DiagnosticFailureField::new("maximum_bits", bray_diagnostics::DiagnosticFailureValue::Count(u64::from(*maximum_bits))),
+            Kind::CodegenExactIntegerCapacity {
+                minimum_bits,
+                maximum_bits,
+            } => diagnostic_failure_context(&[
+                bray_diagnostics::DiagnosticFailureField::new(
+                    "minimum_bits",
+                    bray_diagnostics::DiagnosticFailureValue::Count(*minimum_bits),
+                ),
+                bray_diagnostics::DiagnosticFailureField::new(
+                    "maximum_bits",
+                    bray_diagnostics::DiagnosticFailureValue::Count(u64::from(*maximum_bits)),
+                ),
             ]),
             Kind::CodegenBackendNotSelected
             | Kind::MissingProductRoot

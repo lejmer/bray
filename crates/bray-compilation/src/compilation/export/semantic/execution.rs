@@ -22,15 +22,10 @@ pub(super) fn callable_contracts(
         .export_execution_contracts(selected, &compilation.state.cancellation)
         .map_err(super::super::invalid_compilation_fact_error)?;
 
-    if let Some(diagnostic) = execution
-        .diagnostics()
-        .iter()
-        .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error)
+    if let Some(error) =
+        super::super::error::source_diagnostic_export_error(execution.diagnostics())
     {
-        // The export failure owns the diagnostic after the preparation result is released.
-        return Err(PackageInterfaceExportError::ExecutionEvidence(Box::new(
-            diagnostic.clone(),
-        )));
+        return Err(error);
     }
 
     let mut contracts = Vec::new();

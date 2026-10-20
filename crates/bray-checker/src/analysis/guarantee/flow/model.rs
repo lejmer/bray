@@ -99,6 +99,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Each outgoing path owns its independently refined flow environment.
         let mut next = state.clone();
 
+        if let Some(AnalysisRefinement::InvocationFailure(occurrence)) = edge.refinement()
+            && self.call_preserves_normal_storage(state, occurrence)
+        {
+            self.invalidate_call_effects(&mut next, occurrence, None);
+        }
+
         self.refine_edge(&mut next, edge).then_some(next)
     }
 
@@ -137,6 +143,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         edge: &AnalysisEdge,
     ) -> bool {
         if self.excluded_edges.contains(&edge.id()) {
+            return false;
+        }
+
+        if let Some(AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement()
+            && let Some(contract) = self
+                .request
+                .trusted_contracts()
+                .and_then(|contracts| contracts.calls.get(&invocation))
+            && self
+                .call_entry(state, invocation)
+                .is_some_and(|entry| entry.proves(&contract.preconditions))
+        {
             return false;
         }
 

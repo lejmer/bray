@@ -501,8 +501,12 @@ impl ConversionTarget {
         match self {
             Self::Trait { fulfillment, .. } => Some(*fulfillment),
             Self::TraitConstraint { member, .. } => Some(*member),
-            Self::Identity | Self::CallableContract | Self::NullablePresent | Self::BuiltInScalar
-            | Self::CVariadicPromotion | Self::Composite(_) => None,
+            Self::Identity
+            | Self::CallableContract
+            | Self::NullablePresent
+            | Self::BuiltInScalar
+            | Self::CVariadicPromotion
+            | Self::Composite(_) => None,
         }
     }
 }
@@ -642,6 +646,7 @@ impl SelectedOperation {
                 OperatorTarget::BuiltIn(_) => None,
             };
         }
+
         match self {
             Self::Construction(construction) => match construction.target() {
                 ConstructionTarget::TypeForm { callable, .. } => Some(callable),
@@ -651,13 +656,17 @@ impl SelectedOperation {
             Self::Index { target, .. } => match target {
                 IndexTarget::Custom { fulfillment, .. } => Some(*fulfillment),
                 IndexTarget::TraitConstraint { member, .. } => Some(*member),
-                IndexTarget::ArrayElement | IndexTarget::SliceElement | IndexTarget::ArraySlice | IndexTarget::Slice => None,
+                IndexTarget::ArrayElement
+                | IndexTarget::SliceElement
+                | IndexTarget::ArraySlice
+                | IndexTarget::Slice => None,
             },
             Self::Member(_) | Self::Implementation(_) => None,
-            Self::Operator { .. } | Self::CompoundAssignment(_) => unreachable!("operator selections retain their target"),
+            Self::Operator { .. } | Self::CompoundAssignment(_) => {
+                unreachable!("operator selections retain their target")
+            }
         }
     }
-
 
     /// Returns this operation's closed selection category.
     pub const fn kind(&self) -> SelectionKind {

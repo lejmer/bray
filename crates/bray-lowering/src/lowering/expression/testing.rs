@@ -54,7 +54,13 @@ impl Lowerer<'_> {
             conversion,
         )?;
 
-        let current = self.lower_primitive_requirements(expression, current, &source, selection, std::slice::from_mut(&mut message))?;
+        let current = self.lower_primitive_requirements(
+            expression,
+            current,
+            &source,
+            selection,
+            std::slice::from_mut(&mut message),
+        )?;
 
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;

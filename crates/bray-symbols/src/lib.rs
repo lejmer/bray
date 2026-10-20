@@ -174,7 +174,7 @@ pub use semantic::{
     ModuleSurfaceQuery, ModuleUsing, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
     NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence, NeverCancelSymbolCompletion,
     OverloadArmTemplate, OverloadSignatureTemplate, ParticipatingImplementation,
-    PredicateDefinition, PredicateDefinitionQuery, PredicateDefinitionState,
+    PredicateDefinition, PredicateDefinitionQuery, PredicateDefinitionState, PredicateDomain,
     PredicateParameterTemplate, PredicateSemanticSummary, PredicateSignatureTemplate,
     PredicateSignatureTemplateQuery, ProofOutcome, ReceiverMode, ReceiverParameterSignature,
     ResolvedCallableExecutionContract, RuntimeDefaultBehavior, RuntimeDefaultCapabilityRequirement,

@@ -80,15 +80,20 @@ impl Lowerer<'_> {
     }
 
     pub(in crate::lowering) fn branch_on_boolean(
-        &mut self, current: MirBlockId, source: &bray_ir::MirSourceAnchor, condition: MirOperand,
+        &mut self,
+        current: MirBlockId,
+        source: &bray_ir::MirSourceAnchor,
+        condition: MirOperand,
     ) -> Result<(MirBlockId, MirBlockId), LoweringError> {
+        let kind = self.builder.block_kind(current);
+
         let success = self
             .builder
-            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+            .push_block(Self::retained_source(source), kind)?;
 
         let failure = self
             .builder
-            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+            .push_block(Self::retained_source(source), kind)?;
 
         self.set_terminator(
             current,
@@ -110,25 +115,26 @@ impl Lowerer<'_> {
         failure: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
     ) -> Result<(), LoweringError> {
-        let (failure, message) = match expression.and_then(|expression| expression.operands().get(1).copied()) {
-            Some(message) => {
-                let lowered = self.lower_expression(message, failure)?;
+        let (failure, message) =
+            match expression.and_then(|expression| expression.operands().get(1).copied()) {
+                Some(message) => {
+                    let lowered = self.lower_expression(message, failure)?;
 
-                let Some(failure) = lowered.block else {
-                    return Ok(());
-                };
+                    let Some(failure) = lowered.block else {
+                        return Ok(());
+                    };
 
-                let Some(message) = lowered.value else {
-                    panic!(
-                        "lowering contract violation: MissingOperationResult {value:?}",
-                        value = message
-                    );
-                };
+                    let Some(message) = lowered.value else {
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = message
+                        );
+                    };
 
-                (failure, Some(message))
-            }
-            None => (failure, None),
-        };
+                    (failure, Some(message))
+                }
+                None => (failure, None),
+            };
 
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
@@ -473,10 +479,10 @@ impl Lowerer<'_> {
                 occurrence,
                 self.input.semantic_selections().expression(expression),
             ) {
-            (
-                bray_bound_tree::BoundExecutionSite::Node(_),
-                Some(bray_bound_tree::SemanticSelection::Call(call)),
-            ) => call.may_enter_current_run_cancellation(),
+                (
+                    bray_bound_tree::BoundExecutionSite::Node(_),
+                    Some(bray_bound_tree::SemanticSelection::Call(call)),
+                ) => call.may_enter_current_run_cancellation(),
                 _ => true,
             },
         };

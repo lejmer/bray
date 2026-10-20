@@ -1,14 +1,13 @@
 use bray_package_interface::{
     DependencyInterfaceId, InterfaceConstantProjection, InterfaceConstantTerm,
     InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId,
-    InterfaceConstantValueKind, InterfaceStorageMember,
-    InterfaceStorageShape, InterfaceSymbolReference, InterfaceTypeRepresentation,
-    InterfaceUnionStorageVariant, InterfaceUnionTag,
+    InterfaceConstantValueKind, InterfaceStorageMember, InterfaceStorageShape,
+    InterfaceSymbolReference, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
+    InterfaceUnionTag,
 };
 use bray_symbols::{
     AnySymbolId, ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId,
-    ConstantValueId, ConstantValueKind, DeclaredStorageShape,
-    SymbolKeyData,
+    ConstantValueId, ConstantValueKind, DeclaredStorageShape, SymbolKeyData,
 };
 
 use super::super::PackageInterfaceExportError;

@@ -55,7 +55,13 @@ impl Lowerer<'_> {
             );
         };
 
-        let current = self.lower_primitive_requirements(id, current, &source, selection, std::slice::from_mut(&mut receiver))?;
+        let current = self.lower_primitive_requirements(
+            id,
+            current,
+            &source,
+            selection,
+            std::slice::from_mut(&mut receiver),
+        )?;
 
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
 

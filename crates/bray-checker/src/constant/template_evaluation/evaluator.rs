@@ -625,8 +625,13 @@ where
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let evaluated = self.evaluate_nodes(arguments)?;
         let mut ordered = ordinals.iter().copied().zip(evaluated).collect::<Vec<_>>();
+
         ordered.sort_by_key(|(ordinal, _)| *ordinal);
-        let arguments = ordered.into_iter().map(|(_, value)| value).collect::<Vec<_>>();
+
+        let arguments = ordered
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
 
         let Some(callable) = self
             .resolver

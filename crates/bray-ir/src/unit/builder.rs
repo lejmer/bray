@@ -457,6 +457,26 @@ impl MirUnitBuilder {
         })
     }
 
+    /// Rewrites explicit edges once their construction-time block arguments are complete.
+    /// The caller preserves argument arity, types and control-flow contracts.
+    pub fn try_for_each_edge_mut<E>(
+        &mut self,
+        mut visit: impl FnMut(MirBlockId, &mut crate::MirEdge) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for (index, block) in self.blocks.iter_mut().enumerate() {
+            let slot = u32::try_from(index).expect("allocated block index fits its identity");
+            let owner = MirBlockId::from_slot(self.unit, slot);
+
+            if let Some(terminator) = &mut block.terminator {
+                terminator
+                    .kind
+                    .try_for_each_edge_mut(|edge| visit(owner, edge))?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Returns whether any completed block transfers control to the target block.
     pub fn has_incoming_edge(&self, target: MirBlockId) -> bool {
         self.block_index(target);

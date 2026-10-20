@@ -2683,3 +2683,88 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
     state.invalidate_target(&external, bray_symbols::DependencyMutationKind::Write);
     assert_eq!(state.referent(&slot, error_type()), None);
 }
+
+#[test]
+fn normal_completion_discards_captured_failure_effects() {
+    let ([source, _, _, _], origins) = places();
+
+    let occurrence = origins[0].into();
+    let mut state = State::default();
+
+    state.begin_transition(occurrence);
+
+    state.capture_failure_effects(
+        occurrence,
+        super::CapturedEffects {
+            mutations: [super::Effect::Mutation(
+                Target::storage(source.clone()),
+                bray_symbols::DependencyMutationKind::Write,
+            )]
+            .into(),
+            escaped: [Target::storage(source)].into(),
+            invalidation: bray_bound_tree::StorageInvalidation::unknown(),
+        },
+    );
+
+    state.complete_transition(occurrence);
+
+    assert!(state.take_failure_effects(occurrence).is_none());
+    assert!(state.contents.is_empty());
+}
+
+#[test]
+fn captured_failure_targets_follow_storage_retirement() {
+    let ([source, slot, _, _], origins) = places();
+
+    let occurrence = origins[1].into();
+    let mut state = State::default();
+
+    state.address(source.clone(), slot, error_type(), origins[0]);
+    state.begin_transition(occurrence);
+
+    let previous = Target {
+        previous: true,
+        ..Target::storage(source.clone())
+    };
+
+    state.capture_failure_effects(
+        occurrence,
+        super::CapturedEffects {
+            mutations: [
+                super::Effect::Mutation(
+                    previous.clone(),
+                    bray_symbols::DependencyMutationKind::Write,
+                ),
+                super::Effect::Mutation(
+                    Target::storage(source.clone()),
+                    bray_symbols::DependencyMutationKind::Write,
+                ),
+            ]
+            .into(),
+            escaped: [previous, Target::storage(source.clone())].into(),
+            invalidation: bray_bound_tree::StorageInvalidation::unknown(),
+        },
+    );
+
+    state.begin(source.root);
+
+    let effects = state
+        .take_failure_effects(occurrence)
+        .expect("failed invocation retains its effects");
+
+    let previous = Target {
+        previous: true,
+        ..Target::storage(source)
+    };
+
+    assert_eq!(
+        effects.mutations.as_slice(),
+        &[super::Effect::Mutation(
+            previous.clone(),
+            bray_symbols::DependencyMutationKind::Write
+        )]
+    );
+
+    assert_eq!(effects.escaped.as_slice(), &[previous]);
+    assert!(state.take_failure_effects(occurrence).is_none());
+}

@@ -484,12 +484,20 @@ impl ExecutionCondition {
             (BoundOperator::LogicalNot, [Self::Operation(BoundOperator::LogicalNot, inner)]) => {
                 inner.first().cloned().unwrap_or(Self::Unknown)
             }
-            (BoundOperator::LogicalAnd, [Self::Boolean(left), Self::Boolean(right)]) => {
-                Self::Boolean(*left && *right)
+            (BoundOperator::LogicalAnd, [Self::Boolean(false), _] | [_, Self::Boolean(false)]) => {
+                Self::Boolean(false)
             }
-            (BoundOperator::LogicalOr, [Self::Boolean(left), Self::Boolean(right)]) => {
-                Self::Boolean(*left || *right)
+            (BoundOperator::LogicalOr, [Self::Boolean(true), _] | [_, Self::Boolean(true)]) => {
+                Self::Boolean(true)
             }
+            (
+                BoundOperator::LogicalAnd,
+                [Self::Boolean(true), value] | [value, Self::Boolean(true)],
+            )
+            | (
+                BoundOperator::LogicalOr,
+                [Self::Boolean(false), value] | [value, Self::Boolean(false)],
+            ) => value.clone(),
             _ => Self::Operation(operator, operands.into()),
         }
     }

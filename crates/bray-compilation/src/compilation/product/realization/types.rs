@@ -388,11 +388,26 @@ impl Compilation {
 
         let mapping = match data.as_ref() {
             TypeData::ExactInteger { bits, signed } => {
-                let scalar = match bits.get() { 1..=8 => bray_target::TargetScalarKind::I8, 9..=16 => bray_target::TargetScalarKind::I16, 17..=32 => bray_target::TargetScalarKind::I32, 33..=64 => bray_target::TargetScalarKind::I64, _ => bray_target::TargetScalarKind::I128 };
+                let scalar = match bits.get() {
+                    1..=8 => bray_target::TargetScalarKind::I8,
+                    9..=16 => bray_target::TargetScalarKind::I16,
+                    17..=32 => bray_target::TargetScalarKind::I32,
+                    33..=64 => bray_target::TargetScalarKind::I64,
+                    _ => bray_target::TargetScalarKind::I128,
+                };
+
                 let alignment = target.profile().properties().scalars().alignment(scalar);
-                let bytes = u64::from(bits.get()).div_ceil(8);
-                let size = bytes.div_ceil(alignment.get()) * alignment.get();
-                CodegenTypeMapping::new(ty, TargetValueLayout::new(size, alignment, TargetLayoutContract::Default), if *signed { CodegenTypeKind::SignedInteger(*bits) } else { CodegenTypeKind::UnsignedInteger(*bits) })
+                let size = u64::from(bits.get()).div_ceil(8);
+
+                CodegenTypeMapping::new(
+                    ty,
+                    TargetValueLayout::new(size, alignment, TargetLayoutContract::Default),
+                    if *signed {
+                        CodegenTypeKind::SignedInteger(*bits)
+                    } else {
+                        CodegenTypeKind::UnsignedInteger(*bits)
+                    },
+                )
             }
             TypeData::Named {
                 definition,

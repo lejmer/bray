@@ -46,7 +46,9 @@ fn alignment_of_type(
     let data = values.type_data(ty);
 
     let alignment = match data.as_ref() {
-        TypeData::ExactInteger { .. } => panic!("internal exact integer cannot enter a source layout query: {ty:?}"),
+        TypeData::ExactInteger { .. } => {
+            panic!("internal exact integer cannot enter a source layout query: {ty:?}")
+        }
         TypeData::Named {
             definition,
             substitution,

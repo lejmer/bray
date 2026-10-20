@@ -248,7 +248,9 @@ impl Compilation {
                 target,
                 cancellation,
             )?,
-            MirHelperReference::Predicate(reference) => self.concrete_codegen_predicate(owner, reference, target, cancellation)?,
+            MirHelperReference::Predicate(reference) => {
+                self.concrete_codegen_predicate(owner, reference, target, cancellation)?
+            }
             MirHelperReference::DefaultValue(provider) => self.concrete_codegen_default_value(
                 owner,
                 operation_id,

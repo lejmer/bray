@@ -19,7 +19,10 @@ impl SemanticValueStore {
         }
 
         let substituted = match data.as_ref() {
-            TypeData::ExactInteger { .. } | TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
+            TypeData::ExactInteger { .. }
+            | TypeData::Error
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_) => {
                 return Ok(ty);
             }
             TypeData::Named {

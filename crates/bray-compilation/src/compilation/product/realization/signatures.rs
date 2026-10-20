@@ -29,7 +29,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
         if let MirUnitKey::Predicate(reference) = instance.key().template() {
-            return self.codegen_predicate_signature(instance, reference, cancellation);
+            return self.codegen_predicate_signature(instance, reference.reference(), cancellation);
         }
 
         if let MirUnitKey::GeneratedLifecycle(_) = instance.key().template() {
@@ -83,7 +83,9 @@ impl Compilation {
             | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
             }
-            MirUnitKey::Predicate(_) | MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExternalRuntimeDefault(_) => {
+            MirUnitKey::Predicate(_)
+            | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => {
                 return Err(ProductQueryFailure::missing(
                     ProductQueryContext::Instance(instance.key().clone()),
                     ProductDataKind::CallableSignature,

@@ -132,7 +132,6 @@ impl Compilation {
                         &mut diagnostics,
                     )?
                 {
-
                     inputs.calls.insert(expression.into(), contract);
                 }
 

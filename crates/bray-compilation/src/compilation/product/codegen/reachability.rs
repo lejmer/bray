@@ -346,7 +346,11 @@ impl Compilation {
                         {
                             host_mir.clone()
                         } else if matches!(key.template(), MirUnitKey::Predicate(_)) {
-                            self.codegen_predicate_mir(&realization, MirUnitId::new(0), cancellation)?
+                            self.codegen_predicate_mir(
+                                &realization,
+                                MirUnitId::new(0),
+                                cancellation,
+                            )?
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
                             self.codegen_heap_method_mir(
@@ -506,6 +510,13 @@ impl Compilation {
             .instances()
             .iter()
             .filter(|instance| selected(instance.key().template()))
+            .inspect(|instance| {
+                assert!(
+                    instance.mir().is_valid(),
+                    "generated MIR must satisfy its phase contract: {:?}",
+                    instance.key()
+                )
+            })
             .count())
     }
 }

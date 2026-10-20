@@ -54,6 +54,32 @@ where
         current: AnalysisBlockId,
         may_fail: bool,
     ) -> AnalysisBlockId {
+        let mut current = current;
+        let mut may_fail = may_fail;
+
+        if let Some(SemanticSelection::Call(call)) = self.selections().and_then(|selections| selections.expression(expression))
+            && call.phase_behaviors().invocation().has_runtime_requirements()
+            && !call.evaluates_defaults()
+            && call.arguments().iter().all(|argument| !matches!(argument,
+                bray_bound_tree::SelectedArgument::Explicit { conversion, .. } if conversion.invokes_source()))
+        {
+            // Input expressions have completed. An entry failure cannot commit the
+            // callee's effects. Effectful implicit input evaluation retains its
+            // existing conservative combined transition.
+            may_fail = selected_call_may_propagate_panic(call);
+
+            let admitted = self.push_block();
+            let failed = self.push_block();
+
+            self.push_edge(current, failed, AnalysisEdgeKind::Sequential,
+                Some(super::model::AnalysisRefinement::PreconditionFailure(expression.into())));
+
+            self.push_exit(failed, AnalysisExitKind::Panic, expression.into());
+            self.push_exit(failed, AnalysisExitKind::Cancellation, expression.into());
+            self.push_edge(current, admitted, AnalysisEdgeKind::Sequential, None);
+            current = admitted;
+        }
+
         let continuation = self.push_block();
 
         self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
@@ -112,7 +138,9 @@ where
             suspended,
             cancellation,
             AnalysisEdgeKind::RunCancellation,
-            None,
+            Some(super::model::AnalysisRefinement::InvocationFailure(
+                id.into(),
+            )),
         );
 
         self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
@@ -236,15 +264,11 @@ where
             Some(SemanticSelection::Call(selection)) => {
                 // Inactive frame construction admits backing before captures move.
                 // Its failure is synchronous even though the body executes later.
-                selection.evaluates_defaults()
-                    || (selection.phase_behaviors().invocation().may_unwind()
-                        && hook_may_panic
-                        && !selection
-                            .phase_behaviors()
-                            .invocation()
-                            .execution_properties()
-                            .contains(&bray_symbols::ExecutionProperty::Total)
-                        && selection.invocation() == CallableInvocation::Bray)
+                selection
+                    .phase_behaviors()
+                    .invocation()
+                    .has_runtime_requirements()
+                    || selected_call_may_propagate_panic(selection)
             }
             // Union construction has call syntax and declaration-owned defaults.
             Some(SemanticSelection::Operation(operation)) => {
@@ -273,6 +297,19 @@ where
             .available_compiler_known_symbols()
             .symbol_implementation(target.symbol())
     }
+}
+
+/// Whether evaluation can fail independently of caller-side requirement checks.
+fn selected_call_may_propagate_panic(selection: &bray_bound_tree::SelectedCall) -> bool {
+    selection.evaluates_defaults()
+        || (selection.phase_behaviors().invocation().may_unwind()
+            && implementation_hook_may_propagate_synchronous_panic(selection.implementation_hook())
+            && !selection
+                .phase_behaviors()
+                .invocation()
+                .execution_properties()
+                .contains(&bray_symbols::ExecutionProperty::Total)
+            && selection.invocation() == CallableInvocation::Bray)
 }
 
 /// Whether a compiler hook can propagate synchronous failure on valid inputs.

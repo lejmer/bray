@@ -3504,7 +3504,7 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
         ("Future<unit>", "work(&mut owner)", "pending"),
         ("&mut Future<unit>", "work(&mut owner)", "&mut pending"),
         (
-            "&mut (Future<unit>, u32)",
+            "&mut (Future<unit>, i32)",
             "(work(&mut owner), 0)",
             "&mut pending",
         ),
@@ -3535,6 +3535,22 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
         ));
 
         let diagnostics = application.check_diagnostics();
+
+        assert!(
+            diagnostics
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType)
+                .next()
+                .is_none(),
+            "{parameter}: {diagnostics:?}"
+        );
+
+        assert!(
+            diagnostics
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingCannotInferExpressionType)
+                .next()
+                .is_none(),
+            "{parameter}: {diagnostics:?}"
+        );
 
         assert!(
             diagnostics

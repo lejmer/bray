@@ -252,6 +252,7 @@ pub struct InterfaceDependencyContract {
         >],
     >,
     pub(crate) normal_completion: bool,
+    pub(crate) normal_storage_preserved: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) completion_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
     pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
@@ -286,6 +287,7 @@ impl InterfaceDependencyContract {
             completion_reports: None,
             abnormal_reports: None,
             normal_completion: true,
+            normal_storage_preserved: false,
             returned_input: None,
             carriers: Arc::new([]),
             borrows: Arc::new([]),
@@ -350,6 +352,13 @@ impl InterfaceDependencyContract {
     /// Records whether execution can complete normally.
     pub fn with_normal_completion(mut self, possible: bool) -> Self {
         self.normal_completion = possible;
+
+        self
+    }
+
+    /// Records checked storage preservation on normal return, independently of abnormal effects.
+    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
+        self.normal_storage_preserved = preserved;
 
         self
     }

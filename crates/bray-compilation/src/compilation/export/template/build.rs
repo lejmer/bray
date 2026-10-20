@@ -16,11 +16,20 @@ pub(in crate::compilation::export) fn export_checked_source_template(
     inputs: Vec<SourceTemplateInput>,
     dependency: bray_symbols::DependencyContractTemplateId,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
-    let template = compilation.checked_source_template(key, kind, expression, inputs, dependency, &compilation.state.cancellation)
+    let template = compilation
+        .checked_source_template(
+            key,
+            kind,
+            expression,
+            inputs,
+            dependency,
+            &compilation.state.cancellation,
+        )
         .map_err(super::super::fact_query_export_error)?;
 
     let Some(template) = template.value() else {
-        return Err(PackageInterfaceExportError::InvalidCompilation);
+        return Err(super::super::error::source_diagnostic_export_error(template.diagnostics())
+            .unwrap_or_else(|| panic!("checked source template {kind:?} at {expression:?} is absent without a source error")));
     };
 
     super::encoding::encode_template(export, template)

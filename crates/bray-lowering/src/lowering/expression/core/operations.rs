@@ -1063,9 +1063,11 @@ impl Lowerer<'_> {
                         selection.receiver().map(|receiver| receiver.mode()),
                         arguments.iter().filter_map(|argument| match argument {
                             MirCallArgument::Receiver { value, .. } => Some((None, value)),
-                            MirCallArgument::Explicit { ordinal: previous, value, .. } if previous < ordinal => {
-                                Some((Some(*previous), value))
-                            }
+                            MirCallArgument::Explicit {
+                                ordinal: previous,
+                                value,
+                                ..
+                            } if previous < ordinal => Some((Some(*previous), value)),
                             MirCallArgument::Explicit { .. } => None,
                         }),
                     )?;
@@ -1384,7 +1386,9 @@ impl Lowerer<'_> {
         call: MirCall,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let (current, call) = self.lower_protocol_requirements(expression.into(), current, &source, call)?;
+        let (current, call) =
+            self.lower_protocol_requirements(expression.into(), current, &source, call)?;
+
         self.push_checked_value_operation(
             expression,
             current,

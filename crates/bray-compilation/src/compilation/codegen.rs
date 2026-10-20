@@ -214,7 +214,9 @@ impl Compilation {
                 .ok_or_else(|| {
                     CodegenPreparationError::MirUnavailable(instance.template().clone())
                 }),
-            MirUnitKey::Predicate(_) | MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
+            MirUnitKey::Predicate(_)
+            | MirUnitKey::ExternalCallable(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenPreparationError::MirUnavailable(instance.template().clone()),
             ),
         }

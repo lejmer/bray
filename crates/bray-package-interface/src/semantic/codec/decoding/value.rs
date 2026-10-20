@@ -672,7 +672,8 @@ mod tests {
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
-                .with_normal_completion(false),
+                .with_normal_completion(false)
+                .with_normal_storage_preservation(true),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
         ]
         .into();
@@ -699,6 +700,7 @@ mod tests {
         );
 
         assert!(!template.normal_completion());
+        assert!(template.preserves_storage_on_normal_return());
 
         assert!(
             template

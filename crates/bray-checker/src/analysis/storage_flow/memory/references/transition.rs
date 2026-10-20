@@ -75,6 +75,7 @@ impl State {
             let mut previous = super::super::model::Transfer {
                 values: take_subtree(&mut pending.values, &destination).collect(),
                 payloads: take_subtree(&mut pending.payloads, &destination).collect(),
+                failure_effects: None,
             };
 
             previous.merge(&staged);
@@ -243,6 +244,21 @@ impl State {
             .entry(destination)
             .or_default()
             .merge(&references);
+    }
+
+    pub(in crate::analysis::storage_flow) fn capture_failure_effects(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        effects: super::super::model::CapturedEffects,
+    ) {
+        self.pending.entry(call).or_default().failure_effects = Some(std::sync::Arc::new(effects));
+    }
+
+    pub(in crate::analysis::storage_flow) fn take_failure_effects(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<std::sync::Arc<super::super::model::CapturedEffects>> {
+        self.pending.get_mut(&call)?.failure_effects.take()
     }
 
     pub(in crate::analysis::storage_flow) fn complete_transition(
@@ -454,15 +470,20 @@ impl State {
             *effects = std::mem::take(effects)
                 .into_iter()
                 .map(|mut effect| {
-                    if let Effect::Mutation(target, _) = &mut effect
-                        && current.contains(target)
-                    {
-                        target.previous = true;
-                    }
+                    effect.retire(current);
 
                     effect
                 })
                 .collect();
+        }
+
+        for transfer in self.pending.values_mut() {
+            if let Some(effects) = &mut transfer.failure_effects
+                && effects.references(current)
+            {
+                // Branches share immutable captures until storage retirement changes a target epoch.
+                std::sync::Arc::make_mut(effects).retire(current);
+            }
         }
 
         let values = take_subtree(&mut self.values, current).collect::<Vec<_>>();

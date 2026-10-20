@@ -217,7 +217,9 @@ pub(crate) enum InspectionMirUnitKey {
         package: String,
         product: String,
     },
-    Predicate { reference: InspectionPredicateReference },
+    Predicate {
+        reference: InspectionPredicateReference,
+    },
     GeneratedLifecycle {
         role: &'static str,
         type_identity: String,
@@ -237,24 +239,45 @@ pub(crate) enum InspectionMirUnitKey {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum InspectionPredicateReference {
-    Clause { callable: InspectionSymbolIdentity, substitution: u32, ordinal: u32 },
-    Predicate { predicate: InspectionSymbolIdentity, substitution: u32 },
-    Condition { term: u32, input_types: Vec<u32> },
+    Clause {
+        callable: InspectionSymbolIdentity,
+        substitution: u32,
+        ordinal: u32,
+    },
+    Predicate {
+        predicate: InspectionSymbolIdentity,
+        substitution: u32,
+    },
+    Condition {
+        term: u32,
+        input_types: Vec<u32>,
+    },
 }
 
 impl InspectionPredicateReference {
     fn from_reference(reference: &bray_ir::MirPredicateReference, symbols: &SymbolGraph) -> Self {
         match reference {
             bray_ir::MirPredicateReference::Clause { callable, ordinal } => Self::Clause {
-                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.instance().definition().symbol()),
-                substitution: callable.instance().substitution().slot(), ordinal: ordinal.raw(),
+                callable: InspectionSymbolIdentity::from_symbol(
+                    symbols,
+                    callable.instance().definition().symbol(),
+                ),
+                substitution: callable.instance().substitution().slot(),
+                ordinal: ordinal.raw(),
             },
             bray_ir::MirPredicateReference::Predicate(predicate) => Self::Predicate {
-                predicate: InspectionSymbolIdentity::from_symbol(symbols, predicate.definition().into_any()),
+                predicate: InspectionSymbolIdentity::from_symbol(
+                    symbols,
+                    predicate.definition().into_any(),
+                ),
                 substitution: predicate.substitution().slot(),
             },
-            bray_ir::MirPredicateReference::Condition { condition, input_types } => Self::Condition {
-                term: condition.slot(), input_types: input_types.iter().map(|ty| ty.slot()).collect(),
+            bray_ir::MirPredicateReference::Condition {
+                condition,
+                input_types,
+            } => Self::Condition {
+                term: condition.slot(),
+                input_types: input_types.iter().map(|ty| ty.slot()).collect(),
             },
         }
     }
@@ -1171,6 +1194,7 @@ fn call_parts(
         }
         MirCallTarget::Predicate(reference) => {
             parts.attribute("dispatch", "predicate");
+
             match reference {
                 bray_ir::MirPredicateReference::Clause { callable, ordinal } => {
                     parts.attribute("predicate_kind", "clause");
@@ -1179,13 +1203,30 @@ fn call_parts(
                 }
                 bray_ir::MirPredicateReference::Predicate(predicate) => {
                     parts.attribute("predicate_kind", "predicate");
-                    parts.symbol("predicate", predicate.definition().into_any(), context.symbols);
-                    parts.semantic_value("predicate_substitution", "generic_substitution", predicate.substitution().slot(), None);
+
+                    parts.symbol(
+                        "predicate",
+                        predicate.definition().into_any(),
+                        context.symbols,
+                    );
+
+                    parts.semantic_value(
+                        "predicate_substitution",
+                        "generic_substitution",
+                        predicate.substitution().slot(),
+                        None,
+                    );
                 }
-                bray_ir::MirPredicateReference::Condition { condition, input_types } => {
+                bray_ir::MirPredicateReference::Condition {
+                    condition,
+                    input_types,
+                } => {
                     parts.attribute("predicate_kind", "condition");
                     parts.semantic_value("condition", "constant_term", condition.slot(), None);
-                    for (ordinal, ty) in input_types.iter().enumerate() { parts.r#type(format!("input[{ordinal}]"), *ty, context)?; }
+
+                    for (ordinal, ty) in input_types.iter().enumerate() {
+                        parts.r#type(format!("input[{ordinal}]"), *ty, context)?;
+                    }
                 }
             }
         }
@@ -2233,7 +2274,9 @@ fn inspection_unit_key(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
-        MirUnitKey::Predicate(reference) => Ok(InspectionMirUnitKey::Predicate { reference: InspectionPredicateReference::from_reference(reference, symbols) }),
+        MirUnitKey::Predicate(reference) => Ok(InspectionMirUnitKey::Predicate {
+            reference: InspectionPredicateReference::from_reference(reference.reference(), symbols),
+        }),
         MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),

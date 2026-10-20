@@ -93,6 +93,11 @@ extern trusted func native_resource_release(pos handle: u64, fail: bool) -> i32
 extern trusted func native_resource_live_count() -> u64
     uses(foreign_call);
 
+@symbol(name = "bray_foreign_resource_release_calls")
+@abi(c)
+extern trusted func native_resource_release_calls() -> u64
+    uses(foreign_call);
+
 @copy
 union NativeResourceError
 {
@@ -558,24 +563,27 @@ trusted func audit_requirements()
 {
     assert(trusted native_requirement_entries() == 0);
 
+    let first_release_count: u64 = trusted native_resource_release_calls();
+
     let failed: Result<i32, PanicReport> = catch
     {
         let mut owner: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
             trusted NativeResource(succeed = true),
         );
-
         let value: i32 = trusted native_requirement_entry(runtime_integer(0));
         std.testing.assert_ok<unit, NativeResourceError>(trusted owner.close(fail = false));
 
         yield value;
     };
-
     let _: PanicReport = std.testing.assert_error<i32, PanicReport>(failed);
 
     assert(trusted native_requirement_entries() == 0);
     assert(trusted native_resource_live_count() == 0);
+    assert(trusted native_resource_release_calls() == first_release_count + 1);
     assert(trusted native_requirement_entry(runtime_integer(7)) == 7);
     assert(trusted native_requirement_entries() == 1);
+
+    let transfer_release_count: u64 = trusted native_resource_release_calls();
 
     let failed_transfer: Result<unit, PanicReport> = catch
     {
@@ -590,9 +598,12 @@ trusted func audit_requirements()
 
     let _: PanicReport = std.testing.assert_error<unit, PanicReport>(failed_transfer);
 
+    assert(trusted native_resource_release_calls() == transfer_release_count + 1);
+
     assert(trusted native_resource_live_count() == 0);
 
     let callback: RequiredNative = native_requirement_entry;
+
     let indirect: Result<i32, PanicReport> = catch
     {
         yield trusted callback(runtime_integer(0));
@@ -620,8 +631,27 @@ trusted func audit_requirements()
 
     let _: PanicReport = std.testing.assert_error<unit, PanicReport>(reversed);
 
-    require_quotient(runtime_unsigned(18446744073709551615), runtime_unsigned(2), runtime_unsigned(9223372036854775807));
+    require_quotient(
+        runtime_unsigned(18446744073709551615),
+        runtime_unsigned(2),
+        runtime_unsigned(9223372036854775807),
+    );
     require_sum(runtime_unsigned(18446744073709551615), runtime_unsigned(18446744073709551615));
+
+    require_wide_quotient(
+        runtime_wide_unsigned(340282366920938463463374607431768211455),
+        runtime_wide_unsigned(2),
+        runtime_wide_unsigned(170141183460469231731687303715884105727),
+    );
+
+    require_signed_quotient(
+        runtime_wide_signed(-170141183460469231731687303715884105728),
+        runtime_wide_signed(-1),
+        runtime_wide_signed(170141183460469231731687303715884105727),
+    );
+
+    require_power(runtime_wide_signed(170141183460469231731687303715884105727));
+    require_large_shift(runtime_wide_signed(-1));
 }
 
 internal callable RequiredNative = @abi(c) trusted func(pos value: i32) -> i32
@@ -693,6 +723,8 @@ struct RequirementReceiver
 trusted func audit_requirement_scopes()
     uses(foreign_call)
 {
+    let release_count: u64 = trusted native_resource_release_calls();
+
     let entry: Result<unit, PanicReport> = catch
     {
         with lease = RequirementEntry { ready = runtime_integer(0) > 0 }
@@ -721,9 +753,11 @@ trusted func audit_requirement_scopes()
 
     assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
     assert(trusted native_resource_live_count() == 0);
+    assert(trusted native_resource_release_calls() == release_count + 1);
 
     let rejected: RequirementReceiver = { ready = runtime_integer(0) > 0 };
     let accepted: RequirementReceiver = { ready = runtime_integer(1) > 0 };
+
     let receiver: Result<unit, PanicReport> = catch
     {
         rejected.selected();
@@ -743,5 +777,36 @@ internal callable IncrementAction = func(pos value: i32)
 
 func require_increment(pos value: i32)
     requires(value < 2147483647 && ordered(first = value + 1, second = 1))
+{
+}
+
+
+func runtime_wide_unsigned(pos value: u128) -> u128
+{
+    return value;
+}
+
+func runtime_wide_signed(pos value: i128) -> i128
+{
+    return value;
+}
+
+func require_wide_quotient(pos value: u128, pos divisor: u128, pos limit: u128)
+    requires(divisor > 0 && (value + 1) / divisor > limit)
+{
+}
+
+func require_signed_quotient(pos value: i128, pos divisor: i128, pos limit: i128)
+    requires(divisor != 0 && value / divisor > limit)
+{
+}
+
+func require_power(pos value: i128)
+    requires((value + 1) ** 3 > value)
+{
+}
+
+func require_large_shift(pos value: i128)
+    requires(((value << 130) >> 330) == -1)
 {
 }

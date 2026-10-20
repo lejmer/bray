@@ -18,7 +18,7 @@ use crate::InterfaceSymbolReference;
 pub struct InterfacePredicateSummary {
     pub(crate) dependency_contract: InterfaceDependencyContractId,
     pub(crate) condition: Option<super::InterfaceConstantTermId>,
-    pub(crate) is_trusted: bool,
+    pub(crate) domain: bray_symbols::PredicateDomain,
 }
 
 impl InterfacePredicateSummary {
@@ -27,18 +27,18 @@ impl InterfacePredicateSummary {
         Self {
             dependency_contract,
             condition: None,
-            is_trusted: false,
+            domain: bray_symbols::PredicateDomain::Value,
         }
     }
 
-    /// Retains portable predicate meaning and caller trust authority.
+    /// Retains portable predicate meaning and its checking domain.
     pub const fn with_condition(
         mut self,
         condition: Option<super::InterfaceConstantTermId>,
-        is_trusted: bool,
+        domain: bray_symbols::PredicateDomain,
     ) -> Self {
         self.condition = condition;
-        self.is_trusted = is_trusted;
+        self.domain = domain;
 
         self
     }
@@ -48,9 +48,14 @@ impl InterfacePredicateSummary {
         self.condition
     }
 
+    /// Returns the established checking authority.
+    pub const fn domain(self) -> bray_symbols::PredicateDomain {
+        self.domain
+    }
+
     /// Whether the predicate requires trusted caller evidence.
     pub const fn is_trusted(self) -> bool {
-        self.is_trusted
+        matches!(self.domain, bray_symbols::PredicateDomain::Trusted)
     }
 
     /// Returns the predicate expression's portable dependency contract.

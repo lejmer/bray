@@ -67,9 +67,7 @@ impl Lowerer<'_> {
         receiver: Option<bray_symbols::ReceiverMode>,
         inputs: impl IntoIterator<Item = (Option<u32>, &'input MirOperand)>,
     ) -> Result<Vec<MirOperand>, LoweringError> {
-        let mut inputs = inputs
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut inputs = inputs.into_iter().collect::<Vec<_>>();
 
         inputs.sort_by_key(|(ordinal, _)| *ordinal);
 
@@ -84,11 +82,25 @@ impl Lowerer<'_> {
                 };
 
                 let mut place = Self::retained_place(place);
-                if ordinal.is_none() && matches!(receiver, Some(bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable)) {
+
+                if ordinal.is_none()
+                    && matches!(
+                        receiver,
+                        Some(
+                            bray_symbols::ReceiverMode::Shared
+                                | bray_symbols::ReceiverMode::Mutable
+                        )
+                    )
+                {
                     let data = self.input.semantic_values().type_data(place.ty());
-                    let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else { panic!("checked receiver input retains its selected borrow"); };
+
+                    let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else {
+                        panic!("checked receiver input retains its selected borrow");
+                    };
+
                     place = place.project(bray_ir::MirProjectionKind::Dereference, *target);
                 }
+
                 let kind = bray_symbols::BorrowKind::Shared;
 
                 let ty =
@@ -103,10 +115,7 @@ impl Lowerer<'_> {
                     expression,
                     block,
                     Self::retained_source(source),
-                    bray_ir::MirOperationKind::Borrow {
-                        kind,
-                        place,
-                    },
+                    bray_ir::MirOperationKind::Borrow { kind, place },
                     ty,
                 )
             })

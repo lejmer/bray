@@ -10,5 +10,4 @@ mod query;
 mod scan;
 mod unwind;
 
-
 pub(in crate::compilation) use completion::CompletedCleanup;

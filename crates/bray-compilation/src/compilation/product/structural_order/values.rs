@@ -62,7 +62,13 @@ impl OrderEncoder<'_, '_> {
         let data = values.type_data(id);
 
         Ok(match data.as_ref() {
-            TypeData::ExactInteger { bits, signed } => term("exact_integer", [bits.get().to_be_bytes().to_vec().into(), vec![u8::from(*signed)].into()]),
+            TypeData::ExactInteger { bits, signed } => term(
+                "exact_integer",
+                [
+                    bits.get().to_be_bytes().to_vec().into(),
+                    vec![u8::from(*signed)].into(),
+                ],
+            ),
             TypeData::Named {
                 definition,
                 substitution,

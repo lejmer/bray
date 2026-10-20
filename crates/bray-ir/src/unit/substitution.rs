@@ -42,6 +42,18 @@ impl MirLocalIdMapping for Substitution<'_> {
     }
 }
 
+impl MirOperand {
+    /// Replaces computed values, including selectors, with established equal operands.
+    /// Replacements must preserve type and ownership and be available at the use.
+    pub fn substitute_values(&mut self, replacements: &BTreeMap<MirValueId, MirOperand>) {
+        Substitution {
+            values: Some(replacements),
+            places: None,
+        }
+        .remap_operand(self);
+    }
+}
+
 impl MirOperationKind {
     /// Replaces storage roots with existing places while preserving their projections.
     /// The caller must preserve type, initialization, authority and lifetime at every use.

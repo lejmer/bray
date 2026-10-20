@@ -9,9 +9,8 @@ use bray_package_interface::{
 };
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, DependencyRequirementKind, ImplementationCoherenceQuery,
-    ImplementationSymbolId, PredicateDefinition,
-    PredicateDefinitionState, StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind,
-    SymbolQueryRequest,
+    ImplementationSymbolId, PredicateDefinition, PredicateDefinitionState,
+    StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind, SymbolQueryRequest,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -188,6 +187,7 @@ pub(super) fn export_static_semantics(
         .ok_or_else(|| incomplete(symbol))?;
 
     let expression = key.source().syntax();
+
     let inputs = generic_template_inputs(compilation, generic_parameters(binder, symbol)?)
         .map_err(super::super::fact_query_export_error)?;
 
@@ -226,9 +226,16 @@ pub(super) fn predicate_definition(
     let Some(predicate) = bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol) else {
         return Ok(None);
     };
-    let semantics = binder.compilation().predicate_definition_with_cancellation(predicate, binder.cancellation())
+
+    let semantics = binder
+        .compilation()
+        .predicate_definition_with_cancellation(predicate, binder.cancellation())
         .map_err(super::super::fact_query_export_error)?;
-    if semantics.diagnostics().has_errors() { return Err(incomplete(symbol)); }
+
+    if semantics.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
     // The exported summary shares its immutable semantic arrays with the query.
     Ok(Some(semantics.value().clone()))
 }

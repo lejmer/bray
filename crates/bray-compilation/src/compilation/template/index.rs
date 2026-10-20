@@ -1,9 +1,9 @@
-use crate::fact::FactQueryError;
 use super::build::{SourceTemplateBuilder, incomplete};
+use crate::fact::FactQueryError;
+use bray_bound_tree::CheckedTemplateOperation;
 use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpressionKind, SelectedOperation, SemanticSelection,
 };
-use bray_bound_tree::CheckedTemplateOperation;
 
 impl SourceTemplateBuilder<'_, '_, '_> {
     pub(super) fn index(
@@ -52,10 +52,8 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 dispatch,
                 ..
             } => {
-                let (callable, substitution) = self.declaration_reference(
-                    member.definition().symbol(),
-                    member.substitution(),
-                )?;
+                let (callable, substitution) = self
+                    .declaration_reference(member.definition().symbol(), member.substitution())?;
 
                 Some(std::sync::Arc::new(
                     bray_bound_tree::CheckedTemplateIndexCall {
@@ -67,12 +65,12 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                                 owner,
                                 ordinal,
                             } => bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
-                                owner: 
-                                    self.symbol_key(owner.symbol())?,
+                                owner: self.symbol_key(owner.symbol())?,
                                 ordinal: *ordinal,
                             },
                             bray_symbols::TraitConstraintDispatch::TraitDefault(requirement) => {
-                                let (subject, substitution) = self.trait_default_requirement(*requirement)?;
+                                let (subject, substitution) =
+                                    self.trait_default_requirement(*requirement)?;
 
                                 bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
                                     subject,

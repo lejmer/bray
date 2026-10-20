@@ -46,7 +46,7 @@ pub use operation::{
     MirOperationCommit, MirOperationKind, MirOutgoingOwner, MirPanicCause, MirStoreKind,
     MirTaskTerminalState, MirTextOperation, MirTextOperationKind, MirUnaryOperator,
 };
-pub use predicate::MirPredicateReference;
+pub use predicate::{MirPredicateKey, MirPredicateReference};
 pub use reference::{
     MirAnonymousCallableReference, MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget,
     MirCallableReference, MirDefaultOwner, MirFieldReference, MirRuntimeReference,

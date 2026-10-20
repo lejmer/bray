@@ -14,7 +14,8 @@ pub(super) struct CompilationSyntheticLoweringContext<'compilation> {
     pub(super) compilation: &'compilation Compilation,
     pub(super) cancellation: &'compilation CancellationToken,
     pub(super) values: &'compilation SemanticValueStore,
-    pub(super) realization: Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
+    pub(super) realization:
+        Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
 }
 
 impl<'compilation> CompilationSyntheticLoweringContext<'compilation> {

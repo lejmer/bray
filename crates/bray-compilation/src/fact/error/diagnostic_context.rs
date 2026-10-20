@@ -143,7 +143,10 @@ pub(crate) fn push_semantic_type_data(
     ]);
 
     match ty {
-        Type::ExactInteger { bits, signed } => context.extend([identity_field("actual_integer_bits", bits), identity_field("actual_integer_signed", signed)]),
+        Type::ExactInteger { bits, signed } => context.extend([
+            identity_field("actual_integer_bits", bits),
+            identity_field("actual_integer_signed", signed),
+        ]),
         Type::Error => {}
         Type::Named {
             definition,

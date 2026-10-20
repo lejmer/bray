@@ -289,10 +289,25 @@ impl Lowerer<'_> {
 
         let block = if let ConstructionTarget::TypeForm { callable, .. } = target {
             // The constructor observes inputs before accepting their ownership.
-            let arguments = inputs.iter().map(|input| bray_ir::MirCallArgument::positional(input.ordinal(), input.value().clone())).collect::<Vec<_>>();
-            self.lower_declared_requirements(id.into(), block, &source,
-                bray_ir::MirCallableReference::new(callable, bray_symbols::CallableAbi::Bray), &arguments, None)?
-        } else { block };
+            let arguments = inputs
+                .iter()
+                .map(|input| {
+                    bray_ir::MirCallArgument::positional(input.ordinal(), input.value().clone())
+                })
+                .collect::<Vec<_>>();
+
+            self.lower_declared_requirements(
+                id.into(),
+                block,
+                &source,
+                bray_ir::MirCallableReference::new(callable, bray_symbols::CallableAbi::Bray),
+                &arguments,
+                None,
+            )?
+        } else {
+            block
+        };
+
         let owner_type = self.expression_type(id);
         let block = self.admit_outgoing_owner(id, block, &source, owner_type)?;
 

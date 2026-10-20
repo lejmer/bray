@@ -269,7 +269,10 @@ fn decode_operation(
             let arguments = read_node_ids(reader, limits, context)?;
             let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
             let mut ordinals = context.allocate_items(reader, count)?;
-            for _ in 0..count { ordinals.push(read_u32(reader)?); }
+
+            for _ in 0..count {
+                ordinals.push(read_u32(reader)?);
+            }
 
             let implementation_raw = read_u32(reader)?;
 

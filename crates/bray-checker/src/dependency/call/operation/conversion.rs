@@ -184,7 +184,10 @@ pub(super) fn sequence_dependencies(
 
     let mut result = DependencyContractTemplateData::new(requirements)
         .with_effects(first.effects().iter().chain(next.effects()).cloned())
-        .with_normal_completion(first.normal_completion() && next.normal_completion());
+        .with_normal_completion(first.normal_completion() && next.normal_completion())
+        .with_normal_storage_preservation(
+            first.preserves_storage_on_normal_return() && next.preserves_storage_on_normal_return(),
+        );
 
     if first.completion_reports().is_some() || next.completion_reports().is_some() {
         result = result.with_completion_reports(

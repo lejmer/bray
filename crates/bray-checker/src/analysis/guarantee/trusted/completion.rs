@@ -197,11 +197,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Address and field guarantees also depend on the borrowed storage that
         // established them, even when the raw value has no ordinary borrow.
         let returned = |operand| {
-            retain_carriers && self.dependencies
-                .calls()
-                .get(&expression.into())
-                .and_then(|dependencies| dependencies.retained_inputs())
-                .is_none_or(|inputs| inputs.contains(&operand))
+            retain_carriers
+                && self
+                    .dependencies
+                    .calls()
+                    .get(&expression.into())
+                    .and_then(|dependencies| dependencies.retained_inputs())
+                    .is_none_or(|inputs| inputs.contains(&operand))
         };
 
         for argument in call.arguments() {
@@ -286,7 +288,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = input;
 
-            if retain_carriers { carriers.push(value.clone()); }
+            if retain_carriers {
+                carriers.push(value.clone());
+            }
 
             if let Some(parameter) = parameter {
                 arguments.insert(
@@ -333,7 +337,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = input;
 
-            if retain_carriers { carriers.push(value.clone()); }
+            if retain_carriers {
+                carriers.push(value.clone());
+            }
+
             arguments.insert(reference.into(), value.clone());
 
             arguments.insert(
@@ -507,7 +514,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.semantics.selections().expression(expression)
         {
             // Completion clauses observe final contents, independently of trusted authority.
-            self.prepare_call_observations(state, expression, call, &mut arguments, observations, !guarantees.is_empty())
+            self.prepare_call_observations(
+                state,
+                expression,
+                call,
+                &mut arguments,
+                observations,
+                !guarantees.is_empty(),
+            )
         } else {
             Default::default()
         };

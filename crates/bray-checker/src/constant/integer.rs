@@ -55,8 +55,7 @@ pub(crate) fn fits_integer_representation(
             fits_signed(value, width)
         }
         IntegerRepresentation::Unsigned(_) | IntegerRepresentation::TargetUnsigned => {
-            value.sign() == IntegerSign::NonNegative
-                && value.magnitude_bits() <= usize::from(width)
+            value.sign() == IntegerSign::NonNegative && value.magnitude_bits() <= usize::from(width)
         }
     }
 }

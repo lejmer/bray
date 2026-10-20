@@ -211,7 +211,9 @@ impl<'model> TypeFormatter<'model> {
 
         match data.as_ref() {
             TypeData::Error => Ok(String::from("<error>")),
-            TypeData::ExactInteger { bits, signed } => Ok(format!("<exact {}{bits}>", if *signed { "i" } else { "u" })),
+            TypeData::ExactInteger { bits, signed } => {
+                Ok(format!("<exact {}{bits}>", if *signed { "i" } else { "u" }))
+            }
             TypeData::Named {
                 definition,
                 substitution,

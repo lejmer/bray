@@ -455,3 +455,36 @@ fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
     assert_eq!(permit_layout.alignment().get(), 1);
     assert_eq!(baseline_layout, guard_layout);
 }
+
+#[test]
+fn exact_integer_storage_layout_excludes_allocation_padding() {
+    let compilation = compilation("module app;");
+    let values = compilation.semantic_value_store().unwrap();
+
+    for native in bray_target::NativeTarget::ALL {
+        let target = bray_codegen::CodegenTarget::for_native(native);
+
+        for (width, bytes) in [
+            (1, 1),
+            (7, 1),
+            (9, 2),
+            (17, 3),
+            (33, 5),
+            (65, 9),
+            (129, 17),
+            (257, 33),
+        ] {
+            for signed in [false, true] {
+                let bits = std::num::NonZeroU16::new(width).unwrap();
+                let ty = intern_type(values, TypeData::ExactInteger { bits, signed });
+                let mappings = realized_types(&compilation, &target, [ty]);
+
+                assert_eq!(
+                    mappings[&ty].layout().unwrap().size(),
+                    bytes,
+                    "{native:?}, {width}, {signed}"
+                );
+            }
+        }
+    }
+}

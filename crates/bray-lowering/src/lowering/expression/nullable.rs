@@ -49,7 +49,13 @@ impl Lowerer<'_> {
             );
         };
 
-        let current = self.lower_primitive_requirements(id, current, &source, selection, std::slice::from_mut(&mut receiver))?;
+        let current = self.lower_primitive_requirements(
+            id,
+            current,
+            &source,
+            selection,
+            std::slice::from_mut(&mut receiver),
+        )?;
 
         let result_type = self.expression_type(id);
 

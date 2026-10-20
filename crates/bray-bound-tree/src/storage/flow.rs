@@ -659,8 +659,12 @@ impl StorageFlow {
     ) -> Self {
         self.proven_preconditions = sorted_unique_shared_slice(invocations);
 
-        assert!(self.proven_preconditions.iter().all(|site| site.node().unit() == self.unit),
-            "proven preconditions belong to their checked unit");
+        assert!(
+            self.proven_preconditions
+                .iter()
+                .all(|site| site.node().unit() == self.unit),
+            "proven preconditions belong to their checked unit"
+        );
 
         self
     }

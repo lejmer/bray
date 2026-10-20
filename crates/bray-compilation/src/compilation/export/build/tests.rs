@@ -7,6 +7,6 @@ mod generics;
 mod guarantees;
 mod indexing;
 mod lifecycle;
-mod returned_dependencies;
 mod requirements;
+mod returned_dependencies;
 mod standard_library;

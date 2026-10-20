@@ -1600,5 +1600,4 @@ impl Compilation {
 
         Ok(DiagnosticResult::new(contracts, diagnostics))
     }
-
 }

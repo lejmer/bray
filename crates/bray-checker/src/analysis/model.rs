@@ -252,6 +252,7 @@ pub(crate) enum AnalysisRefinement {
         value: bool,
     },
     TrustBoundary(BoundExpressionId),
+    PreconditionFailure(bray_bound_tree::BoundExecutionSite),
     InvocationFailure(bray_bound_tree::BoundExecutionSite),
     InvocationCompletion(bray_bound_tree::BoundExecutionSite),
     CleanupRequired {
@@ -307,6 +308,7 @@ impl AnalysisEdge {
             self.refinement,
             Some(
                 AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::PreconditionFailure(_)
                     | AnalysisRefinement::CleanupRequired { .. }
             )
         )
@@ -669,6 +671,7 @@ impl ControlFlowGraph {
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
             Some(
                 AnalysisRefinement::InvocationFailure(invocation)
+                | AnalysisRefinement::PreconditionFailure(invocation)
                 | AnalysisRefinement::InvocationCompletion(invocation),
             ) => invocation.node().unit() == self.unit,
             Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {

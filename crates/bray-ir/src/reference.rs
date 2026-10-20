@@ -218,11 +218,19 @@ pub enum MirCallIntrinsic {
 
 impl MirCall {
     /// Transforms evaluated inputs in source order while retaining parameter and dispatch metadata.
-    pub fn try_map_inputs<E>(mut self, mut map: impl FnMut(&MirOperand) -> Result<MirOperand, E>) -> Result<Self, E> {
+    pub fn try_map_inputs<E>(
+        mut self,
+        mut map: impl FnMut(&MirOperand) -> Result<MirOperand, E>,
+    ) -> Result<Self, E> {
         for argument in Arc::make_mut(&mut self.arguments) {
-            let value = match argument { MirCallArgument::Receiver { value, .. } | MirCallArgument::Explicit { value, .. } => value };
+            let value = match argument {
+                MirCallArgument::Receiver { value, .. }
+                | MirCallArgument::Explicit { value, .. } => value,
+            };
+
             *value = map(value)?;
         }
+
         Ok(self)
     }
 
@@ -253,9 +261,18 @@ impl MirCall {
         };
 
         match &mut self.target {
-            MirCallTarget::Direct(reference) | MirCallTarget::Predicate(crate::MirPredicateReference::Clause { callable: reference, .. }) => *reference = mappings.callable(*reference),
-            MirCallTarget::Predicate(crate::MirPredicateReference::Condition { input_types, .. }) => {
-                for ty in Arc::make_mut(input_types) { *ty = mappings.ty(*ty); }
+            MirCallTarget::Direct(reference)
+            | MirCallTarget::Predicate(crate::MirPredicateReference::Clause {
+                callable: reference,
+                ..
+            }) => *reference = mappings.callable(*reference),
+            MirCallTarget::Predicate(crate::MirPredicateReference::Condition {
+                input_types,
+                ..
+            }) => {
+                for ty in Arc::make_mut(input_types) {
+                    *ty = mappings.ty(*ty);
+                }
             }
             _ => {}
         }

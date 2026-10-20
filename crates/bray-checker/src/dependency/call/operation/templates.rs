@@ -125,6 +125,7 @@ fn direct_dependencies(
         template,
         evaluation_effects: std::sync::Arc::from([]),
         evaluation_completes: true,
+        evaluation_preserves_storage: true,
         evaluation_reports: DependencyContractTemplateData::new([]),
         escaping_evaluation_inputs: Vec::new(),
     }

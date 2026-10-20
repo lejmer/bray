@@ -145,7 +145,8 @@ impl Lowerer<'_> {
             operand_types.push(conversion.target_type());
         }
 
-        current = self.lower_primitive_requirements(id, current, &source, selection, &mut operands)?;
+        current =
+            self.lower_primitive_requirements(id, current, &source, selection, &mut operands)?;
 
         let result_type = self.expression_type(id);
 

@@ -108,8 +108,20 @@ impl Lowerer<'_> {
 
                 let place = bray_ir::MirPlace::new(place.storage(), projections, reached);
 
-                let arguments = [bray_ir::MirCallArgument::positional(0, MirOperand::Move(Self::retained_place(&place)))];
-                let current = lowerer.lower_declared_requirements(BoundExecutionSite::ScopedEnter(expression), current, &source, callable, &arguments, None)?;
+                let arguments = [bray_ir::MirCallArgument::positional(
+                    0,
+                    MirOperand::Move(Self::retained_place(&place)),
+                )];
+
+                let current = lowerer.lower_declared_requirements(
+                    BoundExecutionSite::ScopedEnter(expression),
+                    current,
+                    &source,
+                    callable,
+                    &arguments,
+                    None,
+                )?;
+
                 let value = crate::lifecycle_call::lower_lifecycle_call(
                     callable,
                     input,
@@ -351,8 +363,17 @@ impl Lowerer<'_> {
                     }
 
                     let mut continuations = Vec::new();
-                    let block = lowerer.lower_scoped_exit_requirements(expression, block, source,
-                        callable, &place, ordinary_shield, &mut continuations)?;
+
+                    let block = lowerer.lower_scoped_exit_requirements(
+                        expression,
+                        block,
+                        source,
+                        callable,
+                        &place,
+                        ordinary_shield,
+                        &mut continuations,
+                    )?;
+
                     let call = crate::lifecycle_call::lower_lifecycle_call(
                         callable,
                         parameter,
@@ -561,8 +582,11 @@ impl Lowerer<'_> {
         selected_outcome: bool,
         value: MirOperand,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let reports = selected_outcome && self.input.storage_flow()
-            .completion_reports(BoundExecutionSite::ScopedExit(expression));
+        let reports = selected_outcome
+            && self
+                .input
+                .storage_flow()
+                .completion_reports(BoundExecutionSite::ScopedExit(expression));
 
         if let Some(outcome) = &self.cleanup_outcome {
             let (completed, value, continuation) =

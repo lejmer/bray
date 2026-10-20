@@ -150,10 +150,14 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
         self.active.remove(&ty);
 
-        if let Some(layout) = mapping.layout()
-            && !layout_matches(self.target_data, mapped, layout)
-        {
-            return Err(CodegenFailure::UnsupportedTarget);
+        if let Some(layout) = mapping.layout() {
+            assert!(
+                layout_matches(self.target_data, mapped, layout),
+                "LLVM type layout disagrees with its established mapping: type={ty:?}, kind={:?}, expected={layout:?}, actual_store_size={}, actual_alignment={}",
+                mapping.kind(),
+                self.target_data.get_store_size(&mapped),
+                self.target_data.get_abi_alignment(&mapped)
+            );
         }
 
         // Preserve large aggregate values as storage instead of byte-array SSA values.
@@ -420,11 +424,17 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         push_alignment_carrier(self.context, &mut elements, mapping)?;
         structure.set_body(&elements, false);
 
-        if field_elements.iter().any(|(element, expected)| {
-            self.target_data.offset_of_element(&structure, *element) != Some(*expected)
-        }) {
-            return Err(CodegenFailure::UnsupportedTarget);
-        }
+        assert!(
+            field_elements.iter().all(|(element, expected)| {
+                self.target_data.offset_of_element(&structure, *element) == Some(*expected)
+            }),
+            "LLVM aggregate field offsets disagree with their established mapping: type={:?}, expected={field_elements:?}, actual={:?}",
+            mapping.ty(),
+            field_elements
+                .iter()
+                .map(|(element, _)| self.target_data.offset_of_element(&structure, *element))
+                .collect::<Vec<_>>()
+        );
 
         Ok(structure.into())
     }
@@ -607,7 +617,10 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_mapping_rejects_implicit_field_offset_changes() {
+    #[should_panic(
+        expected = "LLVM aggregate field offsets disagree with their established mapping"
+    )]
+    fn aggregate_mapping_exposes_inconsistent_established_field_offsets() {
         let fixture = codegen_request();
         let request = fixture.request();
         let mappings = request.mappings();
@@ -655,10 +668,7 @@ mod tests {
         let context = Context::create();
         let mut llvm = LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
 
-        assert_eq!(
-            llvm.map(invalid_aggregate),
-            Err(bray_codegen::CodegenFailure::UnsupportedTarget)
-        );
+        let _ = llvm.map(invalid_aggregate);
     }
 
     #[test]
@@ -803,6 +813,69 @@ mod tests {
             invalid_aggregate,
             unsized_slice,
             unsized_trait_view,
+        }
+    }
+
+    #[test]
+    fn exact_integer_storage_layout_matches_llvm_targets() {
+        for native in bray_target::NativeTarget::ALL {
+            let fixture = bray_codegen::test_support::codegen_request_for_target_and_backend(
+                native,
+                codegen_request().request().backend().clone(),
+            );
+
+            let request = fixture.request();
+            let mut types = mapped_type_fixture();
+            let store = SemanticValueStore::try_new().unwrap();
+            let mut exact = Vec::new();
+
+            for (width, bytes, scalar) in [
+                (7, 1, bray_target::TargetScalarKind::I8),
+                (17, 3, bray_target::TargetScalarKind::I32),
+                (65, 9, bray_target::TargetScalarKind::I128),
+                (129, 17, bray_target::TargetScalarKind::I128),
+                (257, 33, bray_target::TargetScalarKind::I128),
+            ] {
+                for signed in [false, true] {
+                    let bits = NonZeroU16::new(width).unwrap();
+                    let ty = intern_type(&store, TypeData::ExactInteger { bits, signed });
+                    let alignment = native.profile().properties().scalars().alignment(scalar);
+
+                    let kind = if signed {
+                        CodegenTypeKind::SignedInteger(bits)
+                    } else {
+                        CodegenTypeKind::UnsignedInteger(bits)
+                    };
+
+                    types.mappings.push(CodegenTypeMapping::new(
+                        ty,
+                        layout(bytes, alignment),
+                        kind,
+                    ));
+
+                    exact.push((ty, width, bytes));
+                }
+            }
+
+            let mappings = combined_mappings(request, &types);
+            let machine = LlvmTargetMachine::create(request.target()).unwrap();
+            let target_data = machine.target_data();
+            let context = Context::create();
+
+            let mut llvm =
+                LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
+
+            for (ty, width, bytes) in exact {
+                let mapped = llvm.map(ty).unwrap();
+
+                assert_eq!(
+                    mapped.into_int_type().get_bit_width(),
+                    u32::from(width),
+                    "{native:?}"
+                );
+
+                assert_eq!(target_data.get_store_size(&mapped), bytes, "{native:?}");
+            }
         }
     }
 

@@ -233,7 +233,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        let evidence = state.entries.get(&invocation)
+        let evidence = state
+            .entries
+            .get(&invocation)
             .expect("invocation attempt retains its entry evidence");
 
         Some(evidence.proves(&contract.preconditions))

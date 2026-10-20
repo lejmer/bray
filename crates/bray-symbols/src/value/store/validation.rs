@@ -15,7 +15,10 @@ pub(super) fn validate_type_data(
     data: &TypeData,
 ) {
     match data {
-        TypeData::Error | TypeData::ExactInteger { .. } | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {}
+        TypeData::Error
+        | TypeData::ExactInteger { .. }
+        | TypeData::TypeParameter(_)
+        | TypeData::ContextualSelf(_) => {}
         TypeData::Named { substitution, .. } => {
             tables.substitutions.get(store, *substitution);
         }

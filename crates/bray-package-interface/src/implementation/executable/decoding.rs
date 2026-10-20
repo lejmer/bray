@@ -998,17 +998,33 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             },
             2 => MirCallTarget::Runtime(self.runtime_reference()?),
             4 => MirCallTarget::Predicate(match read_u32(&mut self.reader)? {
-                0 => bray_ir::MirPredicateReference::Clause { callable: MirCallableReference::new(self.callable_instance()?, self.callable_abi()?), ordinal: bray_symbols::SymbolOrdinal::new(read_u32(&mut self.reader)?) },
+                0 => bray_ir::MirPredicateReference::Clause {
+                    callable: MirCallableReference::new(
+                        self.callable_instance()?,
+                        self.callable_abi()?,
+                    ),
+                    ordinal: bray_symbols::SymbolOrdinal::new(read_u32(&mut self.reader)?),
+                },
                 1 => {
                     let symbol = self.symbol()?;
-                    let definition = bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol).ok_or(ExecutableTemplateDecodeError::Malformed)?;
-                    bray_ir::MirPredicateReference::Predicate(bray_symbols::PredicateInstanceData::new(definition, self.substitution()?))
+
+                    let definition =
+                        bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol)
+                            .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+                    bray_ir::MirPredicateReference::Predicate(
+                        bray_symbols::PredicateInstanceData::new(definition, self.substitution()?),
+                    )
                 }
                 2 => {
                     let term = self.constant_term()?;
                     let count = self.count()?;
                     let mut types = self.items(count)?;
-                    for _ in 0..count { types.push(self.ty()?); }
+
+                    for _ in 0..count {
+                        types.push(self.ty()?);
+                    }
+
                     bray_ir::MirPredicateReference::condition(term, types)
                 }
                 _ => return Err(ExecutableTemplateDecodeError::Malformed),

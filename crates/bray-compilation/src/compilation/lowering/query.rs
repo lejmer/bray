@@ -146,8 +146,12 @@ impl Compilation {
             )?;
 
         let completed = self.completed_unit_cleanup(key, cancellation)?;
+
         let declaration_preconditions = self.lowering_declaration_preconditions(
-            expressions.result().value().selections(), body.result().value().storage_flow(), cancellation)?;
+            expressions.result().value().selections(),
+            body.result().value().storage_flow(),
+            cancellation,
+        )?;
 
         let diagnostics = DiagnosticBag::merged_all([
             completed.result().diagnostics(),
