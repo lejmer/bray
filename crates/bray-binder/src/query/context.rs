@@ -121,19 +121,45 @@ pub trait BindingQueryContext: Send + Sync {
         module: ModuleSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<ModuleSurface>>, Self::UpstreamError>;
 
-    /// Resolves one name introduced by a source module export declaration.
-    fn module_re_export_lookup(
+    /// Resolves checked re-exports or type-associated members beyond the identity graph.
+    fn semantic_member_lookup(
         &self,
-        module: ModuleSymbolId,
+        owner: AnySymbolId,
         name: &str,
         access: NameAccess,
     ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError> {
-        let surface = self.module_surface(module)?;
+        if let AnySymbolId::Module(module) = owner {
+            let surface = self.module_surface(module)?;
 
-        Ok(match access {
-            NameAccess::Public => surface.value().lookup_public(name),
-            NameAccess::Local | NameAccess::Internal => surface.value().lookup(name),
-        })
+            if surface.value().re_exports().is_empty() {
+                return Ok(MemberLookupResult::NotFound);
+            }
+
+            let imported = self.imported_symbols()?;
+
+            return Ok(surface
+                .value()
+                .lookup_with_access(name, |member, visibility| {
+                    access.allows(visibility, bray_symbols::SymbolOrigin::Source)
+                        && crate::lookup::can_access_symbol(
+                            Some(self.symbols()),
+                            imported,
+                            member,
+                            access,
+                        )
+                }));
+        }
+
+        let Some(subject) = NamedTypeSymbolId::try_from_any(owner) else {
+            return Ok(MemberLookupResult::NotFound);
+        };
+
+        let surface = self.type_associated_surface(subject)?;
+        let imported = self.imported_symbols()?;
+
+        Ok(surface.value().lookup_with_access(name, |member, _| {
+            crate::lookup::can_access_symbol(Some(self.symbols()), imported, member, access)
+        }))
     }
 
     /// Returns the complete declaration-level member surface associated with a named type.

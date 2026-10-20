@@ -74,7 +74,7 @@ impl ExpressionBinder {
                         .name_access(current)
                         .expect("bound postfix receiver has lexical name access");
 
-                    self.bind_member_access(binder, &member, current, access)
+                    self.bind_member_access(binder, &member, current, access, access)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
                     binder,

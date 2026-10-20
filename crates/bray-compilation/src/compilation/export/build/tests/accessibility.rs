@@ -304,6 +304,230 @@ fn acknowledgement_does_not_cover_sibling_declarations_or_consumers() {
 }
 
 #[test]
+fn acknowledgement_does_not_flow_through_call_or_field_results() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Child
+        {
+            internal secret: i32;
+        }
+
+        struct Value
+        {
+            internal secret: i32;
+            child: Child;
+        }
+
+        internal func get() -> Value
+        {
+            return { secret = 1, child = { secret = 2 } };
+        }
+
+        internal static value: Value = { secret = 1, child = { secret = 2 } };
+
+        struct Factory
+        {
+            internal static func create() -> Value
+            {
+                return { secret = 1, child = { secret = 2 } };
+            }
+        }
+        "#,
+    );
+
+    assert!(provider.check_diagnostics().is_empty());
+
+    for (acknowledged, expression, field) in [
+        ("get", "get().secret", "Value.secret"),
+        ("value", "value.secret", "Value.secret"),
+        ("Factory.create", "Factory.create().secret", "Value.secret"),
+        ("value", "value.child.secret", "Child.secret"),
+    ] {
+        for field_acknowledged in [false, true] {
+            let field_using = if field_acknowledged {
+                format!("using internal example.package.api.{field};")
+            } else {
+                String::new()
+            };
+
+            let source = format!(
+                r#"
+                module app;
+
+                using example.package.api;
+                using internal example.package.api.{acknowledged};
+                {field_using}
+
+                func check() -> i32
+                {{
+                    return example.package.api.{expression};
+                }}
+                "#
+            );
+
+            let consumer = execution_consumer(&provider, &source);
+            let diagnostics = consumer.check_diagnostics();
+
+            if field_acknowledged {
+                assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+            } else {
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.kind()
+                            == DiagnosticKind::BindingInaccessibleName),
+                    "{source}\n{diagnostics:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn inherent_members_use_the_same_type_and_member_acknowledgement() {
+    for (declaration, parameters, expression, member) in [
+        (
+            "internal func read() -> i32 { return 1; }",
+            "pos value: &example.package.api.Value",
+            "value.read()",
+            "Value.read",
+        ),
+        (
+            "internal func read<T>(pos input: T) -> i32 { return 1; }",
+            "pos value: &example.package.api.Value",
+            "value.read<bool>(true)",
+            "Value.read",
+        ),
+        (
+            "internal static func read() -> i32 { return 1; }",
+            "",
+            "example.package.api.Value.read()",
+            "Value.read",
+        ),
+        (
+            "internal construct() -> Self { return { marker = 1 }; }",
+            "",
+            "example.package.api.Value()",
+            "Value",
+        ),
+        (
+            "internal construct make() -> Self { return { marker = 1 }; }",
+            "",
+            "example.package.api.Value.make()",
+            "Value.make",
+        ),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+
+            struct Value
+            {{
+                marker: i32;
+            }}
+
+            struct Other {{}}
+
+            impl Value
+            {{
+                {declaration}
+            }}
+            "#
+        ));
+
+        assert!(provider.check_diagnostics().is_empty(), "{declaration}");
+
+        for (path, valid) in [("Other", false), ("Value", true), (member, true)] {
+            let source = format!(
+                r#"
+                module app;
+
+                using example.package.api;
+                using internal example.package.api.{path};
+
+                func check({parameters})
+                {{
+                    let result = {expression};
+                }}
+                "#
+            );
+
+            let consumer = execution_consumer(&provider, &source);
+            let diagnostics = consumer.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+            } else {
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.kind()
+                            == DiagnosticKind::BindingInaccessibleName),
+                    "{source}\n{diagnostics:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn source_namespace_reexports_require_consumer_acknowledgement() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        internal func hidden() -> i32
+        {
+            return 1;
+        }
+        "#,
+    );
+
+    for (acknowledgement, prefix, valid) in [
+        ("", "", false),
+        ("using internal facade.hidden;", "", true),
+        ("", "internal ", true),
+    ] {
+        let source = format!(
+            r#"
+            module facade
+            {{
+                using internal example.package.api.hidden;
+                export example.package.api.hidden;
+            }}
+
+            module app
+            {{
+                using facade;
+                {acknowledgement}
+
+                func check() -> i32
+                {{
+                    return {prefix}facade.hidden();
+                }}
+            }}
+            "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+        } else {
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingInaccessibleName),
+                "{source}\n{diagnostics:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn internal_reexports_preserve_identity_without_transferring_acknowledgement() {
     let provider = compilation_from_sources([
         r#"

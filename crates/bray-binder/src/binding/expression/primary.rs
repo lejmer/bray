@@ -329,7 +329,11 @@ impl ExpressionBinder {
                 binder.lookup_reference_identifier(context, syntax.source(), token.clone())?;
 
             if matches!(root, bray_symbols::MemberLookupResult::NotFound) {
-                binder.lookup_module_route(context, syntax.source(), route_tokens)?
+                binder.lookup_module_route(
+                    context,
+                    syntax.source(),
+                    route_tokens.iter().cloned(),
+                )?
             } else {
                 None
             }
@@ -337,7 +341,7 @@ impl ExpressionBinder {
             None
         };
 
-        let access = route.as_ref().map_or(access, |(_, _, access)| *access);
+        let mut lookup_access = route.as_ref().map_or(access, |(_, _, access)| *access);
         let route_length = route.as_ref().map(|(_, length, _)| *length);
 
         let mut current = match (route, root_token) {
@@ -384,6 +388,35 @@ impl ExpressionBinder {
             },
         };
 
+        if route_length.is_none()
+            && access == NameAccess::Local
+            && matches!(
+                binder.unit_view().expression(current),
+                Some(BoundExpression::Name(name))
+                    if matches!(name.target(), bray_bound_tree::BoundReferenceTarget::Surface(
+                        bray_symbols::AnySymbolId::Module(module)
+                    ) if binder.binding_context().symbols().symbol_origin(module.into())
+                        == Some(bray_symbols::SymbolOrigin::Source))
+            )
+            && binder.binding_context().imported_symbols()?.is_some()
+        {
+            let components = route_tokens
+                .iter()
+                .filter_map(|token| token.text(syntax.source().text()))
+                .collect::<Vec<_>>();
+
+            if let Some(module) = context.module()
+                && crate::lookup::module_using_access(
+                    binder.binding_context(),
+                    module,
+                    &components,
+                )?
+                .is_some_and(|(_, internal)| internal)
+            {
+                lookup_access = NameAccess::Internal;
+            }
+        }
+
         let mut failure = None;
         let mut member_index = 0_usize;
 
@@ -403,7 +436,7 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_member_access(binder, &member, current, access)
+                    self.bind_member_access(binder, &member, current, lookup_access, access)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
                     binder,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::{
     BindingError, BindingQueryContext, BindingQueryError, ImportedPathRoot, NameAccess,
-    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_re_exports,
+    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_member_lookup,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
@@ -63,12 +63,12 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         path: &PathSyntax,
         access: NameAccess,
     ) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
-        bind_surface_path_with_re_exports(
+        bind_surface_path_with_member_lookup(
             self,
             module,
             path,
             access,
-            &mut |module, name, access| self.module_re_export_lookup(module, name, access),
+            &mut |owner, name, access| self.semantic_member_lookup(owner, name, access),
         )
     }
 

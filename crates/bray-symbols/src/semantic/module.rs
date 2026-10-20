@@ -138,6 +138,15 @@ impl ModuleSurface {
         self.lookup.lookup(name)
     }
 
+    /// Resolves one name with contextual accessibility applied before ambiguity.
+    pub fn lookup_with_access(
+        &self,
+        name: &str,
+        is_accessible: impl FnMut(AnySymbolId, crate::MemberVisibility) -> bool,
+    ) -> MemberLookupResult<AnySymbolId> {
+        self.lookup.lookup_with_access(name, is_accessible)
+    }
+
     /// Resolves one re-exported name through the public module surface.
     pub fn lookup_public(&self, name: &str) -> MemberLookupResult<AnySymbolId> {
         self.lookup.lookup_public(name)

@@ -88,7 +88,7 @@ impl ExpressionBinder {
 
         let receiver = self.push(binder, call)?;
 
-        self.bind_member_access(binder, syntax, receiver, access)
+        self.bind_member_access(binder, syntax, receiver, access, access)
     }
 
     pub(super) fn bind_member_access<C>(
@@ -96,6 +96,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &MemberAccessOperationSyntax,
         receiver: BoundExpressionId,
+        lookup_access: NameAccess,
         access: NameAccess,
     ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
@@ -114,7 +115,8 @@ impl ExpressionBinder {
                 return self.push_error(binder, Some(syntax));
             };
 
-            let member = binder.bind_member(namespace.into(), syntax.source(), token, access)?;
+            let member =
+                binder.bind_member(namespace.into(), syntax.source(), token, lookup_access)?;
 
             return match member {
                 MemberLookupResult::Found(member) => self.push_resolved_reference(

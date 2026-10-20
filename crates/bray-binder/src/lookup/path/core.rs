@@ -100,12 +100,12 @@ pub(crate) fn bind_module_path<C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    bind_module_path_with_re_exports(
+    bind_module_path_with_member_lookup(
         binding_context,
         module,
         path,
         access,
-        &mut |module, name, access| binding_context.module_re_export_lookup(module, name, access),
+        &mut |owner, name, access| binding_context.semantic_member_lookup(owner, name, access),
     )
 }
 
@@ -158,7 +158,7 @@ where
     }))
 }
 
-fn module_using_access<C>(
+pub(crate) fn module_using_access<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     components: &[&str],
@@ -223,14 +223,14 @@ where
     Ok(matched)
 }
 
-/// Resolves one module-relative surface path with caller-provided source re-export lookup.
-pub fn bind_surface_path_with_re_exports<C>(
+/// Resolves one module-relative surface path with caller-provided semantic member lookup.
+pub fn bind_surface_path_with_member_lookup<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-    re_exports: &mut impl FnMut(
-        ModuleSymbolId,
+    members: &mut impl FnMut(
+        AnySymbolId,
         &str,
         NameAccess,
     )
@@ -239,7 +239,7 @@ pub fn bind_surface_path_with_re_exports<C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    let lookup = bind_module_path_lookup(binding_context, module, path, access, re_exports)?;
+    let lookup = bind_module_path_lookup(binding_context, module, path, access, members)?;
     let result = surface_lookup(lookup.result);
 
     let diagnostics = lookup
@@ -289,13 +289,13 @@ fn surface_candidates(candidates: Box<[ResolvedName]>) -> Box<[AnySymbolId]> {
         .collect()
 }
 
-fn bind_module_path_with_re_exports<C>(
+fn bind_module_path_with_member_lookup<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-    re_exports: &mut impl FnMut(
-        ModuleSymbolId,
+    members: &mut impl FnMut(
+        AnySymbolId,
         &str,
         NameAccess,
     )
@@ -304,7 +304,7 @@ fn bind_module_path_with_re_exports<C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    Ok(bind_module_path_lookup(binding_context, module, path, access, re_exports)?.result)
+    Ok(bind_module_path_lookup(binding_context, module, path, access, members)?.result)
 }
 
 pub(super) fn bind_module_path_lookup<C>(
@@ -312,8 +312,8 @@ pub(super) fn bind_module_path_lookup<C>(
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-    re_exports: &mut impl FnMut(
-        ModuleSymbolId,
+    members: &mut impl FnMut(
+        AnySymbolId,
         &str,
         NameAccess,
     )
@@ -373,7 +373,7 @@ where
         access,
         references,
         ordinary,
-        re_exports,
+        members,
     )
 }
 
@@ -690,9 +690,9 @@ where
             context.access,
             references,
             ordinary,
-            &mut |module, name, access| {
+            &mut |owner, name, access| {
                 self.binding_context()
-                    .module_re_export_lookup(module, name, access)
+                    .semantic_member_lookup(owner, name, access)
             },
         )
     }
@@ -718,8 +718,8 @@ fn bind_path_with_ordinary<Upstream>(
     access: NameAccess,
     references: Vec<NameReference>,
     ordinary: NameLookupResult<ResolvedName>,
-    re_exports: &mut impl FnMut(
-        ModuleSymbolId,
+    members: &mut impl FnMut(
+        AnySymbolId,
         &str,
         NameAccess,
     ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
@@ -750,7 +750,7 @@ fn bind_path_with_ordinary<Upstream>(
         references,
         result,
         consumed,
-        re_exports,
+        members,
     )
 }
 
@@ -761,8 +761,8 @@ pub(super) fn bind_remaining_path<Upstream>(
     references: Vec<NameReference>,
     mut result: NameLookupResult<ResolvedName>,
     mut consumed: usize,
-    re_exports: &mut impl FnMut(
-        ModuleSymbolId,
+    members: &mut impl FnMut(
+        AnySymbolId,
         &str,
         NameAccess,
     ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
@@ -840,10 +840,10 @@ pub(super) fn bind_remaining_path<Upstream>(
         // Only missing names need the recursively resolved export surface.
         if matches!(ordinary, MemberLookupResult::NotFound)
             && module_prefix.is_none()
-            && let AnySymbolId::Module(module) = owner
-            && symbols.module(module).is_some()
+            && (bray_symbols::NamedTypeSymbolId::try_from_any(owner).is_some()
+                || matches!(owner, AnySymbolId::Module(module) if symbols.symbol_origin(module.into()) == Some(bray_symbols::SymbolOrigin::Source)))
         {
-            ordinary = re_exports(module, references[consumed].text(), access)?
+            ordinary = members(owner, references[consumed].text(), access)?
                 .map(ResolvedName::Surface, ResolvedName::Surface);
         }
 

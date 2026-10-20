@@ -8,7 +8,7 @@ use crate::{BindingQueryContext, BindingQueryResult};
 /// Returns whether a known declaration and its owning scopes permit this name reference.
 ///
 /// Source and imported identities share the same declaration, owner and module-path caps.
-pub(super) fn can_access_symbol(
+pub(crate) fn can_access_symbol(
     source: Option<&SymbolGraph>,
     imported: Option<&bray_symbols::ImportedSymbolSkeleton>,
     symbol: AnySymbolId,
@@ -136,7 +136,8 @@ where
             if surface.value().usings().iter().any(|using| {
                 using.permits_internal_access()
                     && !matches!(using.target(), AnySymbolId::Package(_))
-                    && scope_contains(source, imported, using.target(), member)
+                    && (scope_contains(source, imported, using.target(), member)
+                        || scope_contains(source, imported, using.target(), owner))
             }) {
                 return Ok(true);
             }
