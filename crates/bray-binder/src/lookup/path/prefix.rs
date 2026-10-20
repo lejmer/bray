@@ -142,7 +142,28 @@ pub(super) fn next_imported_module_prefix(
         let child_segments = references[..length].iter().map(NameReference::text);
         let path = ModulePathKey::try_new(parent_segments.chain(child_segments))?;
 
-        let Some(module) = symbols.module_by_path(package, &path) else {
+        let module = symbols.module_by_path(package, &path).or_else(|| {
+            if parent.is_some() {
+                return None;
+            }
+
+            let package = symbols
+                .package(package)
+                .expect("imported module prefix has a selected package");
+
+            let qualified = ModulePathKey::try_new(
+                package
+                    .identity()
+                    .as_str()
+                    .split('.')
+                    .chain(path.segments()),
+            )
+            .expect("qualified imported module path is nonempty");
+
+            symbols.module_by_path(package.id(), &qualified)
+        });
+
+        let Some(module) = module else {
             continue;
         };
 
@@ -167,13 +188,20 @@ pub(super) fn compiler_known_module_for_imported(
 
     let package = imported_symbols.package(package)?;
 
-    let path = ModulePathKey::try_new(
-        package
-            .identity()
-            .as_str()
-            .split('.')
-            .chain(module.path().segments()),
-    )?;
+    let package_components = package.identity().as_str().split('.');
+
+    let qualified = module
+        .path()
+        .segments()
+        .take(package_components.clone().count())
+        .eq(package_components.clone());
+
+    let path = if qualified {
+        module.path().clone()
+    } else {
+        ModulePathKey::try_new(package_components.chain(module.path().segments()))
+            .expect("compiler-known module path is nonempty")
+    };
 
     symbols
         .module_by_path(

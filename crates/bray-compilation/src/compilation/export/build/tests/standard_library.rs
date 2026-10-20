@@ -2501,7 +2501,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         "provider symbols must come only from the package interface"
     );
 
-    let format_path = ModulePathKey::try_new(["format"])
+    let format_path = ModulePathKey::try_new(["std", "format"])
         .unwrap_or_else(|| panic!("format module path must be valid"));
 
     let format = skeleton
@@ -2525,7 +2525,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         );
     }
 
-    let bytes_path = ModulePathKey::try_new(["bytes"])
+    let bytes_path = ModulePathKey::try_new(["std", "bytes"])
         .unwrap_or_else(|| panic!("bytes module path must be valid"));
 
     let bytes = skeleton
@@ -2537,7 +2537,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         MemberLookupResult::NotFound
     ));
 
-    let memory_path = ModulePathKey::try_new(["memory"])
+    let memory_path = ModulePathKey::try_new(["std", "memory"])
         .unwrap_or_else(|| panic!("memory module path must be valid"));
 
     let memory = skeleton
@@ -2549,8 +2549,8 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         MemberLookupResult::NotFound
     ));
 
-    let io_path =
-        ModulePathKey::try_new(["io"]).unwrap_or_else(|| panic!("io module path must be valid"));
+    let io_path = ModulePathKey::try_new(["std", "io"])
+        .unwrap_or_else(|| panic!("io module path must be valid"));
 
     let io = skeleton
         .module_by_path(package.id(), &io_path)

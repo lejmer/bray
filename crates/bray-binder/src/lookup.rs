@@ -21,7 +21,5 @@ pub use path::{
 };
 pub(crate) use path::{
     PathBindingContext, bind_module_path, bind_owner_path, bind_source_path,
-    lookup_surface_name_with_imports, visible_imported_path_root,
+    lookup_surface_name_with_imports, module_using_access, visible_imported_path_root,
 };
-
-pub(crate) use path::module_using_access;

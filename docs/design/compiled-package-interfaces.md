@@ -33,8 +33,9 @@ reassignment without reducing identity to a rendered path or signature hash. Art
 references only within the exact issuing interface. Dependency references preserve the defining external key and
 selected dependency identity.
 
-Imported modules represent logical merged modules, not source contributions. Re-exports project lookup edges to the
-original declaration rather than cloning it. Synthesized identities required by public contracts belong in the skeleton
+Imported modules represent logical merged modules, not source contributions. Their identities retain declared module
+paths and ancestry; package-relative spelling belongs to name lookup. Re-exports project lookup edges to the original
+declaration rather than cloning it. Synthesized identities required by public contracts belong in the skeleton
 without becoming ordinary lookup candidates.
 
 ## Declaration and support graphs

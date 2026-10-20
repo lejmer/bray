@@ -216,7 +216,7 @@ fn resolve_recognized_external_key(
         let owner = match descriptor.owner() {
             RecognizedStandardLibraryDeclarationOwner::Scope(scope) => {
                 let scope = catalog.recognized_standard_library_scope(scope)?;
-                let module_path = recognized_module_path(package, scope.path().segments())?;
+                let module_path = ModulePathKey::try_new(scope.path().segments())?;
 
                 // External keys own their complete semantic ancestry, so these small immutable
                 // keys must be copied into the next construction layer.
@@ -249,21 +249,6 @@ fn resolve_recognized_external_key(
     keys.insert(declaration, key.clone());
 
     Some(key)
-}
-
-fn recognized_module_path<'a>(
-    package: &PackageIdentity,
-    scope: impl IntoIterator<Item = &'a str>,
-) -> Option<ModulePathKey> {
-    let segments: Vec<_> = scope.into_iter().collect();
-    let package_segments: Vec<_> = package.as_str().split('.').collect();
-
-    let relative = segments
-        .strip_prefix(package_segments.as_slice())
-        .filter(|relative| !relative.is_empty())
-        .unwrap_or(segments.as_slice());
-
-    ModulePathKey::try_new(relative.iter().copied())
 }
 
 #[cfg(test)]
@@ -326,8 +311,8 @@ mod tests {
     }
 
     #[test]
-    fn public_standard_library_scopes_match_package_relative_imported_modules() {
-        let fixture = interface_fixture_at_module(1, "std", ["character"], "scalar_value");
+    fn public_standard_library_scopes_match_declared_imported_module_paths() {
+        let fixture = interface_fixture_at_module(1, "std", ["std", "character"], "scalar_value");
         let function_key = fixture.function_key.clone();
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("std");
@@ -347,6 +332,15 @@ mod tests {
                 .declaration_symbol::<FunctionSymbolId>(descriptor.key())
                 .map(AnySymbolId::from)
         );
+    }
+
+    #[test]
+    fn package_prefix_is_part_of_the_recognized_declared_module_path() {
+        let fixture = interface_fixture_at_module(1, "std", ["character"], "scalar_value");
+        let imported = Arc::new(build_skeleton([fixture.input]));
+        let recognized = imported.recognize_standard_library(&package_identity("std"), |_| true);
+
+        assert!(recognized.declarations().is_empty());
     }
 
     #[test]

@@ -240,6 +240,127 @@ fn imported_visibility_is_capped_by_type_and_module_ancestors() {
 }
 
 #[test]
+fn package_prefixed_modules_preserve_declared_ancestor_caps() {
+    let provider = compilation_from_sources([
+        "internal module example.package;",
+        r#"
+        module example.package.nested;
+
+        func read() -> i32
+        {
+            return 1;
+        }
+        "#,
+    ]);
+
+    assert!(provider.check_diagnostics().is_empty());
+
+    for (acknowledgement, prefix, valid) in [
+        ("", "", false),
+        ("using internal example.package.nested;", "", true),
+        ("using internal example.package;", "", false),
+        ("", "internal ", true),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            using example.package;
+            {acknowledgement}
+
+            func check() -> i32
+            {{
+                return {prefix}example.package.nested.read();
+            }}
+            "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+        } else {
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingInaccessibleName),
+                "{source}\n{diagnostics:?}"
+            );
+        }
+    }
+
+    for visibility in ["", "internal "] {
+        let source = format!(
+            r#"
+            {visibility}module independent;
+
+            func read() -> i32
+            {{
+                return 1;
+            }}
+            "#
+        );
+
+        let provider = compilation_from_sources(["internal module example.package;", &source]);
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+
+            using internal example.package;
+
+            func check() -> i32
+            {
+                return example.package.independent.read();
+            }
+            "#,
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            diagnostics.is_empty(),
+            visibility.is_empty(),
+            "a package reference neither adds a root-module cap nor grants access: {diagnostics:?}"
+        );
+    }
+
+    let provider = compilation(
+        r#"
+        internal module example.package.nested;
+
+        func read() -> i32
+        {
+            return 1;
+        }
+        "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using internal example.package;
+
+        func check() -> i32
+        {
+            return example.package.nested.read();
+        }
+        "#,
+    );
+
+    assert!(
+        consumer
+            .check_diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingInaccessibleName)
+    );
+}
+
+#[test]
 fn acknowledgement_does_not_cover_sibling_declarations_or_consumers() {
     let provider = compilation(
         r#"

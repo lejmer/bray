@@ -6,8 +6,8 @@ use bray_package_interface::{
     ExportedLookupKind, SymbolRelationshipKind,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, MemberLookupResult, ModulePathKey, ModuleSurfaceQuery,
-    ModuleSymbolId, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
+    AnySymbolId, ExternalSymbolKey, MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId,
+    SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 use bray_syntax::PathSyntax;
@@ -340,7 +340,7 @@ fn external_key(
 
     let key = match graph.symbol_key(symbol).map(|key| key.data()) {
         Some(SymbolKeyData::Module { path, .. }) => {
-            ExternalSymbolKey::module(owner_key.clone(), external_module_path(&owner_key, path))
+            ExternalSymbolKey::module(owner_key.clone(), path.clone())
         }
         Some(SymbolKeyData::Synthesized(synthesized)) => ExternalSymbolKey::synthesized(
             owner_key,
@@ -367,24 +367,6 @@ fn external_synthesized_ordinal(key: &SynthesizedSymbolKey) -> Option<SymbolOrdi
         | SynthesizedSymbolRole::UnionPayloadDefaultProvider => None,
         _ => key.ordinal(),
     }
-}
-
-fn external_module_path(package: &ExternalSymbolKey, path: &ModulePathKey) -> ModulePathKey {
-    let package_segments = package
-        .package_identity()
-        .as_str()
-        .split('.')
-        .collect::<Vec<_>>();
-
-    let path_segments = path.segments().collect::<Vec<_>>();
-
-    if path_segments.len() > package_segments.len() && path_segments.starts_with(&package_segments)
-    {
-        return ModulePathKey::try_new(path_segments[package_segments.len()..].iter().copied())
-            .unwrap_or_else(|| path.clone());
-    }
-
-    path.clone()
 }
 
 fn external_declaration_key(
