@@ -181,6 +181,7 @@ fn encode_symbols(
 
     for symbol in surface.symbols().symbols() {
         encoder.write_u32(symbol.kind().to_wire());
+        encoder.write_u32(symbol.visibility().to_wire());
         write_optional_u32(&mut encoder, symbol.container().map(InterfaceSymbolId::raw));
         encode_local_key_component(&mut encoder, symbol.key(), strings);
     }
@@ -268,6 +269,7 @@ fn encode_exports(
         encoder.write_u32(edge.owner().raw());
         encoder.write_u32(strings.id(edge.name().as_str()));
         encoder.write_u32(edge.kind().to_wire());
+        encoder.write_u32(edge.visibility().to_wire());
 
         match edge.target() {
             InterfaceSymbolReference::Local(symbol) => {
@@ -441,6 +443,57 @@ mod tests {
     }
 
     #[test]
+    fn unknown_declaration_and_lookup_visibility_tags_are_rejected() {
+        for (tag, range) in [
+            (InterfaceSectionTag::SymbolIdentities, 4..8),
+            (InterfaceSectionTag::ExportedLookup, 12..16),
+        ] {
+            let mut sections = encode_surface(&surface(false));
+
+            let section = sections
+                .iter_mut()
+                .find(|section| section.tag == tag)
+                .unwrap();
+
+            section.payload[range].copy_from_slice(&u32::MAX.to_le_bytes());
+
+            assert!(matches!(
+                decode(&sections, InterfaceValidationLimits::default()),
+                Err(InterfaceValidationError::Malformed {
+                    cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
+                        field: crate::InterfaceValidationField::Visibility,
+                        actual,
+                    },
+                    ..
+                }) if actual == u64::from(u32::MAX)
+            ));
+        }
+    }
+
+    #[test]
+    fn direct_lookup_cannot_change_its_declarations_visibility() {
+        let mut sections = encode_surface(&surface(false));
+
+        let section = sections
+            .iter_mut()
+            .find(|section| section.tag == InterfaceSectionTag::ExportedLookup)
+            .unwrap();
+
+        // Canonical name order places the direct Widget edge first.
+        section.payload[12..16].copy_from_slice(&2_u32.to_le_bytes());
+
+        assert!(matches!(
+            decode(&sections, InterfaceValidationLimits::default()),
+            Err(InterfaceValidationError::SurfaceBuild { cause })
+                if matches!(cause.as_ref(), crate::PackageInterfaceSurfaceBuildError::DirectExportVisibilityMismatch {
+                    expected: bray_symbols::MemberVisibility::Public,
+                    actual: bray_symbols::MemberVisibility::Internal,
+                    ..
+                })
+        ));
+    }
+
+    #[test]
     fn canonical_encoding_is_stable_for_reordered_collections() {
         let first = encode_surface(&surface(false));
         let second = encode_surface(&surface(true));
@@ -459,7 +512,7 @@ mod tests {
             panic!("export section must be encoded");
         };
 
-        exports.payload[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        exports.payload[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert!(matches!(
             decode(&sections, InterfaceValidationLimits::default()),
@@ -558,24 +611,28 @@ mod tests {
                 package_key,
                 SymbolKind::Package,
                 None,
+                bray_symbols::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(1),
                 module_key,
                 SymbolKind::Module,
                 Some(InterfaceSymbolId::new(0)),
+                bray_symbols::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(2),
                 struct_key,
                 SymbolKind::Struct,
                 Some(InterfaceSymbolId::new(1)),
+                bray_symbols::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(3),
                 field_key,
                 SymbolKind::StructField,
                 Some(InterfaceSymbolId::new(2)),
+                bray_symbols::MemberVisibility::Internal,
             ),
         ];
 
@@ -609,12 +666,14 @@ mod tests {
                     dependency,
                     key: dependency_key,
                 },
+                bray_symbols::MemberVisibility::Internal,
             ),
             ExportedLookupEdge::new(
                 InterfaceSymbolId::new(1),
                 symbol_name("Widget"),
                 ExportedLookupKind::Direct,
                 InterfaceSymbolReference::Local(InterfaceSymbolId::new(2)),
+                bray_symbols::MemberVisibility::Public,
             ),
         ];
 

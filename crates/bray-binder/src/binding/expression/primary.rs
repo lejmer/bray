@@ -35,10 +35,8 @@ impl ExpressionBinder {
             return self.push_error(binder, Some(syntax));
         };
 
-        let result = binder.bind_value_path(
-            self.path_context_for(scope, self.path_context.access()),
-            &path,
-        )?;
+        let access = self.path_context.access();
+        let result = binder.bind_value_path(self.path_context_for(scope, access), &path)?;
 
         let resolution = classify_reference_result(
             result.map(ResolvedValueName::into_name, |candidate| candidate),
@@ -46,7 +44,7 @@ impl ExpressionBinder {
 
         match resolution {
             ReferenceResolution::Resolved(target) => {
-                self.push_resolved_reference(binder, syntax, target)
+                self.push_resolved_reference(binder, syntax, target, access)
             }
             ReferenceResolution::Unresolved(kind, candidates) => self.push(
                 binder,
@@ -339,12 +337,36 @@ impl ExpressionBinder {
             None
         };
 
+        let access = route.as_ref().map_or(access, |(_, _, access)| *access);
+        let route_length = route.as_ref().map(|(_, length, _)| *length);
+
         let mut current = match (route, root_token) {
-            (Some((module, _)), _) => self.push_resolved_reference(
-                binder,
-                syntax,
-                bray_bound_tree::BoundReferenceTarget::Surface(module.into()),
-            )?,
+            (Some((lookup, _, _)), _) => match lookup.result {
+                bray_symbols::MemberLookupResult::Found(crate::lookup::ResolvedName::Surface(
+                    bray_symbols::AnySymbolId::Module(module),
+                )) => self.push_resolved_reference(
+                    binder,
+                    syntax,
+                    bray_bound_tree::BoundReferenceTarget::Surface(module.into()),
+                    access,
+                )?,
+                bray_symbols::MemberLookupResult::Found(actual) => {
+                    panic!("module route resolved a non-module reference: {actual:?}");
+                }
+                result => {
+                    if let Some(reference) = lookup.reference
+                        && let Some(diagnostic) = crate::lookup::lookup_diagnostic(
+                            &reference,
+                            bray_diagnostics::DiagnosticNameKind::Module,
+                            &result,
+                        )
+                    {
+                        binder.add_diagnostic(diagnostic);
+                    }
+
+                    self.push_error(binder, Some(syntax))?
+                }
+            },
             (None, Some(token)) => {
                 self.bind_root_reference(binder, scope, syntax, token, access)?
             }
@@ -370,7 +392,7 @@ impl ExpressionBinder {
                 SyntaxKind::MemberAccessOperation => {
                     member_index += 1;
 
-                    if route.is_some_and(|(_, length)| member_index < length) {
+                    if route_length.is_some_and(|length| member_index < length) {
                         return SyntaxWalkControl::Continue;
                     }
 
@@ -381,7 +403,7 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_member_access(binder, &member, current)
+                    self.bind_member_access(binder, &member, current, access)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
                     binder,
@@ -455,7 +477,7 @@ impl ExpressionBinder {
                     )),
                 ),
                 ReferenceResolution::Resolved(target) => {
-                    self.push_resolved_reference(binder, syntax, target)
+                    self.push_resolved_reference(binder, syntax, target, access)
                 }
             };
         }
@@ -473,7 +495,7 @@ impl ExpressionBinder {
 
         match resolution {
             ReferenceResolution::Resolved(target) => {
-                self.push_resolved_reference(binder, syntax, target)
+                self.push_resolved_reference(binder, syntax, target, access)
             }
             ReferenceResolution::Unresolved(
                 bray_bound_tree::BoundUnresolvedReferenceKind::NotFound,
@@ -512,6 +534,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &impl SourceSyntaxNode,
         target: bray_bound_tree::BoundReferenceTarget,
+        access: NameAccess,
     ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
@@ -525,6 +548,7 @@ impl ExpressionBinder {
                 target,
                 ty,
                 syntax.is_recovered(),
+                access,
             )),
         )
     }

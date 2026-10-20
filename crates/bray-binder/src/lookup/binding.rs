@@ -1,8 +1,8 @@
 use bray_symbols::{
-    AnySymbolId, LocalScopeBoundary, LocalScopeId, MemberLookupResult, MemberVisibility,
-    ModuleSymbolId, SymbolGraph,
+    AnySymbolId, LocalScopeBoundary, LocalScopeId, MemberLookupResult, ModuleSymbolId, SymbolGraph,
 };
 
+use super::access::can_access_symbol;
 use super::category::ResolvedName;
 use super::path::NameAccess;
 use crate::unit::BoundUnitLocalBuilder;
@@ -150,7 +150,14 @@ pub(crate) fn lookup_surface_name(
     access: NameAccess,
 ) -> NameLookupResult<ResolvedName> {
     symbols
-        .lookup_member_with_access(owner, name, |_, visibility| access.allows(visibility))
+        .lookup_member_with_access(owner, name, |member, visibility| {
+            access.allows(
+                visibility,
+                symbols
+                    .symbol_origin(member)
+                    .expect("lookup candidate has a symbol origin"),
+            ) && can_access_symbol(Some(symbols), None, member, access)
+        })
         .map(ResolvedName::Surface, ResolvedName::Surface)
 }
 
@@ -273,14 +280,5 @@ mod tests {
             "value",
             NameAccess::Internal,
         );
-    }
-}
-
-impl NameAccess {
-    pub(super) const fn allows(self, visibility: MemberVisibility) -> bool {
-        match self {
-            Self::Internal => true,
-            Self::Public => visibility.is_public(),
-        }
     }
 }

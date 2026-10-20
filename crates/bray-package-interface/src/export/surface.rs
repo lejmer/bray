@@ -74,6 +74,7 @@ fn canonical_symbols(
                 symbol.key().clone(),
                 symbol.key().kind(),
                 containing,
+                symbol.visibility(),
             ))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportSurfaceError>>()?;
@@ -133,6 +134,7 @@ fn resolve_exports(
                 export.name().clone(),
                 export.kind(),
                 target,
+                export.visibility(),
             ))
         })
         .collect()
@@ -231,9 +233,21 @@ mod tests {
                 ),
             ],
             symbols: vec![
-                ExportSymbolInput::new(util_key.clone(), Some(package_key.clone())),
-                ExportSymbolInput::new(package_key.clone(), None),
-                ExportSymbolInput::new(app_key.clone(), Some(package_key.clone())),
+                ExportSymbolInput::new(
+                    util_key.clone(),
+                    Some(package_key.clone()),
+                    bray_symbols::MemberVisibility::Public,
+                ),
+                ExportSymbolInput::new(
+                    package_key.clone(),
+                    None,
+                    bray_symbols::MemberVisibility::Public,
+                ),
+                ExportSymbolInput::new(
+                    app_key.clone(),
+                    Some(package_key.clone()),
+                    bray_symbols::MemberVisibility::Public,
+                ),
             ],
             relationships: vec![
                 ExportRelationshipInput::new(
@@ -255,12 +269,14 @@ mod tests {
                     name("util"),
                     ExportedLookupKind::Direct,
                     ExportSymbolReferenceInput::Local(util_key),
+                    bray_symbols::MemberVisibility::Public,
                 ),
                 ExportLookupInput::new(
                     package_key,
                     name("app"),
                     ExportedLookupKind::Direct,
                     ExportSymbolReferenceInput::Local(app_key),
+                    bray_symbols::MemberVisibility::Public,
                 ),
             ],
         }

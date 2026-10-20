@@ -69,7 +69,12 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_member_access(binder, &member, current)
+                    let access = binder
+                        .unit_view()
+                        .name_access(current)
+                        .expect("bound postfix receiver has lexical name access");
+
+                    self.bind_member_access(binder, &member, current, access)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
                     binder,

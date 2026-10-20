@@ -47,6 +47,7 @@ pub(crate) fn publish(
         bray_symbols::ExternalSymbolKey::package(identity.package().clone()),
         bray_symbols::SymbolKind::Package,
         None,
+        bray_symbols::MemberVisibility::Public,
     );
 
     let surface = PackageInterfaceSurface::try_new(identity, [], [root_symbol], [], [])

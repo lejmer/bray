@@ -69,6 +69,23 @@ macro_rules! define_symbol_key_from_provider {
                 AnySymbolId::CompilerKnownEnvironment(_) => None,
             }
         }
+        pub(crate) fn symbol_visibility_from_provider<P>(
+            provider: &P,
+            symbol: AnySymbolId,
+        ) -> Option<crate::MemberVisibility>
+        where
+            P: SymbolProvider<ModuleSymbolId>
+                $(+ SymbolProvider<crate::$id>)+
+                + ?Sized,
+        {
+            match symbol {
+                AnySymbolId::Module(id) => SymbolProvider::<ModuleSymbolId>::symbol(provider, id)
+                    .map(ModuleSymbol::visibility),
+                $(AnySymbolId::$variant(id) =>
+                    SymbolProvider::<crate::$id>::symbol(provider, id).map(crate::$record::visibility),)+
+                _ => None,
+            }
+        }
     };
 }
 

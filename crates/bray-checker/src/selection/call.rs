@@ -1557,6 +1557,7 @@ mod tests {
                     Some(BoundMemberSelector::Name(symbol_name("method"))),
                     None,
                     false,
+                    bray_symbols::NameAccess::Local,
                 )),
             );
 
@@ -1597,6 +1598,7 @@ mod tests {
             bray_bound_tree::BoundReferenceTarget::Surface(target),
             None,
             false,
+            bray_symbols::NameAccess::Local,
         ))
     }
 

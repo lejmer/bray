@@ -5,9 +5,9 @@ use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
-    NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
-    TypeExpressionTemplate,
+    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurface,
+    ModuleSymbolId, NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey,
+    TypeAssociatedSurface, TypeExpressionTemplate,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -115,13 +115,26 @@ pub trait BindingQueryContext: Send + Sync {
         definition: CallableContractSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Self::UpstreamError>;
 
+    /// Returns the checked lexical imports and re-exports of one source module.
+    fn module_surface(
+        &self,
+        module: ModuleSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<ModuleSurface>>, Self::UpstreamError>;
+
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(
         &self,
         module: ModuleSymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError>;
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError> {
+        let surface = self.module_surface(module)?;
+
+        Ok(match access {
+            NameAccess::Public => surface.value().lookup_public(name),
+            NameAccess::Local | NameAccess::Internal => surface.value().lookup(name),
+        })
+    }
 
     /// Returns the complete declaration-level member surface associated with a named type.
     fn type_associated_surface(

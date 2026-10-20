@@ -5,6 +5,7 @@ using std.numeric;
 using std.memory;
 using internal std.memory;
 using internal std.io;
+using internal std.platform.successful_status;
 using internal bray.runtime.bootstrap;
 
 trusted internal func primary(
@@ -97,7 +98,7 @@ trusted internal func write(pos bytes: &[u8]) -> u32
             transferred = std.memory.address_of_mut<u64>(&mut transferred)
         );
 
-        if status.category != 0 || status.reserved != 0 || transferred == 0 || transferred > length as u64
+        if !std.platform.successful_status(status) || transferred == 0 || transferred > length as u64
         {
             return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
         }

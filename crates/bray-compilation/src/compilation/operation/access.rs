@@ -223,6 +223,19 @@ impl Compilation {
             | MemberLookupResult::Malformed(_) => return Ok(None),
         };
 
+        if !bray_binder::check_member_access(
+            binding_context,
+            unit.view(),
+            expression.into(),
+            definition.into_any(),
+            member,
+            diagnostics,
+        )
+        .map_err(binding_query_error)?
+        {
+            return Ok(None);
+        }
+
         let member_origin = surface
             .value()
             .member(member)
@@ -256,42 +269,18 @@ impl Compilation {
                 let member_substitution = match member_origin {
                     TypeAssociatedMemberOrigin::Direct => substitution,
                     TypeAssociatedMemberOrigin::InherentImplementation(implementation) => {
-                        let contribution = surface
-                            .value()
-                            .implementations()
-                            .iter()
-                            .find(|candidate| candidate.implementation() == implementation)
-                            .ok_or_else(|| {
-                                symbol_contract_failure(
-                                    implementation.into(),
-                                    SemanticQueryViolation::Missing(
-                                        SemanticDataKind::ImplementationUsing,
-                                    ),
-                                )
-                            })?;
-
-                        let pattern = self.resolve_implementation_self_type(
+                        let Some(substitution) = self.inherent_member_substitution(
                             binding_context,
-                            implementation.into(),
-                            diagnostics,
-                        )?;
-
-                        match match_implementation_subject(
-                            implementation.into(),
-                            contribution.generic().parameters(),
-                            pattern,
+                            surface.value(),
+                            implementation,
                             receiver_type,
-                            binding_context.semantic_values(),
-                        ) {
-                            Ok(Some(substitution)) => substitution,
-                            Ok(None) => return Ok(None),
-                            Err(error) => {
-                                return Err(implementation_match_query_error(
-                                    implementation.into(),
-                                    error,
-                                ));
-                            }
-                        }
+                            diagnostics,
+                        )?
+                        else {
+                            return Ok(None);
+                        };
+
+                        substitution
                     }
                 };
 
@@ -343,6 +332,38 @@ impl Compilation {
         )))
     }
 
+    fn inherent_member_substitution(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        surface: &bray_symbols::TypeAssociatedSurface,
+        implementation: bray_symbols::InherentImplementationSymbolId,
+        receiver_type: TypeId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<bray_symbols::GenericSubstitutionId>, FactQueryError> {
+        let contribution = surface
+            .implementations()
+            .iter()
+            .find(|candidate| candidate.implementation() == implementation)
+            .unwrap_or_else(|| {
+                panic!("type-associated member references absent implementation {implementation:?}")
+            });
+
+        let pattern = self.resolve_implementation_self_type(
+            binding_context,
+            implementation.into(),
+            diagnostics,
+        )?;
+
+        match_implementation_subject(
+            implementation.into(),
+            contribution.generic().parameters(),
+            pattern,
+            receiver_type,
+            binding_context.semantic_values(),
+        )
+        .map_err(|error| implementation_match_query_error(implementation.into(), error))
+    }
+
     fn compiler_provided_surface(
         &self,
         binding_context: &CompilationBindingContext<'_>,
@@ -392,6 +413,7 @@ impl Compilation {
 
         let values = binding_context.semantic_values();
         let mut candidates = Vec::new();
+        let mut inaccessible = DiagnosticBag::new();
 
         for subject_type in [raw_receiver_type, receiver_type]
             .into_iter()
@@ -400,9 +422,10 @@ impl Compilation {
         {
             for header in index.value().headers() {
                 let application = values.trait_application_data(header.trait_application());
+                let definition = application.definition();
 
                 let MemberLookupResult::Found(member) = binding_context
-                    .lookup_member(application.definition().into(), name)
+                    .lookup_member(definition.into(), name)
                     .map_err(binding_query_error)?
                 else {
                     continue;
@@ -447,12 +470,29 @@ impl Compilation {
                     continue;
                 };
 
+                if !bray_binder::check_member_access(
+                    binding_context,
+                    unit.view(),
+                    expression.into(),
+                    definition.into(),
+                    member.into(),
+                    &mut inaccessible,
+                )
+                .map_err(binding_query_error)?
+                {
+                    continue;
+                }
+
                 let candidate = (subject_type, application, member, requirement, *witness);
 
                 if !candidates.contains(&candidate) {
                     candidates.push(candidate);
                 }
             }
+        }
+
+        if candidates.is_empty() {
+            *diagnostics = diagnostics.merged(&inaccessible);
         }
 
         if let [(subject_type, application, member, requirement, witness)] = candidates.as_slice() {
@@ -669,6 +709,19 @@ impl Compilation {
             return Ok(None);
         };
 
+        if !bray_binder::check_member_access(
+            binding_context,
+            unit.view(),
+            expression.into(),
+            trait_definition.into(),
+            member.into(),
+            diagnostics,
+        )
+        .map_err(binding_query_error)?
+        {
+            return Ok(None);
+        }
+
         let owner = GenericOwnerId::try_new(trait_definition.into()).ok_or_else(|| {
             symbol_contract_failure(
                 trait_definition.into(),
@@ -733,6 +786,7 @@ impl Compilation {
         let requirements = Self::trait_constraint_requirements(&constraints, receiver_type);
 
         let mut matches = Vec::new();
+        let mut inaccessible = DiagnosticBag::new();
 
         for (application, dispatch) in requirements {
             let application_data = binding_context
@@ -750,7 +804,24 @@ impl Compilation {
                 continue;
             };
 
+            if !bray_binder::check_member_access(
+                binding_context,
+                unit.view(),
+                expression.into(),
+                application_data.definition().into(),
+                member.into(),
+                &mut inaccessible,
+            )
+            .map_err(binding_query_error)?
+            {
+                continue;
+            }
+
             matches.push((dispatch, application, member));
+        }
+
+        if matches.is_empty() {
+            *diagnostics = diagnostics.merged(&inaccessible);
         }
 
         let [(dispatch, application, member)] = matches.as_slice() else {
@@ -1020,6 +1091,19 @@ impl Compilation {
         let Some(trait_member) = TraitCallableMemberSymbolId::try_from_any(trait_member) else {
             return Ok(None);
         };
+
+        if !bray_binder::check_member_access(
+            binding_context,
+            unit.view(),
+            expression.into(),
+            application_data.definition().into(),
+            trait_member.into(),
+            diagnostics,
+        )
+        .map_err(binding_query_error)?
+        {
+            return Ok(None);
+        }
 
         let constraints =
             super::constraint::enclosing_generic_constraints(binding_context, owner, diagnostics)?;

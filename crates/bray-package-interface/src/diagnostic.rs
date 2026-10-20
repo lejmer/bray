@@ -114,6 +114,8 @@ pub enum InterfaceValidationField {
     SymbolName,
     /// Symbol category.
     SymbolKind,
+    /// Declaration or lookup-path accessibility.
+    Visibility,
     /// Containing declaration or container.
     Container,
     /// Owning record or declaration.

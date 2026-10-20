@@ -317,6 +317,7 @@ pub struct ExportedLookupEdge {
     name: SymbolName,
     kind: ExportedLookupKind,
     target: InterfaceSymbolReference,
+    visibility: bray_symbols::MemberVisibility,
 }
 
 impl ExportedLookupEdge {
@@ -326,12 +327,14 @@ impl ExportedLookupEdge {
         name: SymbolName,
         kind: ExportedLookupKind,
         target: InterfaceSymbolReference,
+        visibility: bray_symbols::MemberVisibility,
     ) -> Self {
         Self {
             owner,
             name,
             kind,
             target,
+            visibility,
         }
     }
 
@@ -348,6 +351,11 @@ impl ExportedLookupEdge {
     /// Returns whether this is a direct export or re-export.
     pub const fn kind(&self) -> ExportedLookupKind {
         self.kind
+    }
+
+    /// Returns the accessibility required by this lookup path.
+    pub const fn visibility(&self) -> bray_symbols::MemberVisibility {
+        self.visibility
     }
 
     /// Returns the local or dependency-defined target identity.
@@ -413,6 +421,15 @@ pub enum PackageInterfaceSurfaceBuildError {
     DependencyKeyPackageMismatch(DependencyInterfaceId),
     /// A direct export does not target a declaration contained by its owner.
     InvalidDirectExportTarget(InterfaceSymbolId),
+    /// A direct lookup changes its declaration's accessibility.
+    DirectExportVisibilityMismatch {
+        /// Ordinary declaration name.
+        name: SymbolName,
+        /// Accessibility on the declaration identity.
+        expected: bray_symbols::MemberVisibility,
+        /// Accessibility supplied by the direct lookup.
+        actual: bray_symbols::MemberVisibility,
+    },
     /// Two export edges project the same ordinary name from one owner.
     DuplicateExportName {
         /// Exporting package or module.

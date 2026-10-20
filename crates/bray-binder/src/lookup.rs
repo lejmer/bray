@@ -1,3 +1,4 @@
+mod access;
 mod binding;
 mod category;
 mod diagnostic;
@@ -7,6 +8,7 @@ mod pattern;
 #[cfg(test)]
 mod test_support;
 
+pub use access::check_member_access;
 pub(crate) use binding::{combine_name_lookups, lookup_surface_name, lookup_unqualified_name};
 pub(crate) use category::{ResolvedName, ResolvedTypeName, ResolvedValueName, classify_type};
 pub(crate) use diagnostic::{NameReference, lookup_diagnostic};

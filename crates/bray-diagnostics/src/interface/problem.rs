@@ -491,6 +491,15 @@ pub enum DiagnosticInterfaceSymbolGraphProblem {
     SurfaceDependencyKeyPackageMismatch(u32),
     /// A direct export targets a declaration outside its owner.
     SurfaceInvalidDirectExportTarget(u32),
+    /// A direct lookup disagrees with the declaration's public/internal accessibility.
+    SurfaceDirectExportVisibilityMismatch {
+        /// Ordinary declaration name.
+        name: String,
+        /// Whether the declaration is public.
+        expected_public: bool,
+        /// Whether the direct lookup is public.
+        actual_public: bool,
+    },
     /// Two export edges project the same name from one owner.
     SurfaceDuplicateExportName {
         /// Exporting package or module record.

@@ -3,7 +3,7 @@ use bray_bound_tree::{
     BoundMemberAccessExpression, BoundMemberSelector, BoundReferenceTarget,
     BoundTraitQualifiedMemberExpression,
 };
-use bray_symbols::{AnySymbolId, MemberLookupResult};
+use bray_symbols::{AnySymbolId, MemberLookupResult, NameAccess};
 use bray_syntax::{
     LeadingDotVariantExpressionSyntax, MemberAccessOperationSyntax, SourceSyntaxNode,
 };
@@ -46,6 +46,14 @@ impl ExpressionBinder {
     where
         C: BindingQueryContext + ?Sized,
     {
+        let access = match &call {
+            BoundExpression::Call(call) => binder
+                .unit_view()
+                .name_access(call.callee())
+                .expect("bound call callee has lexical name access"),
+            _ => self.path_context.access(),
+        };
+
         if let BoundExpression::Call(call) = &call
             && call.generic_arguments().is_empty()
             && let [argument] = call.arguments()
@@ -57,6 +65,14 @@ impl ExpressionBinder {
                 BoundReferenceTarget::Surface(AnySymbolId::Trait(_))
             )
         {
+            let access = if binder.unit_view().name_access(argument.expression())
+                == Some(NameAccess::Internal)
+            {
+                NameAccess::Internal
+            } else {
+                access
+            };
+
             let expression = BoundTraitQualifiedMemberExpression::new(
                 binder.source_origin(syntax),
                 call.callee(),
@@ -64,6 +80,7 @@ impl ExpressionBinder {
                 member_selector(syntax),
                 None,
                 syntax.is_recovered() || call.is_recovered(),
+                access,
             );
 
             return self.push(binder, BoundExpression::TraitQualifiedMember(expression));
@@ -71,7 +88,7 @@ impl ExpressionBinder {
 
         let receiver = self.push(binder, call)?;
 
-        self.bind_member_access(binder, syntax, receiver)
+        self.bind_member_access(binder, syntax, receiver, access)
     }
 
     pub(super) fn bind_member_access<C>(
@@ -79,6 +96,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &MemberAccessOperationSyntax,
         receiver: BoundExpressionId,
+        access: NameAccess,
     ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
@@ -96,18 +114,14 @@ impl ExpressionBinder {
                 return self.push_error(binder, Some(syntax));
             };
 
-            let member = binder.bind_member(
-                namespace.into(),
-                syntax.source(),
-                token,
-                self.path_context.access(),
-            )?;
+            let member = binder.bind_member(namespace.into(), syntax.source(), token, access)?;
 
             return match member {
                 MemberLookupResult::Found(member) => self.push_resolved_reference(
                     binder,
                     syntax,
                     BoundReferenceTarget::Surface(member.symbol()),
+                    access,
                 ),
                 MemberLookupResult::NotFound
                 | MemberLookupResult::WrongKind(_)
@@ -128,6 +142,7 @@ impl ExpressionBinder {
             selector,
             None,
             is_recovered,
+            access,
         );
 
         self.push(binder, BoundExpression::MemberAccess(expression))

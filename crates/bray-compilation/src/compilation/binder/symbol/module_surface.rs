@@ -368,7 +368,7 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
 
         Ok(match access {
             NameAccess::Public => surface.value().lookup_public(name),
-            NameAccess::Internal => surface.value().lookup(name),
+            NameAccess::Local | NameAccess::Internal => surface.value().lookup(name),
         })
     }
 

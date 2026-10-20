@@ -31,14 +31,7 @@ use super::super::category::{
 #[cfg(test)]
 use bray_symbols::{CallableOverloadSymbolId, MemberLookupIndex, MemberVisibility, TraitSymbolId};
 
-/// Visibility policy for one source name reference.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NameAccess {
-    /// Only publicly visible declarations can be resolved.
-    Public,
-    /// Internal declarations can also be resolved.
-    Internal,
-}
+pub use bray_symbols::NameAccess;
 
 /// Stable semantic roots used while resolving one path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,21 +147,27 @@ pub(crate) fn visible_imported_path_root<'binding_context, C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    if !module_uses_path(binding_context, module, components)? {
+    let Some((acknowledged_components, internal)) =
+        module_using_access(binding_context, module, components)?
+    else {
         return Ok(None);
-    }
+    };
 
-    binding_context.imported_path_root(components)
+    Ok(binding_context.imported_path_root(components)?.map(|root| {
+        root.with_internal_access(internal && acknowledged_components > root.consumed_components())
+    }))
 }
 
-fn module_uses_path<C>(
+fn module_using_access<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     components: &[&str],
-) -> BindingQueryResult<bool, C::UpstreamError>
+) -> BindingQueryResult<Option<(usize, bool)>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
+    let mut matched = None;
+
     let module =
         binding_context
             .symbols()
@@ -210,12 +209,18 @@ where
                     .map(NameReference::text)
                     .eq(components.iter().take(references.len()).copied())
             {
-                return Ok(true);
+                let candidate = (references.len(), using.internal_keyword().is_some());
+
+                if matched.is_none_or(|current: (usize, bool)| {
+                    (candidate.1, candidate.0) > (current.1, current.0)
+                }) {
+                    matched = Some(candidate);
+                }
             }
         }
     }
 
-    Ok(false)
+    Ok(matched)
 }
 
 /// Resolves one module-relative surface path with caller-provided source re-export lookup.
@@ -719,6 +724,7 @@ fn bind_path_with_ordinary<Upstream>(
         NameAccess,
     ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
 ) -> BindingQueryResult<PathLookup, Upstream> {
+    let access = imported_root.map_or(access, |root| root.name_access(access));
     let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
     let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
 
@@ -991,7 +997,7 @@ mod tests {
                 &associated,
                 member_path.source(),
                 associated_token,
-                |_, visibility| NameAccess::Internal.allows(visibility),
+                |_, visibility| NameAccess::Internal.allows(visibility, SymbolOrigin::Source),
             ),
             MemberLookupResult::Found(member)
                 if matches!(member.symbol(), AnySymbolId::StructField(_))
@@ -1518,7 +1524,7 @@ mod tests {
     }
 
     #[test]
-    fn inaccessible_shorter_modules_do_not_hide_public_dotted_modules() {
+    fn dotted_modules_retain_their_internal_ancestor_cap() {
         let query_fixture = QueryFixture::from_source(concat!(
             "internal module foo\n",
             "{\n",
@@ -1549,12 +1555,27 @@ mod tests {
         let context = PathBindingContext::new(root, public_module.id(), owner, NameAccess::Public);
         let mut binder = Binder::new(&binding_context, unit);
 
-        assert_eq!(
+        assert!(matches!(
             binder.bind_module_path(context, &path("foo.bar")),
+            Ok(MemberLookupResult::Inaccessible(_))
+        ));
+
+        let acknowledged =
+            PathBindingContext::new(root, public_module.id(), owner, NameAccess::Internal);
+
+        assert_eq!(
+            binder.bind_module_path(acknowledged, &path("foo.bar")),
             Ok(MemberLookupResult::Found(public_module.id()))
         );
 
-        assert!(finish(binder).diagnostics().is_empty());
+        assert_eq!(
+            finish(binder)
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [bray_diagnostics::DiagnosticKind::BindingInaccessibleName]
+        );
     }
 
     #[test]

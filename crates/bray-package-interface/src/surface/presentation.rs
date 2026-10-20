@@ -71,6 +71,15 @@ pub fn diagnostic_surface_problem(
         PackageInterfaceSurfaceBuildError::InvalidDirectExportTarget(target) => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceInvalidDirectExportTarget(target.raw())
         }
+        PackageInterfaceSurfaceBuildError::DirectExportVisibilityMismatch {
+            name,
+            expected,
+            actual,
+        } => DiagnosticInterfaceSymbolGraphProblem::SurfaceDirectExportVisibilityMismatch {
+            name: name.as_str().to_owned(),
+            expected_public: expected.is_public(),
+            actual_public: actual.is_public(),
+        },
         PackageInterfaceSurfaceBuildError::DuplicateExportName { owner, name } => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceDuplicateExportName {
                 owner: owner.raw(),

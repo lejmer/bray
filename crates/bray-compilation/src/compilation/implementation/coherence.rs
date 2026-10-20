@@ -666,7 +666,7 @@ fn bind_surface_path(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let result = binding_context
-        .bind_surface_path(module, path, NameAccess::Internal)
+        .bind_surface_path(module, path, NameAccess::Local)
         .map_err(binding_query_error)?;
 
     diagnostics.add_range(result.diagnostics().iter().cloned());

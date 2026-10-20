@@ -234,6 +234,7 @@ fn push_source_symbols(
             owner.id,
             declaration.id(),
             declaration.syntax_anchor(),
+            surface_visibility(declaration.surface()),
         );
 
         if let Some(member) = source_member_entry(declaration, id) {

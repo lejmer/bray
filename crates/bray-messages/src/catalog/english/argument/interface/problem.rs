@@ -127,6 +127,24 @@ pub(crate) fn format_english_interface_symbol_graph_problem(
         Problem::SurfaceInvalidDirectExportTarget(target) => {
             format!("direct export target record {target} is not contained by its export owner")
         }
+        Problem::SurfaceDirectExportVisibilityMismatch {
+            name,
+            expected_public,
+            actual_public,
+        } => {
+            let expected = if *expected_public {
+                "public"
+            } else {
+                "internal"
+            };
+
+            let actual = if *actual_public { "public" } else { "internal" };
+
+            format!(
+                "compiled declaration {} is {expected}, but its lookup is {actual}",
+                format_english_quoted_text(name)
+            )
+        }
         Problem::SurfaceDuplicateExportName { owner, name } => format!(
             "lookup owner {owner} exports name {} more than once",
             format_english_quoted_text(name)
@@ -528,5 +546,32 @@ pub(crate) const fn format_english_interface_symbol_kind(
         Kind::AnonymousCallable => "anonymous callable",
         Kind::AnonymousCallableParameter => "anonymous-callable parameter",
         Kind::PostconditionResult => "postcondition result",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_english_interface_symbol_graph_problem;
+    use bray_diagnostics::DiagnosticInterfaceSymbolGraphProblem;
+
+    #[test]
+    fn direct_visibility_mismatch_names_the_declaration_and_both_accessibilities() {
+        for (expected_public, actual_public, expected, actual) in [
+            (true, false, "public", "internal"),
+            (false, true, "internal", "public"),
+        ] {
+            let text = format_english_interface_symbol_graph_problem(
+                &DiagnosticInterfaceSymbolGraphProblem::SurfaceDirectExportVisibilityMismatch {
+                    name: "Widget".to_owned(),
+                    expected_public,
+                    actual_public,
+                },
+            );
+
+            assert_eq!(
+                text,
+                format!("compiled declaration 'Widget' is {expected}, but its lookup is {actual}")
+            );
+        }
     }
 }

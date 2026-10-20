@@ -111,10 +111,10 @@ impl Compilation {
 
                 let result = match owner {
                     AnySymbolId::Module(module) => {
-                        binding_context.bind_surface_path(module, &path, NameAccess::Internal)
+                        binding_context.bind_surface_path(module, &path, NameAccess::Local)
                     }
                     owner => {
-                        binding_context.bind_owner_surface_path(owner, &path, NameAccess::Internal)
+                        binding_context.bind_owner_surface_path(owner, &path, NameAccess::Local)
                     }
                 }
                 .map_err(binding_query_error)?;

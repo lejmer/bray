@@ -460,6 +460,28 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn check_member_access(
+        &self,
+        unit: bray_bound_tree::BoundUnitView<'_>,
+        reference: bray_bound_tree::AnyBoundNodeId,
+        owner: AnySymbolId,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<DiagnosticResult<bool>> {
+        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+
+        let accessible = bray_binder::check_member_access(
+            &self.binding_context,
+            unit,
+            reference,
+            owner,
+            member,
+            &mut diagnostics,
+        )
+        .map_err(checker_binder_error)?;
+
+        Ok(DiagnosticResult::new(accessible, diagnostics))
+    }
+
     fn member_name(&self, member: AnySymbolId) -> CheckerQueryResult<Option<&SymbolName>> {
         self.binding_context
             .member_name(member)

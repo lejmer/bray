@@ -48,6 +48,11 @@ wire_tags!(InterfaceProductKind {
     3 => InterfaceProductKind::Test,
 });
 
+wire_tags!(bray_symbols::MemberVisibility {
+    1 => bray_symbols::MemberVisibility::Public,
+    2 => bray_symbols::MemberVisibility::Internal,
+});
+
 wire_tags!(ExportedLookupKind {
     1 => ExportedLookupKind::Direct,
     2 => ExportedLookupKind::ReExport,

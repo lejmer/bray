@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 
 use crate::{
     CallablePosition, ExternalSymbolKey, ImportedInterfaceId, ImportedPackageIdentitySurface,
-    InterfaceSymbolId, SymbolName, SymbolRelationshipKind,
+    InterfaceSymbolId, MemberVisibility, SymbolName, SymbolRelationshipKind,
 };
 
 /// One owner-relative relationship in an imported interface surface.
@@ -87,6 +87,7 @@ pub struct ImportedLookupEdge {
     owner: InterfaceSymbolId,
     name: SymbolName,
     target: ExternalSymbolKey,
+    visibility: MemberVisibility,
 }
 
 impl ImportedLookupEdge {
@@ -95,11 +96,13 @@ impl ImportedLookupEdge {
         owner: InterfaceSymbolId,
         name: SymbolName,
         target: ExternalSymbolKey,
+        visibility: MemberVisibility,
     ) -> Self {
         Self {
             owner,
             name,
             target,
+            visibility,
         }
     }
 
@@ -111,6 +114,11 @@ impl ImportedLookupEdge {
     /// Returns the exported ordinary name.
     pub const fn name(&self) -> &SymbolName {
         &self.name
+    }
+
+    /// Returns the accessibility required by this lookup path.
+    pub const fn visibility(&self) -> MemberVisibility {
+        self.visibility
     }
 
     /// Returns the defining target identity.
@@ -209,6 +217,7 @@ mod tests {
                 InterfaceSymbolId::new(1),
                 symbol_name("run"),
                 fixture.function_key,
+                crate::MemberVisibility::Public,
             )]
         );
     }

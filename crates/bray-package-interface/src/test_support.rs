@@ -202,24 +202,28 @@ fn package_interface_export_bundle_for(
                 symbol_name("templates"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(module.clone()),
+                bray_symbols::MemberVisibility::Public,
             ),
             ExportLookupInput::new(
                 module.clone(),
                 symbol_name("Record"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(structure.clone()),
+                bray_symbols::MemberVisibility::Public,
             ),
             ExportLookupInput::new(
                 module.clone(),
                 symbol_name("run"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(function.clone()),
+                bray_symbols::MemberVisibility::Public,
             ),
             ExportLookupInput::new(
                 module,
                 symbol_name("RecordContract"),
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(implementation.clone()),
+                bray_symbols::MemberVisibility::Public,
             ),
         ],
     );
@@ -274,9 +278,13 @@ fn identity_surface(
 
     keys.insert(ExternalSymbolKey::package(package.clone()));
 
-    let records = keys
-        .iter()
-        .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
+    let records = keys.iter().map(|key| {
+        ExportSymbolInput::new(
+            key.clone(),
+            key.owner().cloned(),
+            bray_symbols::MemberVisibility::Public,
+        )
+    });
 
     let mut relationship_ordinals = BTreeMap::new();
 

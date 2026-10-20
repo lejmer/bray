@@ -5,10 +5,11 @@ use crate::provider::symbol_key_from_provider;
 use crate::record::for_each_declaration_symbol;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, CallableParameterDefaultProviderSymbolId,
-    ExternalSymbolKey, MemberLookupIndex, MemberLookupResult, ModuleSymbol, ModuleSymbolId,
-    PackageSymbol, PackageSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId,
-    StructFieldDefaultProviderSymbol, StructFieldDefaultProviderSymbolId, SymbolName,
-    SymbolProvider, UnionPayloadDefaultProviderSymbol, UnionPayloadDefaultProviderSymbolId,
+    ExternalSymbolKey, MemberLookupIndex, MemberLookupResult, MemberVisibility, ModuleSymbol,
+    ModuleSymbolId, PackageSymbol, PackageSymbolId, ReceiverParameterSymbol,
+    ReceiverParameterSymbolId, StructFieldDefaultProviderSymbol,
+    StructFieldDefaultProviderSymbolId, SymbolName, SymbolProvider,
+    UnionPayloadDefaultProviderSymbol, UnionPayloadDefaultProviderSymbolId,
 };
 
 macro_rules! define_imported_symbol_skeleton {
@@ -33,9 +34,8 @@ macro_rules! define_imported_symbol_skeleton {
                 UnionPayloadDefaultProviderSymbol,
             >,
             pub(crate) external_index: BTreeMap<ExternalSymbolKey, AnySymbolId>,
-            pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, AnySymbolId>>,
+            pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, (AnySymbolId, MemberVisibility)>>,
             pub(crate) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
-            pub(crate) member_names: BTreeMap<AnySymbolId, SymbolName>,
             pub(crate) module_paths:
                 BTreeMap<PackageSymbolId, BTreeMap<crate::ModulePathKey, ModuleSymbolId>>,
             $(
@@ -155,15 +155,27 @@ macro_rules! define_imported_symbol_skeleton {
 
             /// Resolves an exported ordinary name from an imported package or module.
             pub fn lookup(&self, owner: AnySymbolId, name: &str) -> MemberLookupResult<AnySymbolId> {
-                let Some(name) = SymbolName::try_new(name) else {
-                    return MemberLookupResult::NotFound;
-                };
+                self.lookup_with_access(owner, name, |_, _| true)
+            }
 
-                self.lookups
-                    .get(&owner)
-                    .and_then(|index| index.get(&name))
-                    .copied()
-                    .map_or(MemberLookupResult::NotFound, MemberLookupResult::Found)
+            /// Resolves an imported name through the caller's accessibility policy.
+            pub fn lookup_with_access(
+                &self,
+                owner: AnySymbolId,
+                name: &str,
+                mut is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
+            ) -> MemberLookupResult<AnySymbolId> {
+                if let Some((target, visibility)) = self.lookups.get(&owner)
+                    .and_then(|index| index.get(name))
+                {
+                    return if is_accessible(*target, *visibility) {
+                        MemberLookupResult::Found(*target)
+                    } else {
+                        MemberLookupResult::Inaccessible(Box::new([*target]))
+                    };
+                }
+
+                self.lookup_member_with_access(owner, name, is_accessible)
             }
 
             /// Resolves one ordinary member contained by an imported declaration.
@@ -172,14 +184,30 @@ macro_rules! define_imported_symbol_skeleton {
                 owner: AnySymbolId,
                 name: &str,
             ) -> MemberLookupResult<AnySymbolId> {
-                self.member_indexes
-                    .get(&owner)
-                    .map_or(MemberLookupResult::NotFound, |index| index.lookup(name))
+                self.lookup_member_with_access(owner, name, |_, _| true)
+            }
+
+            /// Resolves a contained member through the caller's accessibility policy.
+            pub fn lookup_member_with_access(
+                &self,
+                owner: AnySymbolId,
+                name: &str,
+                is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
+            ) -> MemberLookupResult<AnySymbolId> {
+                self.member_indexes.get(&owner)
+                    .map_or(MemberLookupResult::NotFound, |index| index.lookup_with_access(name, is_accessible))
+            }
+
+            /// Returns declaration-level visibility when the symbol has one.
+            pub fn symbol_visibility(&self, symbol: AnySymbolId) -> Option<MemberVisibility> {
+                crate::provider::symbol_visibility_from_provider(self, symbol)
             }
 
             /// Returns one imported member's ordinary name.
             pub fn member_name(&self, member: AnySymbolId) -> Option<&SymbolName> {
-                self.member_names.get(&member)
+                let owner = self.containing_symbol(member)?;
+
+                self.member_indexes.get(&owner)?.name(member)
             }
 
             /// Returns imported receiver parameters in stable external-key order.

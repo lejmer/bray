@@ -44,7 +44,7 @@ macro_rules! define_record_vectors {
                         AnySymbolId::$variant(id) => {
                             let Some(record) = crate::$record::new(
                                 id,
-                                DeclarationSymbolIdentity::imported(key, container, backing),
+                                DeclarationSymbolIdentity::imported(key, container, backing, assigned.identity.visibility()),
                                 index,
                             ) else {
                                 return Err(
@@ -70,7 +70,8 @@ macro_rules! define_record_vectors {
             pub(super) fn finish(
                 self,
                 external_index: BTreeMap<crate::ExternalSymbolKey, AnySymbolId>,
-                lookups: BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, AnySymbolId>>,
+                lookups: BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, (AnySymbolId, MemberVisibility)>>,
+                member_names: BTreeMap<AnySymbolId, (crate::SymbolName, MemberVisibility)>,
                 relationship_index: &RelationshipIndex,
             ) -> ImportedSymbolSkeleton {
                 let modules = self
@@ -98,20 +99,6 @@ macro_rules! define_record_vectors {
                         .insert(module.path().clone(), module.id());
                 }
 
-                let member_names: BTreeMap<AnySymbolId, crate::SymbolName> = external_index
-                    .iter()
-                    .filter_map(|(key, member)| match key.data() {
-                        ExternalSymbolKeyData::Declaration {
-                            identity: crate::ExternalDeclarationIdentity::Name(name),
-                            ..
-                        } => {
-                            // The reverse index owns names beyond external-key map borrows.
-                            Some((*member, name.clone()))
-                        }
-                        _ => None,
-                    })
-                    .collect();
-
                 let member_indexes = external_index
                     .values()
                     .copied()
@@ -120,11 +107,11 @@ macro_rules! define_record_vectors {
                             .children(owner)
                             .iter()
                             .filter_map(|member| {
-                                member_names.get(member).cloned().map(|name| {
+                                member_names.get(member).map(|(name, visibility)| {
                                     MemberEntry::new(
                                         *member,
-                                        name,
-                                        MemberVisibility::Public,
+                                        name.clone(),
+                                        *visibility,
                                         MemberValidity::Valid,
                                     )
                                 })
@@ -168,7 +155,6 @@ macro_rules! define_record_vectors {
                     external_index,
                     lookups,
                     member_indexes,
-                    member_names,
                     module_paths,
                     $($plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),)+
                 }
@@ -243,7 +229,7 @@ pub(super) fn build_records(
                     owner: ModuleOwnerId::from(owner),
                     path: path.clone(),
                     origin: SymbolOrigin::Imported,
-                    visibility: MemberVisibility::Public,
+                    visibility: assigned.identity.visibility(),
                     declarations: Box::new([]),
                     module_parts: Box::new([]),
                     is_recovered: false,

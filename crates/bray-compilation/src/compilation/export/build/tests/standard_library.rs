@@ -1830,6 +1830,7 @@ fn standard_memory_surface_exports_uninitialized_storage() {
         &compilation,
         symbols,
         product.value().public_symbols(),
+        &[],
     )
     .unwrap_or_else(|error| panic!("standard memory identity surface must build: {error:?}"));
 

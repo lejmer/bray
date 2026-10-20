@@ -203,6 +203,24 @@ impl CheckerRequestContext for TestCheckerContext {
             .unwrap_or_else(|| semantic_values())
     }
 
+    fn check_member_access(
+        &self,
+        _unit: bray_bound_tree::BoundUnitView<'_>,
+        _reference: bray_bound_tree::AnyBoundNodeId,
+        _owner: AnySymbolId,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>, Self::UpstreamError> {
+        assert_ne!(
+            self.symbols().symbol_origin(member),
+            Some(bray_symbols::SymbolOrigin::Imported),
+            "checker fixtures contain only definition-site source and compiler-known declarations"
+        );
+
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            true,
+        ))
+    }
+
     fn symbols(&self) -> &SymbolGraph {
         symbol_graph()
     }
@@ -601,6 +619,7 @@ pub(crate) fn unselected_name_expression(origin: BoundNodeOrigin) -> BoundExpres
         BoundReferenceTarget::Surface(AnySymbolId::from(symbol)),
         None,
         false,
+        bray_symbols::NameAccess::Local,
     ))
 }
 

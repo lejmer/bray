@@ -42,17 +42,22 @@ impl Compilation {
         };
 
         let candidate = match expression {
-            BoundExpression::StructConstruction(_) => {
-                self.struct_construction_candidate(binding_context, result_type, diagnostics)?
-            }
+            BoundExpression::StructConstruction(_) => self.struct_construction_candidate(
+                binding_context,
+                (unit.view(), key.expression()),
+                result_type,
+                diagnostics,
+            )?,
             BoundExpression::LeadingDotVariant(variant) => self.leading_dot_variant_candidate(
                 binding_context,
+                (unit.view(), key.expression()),
                 result_type,
                 variant.selector(),
                 diagnostics,
             )?,
             BoundExpression::UnqualifiedVariant(variant) => self.unqualified_variant_candidate(
                 binding_context,
+                (unit.view(), key.expression()),
                 result_type,
                 variant,
                 diagnostics,

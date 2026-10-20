@@ -427,19 +427,11 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         )
     }
 
-    fn module_re_export_lookup(
+    fn module_surface(
         &self,
         module: ModuleSymbolId,
-        name: &str,
-        access: NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
-        let surface =
-            self.resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module))?;
-
-        Ok(match access {
-            NameAccess::Public => surface.value().lookup_public(name),
-            NameAccess::Internal => surface.value().lookup(name),
-        })
+    ) -> BindingQueryResult<Arc<DiagnosticResult<bray_symbols::ModuleSurface>>> {
+        self.resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module))
     }
 
     fn type_associated_surface(
@@ -1188,6 +1180,7 @@ mod tests {
                 BoundReferenceTarget::Surface(imported),
                 None,
                 false,
+                bray_symbols::NameAccess::Local,
             )),
         );
 

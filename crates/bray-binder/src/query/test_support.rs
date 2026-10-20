@@ -11,12 +11,12 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    AnySymbolId, CallableAbi, CallableConstness, CallableContractSymbolId,
-    CallableDependencyContracts, CallableSignatureQuery, CallableSignatureTemplate, CallableTrust,
-    CallableTypeData, ConstantDeclaredTypeQuery, ConstantSymbolId, DependencyContractTemplateData,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
-    SemanticValueStore, SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeData,
-    TypeExpressionTemplate, TypeId,
+    CallableAbi, CallableConstness, CallableContractSymbolId, CallableDependencyContracts,
+    CallableSignatureQuery, CallableSignatureTemplate, CallableTrust, CallableTypeData,
+    ConstantDeclaredTypeQuery, ConstantSymbolId, DependencyContractTemplateData,
+    ImportedSymbolSkeleton, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, SemanticValueStore,
+    SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeData, TypeExpressionTemplate,
+    TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -142,13 +142,13 @@ impl BindingQueryContext for TestContext<'_> {
         Err(BindingQueryError::DependencyUnavailable)
     }
 
-    fn module_re_export_lookup(
+    fn module_surface(
         &self,
         _module: ModuleSymbolId,
-        _name: &str,
-        _access: crate::NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
-        Ok(MemberLookupResult::NotFound)
+    ) -> BindingQueryResult<Arc<DiagnosticResult<bray_symbols::ModuleSurface>>> {
+        Ok(Arc::new(DiagnosticResult::without_diagnostics(
+            bray_symbols::ModuleSurface::new([], []).expect("empty test module surface"),
+        )))
     }
 
     fn type_associated_surface(

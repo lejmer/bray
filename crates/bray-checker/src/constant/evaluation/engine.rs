@@ -1913,7 +1913,13 @@ mod tests {
 
                 let name = push_expression(
                     tree,
-                    BoundExpression::Name(BoundNameExpression::new(origin, target, None, false)),
+                    BoundExpression::Name(BoundNameExpression::new(
+                        origin,
+                        target,
+                        None,
+                        false,
+                        bray_symbols::NameAccess::Local,
+                    )),
                 );
 
                 reference = Some(name);
@@ -2151,6 +2157,7 @@ mod tests {
                         )),
                         Some(source_type),
                         false,
+                        bray_symbols::NameAccess::Local,
                     )),
                 );
 
@@ -2241,6 +2248,7 @@ mod tests {
                     target,
                     Some(expected),
                     false,
+                    bray_symbols::NameAccess::Local,
                 )),
             )
         })

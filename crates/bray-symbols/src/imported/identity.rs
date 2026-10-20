@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 
 use crate::{
     ExactSymbolId, ExternalSymbolKey, ExternalSymbolKeyData, ImportedInterfaceId,
-    InterfaceSymbolId, PackageIdentity, SymbolKind, SymbolOrigin,
+    InterfaceSymbolId, MemberVisibility, PackageIdentity, SymbolKind, SymbolOrigin,
 };
 
 /// One imported symbol identity record awaiting whole-surface validation.
@@ -17,6 +17,7 @@ pub struct ImportedSymbolIdentityInput {
     key: ExternalSymbolKey,
     kind: SymbolKind,
     container: Option<InterfaceSymbolId>,
+    visibility: MemberVisibility,
 }
 
 impl ImportedSymbolIdentityInput {
@@ -26,12 +27,14 @@ impl ImportedSymbolIdentityInput {
         key: ExternalSymbolKey,
         kind: SymbolKind,
         container: Option<InterfaceSymbolId>,
+        visibility: MemberVisibility,
     ) -> Self {
         Self {
             id,
             key,
             kind,
             container,
+            visibility,
         }
     }
 
@@ -53,6 +56,11 @@ impl ImportedSymbolIdentityInput {
     /// Returns the artifact-local semantic container.
     pub const fn container(&self) -> Option<InterfaceSymbolId> {
         self.container
+    }
+
+    /// Returns the declaration's accessibility at its own boundary.
+    pub const fn visibility(&self) -> MemberVisibility {
+        self.visibility
     }
 }
 
@@ -79,6 +87,11 @@ impl ImportedSymbolIdentity {
     /// Returns the artifact-local semantic container.
     pub const fn container(&self) -> Option<InterfaceSymbolId> {
         self.0.container()
+    }
+
+    /// Returns the declaration's accessibility at its own boundary.
+    pub const fn visibility(&self) -> MemberVisibility {
+        self.0.visibility()
     }
 
     /// Returns the origin shared by every symbol constructed from this record.
@@ -515,18 +528,21 @@ mod tests {
                 package_key,
                 SymbolKind::Package,
                 None,
+                crate::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(1),
                 module_key,
                 SymbolKind::Module,
                 Some(InterfaceSymbolId::new(0)),
+                crate::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(2),
                 function_key,
                 SymbolKind::Function,
                 Some(InterfaceSymbolId::new(1)),
+                crate::MemberVisibility::Public,
             ),
         ];
 
@@ -593,6 +609,7 @@ mod tests {
             function.key().clone(),
             SymbolKind::Function,
             Some(InterfaceSymbolId::new(1)),
+            crate::MemberVisibility::Public,
         ));
 
         assert_eq!(
@@ -617,6 +634,7 @@ mod tests {
             function.key().clone(),
             SymbolKind::Predicate,
             Some(InterfaceSymbolId::new(1)),
+            crate::MemberVisibility::Public,
         ));
 
         assert_eq!(
@@ -644,6 +662,7 @@ mod tests {
             function_key,
             SymbolKind::Function,
             Some(InterfaceSymbolId::new(1)),
+            crate::MemberVisibility::Public,
         ));
 
         assert_eq!(
@@ -668,6 +687,7 @@ mod tests {
             function.key().clone(),
             SymbolKind::Function,
             Some(InterfaceSymbolId::new(u32::MAX)),
+            crate::MemberVisibility::Public,
         ));
 
         assert_eq!(

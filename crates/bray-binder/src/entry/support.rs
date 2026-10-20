@@ -74,7 +74,7 @@ where
         scope,
         module.id(),
         module.owner(),
-        NameAccess::Internal,
+        NameAccess::Local,
     ))
 }
 

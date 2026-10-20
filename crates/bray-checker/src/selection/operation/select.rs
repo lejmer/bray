@@ -993,6 +993,7 @@ mod tests {
                     Some(BoundMemberSelector::Name(symbol_name("value"))),
                     None,
                     false,
+                    bray_symbols::NameAccess::Local,
                 )),
             );
 

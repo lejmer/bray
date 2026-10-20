@@ -364,6 +364,7 @@ const fn diagnostic_field(field: InterfaceValidationField) -> DiagnosticInterfac
         Field::ProductName => Diagnostic::ProductName,
         Field::SymbolName => Diagnostic::SymbolName,
         Field::SymbolKind => Diagnostic::SymbolKind,
+        Field::Visibility => Diagnostic::Visibility,
         Field::Container => Diagnostic::Container,
         Field::Owner => Diagnostic::Owner,
         Field::Subject => Diagnostic::Subject,

@@ -1,5 +1,6 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget, BoundUnit,
+    BoundUnitView,
 };
 use bray_checker::{CallableCandidateTemplate, CallableCandidateTemplateState, CandidateAbsence};
 use bray_diagnostics::DiagnosticBag;
@@ -11,7 +12,7 @@ use bray_symbols::{
 };
 use bray_syntax::{GenericArgumentListSyntax, GenericArgumentSyntax};
 
-use crate::lookup::ResolvedName;
+use crate::lookup::{ResolvedName, check_member_access};
 use crate::{BindingQueryContext, BindingQueryResult, SymbolQueryProvider};
 
 use super::callable::{
@@ -62,6 +63,22 @@ where
     *diagnostics = diagnostics.merged(surface.diagnostics());
 
     let lookup = surface.value().lookup(name.as_str());
+
+    let lookup = match lookup {
+        MemberLookupResult::Found(symbol)
+            if !check_member_access(
+                context,
+                unit.view(),
+                callee.into(),
+                subject.into_any(),
+                symbol,
+                diagnostics,
+            )? =>
+        {
+            MemberLookupResult::Inaccessible(Box::new([symbol]))
+        }
+        lookup => lookup,
+    };
 
     let outcome = match lookup {
         MemberLookupResult::Found(symbol) => bind_resolved_name_candidate(
@@ -144,6 +161,7 @@ pub(super) fn type_member_subject(
 pub(super) fn bind_primary_constructor_candidates<C>(
     context: &C,
     subject: NamedTypeSymbolId,
+    site: (BoundUnitView<'_>, BoundExpressionId),
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
@@ -166,6 +184,19 @@ where
         if member.slot() != TypeAssociatedLifecycleSlot::PrimaryConstructor {
             continue;
         }
+
+        let state = if check_member_access(
+            context,
+            site.0,
+            site.1.into(),
+            subject.into_any(),
+            member.id(),
+            diagnostics,
+        )? {
+            state
+        } else {
+            CallableCandidateTemplateState::Inaccessible
+        };
 
         let candidate = bind_declaration_candidate(
             context,
