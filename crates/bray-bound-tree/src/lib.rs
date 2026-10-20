@@ -135,8 +135,8 @@ pub use storage::{
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,
     CheckedTemplateCapability, CheckedTemplateCompletion, CheckedTemplateConstantUsage,
-    CheckedTemplateEffect, CheckedTemplateExecution, CheckedTemplateExecutionRequirement,
-    CheckedTemplateIndexCall, CheckedTemplateIndexDispatch, CheckedTemplateInput,
+    CheckedTemplateDispatch, CheckedTemplateEffect, CheckedTemplateExecution,
+    CheckedTemplateExecutionRequirement, CheckedTemplateIndexCall, CheckedTemplateInput,
     CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
     CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
     CheckedTemplateTemporary, CheckedTemplateTemporaryId, CheckedTemplateTrustedObligation,

@@ -36,6 +36,19 @@ pub(crate) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirT
         _ => None,
     }
 }
+pub(crate) fn string_equality_operation(
+    operands: [MirOperand; 2],
+    operand_type: bray_symbols::TypeId,
+    result_type: bray_symbols::TypeId,
+) -> MirOperationKind {
+    MirOperationKind::Text(MirTextOperation::new(
+        MirTextOperationKind::Equals,
+        operands,
+        [operand_type, operand_type],
+        Some(result_type),
+    ))
+}
+
 impl Lowerer<'_> {
     pub(super) fn lower_string_equality(
         &mut self,
@@ -52,12 +65,7 @@ impl Lowerer<'_> {
             id,
             current,
             Self::retained_source(&source),
-            MirOperationKind::Text(MirTextOperation::new(
-                MirTextOperationKind::Equals,
-                operands,
-                [operand_type, operand_type],
-                Some(result_type),
-            )),
+            string_equality_operation(operands, operand_type, result_type),
             result_type,
         )?;
 

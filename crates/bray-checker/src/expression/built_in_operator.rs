@@ -344,6 +344,27 @@ fn numeric_operation_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let mut operand_type = None;
+
+    for operand in expression.child_expressions() {
+        let Some(result) = session
+            .expression_type(operand)
+            .filter(|result| !result.is_recovered())
+        else {
+            continue;
+        };
+
+        let ty = observed_type(request, result.ty());
+
+        match type_representation(request, ty) {
+            Some(RepresentationRole::Never) => {}
+            Some(role) if representation_supports_operator(role, operator) => {
+                operand_type.get_or_insert(ty);
+            }
+            _ => return None,
+        }
+    }
+
     if let Some(result) = session
         .expression_type(expression_id)
         .filter(|result| !result.is_recovered())
@@ -360,24 +381,7 @@ where
         return Some(expected);
     }
 
-    for operand in expression.child_expressions() {
-        let Some(result) = session
-            .expression_type(operand)
-            .filter(|result| !result.is_recovered())
-        else {
-            continue;
-        };
-
-        let ty = observed_type(request, result.ty());
-
-        if type_representation(request, ty)
-            .is_some_and(|role| representation_supports_operator(role, operator))
-        {
-            return Some(ty);
-        }
-    }
-
-    None
+    operand_type
 }
 
 fn add_operand_expectation<C>(

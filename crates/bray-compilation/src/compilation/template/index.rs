@@ -38,7 +38,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                             let (implementation, substitution) =
                                 self.implementation_reference(*witness)?;
 
-                            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                            bray_bound_tree::CheckedTemplateDispatch::Implementation(
                                 implementation,
                                 substitution,
                             )
@@ -60,24 +60,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                         callable,
                         substitution,
                         borrow_kind: *borrow_kind,
-                        dispatch: match dispatch {
-                            bray_symbols::TraitConstraintDispatch::Constraint {
-                                owner,
-                                ordinal,
-                            } => bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
-                                owner: self.symbol_key(owner.symbol())?,
-                                ordinal: *ordinal,
-                            },
-                            bray_symbols::TraitConstraintDispatch::TraitDefault(requirement) => {
-                                let (subject, substitution) =
-                                    self.trait_default_requirement(*requirement)?;
-
-                                bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
-                                    subject,
-                                    substitution,
-                                }
-                            }
-                        },
+                        dispatch: self.constraint_dispatch(*dispatch)?,
                     },
                 ))
             }

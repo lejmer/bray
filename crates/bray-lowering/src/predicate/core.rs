@@ -70,18 +70,12 @@ pub trait PredicateLoweringContext: SyntheticLoweringContext {
         subject: TypeId,
         field: bray_ir::MirFieldReference,
     ) -> Result<TypeId, Self::Error>;
-    /// Resolves the selected custom index invocation without repeating selection.
-    fn predicate_index_call(
-        &self,
-        selected: &bray_bound_tree::CheckedTemplateIndexCall,
-        inputs: Vec<MirOperand>,
-    ) -> Result<(MirCall, Vec<TypeId>), Self::Error>;
     /// Concretizes the already-selected callable or predicate and optional implementation.
     fn predicate_call(
         &self,
         key: &SymbolKey,
         substitution: GenericSubstitutionId,
-        implementation: Option<&(SymbolKey, GenericSubstitutionId)>,
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error>;
 }
@@ -343,7 +337,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 substitution,
                 arguments,
                 ordinals,
-                implementation,
+                dispatch,
             } => {
                 let mut inputs = Vec::with_capacity(arguments.len());
 
@@ -366,7 +360,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 let call = self.context.predicate_call(
                     callable,
                     *substitution,
-                    implementation.as_ref(),
+                    dispatch.as_ref(),
                     inputs,
                 )?;
 

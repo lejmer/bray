@@ -94,3 +94,52 @@ func compare(pos left: i32, pos right: i32) -> bool
         lowered.diagnostics()
     );
 }
+
+#[test]
+fn custom_operator_output_does_not_constrain_its_operand_to_a_scalar() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        @copy
+        struct Value
+        {
+            number: i32;
+        }
+
+        impl ValueNegate = Value(Negate)
+        {
+            type Output = i32;
+
+            func negate() -> i32
+            {
+                return self.number;
+            }
+        }
+
+        func selected(pos value: Value) -> i32
+        {
+            return -value;
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&compilation, "selected");
+    let lowered = compilation.lowered_unit(key).unwrap();
+
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+
+    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+    assert!(mir.is_valid());
+
+    assert!(
+        mir.operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(_)))
+    );
+}

@@ -14,6 +14,4 @@ pub use model::{
     CheckedTemplateKind, CheckedTemplateNode, CheckedTemplateShortCircuitKind,
     CheckedTemplateTemporary, CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
-pub use operation::{
-    CheckedTemplateIndexCall, CheckedTemplateIndexDispatch, CheckedTemplateOperation,
-};
+pub use operation::{CheckedTemplateDispatch, CheckedTemplateIndexCall, CheckedTemplateOperation};

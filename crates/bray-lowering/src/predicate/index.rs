@@ -98,7 +98,12 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             _ => unreachable!("custom access dispatch retains an index or slice"),
         }
 
-        let selected = self.context.predicate_index_call(call, inputs)?;
+        let selected = self.context.predicate_call(
+            &call.callable,
+            call.substitution,
+            Some(&call.dispatch),
+            inputs,
+        )?;
 
         let (block, value) = self.call(block, selected)?;
 

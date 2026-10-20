@@ -274,20 +274,12 @@ fn decode_operation(
                 ordinals.push(read_u32(reader)?);
             }
 
-            let implementation_raw = read_u32(reader)?;
+            let raw = read_u32(reader)?;
 
-            let implementation = match implementation_raw {
-                0 => None,
-                1 => Some((
-                    decode_implementation_reference(reader, context)?,
-                    crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
-                )),
-                _ => {
-                    return Err(crate::semantic::codec::invalid_discriminant(
-                        crate::InterfaceValidationField::Template,
-                        implementation_raw,
-                    ));
-                }
+            let dispatch = if raw == 0 {
+                None
+            } else {
+                Some(decode_template_dispatch(reader, context, raw)?)
             };
 
             Ok(InterfaceCheckedTemplateOperation::ordered_call(
@@ -295,7 +287,7 @@ fn decode_operation(
                 substitution,
                 arguments,
                 ordinals,
-                implementation,
+                dispatch,
             ))
         }
         5 => Ok(InterfaceCheckedTemplateOperation::Convert {
@@ -432,6 +424,33 @@ fn decode_implementation_reference(
     }
 }
 
+fn decode_template_dispatch(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+    present: u32,
+) -> Result<crate::InterfaceCheckedTemplateDispatch, InterfaceValidationError> {
+    Ok(match present {
+        1 => bray_bound_tree::CheckedTemplateDispatch::Implementation(
+            decode_implementation_reference(reader, context)?,
+            crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+        ),
+        2 => bray_bound_tree::CheckedTemplateDispatch::Constraint {
+            owner: decode_template_reference(reader, context)?,
+            ordinal: SymbolOrdinal::new(read_u32(reader)?),
+        },
+        3 => bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
+            subject: crate::InterfaceTypeId::new(read_u32(reader)?),
+            substitution: crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+        },
+        _ => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Template,
+                present,
+            ));
+        }
+    })
+}
+
 fn decode_index_call(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
@@ -449,26 +468,7 @@ fn decode_index_call(
             let borrow_kind = decode_tag(read_u32(reader)?)?;
             let present = read_u32(reader)?;
 
-            let dispatch = match present {
-                1 => bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
-                    decode_implementation_reference(reader, context)?,
-                    crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
-                ),
-                2 => bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
-                    owner: decode_template_reference(reader, context)?,
-                    ordinal: SymbolOrdinal::new(read_u32(reader)?),
-                },
-                3 => bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
-                    subject: crate::InterfaceTypeId::new(read_u32(reader)?),
-                    substitution: crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
-                },
-                _ => {
-                    return Err(crate::semantic::codec::invalid_discriminant(
-                        crate::InterfaceValidationField::Template,
-                        present,
-                    ));
-                }
-            };
+            let dispatch = decode_template_dispatch(reader, context, present)?;
 
             Ok(Some(std::sync::Arc::new(
                 crate::InterfaceCheckedTemplateIndexCall {
@@ -592,15 +592,15 @@ mod tests {
             InterfaceTemplateReference::Symbol(symbol_reference(&surface, SymbolKind::Function));
 
         for dispatch in [
-            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+            bray_bound_tree::CheckedTemplateDispatch::Implementation(
                 InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(1)),
                 crate::InterfaceGenericSubstitutionId::new(0),
             ),
-            bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
+            bray_bound_tree::CheckedTemplateDispatch::Constraint {
                 owner: owner.clone(),
                 ordinal: SymbolOrdinal::new(7),
             },
-            bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+            bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
                 subject: InterfaceTypeId::new(2),
                 substitution: crate::InterfaceGenericSubstitutionId::new(3),
             },
@@ -1263,18 +1263,18 @@ mod tests {
         }
 
         for dispatch in [
-            bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
+            bray_bound_tree::CheckedTemplateDispatch::Constraint {
                 owner: InterfaceTemplateReference::Symbol(symbol_reference(
                     &surface,
                     SymbolKind::Module,
                 )),
                 ordinal: SymbolOrdinal::new(0),
             },
-            bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+            bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
                 subject: InterfaceTypeId::new(0),
                 substitution: crate::InterfaceGenericSubstitutionId::new(0),
             },
-            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+            bray_bound_tree::CheckedTemplateDispatch::Implementation(
                 InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(0)),
                 crate::InterfaceGenericSubstitutionId::new(0),
             ),

@@ -645,7 +645,7 @@ impl Lowerer<'_> {
         operator: BoundOperator,
         result_type: TypeId,
     ) -> Result<TypeId, LoweringError> {
-        if is_relational_operator(operator) {
+        if operator.ordering_test((), ()).is_some() {
             return Ok(self.ordering_representation()?.ty);
         }
 
@@ -674,7 +674,7 @@ impl Lowerer<'_> {
             return Ok((current, value));
         }
 
-        if !is_relational_operator(operator) {
+        if operator.ordering_test((), ()).is_none() {
             return Ok((current, value));
         }
 
@@ -689,15 +689,9 @@ impl Lowerer<'_> {
             self.builder
                 .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
-        let (variant, matched_result) = match operator {
-            BoundOperator::Less => (representation.less_variant, true),
-            BoundOperator::LessEqual => (representation.greater_variant, false),
-            BoundOperator::Greater => (representation.greater_variant, true),
-            BoundOperator::GreaterEqual => (representation.less_variant, false),
-            _ => panic!(
-                "lowering contract violation: operator {operator:?} is invalid for {expression:?}"
-            ),
-        };
+        let (variant, matched_result) = operator
+            .ordering_test(representation.less_variant, representation.greater_variant)
+            .expect("relational operator retains its Ordering test");
 
         self.set_terminator(
             current,
@@ -1554,16 +1548,6 @@ impl Lowerer<'_> {
         Ok(MirPlace::new(storage, [], ty))
     }
 }
-fn is_relational_operator(operator: BoundOperator) -> bool {
-    matches!(
-        operator,
-        BoundOperator::Less
-            | BoundOperator::LessEqual
-            | BoundOperator::Greater
-            | BoundOperator::GreaterEqual
-    )
-}
-
 fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
     match operator {
         BoundOperator::Equal => Some(MirBinaryOperator::Equal),

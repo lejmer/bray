@@ -163,7 +163,7 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         &self,
         key: &SymbolKey,
         substitution: GenericSubstitutionId,
-        implementation: Option<&(SymbolKey, GenericSubstitutionId)>,
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let symbol = self.predicate_symbol(key)?;
@@ -178,7 +178,13 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         let definition = CallableDefinitionId::try_new(symbol)
             .expect("checked predicate call retains a callable declaration");
 
-        let implementation = implementation
+        let implementation = dispatch
+            .and_then(|dispatch| match dispatch {
+                bray_bound_tree::CheckedTemplateDispatch::Implementation(key, substitution) => {
+                    Some((key, substitution))
+                }
+                _ => None,
+            })
             .map(|(key, substitution)| {
                 let definition =
                     bray_symbols::ImplementationSymbolId::try_from_any(self.predicate_symbol(key)?)
@@ -195,11 +201,50 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             })
             .transpose()?;
 
-        self.predicate_instance_call(
+        let (mut call, parameters) = self.predicate_instance_call(
             CallableInstanceData::new(definition, substitution),
             implementation,
             inputs,
-        )
+        )?;
+
+        let dispatch = match dispatch {
+            None | Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(..)) => None,
+            Some(bray_bound_tree::CheckedTemplateDispatch::Constraint { owner, ordinal }) => {
+                Some(bray_symbols::TraitConstraintDispatch::Constraint {
+                    owner: bray_symbols::GenericOwnerId::try_new(self.predicate_symbol(owner)?)
+                        .expect("checked callable constraint retains its generic owner"),
+                    ordinal: *ordinal,
+                })
+            }
+            Some(bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
+                subject,
+                substitution,
+            }) => {
+                let owner = self.values.generic_substitution_data(*substitution).owner();
+
+                let AnySymbolId::Trait(definition) = owner.symbol() else {
+                    panic!("checked default dispatch retains its trait");
+                };
+
+                let application = self
+                    .values
+                    .intern_trait_application(bray_symbols::TraitApplicationData::new(
+                        definition,
+                        *substitution,
+                    ))
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                Some(bray_symbols::TraitConstraintDispatch::TraitDefault(
+                    bray_symbols::ImplementationRequirementKey::new(*subject, application),
+                ))
+            }
+        };
+
+        if let Some(dispatch) = dispatch {
+            call = call.with_trait_dispatch(dispatch);
+        }
+
+        Ok((call, parameters))
     }
     fn predicate_application(
         &self,
@@ -413,63 +458,5 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         )?;
 
         self.predicate_type(ty)
-    }
-    fn predicate_index_call(
-        &self,
-        selected: &CheckedTemplateIndexCall,
-        inputs: Vec<MirOperand>,
-    ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
-        let implementation = match &selected.dispatch {
-            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(key, substitution) => {
-                Some((key.clone(), *substitution))
-            }
-            _ => None,
-        };
-
-        let (mut call, parameters) = self.predicate_call(
-            &selected.callable,
-            selected.substitution,
-            implementation.as_ref(),
-            inputs,
-        )?;
-
-        let dispatch = match &selected.dispatch {
-            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(_, _) => None,
-            bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { owner, ordinal } => {
-                Some(bray_symbols::TraitConstraintDispatch::Constraint {
-                    owner: bray_symbols::GenericOwnerId::try_new(self.predicate_symbol(owner)?)
-                        .expect("checked index constraint retains its generic owner"),
-                    ordinal: *ordinal,
-                })
-            }
-            bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
-                subject,
-                substitution,
-            } => {
-                let owner = self.values.generic_substitution_data(*substitution).owner();
-
-                let AnySymbolId::Trait(definition) = owner.symbol() else {
-                    panic!("checked default index dispatch retains its trait");
-                };
-
-                let application = self
-                    .values
-                    .intern_trait_application(bray_symbols::TraitApplicationData::new(
-                        definition,
-                        *substitution,
-                    ))
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                Some(bray_symbols::TraitConstraintDispatch::TraitDefault(
-                    bray_symbols::ImplementationRequirementKey::new(*subject, application),
-                ))
-            }
-        };
-
-        if let Some(dispatch) = dispatch {
-            call = call.with_trait_dispatch(dispatch);
-        }
-
-        Ok((call, parameters))
     }
 }

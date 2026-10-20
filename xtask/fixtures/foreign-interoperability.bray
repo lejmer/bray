@@ -519,6 +519,7 @@ trusted func main() -> i32
     trusted audit_resources();
     trusted audit_requirements();
     trusted audit_requirement_scopes();
+    audit_operator_requirements();
     trusted audit_callbacks();
     trusted audit_dynamic_library();
     trusted audit_native_data();
@@ -809,4 +810,37 @@ func require_power(pos value: i128)
 func require_large_shift(pos value: i128)
     requires(((value << 130) >> 330) == -1)
 {
+}
+
+func runtime_text(pos value: string) -> string
+{
+    return value;
+}
+
+func require_text(pos value: string)
+    requires(value == "ok", value != "bad")
+{
+}
+
+internal callable TextAction = func(pos value: string)
+    requires(value == "ok", value != "bad");
+
+func audit_operator_requirements()
+{
+    let text: string = runtime_text("ok");
+
+    require_text(text);
+
+    let action: TextAction = require_text;
+
+    action(text);
+
+    let rejected: Result<unit, PanicReport> = catch
+    {
+        require_text(runtime_text("bad"));
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(rejected);
 }

@@ -173,6 +173,14 @@ pub type InterfaceCheckedTemplateOperation = bray_bound_tree::CheckedTemplateOpe
     InterfaceImplementationReference,
 >;
 
+/// The exact callable dispatch using interface-local semantic references.
+pub type InterfaceCheckedTemplateDispatch = bray_bound_tree::CheckedTemplateDispatch<
+    InterfaceTemplateReference,
+    InterfaceGenericSubstitutionId,
+    InterfaceImplementationReference,
+    InterfaceTypeId,
+>;
+
 /// The checked custom-index selection using interface-local semantic references.
 pub type InterfaceCheckedTemplateIndexCall = bray_bound_tree::CheckedTemplateIndexCall<
     InterfaceTemplateReference,

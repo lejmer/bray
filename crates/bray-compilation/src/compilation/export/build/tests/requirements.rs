@@ -421,3 +421,211 @@ fn imported_generic_requirements_preserve_all_checking_domains() {
         .collect()
     );
 }
+
+#[test]
+fn string_requirement_lowering_preserves_imported_and_erased_checks() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        func selected(pos value: &string)
+            requires(value == "ok", value != "bad") {}
+    "#,
+    );
+
+    let source = r#"
+        module app;
+
+        using example.package.api;
+
+        callable Action = func(pos value: &string)
+            requires(value == "ok", value != "bad");
+
+        func direct(pos value: &string)
+        {
+            example.package.api.selected(value);
+        }
+
+        func indirect(pos action: Action, pos value: &string)
+        {
+            action(value);
+        }
+    "#;
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        source,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    for (name, erased) in [("direct", false), ("indirect", true)] {
+        let key = crate::test_support::source_function_body_key(&consumer, name);
+        let lowered = consumer.lowered_unit(key).unwrap();
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        let requirements = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                bray_ir::MirOperationKind::Call(call) => match call.target() {
+                    bray_ir::MirCallTarget::Predicate(reference) => Some(reference),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!requirements.is_empty());
+
+        assert!(requirements.iter().all(|reference| matches!(
+            reference,
+            bray_ir::MirPredicateReference::Condition { .. }
+        ) == erased));
+    }
+}
+
+#[test]
+fn operator_templates_preserve_selected_and_constrained_dispatch() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        @copy
+        struct Value
+        {
+            value: i32;
+        }
+
+        impl ValueEqual = Value(Equatable<Value>)
+        {
+            func equals(pos rhs: &Value) -> bool
+                executes(pure, total)
+            {
+                return self.value == rhs.value;
+            }
+        }
+
+        impl ValueCompare = Value(Comparable<Value>)
+        {
+            func compare(pos rhs: &Value) -> Ordering
+                executes(pure, total)
+            {
+                if self.value < rhs.value
+                {
+                    return Ordering.Less;
+                }
+
+                if self.value > rhs.value
+                {
+                    return Ordering.Greater;
+                }
+
+                return Ordering.Equal;
+            }
+        }
+
+        impl ValueNegate = Value(Negate)
+        {
+            type Output = i32;
+
+            func negate() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+        }
+
+        func selected(
+            pos left: Value,
+            pos right: Value,
+            different: bool = left != right,
+            less: bool = left < right,
+            at_most: bool = left <= right,
+            greater: bool = right > left,
+            at_least: bool = right >= left,
+            negated: i32 = -left,
+        )
+        {
+        }
+
+        func generic<T>(pos left: T, pos right: T, different: bool = left != right, less: bool = left < right)
+            with(T: Equatable<T>, T: Comparable<T>) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    let dispatches = bundle
+        .semantics()
+        .checked_templates()
+        .iter()
+        .flat_map(|template| template.nodes())
+        .filter_map(|node| match node.operation() {
+            bray_package_interface::InterfaceCheckedTemplateOperation::Call {
+                dispatch, ..
+            } => dispatch.as_ref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(dispatches.iter().any(|dispatch| matches!(
+        dispatch,
+        bray_bound_tree::CheckedTemplateDispatch::Implementation(..)
+    )));
+
+    assert!(dispatches.iter().any(|dispatch| matches!(
+        dispatch,
+        bray_bound_tree::CheckedTemplateDispatch::Constraint { .. }
+    )));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+        using example.package.api.ValueEqual;
+        using example.package.api.ValueCompare;
+
+        func caller(pos left: example.package.api.Value, pos right: example.package.api.Value)
+        {
+            example.package.api.selected(left, right);
+            example.package.api.generic<example.package.api.Value>(left, right);
+        }
+    "#,
+        [implementation_dependency(bundle)],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    assert!(
+        consumer
+            .codegen_instance_count_for_test(|key| matches!(
+                key,
+                bray_ir::MirUnitKey::ImportedExecutable(_)
+            ))
+            .expect("imported default helpers retain concrete and abstract selected dispatch")
+            > 0
+    );
+}

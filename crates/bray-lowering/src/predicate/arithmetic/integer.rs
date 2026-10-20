@@ -1,6 +1,6 @@
 use std::num::NonZeroU16;
 
-use bray_compiler_known::IntegerRepresentation;
+use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_ir::{MirBinaryOperator, MirBlockId, MirOperand, MirOperationKind, MirUnaryOperator};
 use bray_symbols::{
     ConstantBinaryOperation, ConstantUnaryOperation, ConstantValueKind, IntegerSign, TypeData,
@@ -163,6 +163,38 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
 
         let left = self.observe(block, left)?;
         let right = self.observe(block, right)?;
+
+        let operand_type = self.builder.operand_type(&left);
+
+        if matches!(operation, Operation::Equal | Operation::NotEqual)
+            && matches!(self.context.semantic_values().type_data(operand_type).as_ref(),
+                TypeData::Named { definition, .. } if self.context.representation_role(*definition) == Some(RepresentationRole::String))
+        {
+            let equal = self.value(
+                block,
+                crate::lowering::expression::text::string_equality_operation(
+                    [left, right],
+                    operand_type,
+                    ty,
+                ),
+                ty,
+            )?;
+
+            let result = if operation == Operation::NotEqual {
+                self.value(
+                    block,
+                    MirOperationKind::Unary {
+                        operator: MirUnaryOperator::Not,
+                        operand: equal,
+                    },
+                    ty,
+                )?
+            } else {
+                equal
+            };
+
+            return Ok((block, result));
+        }
 
         if operation == Operation::Exponentiate {
             return self.power(block, left, right, ty);

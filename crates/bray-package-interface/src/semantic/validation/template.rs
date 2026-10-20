@@ -385,7 +385,7 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Call {
             callable,
             substitution,
-            implementation,
+            dispatch,
             arguments,
             ordinals,
         } => {
@@ -404,56 +404,14 @@ fn validate_operation_references(
                 ));
             }
 
-            validate_call_references(context, callable, *substitution, implementation.as_ref())?;
+            validate_call_references(context, callable, *substitution, dispatch.as_ref())?;
         }
         InterfaceCheckedTemplateOperation::Index { call, .. }
         | InterfaceCheckedTemplateOperation::Slice { call, .. } => {
             if let Some(call) = call {
                 validate_call_references(context, &call.callable, call.substitution, None)?;
 
-                match &call.dispatch {
-                    bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
-                        implementation,
-                        substitution,
-                    ) => {
-                        validate_implementation_reference(context, implementation)?;
-
-                        validate_index(
-                            substitution.to_index(),
-                            context.semantics.substitutions.len(),
-                        )?;
-                    }
-                    bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { owner, .. } => {
-                        if !validate_template_reference(context, owner)?
-                            .supports_generic_substitutions()
-                        {
-                            return Err(crate::semantic::codec::invalid_value(
-                                crate::InterfaceValidationField::Template,
-                            ));
-                        }
-                    }
-                    bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
-                        subject,
-                        substitution,
-                    } => {
-                        validate_index(subject.to_index(), context.semantics.types.len())?;
-
-                        let index = checked_index(
-                            compact_index(substitution.raw()),
-                            context.semantics.substitutions.len(),
-                        )?;
-
-                        if validate_symbol_kind(
-                            &context.semantics.substitutions[index].owner,
-                            context.surface,
-                        )? != SymbolKind::Trait
-                        {
-                            return Err(crate::semantic::codec::invalid_value(
-                                crate::InterfaceValidationField::Template,
-                            ));
-                        }
-                    }
-                }
+                validate_template_dispatch(context, &call.dispatch)?;
             }
         }
         InterfaceCheckedTemplateOperation::Convert { target, .. } => {
@@ -703,14 +661,57 @@ fn validate_operation_type(
     Ok(())
 }
 
+fn validate_template_dispatch(
+    context: TemplateValidationContext<'_>,
+    dispatch: &crate::InterfaceCheckedTemplateDispatch,
+) -> Result<(), InterfaceValidationError> {
+    match dispatch {
+        bray_bound_tree::CheckedTemplateDispatch::Implementation(implementation, substitution) => {
+            validate_implementation_reference(context, implementation)?;
+
+            validate_index(
+                substitution.to_index(),
+                context.semantics.substitutions.len(),
+            )?;
+        }
+        bray_bound_tree::CheckedTemplateDispatch::Constraint { owner, .. } => {
+            if !validate_template_reference(context, owner)?.supports_generic_substitutions() {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+        }
+        bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
+            subject,
+            substitution,
+        } => {
+            validate_index(subject.to_index(), context.semantics.types.len())?;
+
+            let index = checked_index(
+                compact_index(substitution.raw()),
+                context.semantics.substitutions.len(),
+            )?;
+
+            if validate_symbol_kind(
+                &context.semantics.substitutions[index].owner,
+                context.surface,
+            )? != SymbolKind::Trait
+            {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_call_references(
     context: TemplateValidationContext<'_>,
     callable: &crate::InterfaceTemplateReference,
     substitution: crate::InterfaceGenericSubstitutionId,
-    implementation: Option<&(
-        crate::InterfaceImplementationReference,
-        crate::InterfaceGenericSubstitutionId,
-    )>,
+    dispatch: Option<&crate::InterfaceCheckedTemplateDispatch>,
 ) -> Result<(), InterfaceValidationError> {
     let declaration_kind = validate_template_reference(context, callable)?;
 
@@ -732,13 +733,8 @@ fn validate_call_references(
         context.semantics.substitutions.len(),
     )?;
 
-    if let Some((implementation, substitution)) = implementation {
-        validate_implementation_reference(context, implementation)?;
-
-        validate_index(
-            substitution.to_index(),
-            context.semantics.substitutions.len(),
-        )?;
+    if let Some(dispatch) = dispatch {
+        validate_template_dispatch(context, dispatch)?;
     }
 
     Ok(())

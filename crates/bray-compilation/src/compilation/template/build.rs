@@ -293,8 +293,12 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
 
                 self.reference(expression_id, *target, ty)
             }
-            BoundExpression::Unary(unary) => self.unary(unary.operator(), unary.operands()),
-            BoundExpression::Binary(binary) => self.binary(binary.operator(), binary.operands()),
+            BoundExpression::Unary(unary) => {
+                self.operator(expression_id, unary.operator(), unary.operands())
+            }
+            BoundExpression::Binary(binary) => {
+                self.operator(expression_id, binary.operator(), binary.operands())
+            }
             BoundExpression::Call(_) => self.call(expression_id),
             BoundExpression::Conversion(conversion) => {
                 let value = self.expression(conversion.operand())?;
@@ -525,7 +529,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         })
     }
 
-    fn unary(
+    pub(super) fn unary(
         &mut self,
         operator: BoundOperator,
         operands: &[BoundExpressionId],
@@ -541,7 +545,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         })
     }
 
-    fn binary(
+    pub(super) fn binary(
         &mut self,
         operator: BoundOperator,
         operands: &[BoundExpressionId],

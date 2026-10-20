@@ -57,11 +57,19 @@ where
         let mut current = current;
         let mut may_fail = may_fail;
 
-        if let Some(SemanticSelection::Call(call)) = self.selections().and_then(|selections| selections.expression(expression))
-            && call.phase_behaviors().invocation().has_runtime_requirements()
+        if let Some(SemanticSelection::Call(call)) = self
+            .selections()
+            .and_then(|selections| selections.expression(expression))
+            && call
+                .phase_behaviors()
+                .invocation()
+                .has_runtime_requirements()
             && !call.evaluates_defaults()
-            && call.arguments().iter().all(|argument| !matches!(argument,
-                bray_bound_tree::SelectedArgument::Explicit { conversion, .. } if conversion.invokes_source()))
+            && call.arguments().iter().all(|argument| {
+                !matches!(argument,
+                    bray_bound_tree::SelectedArgument::Explicit { conversion, .. }
+                        if conversion.invokes_source())
+            })
         {
             // Input expressions have completed. An entry failure cannot commit the
             // callee's effects. Effectful implicit input evaluation retains its
@@ -71,8 +79,14 @@ where
             let admitted = self.push_block();
             let failed = self.push_block();
 
-            self.push_edge(current, failed, AnalysisEdgeKind::Sequential,
-                Some(super::model::AnalysisRefinement::PreconditionFailure(expression.into())));
+            self.push_edge(
+                current,
+                failed,
+                AnalysisEdgeKind::Sequential,
+                Some(super::model::AnalysisRefinement::PreconditionFailure(
+                    expression.into(),
+                )),
+            );
 
             self.push_exit(failed, AnalysisExitKind::Panic, expression.into());
             self.push_exit(failed, AnalysisExitKind::Cancellation, expression.into());

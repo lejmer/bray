@@ -166,13 +166,13 @@ where
                 substitution,
                 arguments,
                 ordinals,
-                implementation,
+                dispatch,
             } => self.evaluate_call(
                 callable,
                 *substitution,
                 arguments,
                 ordinals,
-                implementation.as_ref(),
+                dispatch.as_ref(),
                 ty,
             ),
             CheckedTemplateOperation::Convert { value, target } => {
@@ -620,7 +620,7 @@ where
         substitution: GenericSubstitutionId,
         arguments: &[CheckedTemplateNodeId],
         ordinals: &[u32],
-        implementation: Option<&(bray_symbols::SymbolKey, GenericSubstitutionId)>,
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let evaluated = self.evaluate_nodes(arguments)?;
@@ -646,6 +646,22 @@ where
         let substitution = values
             .substitute_generic_substitution(substitution, self.substitution)
             .unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
+
+        let implementation = match dispatch {
+            None => None,
+            Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(
+                declaration,
+                substitution,
+            )) => Some((declaration, substitution)),
+            Some(
+                bray_bound_tree::CheckedTemplateDispatch::Constraint { .. }
+                | bray_bound_tree::CheckedTemplateDispatch::TraitDefault { .. },
+            ) => {
+                return Err(TemplateEvaluationFailure::invalid_expression(
+                    bray_diagnostics::DiagnosticExpressionCategory::Call,
+                ));
+            }
+        };
 
         let implementation = implementation
             .map(|(declaration, substitution)| {

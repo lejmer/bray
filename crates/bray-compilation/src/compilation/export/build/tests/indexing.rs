@@ -178,7 +178,7 @@ fn custom_index_templates_preserve_selected_calls_and_capabilities() {
 
         assert!(matches!(
             call.dispatch,
-            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(..)
+            bray_bound_tree::CheckedTemplateDispatch::Implementation(..)
         ));
 
         assert_eq!(
@@ -275,7 +275,7 @@ fn constrained_index_defaults_preserve_abstract_dispatch() {
 
     assert!(export(&provider).semantics().checked_templates().iter().flat_map(|template| template.nodes()).any(|node| matches!(node.operation(),
         InterfaceCheckedTemplateOperation::Index { call: Some(call), .. }
-            if matches!(call.dispatch, bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { .. })
+            if matches!(call.dispatch, bray_bound_tree::CheckedTemplateDispatch::Constraint { .. })
     )));
 
     let consumer = execution_consumer(
