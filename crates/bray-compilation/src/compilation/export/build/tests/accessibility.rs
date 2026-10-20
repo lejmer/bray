@@ -1065,3 +1065,78 @@ fn destructuring_requires_the_same_field_acknowledgement_as_selection() {
         }
     }
 }
+
+#[test]
+fn trait_type_projections_reuse_the_admitted_trait_visibility() {
+    for (module_visibility, trait_visibility, public) in [
+        ("", "", true),
+        ("", "internal ", false),
+        ("internal ", "", false),
+    ] {
+        let provider_source = format!(
+            r#"
+            {module_visibility}module example.package.api;
+
+            {trait_visibility}trait Provides
+            {{
+                type Item;
+            }}
+
+            struct Value
+            {{
+            }}
+
+            impl Provided = Value(Provides)
+            {{
+                type Item = i32;
+            }}
+
+            internal struct SourceHolder
+            {{
+                item: Value(Provides).Item;
+            }}
+            "#
+        );
+
+        let provider = compilation(&provider_source);
+
+        assert!(provider.check_diagnostics().is_empty());
+
+        for (acknowledgement, valid) in [
+            ("", public),
+            ("using internal example.package.api.Provides;", true),
+            ("using internal example.package.api;", true),
+        ] {
+            let scope_access = if !module_visibility.is_empty() && valid {
+                "internal "
+            } else {
+                ""
+            };
+
+            let source = format!(
+                r#"
+                module consumer;
+
+                using {scope_access}example.package.api;
+                using {scope_access}example.package.api.Provided;
+                {acknowledgement}
+
+                internal struct Holder
+                {{
+                    item: example.package.api.Value(example.package.api.Provides).Item;
+                }}
+                "#
+            );
+
+            let consumer = execution_consumer(&provider, &source);
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                diagnostics.is_empty(),
+                valid,
+                "module={module_visibility:?}, trait={trait_visibility:?}, \
+                 acknowledgement={acknowledgement:?}\n{diagnostics:?}"
+            );
+        }
+    }
+}

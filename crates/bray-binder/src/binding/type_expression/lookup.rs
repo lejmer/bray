@@ -154,12 +154,14 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         let imported_symbols = self.imports.imported_symbols()?;
 
+        // The admitted trait application establishes its members' inherited visibility.
+        // Trait members cannot declare an independent visibility boundary.
         let lookup = lookup_surface_name_with_imports(
             self.symbols,
             imported_symbols,
             definition.into(),
             text,
-            crate::lookup::NameAccess::Local,
+            crate::lookup::NameAccess::Internal,
         )
         .classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::TraitTypeMember(member)) => Some(member),
