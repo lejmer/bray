@@ -137,68 +137,39 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(input)?;
         }
 
-        let mut identities = Vec::with_capacity(data.borrows().len());
+        self.dependency_set(data.borrows(), Self::dependency_borrow)?;
+        self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
-        for relation in data.borrows() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
+        self.dependency_set(data.effects(), Self::dependency_effect)
+    }
 
-            encoder.dependency_subject(relation.entry())?;
-            encoder.dependency_subject(relation.exit())?;
-            encoder.digest.write_u32(relation.dereferences());
-            encoder.dependency_projections(relation.target_projections())?;
+    pub(in crate::compilation) fn dependency_borrow(
+        &mut self,
+        relation: &bray_symbols::DependencyBorrowRelation,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_subject(relation.entry())?;
+        self.dependency_subject(relation.exit())?;
+        self.digest.write_u32(relation.dereferences());
+        self.dependency_projections(relation.target_projections())?;
 
-            encoder.tag(match relation.kind() {
-                bray_symbols::DependencyReferenceKind::Borrow => 1,
-                bray_symbols::DependencyReferenceKind::Address => 2,
-            });
-
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
-
-        let mut identities = Vec::with_capacity(data.carriers().len());
-
-        for carrier in data.carriers() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
-
-            encoder.constant_term(carrier.guarantee())?;
-            encoder.dependency_projections(carrier.path())?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
-
-        let mut identities = Vec::with_capacity(data.effects().len());
-
-        for effect in data.effects() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
-
-            encoder.dependency_effect(effect)?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
+        self.tag(match relation.kind() {
+            bray_symbols::DependencyReferenceKind::Borrow => 1,
+            bray_symbols::DependencyReferenceKind::Address => 2,
+        });
 
         Ok(())
     }
 
-    fn dependency_effect(
+    pub(in crate::compilation) fn dependency_carrier(
+        &mut self,
+        carrier: &bray_symbols::DependencyWitnessCarrier,
+    ) -> Result<(), FactQueryError> {
+        self.constant_term(carrier.guarantee())?;
+
+        self.dependency_projections(carrier.path())
+    }
+
+    pub(in crate::compilation) fn dependency_effect(
         &mut self,
         effect: &bray_symbols::DependencyStorageEffect,
     ) -> Result<(), FactQueryError> {
@@ -274,27 +245,42 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         requirements: &[DependencyRequirement],
     ) -> Result<(), FactQueryError> {
-        let mut identities = Vec::with_capacity(requirements.len());
+        self.dependency_set(requirements, Self::dependency_requirement)
+    }
 
-        for requirement in requirements {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
+    fn dependency_set<T>(
+        &mut self,
+        items: &[T],
+        encode: impl Fn(&mut Self, &T) -> Result<(), FactQueryError>,
+    ) -> Result<(), FactQueryError> {
+        let identities = items
+            .iter()
+            .map(|item| self.item_identity(item, &encode))
+            .collect::<Result<Vec<_>, _>>()?;
 
-            encoder.dependency_requirement(requirement)?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        // Requirement sets must not inherit store-local allocation order.
         self.unordered_identities(identities);
 
         Ok(())
     }
 
-    fn dependency_requirement(
+    pub(super) fn item_identity<T>(
+        &self,
+        item: &T,
+        encode: impl FnOnce(&mut Self, &T) -> Result<(), FactQueryError>,
+    ) -> Result<[u8; 32], FactQueryError> {
+        let mut encoder = Self {
+            values: self.values,
+            binding_context: self.binding_context,
+            digest: StableDigestHasher::new(),
+            allow_static_address: self.allow_static_address,
+        };
+
+        encode(&mut encoder, item)?;
+
+        Ok(encoder.digest.finalize())
+    }
+
+    pub(in crate::compilation) fn dependency_requirement(
         &mut self,
         requirement: &DependencyRequirement,
     ) -> Result<(), FactQueryError> {

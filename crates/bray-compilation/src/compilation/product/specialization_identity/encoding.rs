@@ -23,7 +23,34 @@ pub(in crate::compilation) fn structural_type_identity(
     StructuralValueEncoder::type_identity(values, binding_context, ty)
 }
 
-pub(super) struct StructuralValueEncoder<'binding_context, 'compilation> {
+pub(in crate::compilation) fn structural_dependency_order<'a, T>(
+    values: &SemanticValueStore,
+    binding_context: &CompilationBindingContext<'_>,
+    items: &'a [T],
+    encode: impl Fn(&mut StructuralValueEncoder<'_, '_>, &T) -> Result<(), FactQueryError>,
+) -> Result<Vec<&'a T>, FactQueryError> {
+    let encoder = StructuralValueEncoder {
+        values,
+        binding_context,
+        digest: StableDigestHasher::new(),
+        allow_static_address: true,
+    };
+
+    let mut ordered = items
+        .iter()
+        .map(|item| {
+            encoder
+                .item_identity(item, &encode)
+                .map(|identity| (identity, item))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    ordered.sort_unstable_by_key(|(identity, _)| *identity);
+
+    Ok(ordered.into_iter().map(|(_, item)| item).collect())
+}
+
+pub(in crate::compilation) struct StructuralValueEncoder<'binding_context, 'compilation> {
     pub(super) values: &'binding_context SemanticValueStore,
     pub(super) binding_context: &'binding_context CompilationBindingContext<'compilation>,
     pub(super) digest: StableDigestHasher,
