@@ -82,7 +82,7 @@ impl Lowerer<'_> {
             &awaited.value.expect("await publishes its completion value"),
             completion,
             None,
-            true,
+            crate::lowering::expression::CallOutcome::Selected,
         )?;
 
         // Take the child's outcome before observing a new cancellation request.

@@ -68,7 +68,8 @@ pub(super) fn nonmaterializable_type<C: CheckerRequestContext + ?Sized>(
         | TypeData::Slice(_)
         | TypeData::FlexibleArray(_)
         | TypeData::TraitView(_) => Ok(Some(ty)),
-        TypeData::Error
+        TypeData::ExactInteger { .. }
+        | TypeData::Error
         | TypeData::Tuple(_)
         | TypeData::Array { .. }
         | TypeData::Nullable(_)

@@ -167,6 +167,21 @@ impl CheckedSemanticSelections {
         &self.entries
     }
 
+    /// Returns the invocation whose preconditions belong to this checked execution site.
+    pub fn invoked_callable(&self, site: crate::BoundExecutionSite) -> Option<bray_symbols::CallableInstanceData> {
+        let selection = self.expression(site.expression()?)?;
+        match (site, selection) {
+            (crate::BoundExecutionSite::Node(_), SemanticSelection::Call(call)) => match call.target() {
+                crate::BoundCallableTarget::Declaration(callable) => Some(callable),
+                _ => None,
+            },
+            (crate::BoundExecutionSite::Node(_), SemanticSelection::Operation(operation)) => operation.invoked_callable(),
+            (crate::BoundExecutionSite::ScopedEnter(_), SemanticSelection::ScopedUse(scoped)) => Some(scoped.enter().0),
+            (crate::BoundExecutionSite::ScopedExit(_), SemanticSelection::ScopedUse(scoped)) => Some(scoped.exit().0),
+            _ => None,
+        }
+    }
+
     /// Returns the exact semantic selection for one expression occurrence.
     pub fn expression(&self, expression: BoundExpressionId) -> Option<&SemanticSelection> {
         self.entries

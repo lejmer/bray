@@ -108,7 +108,7 @@ fn hash_source_origin(
             digest.write_u8(2);
             product.hash(digest);
         }
-        MirSourceOrigin::GeneratedLifecycle(_) => {
+        MirSourceOrigin::GeneratedHelper(_) => {
             digest.write_u8(3);
             hash_lifecycle_key(mir, digest);
         }
@@ -143,7 +143,7 @@ fn hash_source_anchor(
             digest.write_u8(2);
             product.hash(digest);
         }
-        MirSourceAnchor::GeneratedLifecycle(_) => {
+        MirSourceAnchor::GeneratedHelper(_) => {
             digest.write_u8(3);
             hash_lifecycle_key(mir, digest);
         }
@@ -169,14 +169,11 @@ fn hash_source_anchor(
 }
 
 fn hash_lifecycle_key(mir: &MirUnit, digest: &mut StableDigestHasher) {
-    let MirUnitKey::GeneratedLifecycle(key) = mir.key() else {
-        panic!(
-            "generated lifecycle source requires a lifecycle MIR key: {:?}",
-            mir.key()
-        );
-    };
-
-    key.hash(digest);
+    match mir.key() {
+        MirUnitKey::GeneratedLifecycle(key) => key.hash(digest),
+        MirUnitKey::Predicate(_) => digest.write(b"predicate"),
+        key => panic!("generated helper source requires a generated MIR key: {key:?}"),
+    }
 }
 
 fn hash_imported_key(

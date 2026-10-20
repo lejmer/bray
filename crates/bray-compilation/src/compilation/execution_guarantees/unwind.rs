@@ -304,17 +304,6 @@ impl Compilation {
     }
 }
 
-pub(in crate::compilation) fn has_runtime_preconditions(
-    clauses: &[bray_symbols::CallableContractClause],
-) -> bool {
-    clauses.iter().any(|clause| {
-        clause.kind() == bray_symbols::CallableContractClauseKind::Requires
-            && clause
-                .predicate()
-                .is_some_and(|predicate| !predicate.is_trusted())
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use crate::test_support::{compilation, source_function_body_key};

@@ -1056,17 +1056,18 @@ impl Lowerer<'_> {
                         );
                     };
 
-                    let preceding = self.default_value_arguments(
+                    let preceding = self.borrow_staged_inputs(
                         id,
                         current,
                         &source,
-                        arguments.iter().map(|argument| match argument {
-                            MirCallArgument::Receiver { value, .. } => (None, value),
-                            MirCallArgument::Explicit { ordinal, value, .. } => {
-                                (Some(*ordinal), value)
+                        selection.receiver().map(|receiver| receiver.mode()),
+                        arguments.iter().filter_map(|argument| match argument {
+                            MirCallArgument::Receiver { value, .. } => Some((None, value)),
+                            MirCallArgument::Explicit { ordinal: previous, value, .. } if previous < ordinal => {
+                                Some((Some(*previous), value))
                             }
+                            MirCallArgument::Explicit { .. } => None,
                         }),
-                        *ordinal,
                     )?;
 
                     let default = MirCall::protocol(
@@ -1142,6 +1143,8 @@ impl Lowerer<'_> {
                 }
             }
         }
+
+        current = self.lower_call_requirements(id, current, &source, selection, &arguments)?;
 
         let call = self.selected_mir_call(id, selection, target, arguments);
 
@@ -1381,6 +1384,7 @@ impl Lowerer<'_> {
         call: MirCall,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let (current, call) = self.lower_protocol_requirements(expression.into(), current, &source, call)?;
         self.push_checked_value_operation(
             expression,
             current,
@@ -1419,7 +1423,7 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-                true,
+                crate::lowering::expression::CallOutcome::Selected,
             )
         } else {
             let mut value = Some(value);

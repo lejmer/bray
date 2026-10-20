@@ -209,14 +209,15 @@ impl Lowerer<'_> {
                                 selection.target(),
                                 ConstructionTarget::TypeForm { .. }
                             ) {
-                                self.default_value_arguments(
+                                self.borrow_staged_inputs(
                                     id,
                                     block,
                                     &source,
+                                    None,
                                     inputs
                                         .iter()
+                                        .filter(|input| input.ordinal() < ordinal)
                                         .map(|input| (Some(input.ordinal()), input.value())),
-                                    ordinal,
                                 )?
                             } else {
                                 Vec::new()
@@ -286,6 +287,12 @@ impl Lowerer<'_> {
             ),
         };
 
+        let block = if let ConstructionTarget::TypeForm { callable, .. } = target {
+            // The constructor observes inputs before accepting their ownership.
+            let arguments = inputs.iter().map(|input| bray_ir::MirCallArgument::positional(input.ordinal(), input.value().clone())).collect::<Vec<_>>();
+            self.lower_declared_requirements(id.into(), block, &source,
+                bray_ir::MirCallableReference::new(callable, bray_symbols::CallableAbi::Bray), &arguments, None)?
+        } else { block };
         let owner_type = self.expression_type(id);
         let block = self.admit_outgoing_owner(id, block, &source, owner_type)?;
 
@@ -304,7 +311,7 @@ impl Lowerer<'_> {
                 &value,
                 owner_type,
                 Some(owner_type),
-                true,
+                crate::lowering::expression::CallOutcome::Selected,
             )?
         } else {
             (block, value)

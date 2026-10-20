@@ -9,6 +9,7 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             SyntheticLoweringError::SemanticValue(cause) => {
                 FactQueryError::SemanticValueStore(cause).into()
             }
+            SyntheticLoweringError::ExactIntegerCapacity { minimum_bits } => Self::ExactIntegerCapacity { minimum_bits },
             SyntheticLoweringError::Capacity(cause) => Self::MirCapacity(cause),
             SyntheticLoweringError::LayoutOverflow(ty) => Self::LayoutOverflow(ty),
         }

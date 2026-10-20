@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateKind};
+use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateInputKind, CheckedTemplateKind};
 use bray_package_interface::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInputKind,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateId,
     InterfaceDeclarationTemplate, InterfaceSupportEntity, InterfaceTargetPropertyDependency,
 };
 use bray_symbols::{
     AnySymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
     InterfaceSupportEntityId, RuntimeDefaultProviderInput, StaticStorageDuration,
-    SymbolQueryRequest, TypeData, TypeId,
+    SymbolQueryRequest, TypeId,
 };
 use bray_target::TargetPropertyKind;
 
@@ -105,7 +105,7 @@ pub(super) fn runtime_default_inputs(
         .map(|input| {
             let (kind, symbol) = match input {
                 RuntimeDefaultProviderInput::Receiver(receiver) => (
-                    InterfaceCheckedTemplateInputKind::Receiver,
+                    CheckedTemplateInputKind::Receiver,
                     AnySymbolId::ReceiverParameter(receiver),
                 ),
                 RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
@@ -117,7 +117,7 @@ pub(super) fn runtime_default_inputs(
                         .ok_or_else(|| incomplete(parameter.into()))?;
 
                     (
-                        InterfaceCheckedTemplateInputKind::Parameter(
+                        CheckedTemplateInputKind::Parameter(
                             bray_symbols::SymbolOrdinal::new(ordinal),
                         ),
                         AnySymbolId::CallableParameter(parameter),
@@ -185,176 +185,6 @@ pub(super) fn runtime_default_input_type(
             .map(|receiver| receiver.ty())
             .ok_or_else(|| incomplete(symbol)),
     }
-}
-
-pub(super) fn callable_template_inputs(
-    compilation: &Compilation,
-    export: &mut SemanticExporter<'_>,
-    signature: &bray_symbols::CallableSignatureTemplate,
-    generic_parameters: Vec<GenericParameterSymbolId>,
-) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
-    let mut inputs = Vec::new();
-
-    if let Some(receiver) = signature.receiver() {
-        inputs.push(SourceTemplateInput::new(
-            InterfaceCheckedTemplateInputKind::Receiver,
-            Some(BoundReferenceTarget::Surface(
-                AnySymbolId::ReceiverParameter(receiver.parameter()),
-            )),
-            receiver.ty(),
-        ));
-    }
-
-    let parameter_types = signature
-        .parameter_type_templates(export.values)
-        .map_err(|error| super::super::callable_signature_export_error(error))?;
-
-    for (index, (parameter, ty)) in signature
-        .parameters()
-        .iter()
-        .copied()
-        .zip(parameter_types.iter())
-        .enumerate()
-    {
-        inputs.push(SourceTemplateInput::new(
-            InterfaceCheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
-                u32::try_from(index).map_err(|_| {
-                    super::super::capacity_export_error("default_parameter_ordinal", index)
-                })?,
-            )),
-            Some(BoundReferenceTarget::Surface(
-                AnySymbolId::CallableParameter(parameter),
-            )),
-            export.resolve_type_template(parameter.into(), ty)?,
-        ));
-    }
-
-    inputs.extend(generic_template_inputs(
-        compilation,
-        export,
-        generic_parameters,
-    )?);
-
-    Ok(inputs)
-}
-
-pub(super) fn generic_template_inputs(
-    compilation: &Compilation,
-    export: &mut SemanticExporter<'_>,
-    parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
-) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
-    parameters
-        .into_iter()
-        .map(|parameter| match parameter {
-            GenericParameterSymbolId::Type(parameter) => {
-                let symbol = AnySymbolId::GenericTypeParameter(parameter);
-
-                let ty = export
-                    .values
-                    .intern_type(TypeData::TypeParameter(parameter))
-                    .unwrap_or_else(|error| {
-                        panic!("semantic_value_export_error in generic_template_inputs: {error:?}")
-                    });
-
-                Ok(SourceTemplateInput::new(
-                    InterfaceCheckedTemplateInputKind::GenericType(
-                        export.symbol_reference(symbol)?,
-                    ),
-                    None,
-                    ty,
-                ))
-            }
-            GenericParameterSymbolId::Const(parameter) => {
-                let symbol = AnySymbolId::GenericConstParameter(parameter);
-
-                Ok(SourceTemplateInput::new(
-                    InterfaceCheckedTemplateInputKind::GenericConstant(
-                        export.symbol_reference(symbol)?,
-                    ),
-                    Some(BoundReferenceTarget::Surface(symbol)),
-                    symbol_type(compilation, export, symbol)?,
-                ))
-            }
-        })
-        .collect()
-}
-
-pub(super) fn symbol_type(
-    compilation: &Compilation,
-    export: &mut SemanticExporter<'_>,
-    symbol: AnySymbolId,
-) -> Result<TypeId, PackageInterfaceExportError> {
-    if let Some(ty) = callable_input_type(compilation, export, symbol)? {
-        return Ok(ty);
-    }
-
-    let ty = compilation
-        .symbol_type_template(symbol)
-        .map_err(super::super::fact_query_export_error)?
-        .ok_or_else(|| incomplete(symbol))?;
-
-    if ty.diagnostics().has_errors() {
-        return Err(incomplete(symbol));
-    }
-
-    export.resolve_type_template(symbol, ty.value())
-}
-
-pub(super) fn callable_input_type(
-    compilation: &Compilation,
-    export: &mut SemanticExporter<'_>,
-    symbol: AnySymbolId,
-) -> Result<Option<TypeId>, PackageInterfaceExportError> {
-    let (owner, parameter_ordinal) = match symbol {
-        AnySymbolId::CallableParameter(parameter) => {
-            let parameter = export
-                .graph
-                .callable_parameter(parameter)
-                .ok_or_else(|| incomplete(symbol))?;
-
-            (parameter.owner(), Some(parameter.ordinal()))
-        }
-        AnySymbolId::ReceiverParameter(receiver) => {
-            let receiver = export
-                .graph
-                .receiver_parameter(receiver)
-                .ok_or_else(|| incomplete(symbol))?;
-
-            (receiver.owner(), None)
-        }
-        _ => return Ok(None),
-    };
-
-    let signature = compilation
-        .callable_signature_template(owner.into_any())
-        .map_err(super::super::fact_query_export_error)?
-        .ok_or_else(|| incomplete(symbol))?;
-
-    if signature.diagnostics().has_errors() {
-        return Err(incomplete(symbol));
-    }
-
-    let Some(ordinal) = parameter_ordinal else {
-        return signature
-            .value()
-            .receiver()
-            .map(|receiver| Some(receiver.ty()))
-            .ok_or_else(|| incomplete(symbol));
-    };
-
-    let parameter_types = signature
-        .value()
-        .parameter_type_templates(export.values)
-        .map_err(|error| super::super::callable_signature_export_error(error))?;
-
-    let template = parameter_types
-        .get(usize::try_from(ordinal).map_err(|_| {
-            super::super::capacity_export_error("default_parameter_reference", ordinal)
-        })?)
-        .ok_or_else(|| incomplete(symbol))?
-        .clone();
-
-    export.resolve_type_template(symbol, &template).map(Some)
 }
 
 pub(super) fn generic_parameters(

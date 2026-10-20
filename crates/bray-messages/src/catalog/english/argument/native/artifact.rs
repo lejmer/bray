@@ -310,6 +310,7 @@ fn format_english_native_product_failure_detail(
             "the native-code generator cannot represent a required type"
         }
         Kind::CodegenMissingHelperInstance(_) => "a required generated helper is missing",
+        Kind::CodegenExactIntegerCapacity { minimum_bits, maximum_bits } => return format!("contract arithmetic needs {minimum_bits} bits, exceeding this compiler's {maximum_bits}-bit limit"),
         Kind::CodegenLayoutOverflow(_) => "a required type layout exceeds the selected target",
         Kind::CodegenInvalidSymbolName => "a generated binary symbol name is not representable",
     };

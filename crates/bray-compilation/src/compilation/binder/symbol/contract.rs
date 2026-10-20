@@ -624,12 +624,14 @@ fn bind_callable_contracts(
         abi == bray_symbols::CallableAbi::Bray
     };
 
-    let may_unwind = may_unwind
-        || crate::compilation::execution_guarantees::has_runtime_preconditions(&predicates);
-
     match deferred_execution_behavior.take() {
         Some(deferred) => deferred_execution_behavior = Some(deferred.with_may_unwind(may_unwind)),
         None => invocation_behavior = invocation_behavior.with_may_unwind(may_unwind),
+    }
+
+    if predicates.iter().any(|clause| clause.kind() == CallableContractClauseKind::Requires
+        && clause.predicate().is_some_and(|predicate| predicate.requires_runtime_check(context.semantic_values(), context.compilation().available_compiler_known_symbols()))) {
+        invocation_behavior.include_runtime_requirement_checks();
     }
 
     validate_trusted_capabilities(

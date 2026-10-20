@@ -85,6 +85,7 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenMirUnavailable(_)
         | Kind::CodegenMissingEntrypoint
         | Kind::CodegenUnsupportedType(_)
+        | Kind::CodegenExactIntegerCapacity { .. }
         | Kind::CodegenLayoutOverflow(_) => false,
     }
 }

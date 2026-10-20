@@ -92,6 +92,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self.values.type_data(id);
 
         match data.as_ref() {
+            TypeData::ExactInteger { bits, signed } => { self.tag(16); bits.hash(&mut self.digest); signed.hash(&mut self.digest); }
             TypeData::Error => self.tag(0),
             TypeData::Named {
                 definition,

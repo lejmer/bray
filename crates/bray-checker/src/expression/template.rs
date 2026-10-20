@@ -306,7 +306,7 @@ where
         diagnostics.add_range(predicates.diagnostics().iter().cloned());
 
         signature = signature
-            .with_predicate_contracts(values, predicates.value(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
+            .with_predicate_contracts(values, predicates.value(), request.available_compiler_known_symbols(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
     }
 
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);

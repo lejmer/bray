@@ -27,11 +27,24 @@ pub(super) fn execution_bundle_dependency(
 ) -> DependencyInterfaceInput {
     let artifact = encode_package_interface(bundle).unwrap();
 
+    bundle_dependency(bundle, artifact.shared_bytes())
+}
+
+pub(super) fn implementation_dependency(bundle: &PackageInterfaceExportBundle) -> DependencyInterfaceInput {
+    let artifact = encode_package_interface(bundle).unwrap();
+    let implementation = bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+        &artifact, bundle, bray_package_interface::InterfaceValidationLimits::default(),
+    ).unwrap();
+    bundle_dependency(bundle, artifact.shared_bytes())
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation))
+}
+
+fn bundle_dependency(bundle: &PackageInterfaceExportBundle, bytes: Arc<[u8]>) -> DependencyInterfaceInput {
     DependencyInterfaceInput::new(
         bundle.surface().identity().package().clone(),
         bundle.surface().identity().product().clone(),
         "provider.brayi",
-        artifact.shared_bytes(),
+        bytes,
         InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
     )
 }

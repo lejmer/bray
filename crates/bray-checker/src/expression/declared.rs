@@ -129,8 +129,8 @@ where
     let mut expectations = Vec::new();
     let mut inferred_initializers = Vec::new();
 
-    // Nullable destinations admit a present initializer without changing its type.
-    // Identity-only destinations and inferred aliases keep their equality constraints.
+    // Nullable and callable destinations can coerce one initializer without changing
+    // the source value's type at every other use. Inferred aliases retain equality.
     for constraint in declared
         .constraints()
         .iter()
@@ -155,7 +155,7 @@ where
             && types.iter().any(|ty| {
                 matches!(
                     request.semantic_values().type_data(*ty).as_ref(),
-                    TypeData::Nullable(_)
+                    TypeData::Nullable(_) | TypeData::Callable(_)
                 )
             })
         {

@@ -483,3 +483,17 @@ BRAY_EXPORT int32_t bray_foreign_invoke_concurrently(
 
     return first.result + second.result;
 }
+
+static _Atomic uint64_t requirement_entries = 0;
+
+BRAY_EXPORT int32_t bray_foreign_requirement_entry(int32_t value)
+{
+    atomic_fetch_add_explicit(&requirement_entries, 1, memory_order_relaxed);
+
+    return value;
+}
+
+BRAY_EXPORT uint64_t bray_foreign_requirement_entries(void)
+{
+    return atomic_load_explicit(&requirement_entries, memory_order_relaxed);
+}

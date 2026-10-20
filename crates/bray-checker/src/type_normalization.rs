@@ -115,7 +115,7 @@ where
 
                 self.normalize_type(subject)?
             }
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
+            TypeData::ExactInteger { .. } | TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
             TypeData::Named {
                 definition,
                 substitution,

@@ -383,26 +383,6 @@ impl<'a> SemanticExporter<'a> {
         )
     }
 
-    pub(in crate::compilation::export) fn trait_default_template_requirement(
-        &mut self,
-        requirement: bray_symbols::ImplementationRequirementKey,
-    ) -> Result<
-        (
-            bray_package_interface::InterfaceTypeId,
-            bray_package_interface::InterfaceGenericSubstitutionId,
-        ),
-        PackageInterfaceExportError,
-    > {
-        let application = self
-            .values
-            .trait_application_data(requirement.trait_application());
-
-        Ok((
-            self.type_id(requirement.subject())?,
-            self.substitution_id(application.substitution())?,
-        ))
-    }
-
     pub(in crate::compilation::export) fn trait_application_id(
         &mut self,
         id: TraitApplicationId,

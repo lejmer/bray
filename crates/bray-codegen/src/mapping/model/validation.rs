@@ -249,6 +249,7 @@ fn operation_runtime_references(
             bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None],
             bray_ir::MirCallTarget::Direct(_)
             | bray_ir::MirCallTarget::DefaultValue { .. }
+            | bray_ir::MirCallTarget::Predicate(_)
             | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
         },
         MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { runtime, .. }) => [

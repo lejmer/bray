@@ -404,6 +404,7 @@ impl CallableSignature {
         mut self,
         values: &SemanticValueStore,
         clauses: &[crate::CallableContractClause],
+        symbols: &crate::AvailableCompilerKnownSymbols,
         substitution: crate::GenericSubstitutionId,
     ) -> Result<Self, crate::SemanticValueStoreError> {
         let data = values.type_data(self.callable_type);
@@ -439,10 +440,12 @@ impl CallableSignature {
         }
 
         if !requirements.is_empty() || !guarantees.is_empty() {
+            let runtime_checks = requirements.iter().any(|predicate| predicate.requires_runtime_check(values, symbols));
             let phases = callable
                 .phase_behaviors()
                 .clone()
-                .with_predicates(requirements, guarantees);
+                .with_predicates(requirements, guarantees)
+                .with_invocation_requirement_checks(runtime_checks);
 
             self.callable_type = values.intern_type(TypeData::Callable(
                 callable.clone().with_phase_behaviors(phases),

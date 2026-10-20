@@ -10,6 +10,7 @@ mod helper;
 mod id;
 mod nullable;
 mod operation;
+mod predicate;
 mod reference;
 mod source;
 mod storage;
@@ -45,6 +46,7 @@ pub use operation::{
     MirOperationCommit, MirOperationKind, MirOutgoingOwner, MirPanicCause, MirStoreKind,
     MirTaskTerminalState, MirTextOperation, MirTextOperationKind, MirUnaryOperator,
 };
+pub use predicate::MirPredicateReference;
 pub use reference::{
     MirAnonymousCallableReference, MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget,
     MirCallableReference, MirDefaultOwner, MirFieldReference, MirRuntimeReference,

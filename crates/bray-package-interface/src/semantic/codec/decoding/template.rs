@@ -267,6 +267,9 @@ fn decode_operation(
             let callable = decode_template_reference(reader, context)?;
             let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
             let arguments = read_node_ids(reader, limits, context)?;
+            let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+            let mut ordinals = context.allocate_items(reader, count)?;
+            for _ in 0..count { ordinals.push(read_u32(reader)?); }
 
             let implementation_raw = read_u32(reader)?;
 
@@ -284,10 +287,11 @@ fn decode_operation(
                 }
             };
 
-            Ok(InterfaceCheckedTemplateOperation::call(
+            Ok(InterfaceCheckedTemplateOperation::ordered_call(
                 callable,
                 substitution,
                 arguments,
+                ordinals,
                 implementation,
             ))
         }

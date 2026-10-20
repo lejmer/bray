@@ -228,6 +228,7 @@ impl Compilation {
             .with_predicate_contracts(
                 binding_context.semantic_values(),
                 predicates.value(),
+                self.available_compiler_known_symbols(),
                 instance.substitution(),
             )
             .map(Some)

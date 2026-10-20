@@ -256,7 +256,7 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-                false,
+                crate::lowering::expression::CallOutcome::Runtime,
             )?;
 
             return Ok(LoweredExpression::continuing(

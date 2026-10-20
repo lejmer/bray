@@ -9,11 +9,11 @@ use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SequenceOperationKind {
+pub(crate) enum SequenceOperationKind {
     Length,
     IsEmpty,
 }
-pub(super) const fn sequence_operation_kind(
+pub(crate) const fn sequence_operation_kind(
     hook: ImplementationHook,
 ) -> Option<SequenceOperationKind> {
     match hook {
@@ -48,12 +48,14 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let Some(receiver) = lowered.value else {
+        let Some(mut receiver) = lowered.value else {
             panic!(
                 "lowering contract violation: MissingOperationResult {value:?}",
                 value = receiver.expression()
             );
         };
+
+        let current = self.lower_primitive_requirements(id, current, &source, selection, std::slice::from_mut(&mut receiver))?;
 
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
 

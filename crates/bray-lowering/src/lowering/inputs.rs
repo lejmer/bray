@@ -59,24 +59,23 @@ impl InputExit {
 }
 
 impl Lowerer<'_> {
-    pub(super) fn default_value_arguments<'input>(
+    pub(super) fn borrow_staged_inputs<'input>(
         &mut self,
         expression: BoundExpressionId,
         block: MirBlockId,
         source: &MirSourceAnchor,
+        receiver: Option<bray_symbols::ReceiverMode>,
         inputs: impl IntoIterator<Item = (Option<u32>, &'input MirOperand)>,
-        ordinal: u32,
     ) -> Result<Vec<MirOperand>, LoweringError> {
         let mut inputs = inputs
             .into_iter()
-            .filter(|(input, _)| input.is_none_or(|input| input < ordinal))
             .collect::<Vec<_>>();
 
         inputs.sort_by_key(|(ordinal, _)| *ordinal);
 
         inputs
             .into_iter()
-            .map(|(_, input)| {
+            .map(|(ordinal, input)| {
                 let MirOperand::Move(place) = input else {
                     panic!(
                         "lowering contract violation: MissingOperationResult {value:?}",
@@ -84,6 +83,12 @@ impl Lowerer<'_> {
                     );
                 };
 
+                let mut place = Self::retained_place(place);
+                if ordinal.is_none() && matches!(receiver, Some(bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable)) {
+                    let data = self.input.semantic_values().type_data(place.ty());
+                    let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else { panic!("checked receiver input retains its selected borrow"); };
+                    place = place.project(bray_ir::MirProjectionKind::Dereference, *target);
+                }
                 let kind = bray_symbols::BorrowKind::Shared;
 
                 let ty =
@@ -100,7 +105,7 @@ impl Lowerer<'_> {
                     Self::retained_source(source),
                     bray_ir::MirOperationKind::Borrow {
                         kind,
-                        place: Self::retained_place(place),
+                        place,
                     },
                     ty,
                 )

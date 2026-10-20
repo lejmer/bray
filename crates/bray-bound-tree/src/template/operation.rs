@@ -146,8 +146,10 @@ pub enum CheckedTemplateOperation<
         callable: Declaration,
         /// Ordered generic arguments applied to the callable declaration.
         substitution: Substitution,
-        /// Arguments in exact evaluation and parameter order.
+        /// Arguments in source evaluation order.
         arguments: Arc<[CheckedTemplateNodeId]>,
+        /// Receiver-first parameter ordinal for each evaluated argument.
+        ordinals: Arc<[u32]>,
         /// The selected implementation witness when dispatch requires one.
         implementation: Option<(Implementation, Substitution)>,
     },
@@ -239,12 +241,16 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
         implementation: Option<(Implementation, Substitution)>,
     ) -> Self {
-        Self::Call {
-            callable,
-            substitution,
-            arguments: shared_slice(arguments),
-            implementation,
-        }
+        let arguments = shared_slice(arguments);
+        let ordinals = (0..arguments.len()).map(|ordinal| u32::try_from(ordinal).expect("checked template call fits its ordinal table")).collect::<Vec<_>>();
+        Self::ordered_call(callable, substitution, arguments.iter().copied(), ordinals, implementation)
+    }
+
+    /// Retains source evaluation order independently of the selected parameter mapping.
+    pub fn ordered_call(callable: Declaration, substitution: Substitution,
+        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>, ordinals: impl IntoIterator<Item = u32>,
+        implementation: Option<(Implementation, Substitution)>) -> Self {
+        Self::Call { callable, substitution, arguments: shared_slice(arguments), ordinals: shared_slice(ordinals), implementation }
     }
 
     /// Creates an ordered tuple construction.
@@ -307,11 +313,13 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 callable,
                 substitution: application,
                 arguments,
+                ordinals,
                 implementation: witness,
             } => CheckedTemplateOperation::Call {
                 callable: declaration(callable)?,
                 substitution: substitution(application)?,
                 arguments: Arc::clone(arguments),
+                ordinals: Arc::clone(ordinals),
                 implementation: witness
                     .as_ref()
                     .map(|(witness, application)| {

@@ -222,6 +222,23 @@ impl TrustedChecks {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn preconditions_proven(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<bool> {
+        let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
+
+        if contract.preconditions.is_empty() {
+            return None;
+        }
+
+        let evidence = state.entries.get(&invocation)
+            .expect("invocation attempt retains its entry evidence");
+
+        Some(evidence.proves(&contract.preconditions))
+    }
+
     pub(in crate::analysis) fn trusted_memory_evidence(
         &self,
         state: &ExecutionState,

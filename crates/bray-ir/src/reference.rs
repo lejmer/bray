@@ -116,6 +116,8 @@ pub enum MirCallTarget {
         /// Selected declaration-owned provider.
         provider: bray_bound_tree::DefaultValueProvider,
     },
+    /// One complete checked predicate evaluated without consuming observed inputs.
+    Predicate(crate::MirPredicateReference),
     /// One private runtime ABI operation.
     Runtime(MirRuntimeReference),
     /// A checked callable value.
@@ -132,7 +134,7 @@ impl MirCallTarget {
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
-            Self::DefaultValue { .. } => CallableAbi::Bray,
+            Self::DefaultValue { .. } | Self::Predicate(_) => CallableAbi::Bray,
             Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }
@@ -215,6 +217,15 @@ pub enum MirCallIntrinsic {
 }
 
 impl MirCall {
+    /// Transforms evaluated inputs in source order while retaining parameter and dispatch metadata.
+    pub fn try_map_inputs<E>(mut self, mut map: impl FnMut(&MirOperand) -> Result<MirOperand, E>) -> Result<Self, E> {
+        for argument in Arc::make_mut(&mut self.arguments) {
+            let value = match argument { MirCallArgument::Receiver { value, .. } | MirCallArgument::Explicit { value, .. } => value };
+            *value = map(value)?;
+        }
+        Ok(self)
+    }
+
     /// Retains the declaration's selected body or native invocation mechanism.
     pub const fn with_invocation(mut self, invocation: bray_symbols::CallableInvocation) -> Self {
         self.invocation = invocation;
@@ -241,8 +252,12 @@ impl MirCall {
             }
         };
 
-        if let MirCallTarget::Direct(reference) = &mut self.target {
-            *reference = mappings.callable(*reference);
+        match &mut self.target {
+            MirCallTarget::Direct(reference) | MirCallTarget::Predicate(crate::MirPredicateReference::Clause { callable: reference, .. }) => *reference = mappings.callable(*reference),
+            MirCallTarget::Predicate(crate::MirPredicateReference::Condition { input_types, .. }) => {
+                for ty in Arc::make_mut(input_types) { *ty = mappings.ty(*ty); }
+            }
+            _ => {}
         }
 
         if let MirCallTarget::Indirect { callee, .. } = &mut self.target {

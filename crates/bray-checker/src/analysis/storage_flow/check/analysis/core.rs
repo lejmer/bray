@@ -265,7 +265,8 @@ where
     .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
     .with_cleanup_mutations(collector.cleanup_mutations)
-    .with_completions(collector.completions);
+    .with_completions(collector.completions)
+    .with_proven_preconditions(collector.preconditions.into_iter().filter_map(|(site, proven)| proven.then_some(site)));
 
     let published = match crate::analysis::refinement::publish_refinements(
         request,
@@ -369,6 +370,7 @@ where
     pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
+    preconditions: BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
@@ -484,6 +486,7 @@ where
             results: Default::default(),
             trusted: Default::default(),
             memory_evidence: None,
+            preconditions: BTreeMap::new(),
             statuses: BTreeMap::new(),
             suspensions: BTreeMap::new(),
             exits: Vec::new(),
@@ -751,6 +754,16 @@ where
         if matches!(kind, AnalysisOperationKind::Result { .. }) {
             self.execution
                 .transfer_operation(&mut execution, kind, None, None);
+        }
+
+        if self.publish
+            && matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. })
+            && let Some(proven) = self.execution.preconditions_proven(&execution, kind.occurrence())
+        {
+
+            self.preconditions.entry(kind.occurrence())
+                .and_modify(|previous| *previous &= proven)
+                .or_insert(proven);
         }
 
         self.memory_evidence = self

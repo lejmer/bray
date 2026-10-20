@@ -215,13 +215,11 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         );
     }
 
-    Ok(DiagnosticResult::new(
-        callable
-            .phase_behaviors()
-            .clone()
-            .with_predicates(requirements, guarantees),
-        diagnostics,
-    ))
+    let runtime_checks = requirements.iter().any(|predicate| predicate.requires_runtime_check(context.semantic_values(), compilation.available_compiler_known_symbols()));
+    let phases = callable.phase_behaviors().clone()
+        .with_predicates(requirements, guarantees)
+        .with_invocation_requirement_checks(runtime_checks);
+    Ok(DiagnosticResult::new(phases, diagnostics))
 }
 
 fn callable_type_clauses(

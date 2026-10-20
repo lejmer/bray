@@ -200,6 +200,12 @@ impl CallablePhaseBehavior {
         self.may_unwind
     }
 
+    /// Includes the independent outcomes of caller-side runtime requirement evaluation.
+    pub fn include_runtime_requirement_checks(&mut self) {
+        self.may_unwind = true;
+        self.current_run_cancellation = CurrentRunCancellation::MayEnter;
+    }
+
     /// Returns whether execution can enter cancellation for its current run.
     pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
         self.current_run_cancellation
@@ -302,6 +308,15 @@ impl CallablePhaseBehaviors {
     /// Replaces the invocation's inferred unwind behavior while retaining its other contracts.
     pub fn with_invocation_may_unwind(mut self, may_unwind: bool) -> Self {
         Arc::make_mut(&mut self.invocation).may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Includes requirement helper outcomes in invocation, before deferred execution begins.
+    pub fn with_invocation_requirement_checks(mut self, required: bool) -> Self {
+        if required {
+            Arc::make_mut(&mut self.invocation).include_runtime_requirement_checks();
+        }
 
         self
     }

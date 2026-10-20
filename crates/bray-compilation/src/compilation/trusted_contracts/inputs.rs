@@ -107,9 +107,6 @@ impl Compilation {
             }
         }
 
-        let mut needs_trusted_flow =
-            !inputs.requirements.is_empty() || !inputs.guarantees.is_empty();
-
         for (expression, node) in bound.tree().expressions() {
             if let Some(SemanticSelection::ScopedUse(scoped)) =
                 semantics.selections().expression(expression)
@@ -120,16 +117,6 @@ impl Compilation {
                     cancellation,
                     &mut diagnostics,
                 )?;
-
-                needs_trusted_flow |= [
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
-                    bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                ]
-                .into_iter()
-                .filter_map(|site| inputs.calls.get(&site))
-                .any(|contract| {
-                    !contract.requirements.is_empty() || !contract.guarantees.is_empty()
-                });
 
                 continue;
             }
@@ -145,8 +132,6 @@ impl Compilation {
                         &mut diagnostics,
                     )?
                 {
-                    needs_trusted_flow |=
-                        !contract.requirements.is_empty() || !contract.guarantees.is_empty();
 
                     inputs.calls.insert(expression.into(), contract);
                 }
@@ -211,10 +196,8 @@ impl Compilation {
                 )?;
             }
 
-            needs_trusted_flow |=
-                !contract.requirements.is_empty() || !contract.guarantees.is_empty();
-
             if !contract.requirements.is_empty()
+                || !contract.preconditions.is_empty()
                 || !contract.guarantees.is_empty()
                 || !contract.postconditions.is_empty()
             {
@@ -223,10 +206,12 @@ impl Compilation {
             }
         }
 
-        if !needs_trusted_flow {
-            // Ordinary-only bodies use their existing completion analysis.
-            inputs.calls.clear();
-        } else {
+        let needs_predicate_flow = !inputs.requirements.is_empty()
+            || !inputs.preconditions.is_empty()
+            || !inputs.guarantees.is_empty()
+            || !inputs.calls.is_empty();
+
+        if needs_predicate_flow {
             inputs.constants =
                 self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
 

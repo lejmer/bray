@@ -11,6 +11,17 @@ use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::{CatchTarget, Lowerer};
 
+/// Identifies the established report and cancellation boundary of one checked operation.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) enum CallOutcome {
+    /// The selected source invocation owns its report and cancellation semantics.
+    Selected,
+    /// A runtime allocation or admission can fail without entering current-run cancellation.
+    Runtime,
+    /// An observational helper has an outcome independent of the selected invocation.
+    Predicate,
+}
+
 impl Lowerer<'_> {
     pub(super) fn lower_assertion(
         &mut self,
@@ -50,32 +61,16 @@ impl Lowerer<'_> {
                 ));
             }
             Some(false) => {
-                self.finish_assertion_failure(id, expression, current, &source)?;
+                self.finish_assertion_failure(id, Some(expression), current, &source)?;
 
                 return Ok(LoweredExpression::terminated(source));
             }
             None => {}
         }
 
-        let success = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+        let (success, failure) = self.branch_on_boolean(current, &source, condition)?;
 
-        let failure = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        self.set_terminator(
-            current,
-            Self::retained_source(&source),
-            MirTerminatorKind::Branch {
-                condition,
-                then_edge: MirEdge::new(success, []),
-                else_edge: MirEdge::new(failure, []),
-            },
-        )?;
-
-        self.finish_assertion_failure(id, expression, failure, &source)?;
+        self.finish_assertion_failure(id, Some(expression), failure, &source)?;
 
         Ok(LoweredExpression::continuing(
             success,
@@ -84,14 +79,38 @@ impl Lowerer<'_> {
         ))
     }
 
-    fn finish_assertion_failure(
+    pub(in crate::lowering) fn branch_on_boolean(
+        &mut self, current: MirBlockId, source: &bray_ir::MirSourceAnchor, condition: MirOperand,
+    ) -> Result<(MirBlockId, MirBlockId), LoweringError> {
+        let success = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let failure = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::Branch {
+                condition,
+                then_edge: MirEdge::new(success, []),
+                else_edge: MirEdge::new(failure, []),
+            },
+        )?;
+
+        Ok((success, failure))
+    }
+
+    pub(in crate::lowering) fn finish_assertion_failure(
         &mut self,
         id: BoundExpressionId,
-        expression: &BoundStructuredExpression,
+        expression: Option<&BoundStructuredExpression>,
         failure: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
     ) -> Result<(), LoweringError> {
-        let (failure, message) = match expression.operands().get(1).copied() {
+        let (failure, message) = match expression.and_then(|expression| expression.operands().get(1).copied()) {
             Some(message) => {
                 let lowered = self.lower_expression(message, failure)?;
 
@@ -307,7 +326,7 @@ impl Lowerer<'_> {
         }
     }
 
-    pub(in crate::lowering::expression) fn push_panic_report(
+    pub(in crate::lowering) fn push_panic_report(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,
@@ -373,7 +392,7 @@ impl Lowerer<'_> {
         value: &MirOperand,
         result_type: TypeId,
         accepted_owner: Option<TypeId>,
-        reports: bool,
+        outcome_kind: CallOutcome,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let occurrence = occurrence.into();
 
@@ -382,7 +401,7 @@ impl Lowerer<'_> {
             .expect("checked call belongs to an expression");
 
         // The view shares immutable collection paths while failure handlers are constructed.
-        let outcome = reports
+        let outcome = matches!(outcome_kind, CallOutcome::Selected)
             .then(|| self.completion_report_outcome(occurrence))
             .flatten()
             .cloned();
@@ -446,15 +465,20 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        let may_cancel = match (
-            occurrence,
-            self.input.semantic_selections().expression(expression),
-        ) {
+        // Protocol helpers have their own outcome, independent of the source invocation.
+        let may_cancel = match outcome_kind {
+            CallOutcome::Runtime => false,
+            CallOutcome::Predicate => true,
+            CallOutcome::Selected => match (
+                occurrence,
+                self.input.semantic_selections().expression(expression),
+            ) {
             (
                 bray_bound_tree::BoundExecutionSite::Node(_),
                 Some(bray_bound_tree::SemanticSelection::Call(call)),
             ) => call.may_enter_current_run_cancellation(),
-            _ => true,
+                _ => true,
+            },
         };
 
         if may_cancel {

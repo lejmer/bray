@@ -1,14 +1,14 @@
 use bray_package_interface::{
     DependencyInterfaceId, InterfaceConstantProjection, InterfaceConstantTerm,
     InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId,
-    InterfaceConstantValueKind, InterfaceGenericSubstitutionId, InterfaceStorageMember,
+    InterfaceConstantValueKind, InterfaceStorageMember,
     InterfaceStorageShape, InterfaceSymbolReference, InterfaceTypeRepresentation,
     InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 use bray_symbols::{
     AnySymbolId, ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId,
-    ConstantValueData, ConstantValueId, ConstantValueKind, DeclaredStorageShape,
-    GenericSubstitutionId, ImplementationInstanceId, SymbolKeyData, TypeId,
+    ConstantValueId, ConstantValueKind, DeclaredStorageShape,
+    SymbolKeyData,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -219,76 +219,6 @@ impl<'a> SemanticExporter<'a> {
                 Ok(exported)
             }
         )
-    }
-
-    pub(in crate::compilation::export) fn constant_value_term_id(
-        &mut self,
-        value: ConstantValueId,
-    ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
-        let term = self
-            .values
-            .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap_or_else(|error| {
-                panic!("semantic_value_export_error in constant_value_term_id: {error:?}")
-            });
-
-        self.constant_term_id(term)
-    }
-
-    pub(in crate::compilation::export) fn nullable_absence_term_id(
-        &mut self,
-        ty: TypeId,
-    ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
-        let value = self
-            .values
-            .intern_constant_value(ConstantValueData::new(
-                ty,
-                ConstantValueKind::NullableAbsent,
-            ))
-            .unwrap_or_else(|error| {
-                panic!("semantic_value_export_error in nullable_absence_term_id: {error:?}")
-            });
-
-        self.constant_value_term_id(value)
-    }
-
-    pub(in crate::compilation::export) fn declaration_template_reference(
-        &mut self,
-        declaration: AnySymbolId,
-        substitution: GenericSubstitutionId,
-    ) -> Result<
-        (
-            bray_package_interface::InterfaceTemplateReference,
-            InterfaceGenericSubstitutionId,
-        ),
-        PackageInterfaceExportError,
-    > {
-        Ok((
-            bray_package_interface::InterfaceTemplateReference::Symbol(
-                self.symbol_reference(declaration)?,
-            ),
-            self.substitution_id(substitution)?,
-        ))
-    }
-
-    pub(in crate::compilation::export) fn implementation_template_reference(
-        &mut self,
-        instance: ImplementationInstanceId,
-    ) -> Result<
-        (
-            bray_package_interface::InterfaceImplementationReference,
-            InterfaceGenericSubstitutionId,
-        ),
-        PackageInterfaceExportError,
-    > {
-        let data = self.values.implementation_instance_data(instance);
-
-        Ok((
-            bray_package_interface::InterfaceImplementationReference::Symbol(
-                self.symbol_reference(data.definition().into_any())?,
-            ),
-            self.substitution_id(data.substitution())?,
-        ))
     }
 
     pub(in crate::compilation::export) fn constant_value_id(

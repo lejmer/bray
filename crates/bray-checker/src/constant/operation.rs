@@ -6,7 +6,7 @@ use bray_symbols::{ConstantValueKind, IntegerConstant, RealConstantBits};
 use num_bigint::BigInt;
 
 use super::floating::{fold_complex_binary, fold_real_binary};
-use super::integer::{from_big_integer, significant_bits, to_big_integer};
+use super::integer::{from_big_integer, to_big_integer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConstantOperationError {
@@ -151,7 +151,7 @@ fn fold_integer_binary(
     };
 
     if let ConstantValueKind::Integer(value) = &result {
-        let result_bits = u64::try_from(significant_bits(value.magnitude())).unwrap_or(u64::MAX);
+        let result_bits = u64::try_from(value.magnitude_bits()).unwrap_or(u64::MAX);
 
         if result_bits > u64::from(maximum_integer_bits) {
             return Err(ConstantOperationError::ResourceLimitExceeded {

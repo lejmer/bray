@@ -102,6 +102,22 @@ impl PredicateSemanticSummary {
         self.is_trusted
     }
 
+    /// Whether an unproved requirement needs runtime evaluation.
+    pub fn requires_runtime_check(self, values: &crate::SemanticValueStore, symbols: &crate::AvailableCompilerKnownSymbols) -> bool {
+        if self.is_trusted() { return false; }
+        let Some(mut term) = self.condition() else { return true; };
+        loop {
+            let data = values.constant_term_data(term);
+            match data.as_ref() {
+                crate::ConstantTermData::Typed { term: inner, .. } => term = *inner,
+                crate::ConstantTermData::PredicateCall { predicate, .. } => return !symbols
+                    .symbol_implementation(predicate.definition().into_any())
+                    .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement),
+                _ => return true,
+            }
+        }
+    }
+
     /// Returns the portable dependencies of the predicate expression.
     pub const fn dependency_contract(self) -> DependencyContractTemplateId {
         self.dependency_contract

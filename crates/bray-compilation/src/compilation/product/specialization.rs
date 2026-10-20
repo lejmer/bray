@@ -280,7 +280,7 @@ impl ConcreteCodegenInstance {
         }
     }
 
-    pub(super) fn type_default(
+    pub(super) fn specialized_helper(
         template: MirUnitKey,
         substitution: GenericSubstitutionId,
         specialization: CodegenSpecialization,

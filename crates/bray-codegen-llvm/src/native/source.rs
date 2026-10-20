@@ -89,7 +89,7 @@ pub(crate) fn mir_source_anchor_value<'context>(
         ),
         Some(
             bray_ir::MirSourceAnchor::ExecutableHost(_)
-            | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)
+            | bray_ir::MirSourceAnchor::GeneratedHelper(_)
             | bray_ir::MirSourceAnchor::CompilerProvidedCallable(_)
             | bray_ir::MirSourceAnchor::ImportedExecutable(_),
         )

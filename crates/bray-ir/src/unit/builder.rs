@@ -256,8 +256,8 @@ impl MirUnitBuilder {
         }
     }
 
-    /// Starts a generated lifecycle definition with its selected execution representation.
-    pub fn for_generated_lifecycle(
+    /// Starts a generated helper definition with its selected execution representation.
+    pub fn for_generated_helper(
         unit: MirUnitId,
         key: MirUnitKey,
         reference: MirHelperReference,
@@ -267,7 +267,7 @@ impl MirUnitBuilder {
         Self {
             key,
             unit,
-            source: MirSourceOrigin::GeneratedLifecycle(reference),
+            source: MirSourceOrigin::GeneratedHelper(reference),
             allow_foreign_sources: false,
             target,
             kind,

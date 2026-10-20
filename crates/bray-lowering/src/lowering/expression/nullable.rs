@@ -8,7 +8,7 @@ use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
 
-pub(super) const fn nullable_query_kind(hook: ImplementationHook) -> Option<MirNullableQueryKind> {
+pub(crate) const fn nullable_query_kind(hook: ImplementationHook) -> Option<MirNullableQueryKind> {
     match hook {
         ImplementationHook::NullableIsPresent => Some(MirNullableQueryKind::IsPresent),
         ImplementationHook::NullableIsAbsent => Some(MirNullableQueryKind::IsAbsent),
@@ -42,12 +42,14 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let Some(receiver) = lowered.value else {
+        let Some(mut receiver) = lowered.value else {
             panic!(
                 "lowering contract violation: MissingOperationResult {value:?}",
                 value = receiver.expression()
             );
         };
+
+        let current = self.lower_primitive_requirements(id, current, &source, selection, std::slice::from_mut(&mut receiver))?;
 
         let result_type = self.expression_type(id);
 

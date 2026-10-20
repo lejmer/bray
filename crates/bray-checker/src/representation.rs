@@ -72,6 +72,7 @@ where
     let data = request.semantic_values().type_data(ty);
 
     let complete = match data.as_ref() {
+        TypeData::ExactInteger { .. } => true,
         TypeData::Named { definition, .. } => match type_representation(request, ty) {
             Some(RepresentationRole::Uninit) => {
                 let element = request

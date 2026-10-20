@@ -129,7 +129,7 @@ impl SemanticValueStore {
                         .intern_generic_substitution(substitution.with_owner(owner))?,
                 }
             }
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
+            TypeData::ExactInteger { .. } | TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
                 return Ok(ty);
             }
             TypeData::Named {

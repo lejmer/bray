@@ -9,7 +9,7 @@ use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
 
-pub(super) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirTextOperationKind> {
+pub(crate) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirTextOperationKind> {
     match hook {
         ImplementationHook::StringScalarCount => Some(MirTextOperationKind::ScalarCount),
         ImplementationHook::StringIsEmpty => Some(MirTextOperationKind::IsEmpty),
@@ -144,6 +144,8 @@ impl Lowerer<'_> {
             operands.push(operand);
             operand_types.push(conversion.target_type());
         }
+
+        current = self.lower_primitive_requirements(id, current, &source, selection, &mut operands)?;
 
         let result_type = self.expression_type(id);
 

@@ -39,6 +39,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
                 unit,
             )],
         )),
+        CodegenPreparationError::ExactIntegerCapacity { minimum_bits } => Kind::CodegenExactIntegerCapacity { minimum_bits: *minimum_bits, maximum_bits: u16::MAX },
         CodegenPreparationError::MirCapacity(_) => Kind::CodegenMirCapacityExceeded,
         CodegenPreparationError::MissingRuntimeRole(role) => {
             Kind::CodegenMissingRuntimeRole(failure_detail(

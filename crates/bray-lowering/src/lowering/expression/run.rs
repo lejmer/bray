@@ -74,7 +74,7 @@ impl Lowerer<'_> {
 
                 let mut current = current;
 
-                let payload = if hook == ImplementationHook::TaskEventWait {
+                let mut payload = if hook == ImplementationHook::TaskEventWait {
                     let [
                         SelectedArgument::Explicit {
                             expression: event,
@@ -119,6 +119,8 @@ impl Lowerer<'_> {
                 } else {
                     None
                 };
+
+                current = self.lower_primitive_requirements(expression, current, &source, selection, payload.as_mut_slice())?;
 
                 let resume = self
                     .builder

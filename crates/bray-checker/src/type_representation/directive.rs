@@ -454,9 +454,7 @@ where
                         None => {
                             self.add_union_tag_diagnostic(
                                 DiagnosticUnionTagProblem::InferredValueTooWide {
-                                    actual_bits: u64::try_from(crate::constant::significant_bits(
-                                        maximum.magnitude(),
-                                    ))
+                                    actual_bits: u64::try_from(maximum.magnitude_bits())
                                     .unwrap_or(u64::MAX),
                                     maximum_bits: 128,
                                 },
@@ -644,7 +642,7 @@ where
 }
 
 fn default_tag_role(maximum: &IntegerConstant) -> Option<RepresentationRole> {
-    match crate::constant::significant_bits(maximum.magnitude()) {
+    match maximum.magnitude_bits() {
         0..=8 => Some(RepresentationRole::ScalarU8),
         9..=16 => Some(RepresentationRole::ScalarU16),
         17..=32 => Some(RepresentationRole::ScalarU32),
@@ -673,7 +671,7 @@ fn tag_value_outside_type_problem(
         signed,
         width_bits,
         value_negative: value.sign() == IntegerSign::Negative,
-        value_bits: u64::try_from(crate::constant::significant_bits(value.magnitude()))
+        value_bits: u64::try_from(value.magnitude_bits())
             .unwrap_or(u64::MAX),
     }
 }

@@ -8,4 +8,5 @@ mod guarantees;
 mod indexing;
 mod lifecycle;
 mod returned_dependencies;
+mod requirements;
 mod standard_library;

@@ -368,6 +368,15 @@ impl CallableTypeData {
 pub enum TypeData {
     /// The single canonical recovery type.
     Error,
+    /// A compiler-only representation of exact integer intermediates.
+    /// Checked predicate lowering chooses enough bits for every represented result.
+    /// This type has no source spelling and cannot occur in a declaration contract.
+    ExactInteger {
+        /// Proven sufficient representation width.
+        bits: std::num::NonZeroU16,
+        /// Whether the exact value can be negative.
+        signed: bool,
+    },
     /// A named structural type with ordered generic arguments.
     Named {
         /// The exact type definition.

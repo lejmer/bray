@@ -165,11 +165,13 @@ where
                 callable,
                 substitution,
                 arguments,
+                ordinals,
                 implementation,
             } => self.evaluate_call(
                 callable,
                 *substitution,
                 arguments,
+                ordinals,
                 implementation.as_ref(),
                 ty,
             ),
@@ -617,10 +619,14 @@ where
         callable: &bray_symbols::SymbolKey,
         substitution: GenericSubstitutionId,
         arguments: &[CheckedTemplateNodeId],
+        ordinals: &[u32],
         implementation: Option<&(bray_symbols::SymbolKey, GenericSubstitutionId)>,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let arguments = self.evaluate_nodes(arguments)?;
+        let evaluated = self.evaluate_nodes(arguments)?;
+        let mut ordered = ordinals.iter().copied().zip(evaluated).collect::<Vec<_>>();
+        ordered.sort_by_key(|(ordinal, _)| *ordinal);
+        let arguments = ordered.into_iter().map(|(_, value)| value).collect::<Vec<_>>();
 
         let Some(callable) = self
             .resolver

@@ -181,13 +181,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|_| site)
     }
 
-    fn prepare_trusted_observations(
+    fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
+        retain_carriers: bool,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
         let mut owners = BTreeSet::new();
@@ -196,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Address and field guarantees also depend on the borrowed storage that
         // established them, even when the raw value has no ordinary borrow.
         let returned = |operand| {
-            self.dependencies
+            retain_carriers && self.dependencies
                 .calls()
                 .get(&expression.into())
                 .and_then(|dependencies| dependencies.retained_inputs())
@@ -285,7 +286,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = input;
 
-            carriers.push(value.clone());
+            if retain_carriers { carriers.push(value.clone()); }
 
             if let Some(parameter) = parameter {
                 arguments.insert(
@@ -332,7 +333,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = input;
 
-            carriers.push(value.clone());
+            if retain_carriers { carriers.push(value.clone()); }
             arguments.insert(reference.into(), value.clone());
 
             arguments.insert(
@@ -498,15 +499,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        let (carriers, owners) = if !guarantees.is_empty()
+        let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
             && let bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) = invocation
             && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 self.semantics.selections().expression(expression)
         {
-            // The entry above already proves the valid domain of this preservation promise.
-            self.prepare_trusted_observations(state, expression, call, &mut arguments, observations)
+            // Completion clauses observe final contents, independently of trusted authority.
+            self.prepare_call_observations(state, expression, call, &mut arguments, observations, !guarantees.is_empty())
         } else {
             Default::default()
         };

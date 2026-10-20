@@ -11,10 +11,10 @@ use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
 
 pub(super) struct CompilationSyntheticLoweringContext<'compilation> {
-    compilation: &'compilation Compilation,
-    cancellation: &'compilation CancellationToken,
-    values: &'compilation SemanticValueStore,
-    realization: Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
+    pub(super) compilation: &'compilation Compilation,
+    pub(super) cancellation: &'compilation CancellationToken,
+    pub(super) values: &'compilation SemanticValueStore,
+    pub(super) realization: Option<&'compilation super::super::specialization::ConcreteCodegenInstance>,
 }
 
 impl<'compilation> CompilationSyntheticLoweringContext<'compilation> {

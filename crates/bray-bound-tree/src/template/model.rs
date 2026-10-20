@@ -386,7 +386,9 @@ pub struct CheckedTemplate {
 }
 
 impl CheckedTemplate {
-    pub(crate) fn new(
+    /// Owns a complete checked graph produced with valid local identities and semantic types.
+    /// The producer establishes these phase contracts before publication.
+    pub fn from_checked_parts(
         kind: CheckedTemplateKind,
         inputs: impl IntoIterator<Item = CheckedTemplateInput>,
         nodes: impl IntoIterator<Item = CheckedTemplateNode>,

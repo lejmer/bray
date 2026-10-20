@@ -13,7 +13,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<TrustedCallContract>, FactQueryError> {
         use bray_bound_tree::{
-            ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget, SelectedOperation,
+            SelectedOperation,
         };
 
         if let SelectedOperation::Construction(construction) = operation
@@ -22,38 +22,7 @@ impl Compilation {
             return Ok(Some(contract));
         }
 
-        let target = if let Some(target) = operation.operator_target() {
-            match target {
-                OperatorTarget::Trait { fulfillment, .. } => Some(fulfillment),
-                OperatorTarget::TraitConstraint { member, .. } => Some(member),
-                OperatorTarget::BuiltIn(_) => None,
-            }
-        } else {
-            match operation {
-                SelectedOperation::Construction(construction) => match construction.target() {
-                    ConstructionTarget::TypeForm { callable, .. } => Some(callable),
-                    _ => None,
-                },
-                SelectedOperation::Conversion(conversion) => match conversion.target() {
-                    ConversionTarget::Trait { fulfillment, .. } => Some(*fulfillment),
-                    ConversionTarget::TraitConstraint { member, .. } => Some(*member),
-                    _ => None,
-                },
-                SelectedOperation::Index {
-                    target: IndexTarget::Custom { fulfillment, .. },
-                    ..
-                } => Some(*fulfillment),
-                SelectedOperation::Index {
-                    target: IndexTarget::TraitConstraint { member, .. },
-                    ..
-                } => Some(*member),
-                _ => None,
-            }
-        };
-
-        let Some(target) = target else {
-            return Ok(None);
-        };
+        let Some(target) = operation.invoked_callable() else { return Ok(None); };
 
         let context = self.binding_context(cancellation)?;
 

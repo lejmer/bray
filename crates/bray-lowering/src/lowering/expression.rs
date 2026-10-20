@@ -4,12 +4,14 @@ mod conversion;
 mod core;
 mod index;
 mod memory;
-mod nullable;
+pub(crate) mod nullable;
 mod numeric;
 mod operand;
 mod run;
-mod sequence;
+pub(crate) mod sequence;
 mod static_access;
 mod testing;
-mod text;
+pub(crate) mod text;
 mod value;
+
+pub(super) use control::CallOutcome;

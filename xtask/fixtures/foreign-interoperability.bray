@@ -123,7 +123,15 @@ struct NativeResource
         );
     }
 
+    predicate complete(value: &NativeResource) = !value.is_owned_value;
+
     trusted finalize() -> Result<unit, NativeResourceError>
+        ensures(result matches Error(_) || NativeResource.complete(value = &self))
+        when(NativeResource.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted release_native_resource(&mut self, fail = false);
     }
@@ -177,7 +185,8 @@ struct NativeResource
         return Ok(self.handle_value);
     }
 
-    trusted consume mut func close(pos fail: bool) -> Result<unit, NativeResourceError>
+    trusted mut func close(pos fail: bool) -> Result<unit, NativeResourceError>
+        ensures(result matches Error(_) || NativeResource.complete(value = &self))
     {
         return trusted release_native_resource(&mut self, fail = fail);
     }
@@ -188,10 +197,16 @@ trusted func release_native_resource(
     pos fail: bool,
 ) -> Result<unit, NativeResourceError>
     uses(foreign_call)
+    ensures(result matches Error(_) || NativeResource.complete(value = &resource))
+    when(NativeResource.complete(value = &resource))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
 {
     if !resource.is_owned_value
     {
-        return Error(NativeResourceError.Invalid);
+        return Ok(unit);
     }
 
     let status: i32 = trusted native_resource_release(resource.handle_value, fail = fail);
@@ -390,6 +405,8 @@ trusted func audit_resources()
         let _: NativeResourceError = std.testing.assert_error<unit, NativeResourceError>(
             trusted failed.close(fail = true),
         );
+
+        std.testing.assert_ok<unit, NativeResourceError>(trusted failed.close(fail = false));
     }
 
     assert(trusted native_resource_live_count() == 1);
@@ -495,9 +512,236 @@ trusted func main() -> i32
     __TARGET_AGGREGATE_ABI_AUDIT__
     trusted audit_strings();
     trusted audit_resources();
+    trusted audit_requirements();
+    trusted audit_requirement_scopes();
     trusted audit_callbacks();
     trusted audit_dynamic_library();
     trusted audit_native_data();
 
     return 0;
+}
+
+@symbol(name = "bray_foreign_requirement_entry")
+@abi(c)
+extern trusted func native_requirement_entry(pos value: i32) -> i32
+    requires(value > 0)
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_requirement_entries")
+@abi(c)
+extern trusted func native_requirement_entries() -> u64
+    uses(foreign_call);
+
+func runtime_integer(pos value: i32) -> i32
+{
+    return value;
+}
+
+func require_sum(pos value: u64, pos limit: u64) -> unit
+    requires(value + 1 > limit)
+{
+}
+
+func runtime_unsigned(pos value: u64) -> u64
+{
+    return value;
+}
+
+trusted func consume_with_requirement(pos mut owner: NativeResource, pos value: i32)
+    requires(value > 0)
+{
+    std.testing.assert_ok<unit, NativeResourceError>(trusted owner.close(fail = false));
+}
+
+trusted func audit_requirements()
+    uses(foreign_call)
+{
+    assert(trusted native_requirement_entries() == 0);
+
+    let failed: Result<i32, PanicReport> = catch
+    {
+        let mut owner: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
+            trusted NativeResource(succeed = true),
+        );
+
+        let value: i32 = trusted native_requirement_entry(runtime_integer(0));
+        std.testing.assert_ok<unit, NativeResourceError>(trusted owner.close(fail = false));
+
+        yield value;
+    };
+
+    let _: PanicReport = std.testing.assert_error<i32, PanicReport>(failed);
+
+    assert(trusted native_requirement_entries() == 0);
+    assert(trusted native_resource_live_count() == 0);
+    assert(trusted native_requirement_entry(runtime_integer(7)) == 7);
+    assert(trusted native_requirement_entries() == 1);
+
+    let failed_transfer: Result<unit, PanicReport> = catch
+    {
+        let owner: NativeResource = std.testing.assert_ok<NativeResource, NativeResourceError>(
+            trusted NativeResource(succeed = true),
+        );
+
+        trusted consume_with_requirement(owner, runtime_integer(0));
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(failed_transfer);
+
+    assert(trusted native_resource_live_count() == 0);
+
+    let callback: RequiredNative = native_requirement_entry;
+    let indirect: Result<i32, PanicReport> = catch
+    {
+        yield trusted callback(runtime_integer(0));
+    };
+
+    let _: PanicReport = std.testing.assert_error<i32, PanicReport>(indirect);
+
+    assert(trusted native_requirement_entries() == 1);
+    assert(trusted callback(runtime_integer(9)) == 9);
+    assert(trusted native_requirement_entries() == 2);
+
+    require_order(runtime_integer(9), runtime_integer(1));
+    require_increment(runtime_integer(1));
+
+    let stepped: IncrementAction = require_increment;
+
+    stepped(runtime_integer(1));
+
+    let reversed: Result<unit, PanicReport> = catch
+    {
+        require_order(runtime_integer(1), runtime_integer(9));
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(reversed);
+
+    require_quotient(runtime_unsigned(18446744073709551615), runtime_unsigned(2), runtime_unsigned(9223372036854775807));
+    require_sum(runtime_unsigned(18446744073709551615), runtime_unsigned(18446744073709551615));
+}
+
+internal callable RequiredNative = @abi(c) trusted func(pos value: i32) -> i32
+    requires(value > 0)
+    uses(foreign_call);
+
+const func ordered(pos first: i32, second: i32) -> bool
+    executes(total)
+{
+    return first > second;
+}
+
+func require_order(pos left: i32, pos right: i32)
+    requires(ordered(second = right, first = left))
+{
+}
+
+func require_quotient(pos value: u64, pos divisor: u64, pos limit: u64)
+    requires(divisor > 0 && (value + 1) / divisor > limit)
+{
+}
+
+internal static REQUIREMENT_CALLS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct RequirementEntry
+{
+    ready: bool;
+
+    enter() -> bool
+        requires(self.ready)
+    {
+        core.atomic.fetch_add<usize, 0>(&REQUIREMENT_CALLS, value = 1);
+
+        return true;
+    }
+
+    exit(pos lease: bool)
+    {
+    }
+}
+
+struct RequirementExit
+{
+    ready: bool;
+
+    enter() -> bool
+    {
+        return self.ready;
+    }
+
+    exit(pos lease: bool)
+        requires(lease)
+    {
+        core.atomic.fetch_add<usize, 0>(&REQUIREMENT_CALLS, value = 1);
+    }
+}
+
+struct RequirementReceiver
+{
+    ready: bool;
+
+    func selected()
+        requires(self.ready)
+    {
+        core.atomic.fetch_add<usize, 0>(&REQUIREMENT_CALLS, value = 1);
+    }
+}
+
+trusted func audit_requirement_scopes()
+    uses(foreign_call)
+{
+    let entry: Result<unit, PanicReport> = catch
+    {
+        with lease = RequirementEntry { ready = runtime_integer(0) > 0 }
+        {
+            panic("a failed entry requirement entered the scope body");
+        };
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(entry);
+
+    assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
+
+    let exit_failure: Result<NativeResource, PanicReport> = catch
+    {
+        yield with lease = RequirementExit { ready = runtime_integer(0) > 0 }
+        {
+            yield std.testing.assert_ok<NativeResource, NativeResourceError>(
+                trusted NativeResource(succeed = true),
+            );
+        };
+    };
+
+    let _: PanicReport = std.testing.assert_error<NativeResource, PanicReport>(exit_failure);
+
+    assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
+    assert(trusted native_resource_live_count() == 0);
+
+    let rejected: RequirementReceiver = { ready = runtime_integer(0) > 0 };
+    let accepted: RequirementReceiver = { ready = runtime_integer(1) > 0 };
+    let receiver: Result<unit, PanicReport> = catch
+    {
+        rejected.selected();
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(receiver);
+
+    assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
+    accepted.selected();
+    assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 1);
+}
+
+internal callable IncrementAction = func(pos value: i32)
+    requires(value < 2147483647 && ordered(first = value + 1, second = 1));
+
+func require_increment(pos value: i32)
+    requires(value < 2147483647 && ordered(first = value + 1, second = 1))
+{
 }

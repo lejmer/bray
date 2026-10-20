@@ -345,6 +345,8 @@ impl Compilation {
                             && key == host_key
                         {
                             host_mir.clone()
+                        } else if matches!(key.template(), MirUnitKey::Predicate(_)) {
+                            self.codegen_predicate_mir(&realization, MirUnitId::new(0), cancellation)?
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
                             self.codegen_heap_method_mir(
@@ -475,8 +477,9 @@ impl Compilation {
     }
 
     #[cfg(test)]
-    pub(in crate::compilation) fn imported_codegen_instance_count_for_test(
+    pub(in crate::compilation) fn codegen_instance_count_for_test(
         &self,
+        mut selected: impl FnMut(&MirUnitKey) -> bool,
     ) -> Result<usize, NativeProductPlanningError> {
         let target = self
             .selected_target()
@@ -502,9 +505,7 @@ impl Compilation {
             .graph()
             .instances()
             .iter()
-            .filter(|instance| {
-                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
-            })
+            .filter(|instance| selected(instance.key().template()))
             .count())
     }
 }

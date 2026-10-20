@@ -217,6 +217,7 @@ pub(crate) enum InspectionMirUnitKey {
         package: String,
         product: String,
     },
+    Predicate { reference: InspectionPredicateReference },
     GeneratedLifecycle {
         role: &'static str,
         type_identity: String,
@@ -231,6 +232,32 @@ pub(crate) enum InspectionMirUnitKey {
     ExternalRuntimeDefault {
         provider: InspectionSymbolIdentity,
     },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum InspectionPredicateReference {
+    Clause { callable: InspectionSymbolIdentity, substitution: u32, ordinal: u32 },
+    Predicate { predicate: InspectionSymbolIdentity, substitution: u32 },
+    Condition { term: u32, input_types: Vec<u32> },
+}
+
+impl InspectionPredicateReference {
+    fn from_reference(reference: &bray_ir::MirPredicateReference, symbols: &SymbolGraph) -> Self {
+        match reference {
+            bray_ir::MirPredicateReference::Clause { callable, ordinal } => Self::Clause {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.instance().definition().symbol()),
+                substitution: callable.instance().substitution().slot(), ordinal: ordinal.raw(),
+            },
+            bray_ir::MirPredicateReference::Predicate(predicate) => Self::Predicate {
+                predicate: InspectionSymbolIdentity::from_symbol(symbols, predicate.definition().into_any()),
+                substitution: predicate.substitution().slot(),
+            },
+            bray_ir::MirPredicateReference::Condition { condition, input_types } => Self::Condition {
+                term: condition.slot(), input_types: input_types.iter().map(|ty| ty.slot()).collect(),
+            },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -1141,6 +1168,26 @@ fn call_parts(
         MirCallTarget::Direct(reference) => {
             parts.attribute("dispatch", "direct");
             callable_reference("callee", *reference, parts, context);
+        }
+        MirCallTarget::Predicate(reference) => {
+            parts.attribute("dispatch", "predicate");
+            match reference {
+                bray_ir::MirPredicateReference::Clause { callable, ordinal } => {
+                    parts.attribute("predicate_kind", "clause");
+                    parts.attribute("clause", ordinal.raw());
+                    callable_reference("owner", *callable, parts, context);
+                }
+                bray_ir::MirPredicateReference::Predicate(predicate) => {
+                    parts.attribute("predicate_kind", "predicate");
+                    parts.symbol("predicate", predicate.definition().into_any(), context.symbols);
+                    parts.semantic_value("predicate_substitution", "generic_substitution", predicate.substitution().slot(), None);
+                }
+                bray_ir::MirPredicateReference::Condition { condition, input_types } => {
+                    parts.attribute("predicate_kind", "condition");
+                    parts.semantic_value("condition", "constant_term", condition.slot(), None);
+                    for (ordinal, ty) in input_types.iter().enumerate() { parts.r#type(format!("input[{ordinal}]"), *ty, context)?; }
+                }
+            }
         }
         MirCallTarget::DefaultValue { owner, provider } => {
             parts.attribute("dispatch", "default_value");
@@ -2186,6 +2233,7 @@ fn inspection_unit_key(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
+        MirUnitKey::Predicate(reference) => Ok(InspectionMirUnitKey::Predicate { reference: InspectionPredicateReference::from_reference(reference, symbols) }),
         MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
@@ -2224,7 +2272,7 @@ fn inspection_source_origin(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
-        MirSourceOrigin::GeneratedLifecycle(reference) => {
+        MirSourceOrigin::GeneratedHelper(reference) => {
             Ok(InspectionMirSource::GeneratedLifecycle {
                 role: lifecycle_helper_role(reference)
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
@@ -2261,7 +2309,7 @@ fn inspection_source_anchor(
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
         }),
-        MirSourceAnchor::GeneratedLifecycle(reference) => {
+        MirSourceAnchor::GeneratedHelper(reference) => {
             Ok(InspectionMirSource::GeneratedLifecycle {
                 role: lifecycle_helper_role(reference)
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
@@ -2637,6 +2685,7 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
 
 const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
     match reference {
+        MirHelperReference::Predicate(_) => Some("predicate"),
         MirHelperReference::Quiesce(_) => Some("quiesce"),
         MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
         MirHelperReference::Destroy(_, _) => Some("destroy"),

@@ -51,9 +51,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             })
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        let source = MirSourceAnchor::generated_lifecycle(reference.clone());
+        let source = MirSourceAnchor::generated_helper(reference.clone());
 
-        let mut builder = MirUnitBuilder::for_generated_lifecycle(
+        let mut builder = MirUnitBuilder::for_generated_helper(
             unit,
             key,
             reference.clone(),
@@ -200,6 +200,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::DefaultValue(_)
+            | MirHelperReference::Predicate(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
             | MirHelperReference::BeginGenerator
@@ -571,7 +572,7 @@ mod tests {
             .unwrap();
 
             assert!(mir.operations().iter().all(|operation| operation.source()
-                == &bray_ir::MirSourceAnchor::generated_lifecycle(reference.clone())));
+                == &bray_ir::MirSourceAnchor::generated_helper(reference.clone())));
 
             assert!(
                 mir.blocks()

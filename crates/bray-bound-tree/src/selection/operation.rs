@@ -495,6 +495,18 @@ pub enum ConversionTarget {
     },
 }
 
+impl ConversionTarget {
+    /// Returns the directly invoked conversion declaration, if this is a source conversion.
+    pub const fn invoked_callable(&self) -> Option<CallableInstanceData> {
+        match self {
+            Self::Trait { fulfillment, .. } => Some(*fulfillment),
+            Self::TraitConstraint { member, .. } => Some(*member),
+            Self::Identity | Self::CallableContract | Self::NullablePresent | Self::BuiltInScalar
+            | Self::CVariadicPromotion | Self::Composite(_) => None,
+        }
+    }
+}
+
 /// One exact source-to-target conversion plan.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SelectedConversion {
@@ -621,6 +633,32 @@ pub enum SelectedOperation {
 }
 
 impl SelectedOperation {
+    /// Returns the directly invoked declaration, excluding builtins and composite children.
+    pub fn invoked_callable(&self) -> Option<CallableInstanceData> {
+        if let Some(target) = self.operator_target() {
+            return match target {
+                OperatorTarget::Trait { fulfillment, .. } => Some(fulfillment),
+                OperatorTarget::TraitConstraint { member, .. } => Some(member),
+                OperatorTarget::BuiltIn(_) => None,
+            };
+        }
+        match self {
+            Self::Construction(construction) => match construction.target() {
+                ConstructionTarget::TypeForm { callable, .. } => Some(callable),
+                ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => None,
+            },
+            Self::Conversion(conversion) => conversion.target().invoked_callable(),
+            Self::Index { target, .. } => match target {
+                IndexTarget::Custom { fulfillment, .. } => Some(*fulfillment),
+                IndexTarget::TraitConstraint { member, .. } => Some(*member),
+                IndexTarget::ArrayElement | IndexTarget::SliceElement | IndexTarget::ArraySlice | IndexTarget::Slice => None,
+            },
+            Self::Member(_) | Self::Implementation(_) => None,
+            Self::Operator { .. } | Self::CompoundAssignment(_) => unreachable!("operator selections retain their target"),
+        }
+    }
+
+
     /// Returns this operation's closed selection category.
     pub const fn kind(&self) -> SelectionKind {
         match self {

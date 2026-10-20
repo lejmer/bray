@@ -131,7 +131,7 @@ impl CheckedTemplateBuilder {
 
         validate_present_node(result, self.nodes.len())?;
 
-        Ok(CheckedTemplate::new(
+        Ok(CheckedTemplate::from_checked_parts(
             self.kind,
             self.inputs,
             self.nodes,

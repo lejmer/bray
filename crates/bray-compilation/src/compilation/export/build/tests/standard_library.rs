@@ -2600,7 +2600,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
     );
 
     let imported_instances = consumer
-        .imported_codegen_instance_count_for_test()
+        .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_)))
         .unwrap_or_else(|error| panic!("imported formatting reachability must close: {error:?}"));
 
     assert!(imported_instances > 0);

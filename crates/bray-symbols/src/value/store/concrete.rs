@@ -29,6 +29,7 @@ pub(super) fn substitution_is_concrete(
                     | TypeData::TypeValuedMemberProjection { .. } => {
                         return false;
                     }
+                    TypeData::ExactInteger { .. } => {}
                     TypeData::Named { substitution, .. } => {
                         pending.push(ConcreteWork::Substitution(*substitution));
                     }

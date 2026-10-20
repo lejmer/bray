@@ -632,6 +632,7 @@ where
         let data = self.context.semantic_values().type_data(ty);
 
         match data.as_ref() {
+            TypeData::ExactInteger { .. } => Ok(MemberRepresentation::SCALAR),
             TypeData::Error => Ok(MemberRepresentation::recovered_invalid()),
             TypeData::Named {
                 definition,

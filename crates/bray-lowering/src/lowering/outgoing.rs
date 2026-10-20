@@ -137,7 +137,7 @@ impl Lowerer<'_> {
             &self.unit_operand(unit),
             unit,
             None,
-            false,
+            crate::lowering::expression::CallOutcome::Runtime,
         )?;
 
         Ok(block)

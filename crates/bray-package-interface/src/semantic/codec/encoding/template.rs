@@ -169,12 +169,15 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             callable,
             substitution,
             arguments,
+            ordinals,
             implementation,
         } => {
             encoder.write_u32(4);
             encode_template_reference(encoder, callable);
             encoder.write_u32(substitution.raw());
             write_node_ids(encoder, arguments);
+            write_count(encoder, ordinals.len());
+            for ordinal in ordinals.iter() { encoder.write_u32(*ordinal); }
 
             match implementation {
                 Some((implementation, substitution)) => {

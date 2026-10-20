@@ -103,6 +103,13 @@ pub struct IntegerConstant {
 }
 
 impl IntegerConstant {
+    /// Returns the number of significant bits in the unsigned magnitude, or zero for zero.
+    pub fn magnitude_bits(&self) -> usize {
+        self.magnitude.first().map_or(0, |first| {
+            self.magnitude.len() * 8 - usize::try_from(first.leading_zeros()).expect("one byte's bit count fits the host")
+        })
+    }
+
     /// Creates a nonnegative integer from an unsigned 64-bit value.
     pub fn from_u64(value: u64) -> Self {
         Self::new(IntegerSign::NonNegative, value.to_be_bytes())

@@ -211,6 +211,7 @@ impl<'model> TypeFormatter<'model> {
 
         match data.as_ref() {
             TypeData::Error => Ok(String::from("<error>")),
+            TypeData::ExactInteger { bits, signed } => Ok(format!("<exact {}{bits}>", if *signed { "i" } else { "u" })),
             TypeData::Named {
                 definition,
                 substitution,
@@ -416,6 +417,7 @@ fn format_borrow(kind: BorrowKind, target: String) -> String {
 fn type_data_kind(data: &TypeData) -> &'static str {
     match data {
         TypeData::Error => "error",
+        TypeData::ExactInteger { .. } => "exact_integer",
         TypeData::Named { .. } => "named",
         TypeData::TypeParameter(_) => "type_parameter",
         TypeData::ContextualSelf(_) => "contextual_self",

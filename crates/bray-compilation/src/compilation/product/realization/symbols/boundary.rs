@@ -272,7 +272,8 @@ impl Compilation {
             instance.template(),
             MirUnitKey::GeneratedLifecycle(_)
                 | MirUnitKey::ExecutableHost(_)
-                | MirUnitKey::ExternalRuntimeDefault(_)
+                | MirUnitKey::Predicate(_)
+            | MirUnitKey::ExternalRuntimeDefault(_)
         ) {
             return Ok(None);
         }
@@ -336,6 +337,7 @@ impl Compilation {
             | MirUnitKey::ExecutableHost(_)
             | MirUnitKey::ExternalCallable(_)
             | MirUnitKey::CompilerProvidedCallable(_)
+            | MirUnitKey::Predicate(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => None,
         };
 

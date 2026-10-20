@@ -12,6 +12,7 @@ mod native_statics;
 mod operations;
 mod optimization;
 mod outgoing;
+mod predicate;
 mod runtime_signatures;
 mod runtime_source;
 mod signatures;

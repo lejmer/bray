@@ -477,6 +477,9 @@ fn collect_call_result_types(
 }
 
 fn collect_call_types(call: &MirCall, types: &mut BTreeSet<TypeId>) {
+    if let MirCallTarget::Predicate(crate::MirPredicateReference::Condition { input_types, .. }) = call.target() {
+        types.extend(input_types.iter().copied());
+    }
     if let MirCallTarget::DefaultValue {
         owner: crate::MirDefaultOwner::Type { ty, .. },
         ..
