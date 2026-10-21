@@ -191,13 +191,13 @@ mod tests {
 
 using core.memory;
 
-trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
+trusted func allocate(pos bytes: usize, pos align: usize) -> DataPointer<u8>
 {
     return core.memory.null<u8>();
 }
 
 trusted func deallocate(
-    pos pointer: RawPointer<u8>,
+    pos pointer: DataPointer<u8>,
     pos bytes: usize,
     pos align: usize,
 ) -> unit

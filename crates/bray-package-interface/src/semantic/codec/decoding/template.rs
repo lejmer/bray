@@ -114,10 +114,16 @@ fn decode_template(
     let mut nodes = context.allocate_items(reader, node_count)?;
 
     for _ in 0..node_count {
-        nodes.push(InterfaceCheckedTemplateNode::new(
-            decode_operation(reader, limits, context)?,
-            InterfaceTypeId::new(read_u32(reader)?),
-        ));
+        let operation = decode_operation(reader, limits, context)?;
+        let ty = InterfaceTypeId::new(read_u32(reader)?);
+        let raw_bits = reader.read_u8().map_err(map_wire_error)?;
+        if raw_bits > 64 {
+            return Err(crate::semantic::codec::common::invalid_discriminant(
+                crate::InterfaceValidationField::IntegerBitWidth, u32::from(raw_bits),
+            ));
+        }
+        let bits = std::num::NonZeroU8::new(raw_bits);
+        nodes.push(InterfaceCheckedTemplateNode::new(operation, ty).with_unsigned_integer_bits(bits));
     }
 
     let temporary_count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
@@ -354,6 +360,15 @@ fn decode_operation(
             left: CheckedTemplateNodeId::new(read_u32(reader)?),
             right: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
+        25 => Ok(InterfaceCheckedTemplateOperation::MachineUnary {
+            operation: decode_tag(read_u32(reader)?)?,
+            operand: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        26 => Ok(InterfaceCheckedTemplateOperation::MachineBinary {
+            operation: decode_tag(read_u32(reader)?)?,
+            left: CheckedTemplateNodeId::new(read_u32(reader)?),
+            right: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         14 => Ok(InterfaceCheckedTemplateOperation::Borrow {
             kind: decode_tag(read_u32(reader)?)?,
             operand: CheckedTemplateNodeId::new(read_u32(reader)?),
@@ -374,6 +389,18 @@ fn decode_operation(
             variant: decode_template_reference(reader, context)?,
         }),
         21 => Ok(InterfaceCheckedTemplateOperation::Unreachable),
+        23 => Ok(InterfaceCheckedTemplateOperation::ArrayElement {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        24 => Ok(InterfaceCheckedTemplateOperation::ArrayTransform {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            element: CheckedTemplateNodeId::new(read_u32(reader)?),
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        22 => Ok(InterfaceCheckedTemplateOperation::Sequence {
+            before: CheckedTemplateNodeId::new(read_u32(reader)?),
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         20 => Ok(InterfaceCheckedTemplateOperation::NullableValue {
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
@@ -689,6 +716,56 @@ mod tests {
                     Ok(template)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn checked_integer_widths_round_trip_without_changing_declared_types() {
+        let (_, semantics) = template_fixture();
+        let original = &semantics.checked_templates()[0];
+
+        for raw_bits in 0..=64 {
+            let bits = std::num::NonZeroU8::new(raw_bits);
+            let template = InterfaceCheckedTemplate::new(
+                original.kind(), [],
+                [InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Unreachable,
+                    InterfaceTypeId::new(0),
+                ).with_unsigned_integer_bits(bits)],
+                [], CheckedTemplateNodeId::new(0), original.behavior().clone(),
+            );
+            let bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+            assert_eq!(
+                super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+                Ok(template),
+            );
+        }
+    }
+
+    #[test]
+    fn decoded_integer_widths_reject_values_outside_the_checked_domain() {
+        let (_, semantics) = template_fixture();
+        let original = &semantics.checked_templates()[0];
+        let template = InterfaceCheckedTemplate::new(
+            original.kind(), [],
+            [InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Unreachable,
+                InterfaceTypeId::new(0),
+            )],
+            [], CheckedTemplateNodeId::new(0), original.behavior().clone(),
+        );
+        let mut bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+        // Kind, input count, node count, operation tag and declared type precede the width byte.
+        let certificate_offset = 5 * std::mem::size_of::<u32>();
+
+        for invalid in [65, u8::MAX] {
+            bytes[certificate_offset] = invalid;
+            assert_eq!(
+                super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+                Err(crate::semantic::codec::common::invalid_discriminant(
+                    crate::InterfaceValidationField::IntegerBitWidth, u32::from(invalid),
+                )),
+            );
         }
     }
 
@@ -1572,6 +1649,28 @@ mod tests {
             .with_templates(templates, declarations, support)
     }
 
+    #[test]
+    fn template_validation_rejects_array_elements_outside_their_transform() {
+        let (surface, semantics) = operation_fixture();
+        let template = &semantics.checked_templates[0];
+        let mut nodes = template.nodes().to_vec();
+        let result = template.result();
+        nodes[usize::try_from(result.raw()).unwrap()] = InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayElement { subject: CheckedTemplateNodeId::new(6) },
+            InterfaceTypeId::new(0),
+        );
+        let replacement = InterfaceCheckedTemplate::new(
+            template.kind(), template.inputs().iter().cloned(), nodes,
+            template.temporaries().iter().copied(), result, template.behavior().clone(),
+        );
+        let mut invalid = semantics;
+        invalid.checked_templates = vec![replacement].into();
+        assert_eq!(
+            encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
+            Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template)),
+        );
+    }
+
     fn operation_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = template_surface();
         let semantics = operation_semantics(&surface);
@@ -1588,7 +1687,7 @@ mod tests {
         let implementation =
             InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(1));
 
-        let nodes = [
+        let mut nodes = vec![
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::Input(CheckedTemplateInputId::new(0)),
                 InterfaceTypeId::new(0),
@@ -1726,7 +1825,45 @@ mod tests {
                 },
                 InterfaceTypeId::new(0),
             ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Sequence {
+                    before: CheckedTemplateNodeId::new(4),
+                    value: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(0),
+            ),
         ];
+
+        let element = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).unwrap());
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayElement { subject: CheckedTemplateNodeId::new(6) },
+            InterfaceTypeId::new(0),
+        ));
+        let value = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).unwrap());
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Convert { value: element, target: InterfaceTypeId::new(0) },
+            InterfaceTypeId::new(0),
+        ));
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::MachineUnary {
+                operation: bray_symbols::ConstantUnaryOperation::Negate,
+                operand: CheckedTemplateNodeId::new(0),
+            },
+            InterfaceTypeId::new(0),
+        ));
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::MachineBinary {
+                operation: bray_symbols::ConstantBinaryOperation::Add,
+                left: CheckedTemplateNodeId::new(0), right: CheckedTemplateNodeId::new(0),
+            },
+            InterfaceTypeId::new(0),
+        ));
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayTransform {
+                subject: CheckedTemplateNodeId::new(6), element, value,
+            },
+            InterfaceTypeId::new(2),
+        ));
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [symbol_reference(surface, SymbolKind::Function)],

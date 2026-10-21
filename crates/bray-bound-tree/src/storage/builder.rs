@@ -123,8 +123,8 @@ impl StoragePlanBuilder {
         capability: PlannedBorrowCapability,
     ) -> Result<BorrowCapabilityId, StoragePlanBuildError> {
         if capability
-            .expression()
-            .is_some_and(|expression| expression.unit() != self.unit)
+            .occurrence()
+            .is_some_and(|occurrence| occurrence.node().unit() != self.unit)
             || capability.access().unit() != self.unit
             || capability
                 .parent()
@@ -370,6 +370,12 @@ impl StoragePlanBuilder {
         };
 
         match (target, self.identity(storage).copied()) {
+            (StorageBindingTarget::InvocationResult(expected),
+                Some(StorageIdentity::InvocationResult(actual))) => expected == actual,
+            (
+                StorageBindingTarget::InvocationInput { expression, ordinal },
+                Some(StorageIdentity::InvocationInput { expression: actual, ordinal: actual_ordinal }),
+            ) => expression == actual && ordinal == actual_ordinal,
             (
                 StorageBindingTarget::Parameter(expected),
                 Some(StorageIdentity::Parameter(actual)),

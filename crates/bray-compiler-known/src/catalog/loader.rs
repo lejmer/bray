@@ -456,7 +456,7 @@ mod tests {
         "catalog compiler_known revision 1;\n",
         "scope Memory at core.memory {\n",
         "  declaration Zed {\n",
-        "    representation RawPointer;\n",
+        "    representation DataPointer;\n",
         "    surface { struct Zed {} }\n",
         "  }\n",
         "  declaration Read {\n",

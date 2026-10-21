@@ -756,6 +756,46 @@ mod tests {
     }
 
     #[test]
+    fn implicit_invocations_sharing_an_expression_establish_only_their_own_loans() {
+        let unit = BoundUnitId::new(35);
+        let (bound, expression, origin) = test_expression(unit);
+        let mut builder = StoragePlanBuilder::new(unit, bound.key().kind());
+        let identity = builder.push_identity(StorageIdentity::Temporary(expression)).unwrap();
+        let access = builder.push_access(StorageAccess::new(
+            StorageAccessRoot::Storage(identity), [], error_type(), origin.source_anchor(), false,
+        )).unwrap();
+        let sites = [
+            bray_bound_tree::BoundExecutionSite::Iterate(expression),
+            bray_bound_tree::BoundExecutionSite::Next(expression),
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression, ordinal: bray_symbols::SymbolOrdinal::new(0),
+            },
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+        ];
+        let loans = sites.map(|site| builder.push_borrow_capability(
+            PlannedBorrowCapability::new(BorrowCapabilityOrigin::Operation(site),
+                BorrowKind::Mutable, access, None, origin.source_anchor(), false),
+        ).unwrap());
+        let storage = builder.finish();
+        let effects = OperationEffects::from_storage_plan(&bound, &storage, &empty_memory_operations(unit));
+        for (site, loan) in sites.into_iter().zip(loans) {
+            let operation = |phase| AnalysisOperation::new(
+                AnalysisOperationId::from_slot(unit, 0),
+                AnalysisOperationKind::Call { invocation: site, phase },
+                ProgramPointId::from_slot(unit, 0), ProgramPointId::from_slot(unit, 1),
+            );
+            let input = operation(crate::analysis::model::AnalysisCallPhase::Input);
+            let view = effects.operation_effect(&input).expect("loan has its exact birth phase");
+            assert_eq!(view.definitions().copied().collect::<BTreeSet<_>>(),
+                BTreeSet::from([BoundDependencySubject::BorrowCapability(loan)]));
+            let completion = operation(crate::analysis::model::AnalysisCallPhase::Completion);
+            assert!(effects.operation_effect(&completion).unwrap().definitions().next().is_none());
+            assert_eq!(storage.borrow_capability(loan).unwrap().occurrence(), Some(site));
+        }
+        assert!(effects.effect(expression.into()).is_none());
+    }
+
+    #[test]
     fn calls_retain_borrow_capabilities_created_by_their_inputs() {
         let unit = BoundUnitId::new(10);
 
@@ -813,7 +853,7 @@ mod tests {
 
         let capability = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(*argument),
+                BorrowCapabilityOrigin::Operation((*argument).into()),
                 BorrowKind::Shared,
                 access,
                 None,
@@ -867,7 +907,7 @@ mod tests {
         let subject = BoundDependencySubject::Storage(identity);
 
         let cursor = builder
-            .push_identity(StorageIdentity::IterationCursor(expression))
+            .push_identity(StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Iterate(expression)))
             .unwrap();
 
         let cursor = BoundDependencySubject::Storage(cursor);

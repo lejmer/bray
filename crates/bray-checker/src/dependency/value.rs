@@ -12,7 +12,7 @@ use bray_bound_tree::{
 pub(crate) struct ValueInputs {
     independent: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
-    pub(super) pattern_subjects: BTreeMap<bray_bound_tree::BoundPatternId, BoundExpressionId>,
+    pub(super) pattern_subjects: BTreeMap<bray_bound_tree::BoundPatternId, bray_bound_tree::BoundExecutionSite>,
     pub(super) projections: BTreeMap<
         BoundExpressionId,
         BTreeMap<
@@ -112,7 +112,9 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
-            pattern_subjects: unit.tree().binding_subjects().into_iter().collect(),
+            pattern_subjects: unit.tree().binding_subjects().into_iter().map(|(pattern, source)|
+                (pattern, unit.view().expression(source).expect("pattern source is bound")
+                    .pattern_subject_site(source))).collect(),
             independent: Default::default(),
             source_inputs: Default::default(),
             projections: BTreeMap::new(),
@@ -130,7 +132,7 @@ impl ValueInputs {
                     value
                         .patterns()
                         .iter()
-                        .map(|pattern| (*pattern, entry.expression())),
+                        .map(|pattern| (*pattern, bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()))),
                 );
             }
         }
@@ -208,6 +210,13 @@ impl ValueInputs {
                             .map(|receiver| receiver.expression()),
                     );
                 }
+                SemanticSelection::Iteration(iteration) => {
+                    if matches!(iteration.mode(), bray_bound_tree::IterationSourceMode::Shared
+                        | bray_bound_tree::IterationSourceMode::Mutable)
+                    {
+                        pending.push(iteration.source());
+                    }
+                }
                 SemanticSelection::ScopedUse(scoped) => {
                     if scoped.enter().1.receiver().is_some_and(|receiver| {
                         matches!(
@@ -246,7 +255,11 @@ impl ValueInputs {
                         )
                     })
                 }) {
-                    pending.push(*source);
+                    if let bray_bound_tree::BoundExecutionSite::Node(
+                        bray_bound_tree::AnyBoundNodeId::Expression(source)) = source
+                    {
+                        pending.push(*source);
+                    }
                     break;
                 }
 

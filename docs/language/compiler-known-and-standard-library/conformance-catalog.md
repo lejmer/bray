@@ -47,7 +47,7 @@ The always-available compiler-known type entries are:
 - trait-view type forms,
 - owned-indirection type forms,
 - callable type forms,
-- `RawPointer<T>`.
+- `DataPointer<T>` and `FunctionPointer<F>`.
 
 The always-available compiler-known value entries are:
 
@@ -229,7 +229,7 @@ The recognized declarations under `std.memory` are:
 - `byte_offset<T>(pointer, bytes)`,
 - `reinterpret<Target, Source>(pointer)`,
 - `callable_from_pointer<F>(pointer)`,
-- `pointer_from_callable<F>(value)`,
+- `function_address<F>(value)`,
 - `read<T>(pointer)`,
 - `write<T>(pointer, value)`,
 - `copy<T>(source, destination, count)`,

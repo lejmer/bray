@@ -30,7 +30,7 @@ pub(super) const fn target_scalar(role: RepresentationRole) -> Option<TargetScal
         | RepresentationRole::Atomic
         | RepresentationRole::String
         | RepresentationRole::Range
-        | RepresentationRole::RawPointer
+        | RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
         | RepresentationRole::DevicePointer
         | RepresentationRole::Uninit
         | RepresentationRole::Result

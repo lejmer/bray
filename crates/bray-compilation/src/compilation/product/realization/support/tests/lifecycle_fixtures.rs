@@ -66,8 +66,6 @@ pub(super) fn reachable_cleanup_operations(
 }
 
 pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
-    use crate::test_support::source_input;
-
     use crate::{
         Compilation, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
     };
@@ -98,16 +96,14 @@ pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
     let provider = Compilation::load(
         CompilationRequest::with_options(
             package.clone(),
-            vec![
-                source_input(
-                    include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-                    0,
-                ),
-                source_input(
-                    include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
-                    1,
-                ),
-            ],
+            crate::test_support::source_inputs(&[
+include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/function.bray")
+]),
             crate::CompilationOptions::new(
                 crate::WorkerBudget::serial(),
                 bray_symbols::ProductKind::Library,

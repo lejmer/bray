@@ -10,14 +10,19 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         block: MirBlockId,
         base: MirOperand,
         exponent: MirOperand,
-        _ty: TypeId,
+        machine_type: Option<TypeId>,
     ) -> Result<(MirBlockId, MirOperand), C::Error> {
         let (bits, signed) = self
             .integer_shape(&base)
             .expect("checked exact exponentiation retains integer base");
 
-        let maximum = self.maximum_shift(&exponent);
-        let ty = self.integer_type(u64::from(bits).saturating_mul(maximum).max(2), signed)?;
+        let ty = match machine_type {
+            Some(ty) => ty,
+            None => {
+                let maximum = self.maximum_shift(&exponent);
+                self.integer_type(u64::from(bits).saturating_mul(maximum).max(2), signed)?
+            }
+        };
         let exponent_type = self.builder.operand_type(&exponent);
         let base = self.convert(block, base, ty)?;
 

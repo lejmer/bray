@@ -289,9 +289,41 @@ fn validate_template(
         dependency_count,
     };
 
+    let mut unbound = None::<Vec<BTreeSet<bray_bound_tree::CheckedTemplateNodeId>>>;
     for (node_index, node) in template.nodes().iter().enumerate() {
         validate_index(node.ty().to_index(), semantics.types.len())?;
         validate_operation(context, node, node_index)?;
+        if matches!(node.operation(), InterfaceCheckedTemplateOperation::ArrayElement { .. })
+            && unbound.is_none()
+        {
+            unbound = Some(vec![BTreeSet::new(); node_index]);
+        }
+        let Some(unbound) = &mut unbound else {
+            continue;
+        };
+        let mut elements = BTreeSet::new();
+        node.operation().try_for_each_node_reference::<InterfaceValidationError>(|reference| {
+            let index = checked_index(compact_index(reference.raw()), unbound.len())?;
+            elements.extend(unbound[index].iter().copied());
+            Ok(())
+        })?;
+        match node.operation() {
+            InterfaceCheckedTemplateOperation::ArrayElement { .. } => {
+                elements.insert(bray_bound_tree::CheckedTemplateNodeId::new(
+                    u32::try_from(node_index).expect("validated template node count fits its IDs")));
+            }
+            InterfaceCheckedTemplateOperation::ArrayTransform { element, .. } => {
+                elements.remove(element);
+            }
+            InterfaceCheckedTemplateOperation::Temporary(temporary) => {
+                let initializer = template.temporaries()[usize::try_from(temporary.raw())
+                    .expect("validated temporary ID fits host")].initializer();
+                elements.extend(unbound[usize::try_from(initializer.raw())
+                    .expect("validated initializer ID fits host")].iter().copied());
+            }
+            _ => {}
+        }
+        unbound.push(elements);
     }
 
     let mut previous_initializer = None;
@@ -324,10 +356,10 @@ fn validate_template(
         }
     }
 
-    validate_index(
-        compact_index(template.result().raw()),
-        template.nodes().len(),
-    )?;
+    let result = checked_index(compact_index(template.result().raw()), template.nodes().len())?;
+    if unbound.is_some_and(|unbound| !unbound[result].is_empty()) {
+        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+    }
 
     validate_index(
         template.behavior().dependency_contract().to_index(),
@@ -507,8 +539,13 @@ fn validate_operation_references(
                 }
             }
         }
-        InterfaceCheckedTemplateOperation::Unary { .. }
+        InterfaceCheckedTemplateOperation::Sequence { .. }
+        | InterfaceCheckedTemplateOperation::ArrayElement { .. }
+        | InterfaceCheckedTemplateOperation::ArrayTransform { .. }
+        | InterfaceCheckedTemplateOperation::Unary { .. }
+        | InterfaceCheckedTemplateOperation::MachineUnary { .. }
         | InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::MachineBinary { .. }
         | InterfaceCheckedTemplateOperation::Borrow { .. }
         | InterfaceCheckedTemplateOperation::Tuple(_)
         | InterfaceCheckedTemplateOperation::Array(_)
@@ -576,15 +613,20 @@ fn validate_operation_type(
 ) -> Result<(), InterfaceValidationError> {
     let valid = match node.operation() {
         InterfaceCheckedTemplateOperation::Unreachable => true,
+        InterfaceCheckedTemplateOperation::Sequence { value, .. } => {
+            node_type(template, *value) == Some(node.ty())
+        }
         InterfaceCheckedTemplateOperation::Input(input) => {
             let input_index = checked_index(compact_index(input.raw()), template.inputs().len())?;
 
             template.inputs()[input_index].ty() == node.ty()
         }
-        InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
+        InterfaceCheckedTemplateOperation::Unary { operand, .. }
+        | InterfaceCheckedTemplateOperation::MachineUnary { operand, .. } => {
             node_type(template, *operand) == Some(node.ty())
         }
         InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::MachineBinary { .. }
         | InterfaceCheckedTemplateOperation::VariantTest { .. } => true,
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
             let Some(InterfaceType::Borrow {
@@ -634,6 +676,23 @@ fn validate_operation_type(
                     .iter()
                     .zip(types.iter())
                     .all(|(element, ty)| node_type(template, *element) == Some(*ty))
+        }
+        InterfaceCheckedTemplateOperation::ArrayElement { subject } => {
+            matches!(node_type(template, *subject).and_then(|ty| unborrowed_type(semantics, ty)),
+                Some(InterfaceType::Array { element, .. }) if *element == node.ty())
+        }
+        InterfaceCheckedTemplateOperation::ArrayTransform { subject, element, value } => {
+            let source = node_type(template, *subject).and_then(|ty| unborrowed_type(semantics, ty));
+            let target = type_at(semantics, node.ty());
+            let binding = &template.nodes()[usize::try_from(element.raw())
+                .expect("validated transform element fits host")];
+            matches!((source, target),
+                (Some(InterfaceType::Array { length: source, .. }),
+                 Some(InterfaceType::Array { element: target, length }))
+                    if source == length && node_type(template, *value) == Some(*target))
+                && matches!(binding.operation(), InterfaceCheckedTemplateOperation::ArrayElement { subject: input }
+                    if input == subject)
+                && element.raw() <= value.raw()
         }
         InterfaceCheckedTemplateOperation::Array(elements) => {
             let Some(InterfaceType::Array { element, .. }) = type_at(semantics, node.ty()) else {

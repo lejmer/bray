@@ -641,6 +641,11 @@ impl Compilation {
 
                 values.intern_constant_value(ConstantValueData::new(result_type, kind))?
             }
+            (ImplementationHook::RawPointerByteAddress, [argument]) => {
+                let argument = values.constant_value_data(values.observed_constant_value(*argument));
+                // Pointer representations share interned address identity, never the reached storage.
+                values.intern_constant_value(ConstantValueData::new(result_type, argument.kind().clone()))?
+            }
             (ImplementationHook::AtomicInitialize, [argument]) => {
                 let argument = values.constant_value_data(*argument);
 

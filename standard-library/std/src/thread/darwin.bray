@@ -11,7 +11,7 @@ trusted func current_platform_identity() -> u64
     return trusted std.os.unix.pthread_self();
 }
 
-trusted internal func platform_set_native_thread_name(pos name: RawPointer<u8>) -> i32
+trusted internal func platform_set_native_thread_name(pos name: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.darwin.pthread_setname_np(name);

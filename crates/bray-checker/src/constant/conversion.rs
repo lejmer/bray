@@ -44,6 +44,18 @@ pub(super) fn convert_scalar(
     }
 }
 
+pub(super) fn complex_from_components(
+    values: &bray_symbols::SemanticValueStore,
+    components: [bray_symbols::ConstantValueId; 2],
+) -> Option<ConstantValueKind> {
+    let [real, imaginary] = components.map(|value| values.constant_value_data(value));
+    match (real.kind(), imaginary.kind()) {
+        (ConstantValueKind::Real(real), ConstantValueKind::Real(imaginary)) =>
+            Some(ConstantValueKind::Complex { real: *real, imaginary: *imaginary }),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;

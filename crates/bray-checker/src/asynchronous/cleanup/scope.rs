@@ -105,6 +105,7 @@ where
         if !matches!(
             provenance,
             bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                 | bray_bound_tree::StorageIdentity::LocalOwned(_)
                 | bray_bound_tree::StorageIdentity::Parameter(_)
                 | bray_bound_tree::StorageIdentity::Receiver(_)

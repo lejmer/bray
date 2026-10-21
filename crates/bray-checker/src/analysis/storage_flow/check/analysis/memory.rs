@@ -201,6 +201,7 @@ where
                 }
             }
             CheckedMemoryOperationKind::BorrowFrom { .. }
+            | CheckedMemoryOperationKind::ByteAddress { .. }
             | CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. } => {

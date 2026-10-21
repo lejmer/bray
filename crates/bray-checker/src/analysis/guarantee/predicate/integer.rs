@@ -33,6 +33,62 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         .is_some_and(|(lower, upper)| lower >= minimum && upper <= maximum)
     }
 
+    pub(super) fn predicate_input_fits(
+        &self,
+        state: &ExecutionState,
+        input: bray_bound_tree::BoundExecutionSite,
+        target: TypeId,
+        ranges: &mut IntegerRanges,
+    ) -> bool {
+        let Some((minimum, maximum)) = self.integer_type_range(target) else {
+            return true;
+        };
+        let value = self.current_input(state, input);
+        let range = self.observed_integer_range(state, &value, ranges,
+            &mut { ExecutionCondition::WORK_LIMIT }).or_else(|| {
+                // An opaque completed provider has its declared result type. Its
+                // normal completion is certified independently at the input site.
+                matches!(value, ExecutionCondition::Call(_, _) | ExecutionCondition::PostState(_, _))
+                    .then(|| self.integer_type_range(target)).flatten()
+            });
+        range.is_some_and(|(lower, upper)| lower >= minimum && upper <= maximum)
+    }
+
+    fn observed_integer_range(
+        &self,
+        state: &ExecutionState,
+        value: &ExecutionCondition,
+        ranges: &mut IntegerRanges,
+        budget: &mut usize,
+    ) -> Option<(BigInt, BigInt)> {
+        *budget = budget.checked_sub(1)?;
+        let range = match value {
+            ExecutionCondition::Literal(_) => integer_literal(value).map(|value| (value.clone(), value)),
+            ExecutionCondition::Expression(expression)
+                if self.request.unit().key().kind().uses_machine_arithmetic()
+                    && state.expressions.get(expression) == Some(value) =>
+                self.semantics.types().expression(*expression)
+                    .and_then(|ty| self.integer_type_range(ty.ty())),
+            ExecutionCondition::Expression(expression) => self.integer_range(state, *expression, ranges, budget),
+            ExecutionCondition::Operation(operator, operands) => match operands.as_ref() {
+                [operand] => {
+                    let (lower, upper) = self.observed_integer_range(state, operand, ranges, budget)?;
+                    match operator {
+                        BoundOperator::Add => Some((lower, upper)),
+                        BoundOperator::Subtract => Some((-upper, -lower)),
+                        _ => None,
+                    }
+                }
+                [left, right] => arithmetic_range(*operator,
+                    self.observed_integer_range(state, left, ranges, budget)?,
+                    self.observed_integer_range(state, right, ranges, budget)?),
+                _ => None,
+            },
+            _ => self.observation_type(value).and_then(|ty| self.integer_type_range(ty)),
+        };
+        refine_integer_range(value, range, &state.assumptions)
+    }
+
     pub(super) fn integer_condition(
         &self,
         value: BigInt,
@@ -57,7 +113,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ExecutionCondition::Literal(self.request.semantic_values().constant_value_data(value))
     }
 
-    pub(super) fn integer_type_range(&self, ty: TypeId) -> Option<(BigInt, BigInt)> {
+    pub(in crate::analysis::guarantee) fn integer_type_range(&self, ty: TypeId) -> Option<(BigInt, BigInt)> {
         let representation = crate::representation::type_representation(self.request, ty)?
             .integer_representation()?;
 
@@ -106,67 +162,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut range = if let Some(value) = integer_literal(&value) {
             Some((value.clone(), value))
+        } else if self.request.unit().key().kind().uses_machine_arithmetic()
+            && state.expressions.contains_key(&expression)
+        {
+            // The owning execution step already interpreted this operation.
+            // Reuse its value snapshot instead of interpreting its source again.
+            self.observed_integer_range(state, &value, ranges, budget)
         } else {
             self.operation_integer_range(state, expression, ranges, budget)
         };
 
-        if let Some((lower, upper)) = &mut range {
-            for (condition, holds) in &state.assumptions {
-                let ExecutionCondition::Operation(operator, operands) = condition else {
-                    continue;
-                };
-
-                let [left, right] = operands.as_ref() else {
-                    continue;
-                };
-
-                let (operator, bound) = if left == &value {
-                    (*operator, integer_literal(right))
-                } else if right == &value {
-                    (reverse_comparison(*operator), integer_literal(left))
-                } else {
-                    continue;
-                };
-
-                let Some(bound) = bound else {
-                    continue;
-                };
-
-                match (operator, holds) {
-                    (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false) => {
-                        *lower = std::cmp::max(std::mem::take(lower), bound.clone());
-                        *upper = std::cmp::min(std::mem::take(upper), bound);
-                    }
-                    (BoundOperator::NotEqual, true) | (BoundOperator::Equal, false)
-                        if *lower == bound =>
-                    {
-                        *lower += 1
-                    }
-                    (BoundOperator::NotEqual, true) | (BoundOperator::Equal, false)
-                        if *upper == bound =>
-                    {
-                        *upper -= 1
-                    }
-                    (BoundOperator::Less, true) | (BoundOperator::GreaterEqual, false) => {
-                        *upper = std::cmp::min(std::mem::take(upper), bound - 1)
-                    }
-                    (BoundOperator::LessEqual, true) | (BoundOperator::Greater, false) => {
-                        *upper = std::cmp::min(std::mem::take(upper), bound)
-                    }
-                    (BoundOperator::Greater, true) | (BoundOperator::LessEqual, false) => {
-                        *lower = std::cmp::max(std::mem::take(lower), bound + 1)
-                    }
-                    (BoundOperator::GreaterEqual, true) | (BoundOperator::Less, false) => {
-                        *lower = std::cmp::max(std::mem::take(lower), bound)
-                    }
-                    _ => {}
-                }
-            }
-
-            if lower > upper {
-                range = None;
-            }
-        }
+        range = refine_integer_range(&value, range, &state.assumptions);
 
         // Each block retains the derived bounds so shared arithmetic is not traversed again.
         ranges.insert(expression, range.clone());
@@ -175,6 +181,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn operation_integer_range(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        ranges: &mut IntegerRanges,
+        budget: &mut usize,
+    ) -> Option<(BigInt, BigInt)> {
+        let range = self.exact_operation_integer_range(state, expression, ranges, budget)?;
+        if self.request.unit().key().kind().uses_machine_arithmetic()
+            && matches!(self.semantics.selections().expression(expression),
+                Some(SemanticSelection::Operation(SelectedOperation::Operator { .. })))
+            && let Some(physical) = self.semantics.types().expression(expression)
+                .and_then(|ty| self.integer_type_range(ty.ty()))
+            && (range.0 < physical.0 || range.1 > physical.1)
+        {
+            return Some(physical);
+        }
+        Some(range)
+    }
+
+    fn exact_operation_integer_range(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
@@ -274,4 +300,71 @@ fn reverse_comparison(operator: BoundOperator) -> BoundOperator {
         BoundOperator::GreaterEqual => BoundOperator::LessEqual,
         operator => operator,
     }
+}
+
+
+fn refine_integer_range(
+    value: &ExecutionCondition,
+    mut range: Option<(BigInt, BigInt)>,
+    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+) -> Option<(BigInt, BigInt)> {
+        if let Some((lower, upper)) = &mut range {
+            for (condition, holds) in assumptions {
+                let ExecutionCondition::Operation(operator, operands) = condition else {
+                    continue;
+                };
+
+                let [left, right] = operands.as_ref() else {
+                    continue;
+                };
+
+                let (operator, bound) = if left == value {
+                    (*operator, integer_literal(right))
+                } else if right == value {
+                    (reverse_comparison(*operator), integer_literal(left))
+                } else {
+                    continue;
+                };
+
+                let Some(bound) = bound else {
+                    continue;
+                };
+
+                match (operator, holds) {
+                    (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false) => {
+                        *lower = std::cmp::max(std::mem::take(lower), bound.clone());
+                        *upper = std::cmp::min(std::mem::take(upper), bound);
+                    }
+                    (BoundOperator::NotEqual, true) | (BoundOperator::Equal, false)
+                        if *lower == bound =>
+                    {
+                        *lower += 1
+                    }
+                    (BoundOperator::NotEqual, true) | (BoundOperator::Equal, false)
+                        if *upper == bound =>
+                    {
+                        *upper -= 1
+                    }
+                    (BoundOperator::Less, true) | (BoundOperator::GreaterEqual, false) => {
+                        *upper = std::cmp::min(std::mem::take(upper), bound - 1)
+                    }
+                    (BoundOperator::LessEqual, true) | (BoundOperator::Greater, false) => {
+                        *upper = std::cmp::min(std::mem::take(upper), bound)
+                    }
+                    (BoundOperator::Greater, true) | (BoundOperator::LessEqual, false) => {
+                        *lower = std::cmp::max(std::mem::take(lower), bound + 1)
+                    }
+                    (BoundOperator::GreaterEqual, true) | (BoundOperator::Less, false) => {
+                        *lower = std::cmp::max(std::mem::take(lower), bound)
+                    }
+                    _ => {}
+                }
+            }
+
+            if lower > upper {
+                range = None;
+            }
+        }
+
+    range
 }

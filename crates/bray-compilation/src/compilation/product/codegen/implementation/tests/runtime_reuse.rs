@@ -303,7 +303,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 extern trusted static NATIVE_VALUE: i32;
 
                 trusted func main() {
-                    let pointer: RawPointer<i32> = NATIVE_VALUE;
+                    let pointer: DataPointer<i32> = NATIVE_VALUE;
                 }
             "#,
             true,
@@ -317,7 +317,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 extern trusted static NATIVE_VALUE: i32;
 
                 trusted func main() {
-                    let pointer: RawPointer<i32> = NATIVE_VALUE;
+                    let pointer: DataPointer<i32> = NATIVE_VALUE;
                 }
             "#,
             false,

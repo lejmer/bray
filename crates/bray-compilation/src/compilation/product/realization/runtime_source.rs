@@ -313,7 +313,7 @@ mod tests {
                 trusted predicate native_attachment_exit();
                 trusted predicate unrelated();
                 @abi(c)
-                trusted internal func entry(pos value: RawPointer<u8>) {requirement} {{}}
+                trusted internal func entry(pos value: DataPointer<u8>) {requirement} {{}}
             "#
                 ));
 
@@ -344,7 +344,7 @@ mod tests {
                 ),
             ] {
                 let compilation = compilation(&format!(
-                    "trusted module app; {declaration} @abi(c) trusted func entry(pos value: RawPointer<u8>) requires({requirement}) {{}}"
+                    "trusted module app; {declaration} @abi(c) trusted func entry(pos value: DataPointer<u8>) requires({requirement}) {{}}"
                 ));
 
                 let key = crate::test_support::source_function_body_key(&compilation, "entry");

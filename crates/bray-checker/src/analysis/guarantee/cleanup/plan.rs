@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(crate) struct Cleanup<'a> {
-    pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
+    pub(in crate::analysis::guarantee) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
     pub(in crate::analysis) plan: &'a Plan,
     pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }

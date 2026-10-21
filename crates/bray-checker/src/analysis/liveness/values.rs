@@ -12,7 +12,7 @@ use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundUnit, StoragePlan}
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ValueRetention {
     incoming: BTreeMap<AnalysisBlockId, BTreeSet<BoundExpressionId>>,
-    repeatable: BTreeSet<BoundExpressionId>,
+    repeatable: BTreeSet<bray_bound_tree::BoundExecutionSite>,
 }
 
 impl ValueRetention {
@@ -77,7 +77,7 @@ impl ValueRetention {
                                 .operation(*id)
                                 .expect("value liveness block retains its operation")
                         })
-                        .filter_map(|operation| operation.kind().occurrence().expression()),
+                        .map(|operation| operation.kind().occurrence()),
                 );
             }
         }
@@ -92,8 +92,8 @@ impl ValueRetention {
         &self.incoming[&block]
     }
 
-    pub(crate) fn can_repeat(&self, expression: BoundExpressionId) -> bool {
-        self.repeatable.contains(&expression)
+    pub(crate) fn can_repeat(&self, occurrence: bray_bound_tree::BoundExecutionSite) -> bool {
+        self.repeatable.contains(&occurrence)
     }
 }
 
@@ -133,6 +133,8 @@ fn transfers(
                     AnalysisRefinement::TrustBoundary(_)
                     | AnalysisRefinement::InvocationFailure(_)
                     | AnalysisRefinement::InvocationCompletion(_)
+                    | AnalysisRefinement::InvocationPresence(_, _)
+                    | AnalysisRefinement::InvocationBoolean(_, _)
                     | AnalysisRefinement::CleanupRequired { .. },
                 )
                 | None => {}
@@ -150,6 +152,19 @@ fn transfers(
                     transfer.killed.insert(expression);
                 }
                 AnalysisOperationKind::ScopeExit { .. } => {}
+                AnalysisOperationKind::Call {
+                    invocation: occurrence @ (bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                        | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                        | bray_bound_tree::BoundExecutionSite::Next(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
+                    ..
+                } => {
+                    transfer.generated.extend(storage.occurrence_plans(occurrence)
+                        .filter(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                        .map(|plan| plan.expression())
+                        .filter(|expression| Some(*expression) != occurrence.expression()));
+                }
                 kind => {
                     if let Some(expression) = kind.occurrence().expression() {
                         let node = unit

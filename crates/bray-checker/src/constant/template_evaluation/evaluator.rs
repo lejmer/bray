@@ -130,6 +130,10 @@ where
             CheckedTemplateOperation::Unreachable => panic!(
                 "constant evaluation reached a path excluded by checked control flow and invocation requirements"
             ),
+            CheckedTemplateOperation::Sequence { before, value } => {
+                self.evaluate_node(*before)?;
+                self.evaluate_node(*value)
+            }
             CheckedTemplateOperation::Input(input) => self.evaluate_input(*input),
             CheckedTemplateOperation::Constant { term, usage } => {
                 let usage = crate::ConstantEvaluationUsage::new(
@@ -162,7 +166,13 @@ where
                 operation,
                 left,
                 right,
-            } => self.evaluate_binary(*operation, *left, *right, ty),
+            } => self.evaluate_binary(*operation, *left, *right, ty, false),
+            CheckedTemplateOperation::MachineBinary { operation, left, right } =>
+                self.evaluate_binary(*operation, *left, *right, ty, true),
+            CheckedTemplateOperation::MachineUnary { operation, operand } => {
+                let operand = self.evaluate_node(*operand)?;
+                self.evaluate_machine_unary(*operation, operand, ty)
+            },
             CheckedTemplateOperation::Borrow { kind, operand } => {
                 self.evaluate_borrow(*kind, *operand, ty)
             }
@@ -196,6 +206,10 @@ where
 
                 self.evaluate_conversion(value, target)
             }
+            CheckedTemplateOperation::ArrayElement { .. } =>
+                panic!("checked array element is evaluated only under its transform binding"),
+            CheckedTemplateOperation::ArrayTransform { subject, element, value } =>
+                self.evaluate_array_transform(*subject, *element, *value, ty),
             CheckedTemplateOperation::Tuple(elements) => {
                 let values = self.evaluate_nodes(elements)?;
 
@@ -394,6 +408,34 @@ where
         let value = self.context.semantic_values().constant_value_data(value);
 
         Ok(integer_index(value.kind()).unwrap_or_else(|| panic!("checked constant index bound at {node:?} must be a nonnegative host-sized integer, actual: {value:?}")))
+    }
+
+    fn evaluate_array_transform(
+        &mut self,
+        subject: CheckedTemplateNodeId,
+        element: CheckedTemplateNodeId,
+        value: CheckedTemplateNodeId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let subject = self.evaluate_node(subject)?;
+        let subject = self.observed_value(subject)?;
+        let ConstantValueKind::Array(elements) = subject.kind() else {
+            panic!("checked array transform receives its array value");
+        };
+        self.budget.try_charge_elements(elements.len())
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+        let mut converted = Vec::with_capacity(elements.len());
+        let first = template_index(element.raw());
+        let end = template_index(value.raw()) + 1;
+        for input in elements.iter() {
+            // The checked body occupies this contiguous range. Keep outer values
+            // memoized while rebinding only this element and its computation.
+            self.values[first..end].fill(None);
+            self.values[first] = Some(*input);
+            converted.push(self.evaluate_node(value)?);
+        }
+        self.values[first..end].fill(None);
+        Ok(self.intern_value(ty, ConstantValueKind::array(converted)))
     }
 
     fn evaluate_slice(
@@ -600,12 +642,34 @@ where
         Ok(self.intern_value(ty, kind))
     }
 
+    fn evaluate_machine_unary(
+        &self,
+        operation: ConstantUnaryOperation,
+        operand: ConstantValueId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let data = self.context.semantic_values().constant_value_data(
+            self.context.semantic_values().observed_constant_value(operand));
+        let role = type_representation_for_context(self.context, ty);
+        if matches!(operation, ConstantUnaryOperation::Negate | ConstantUnaryOperation::BitwiseNot)
+            && let ConstantValueKind::Integer(value) = data.kind()
+            && let Some(role) = role.filter(|role| role.integer_representation().is_some())
+        {
+            let kind = super::super::machine::fold_machine_integer_unary(
+                unary_operator(operation), value, role,
+                self.context.selected_target().machine().pointer_width_bits());
+            return Ok(self.intern_value(ty, kind));
+        }
+        self.evaluate_unary(operation, operand, ty)
+    }
+
     fn evaluate_binary(
         &mut self,
         operation: ConstantBinaryOperation,
         left: CheckedTemplateNodeId,
         right: CheckedTemplateNodeId,
         ty: TypeId,
+        machine: bool,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let left = self.evaluate_node(left)?;
 
@@ -629,6 +693,25 @@ where
                 .semantic_values()
                 .observed_constant_value(right),
         );
+
+        if machine
+            && let (ConstantValueKind::Integer(left), ConstantValueKind::Integer(right)) =
+                (left_data.kind(), right_data.kind())
+            && let Some(representation) = type_representation_for_context(self.context, left_data.ty())
+                .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+        {
+            if let Some(kind) = super::super::machine::fold_machine_integer_binary(
+                binary_operator(operation), left, right, representation,
+                self.context.selected_target().machine().pointer_width_bits())
+            {
+                return Ok(self.intern_value(ty, kind));
+            }
+            // Recover a specific arithmetic failure only on the failed path.
+            let cause = fold_binary(binary_operator(operation), left_data.kind(), right_data.kind(),
+                self.limits.integer_bits()).err()
+                .unwrap_or(super::super::operation::ConstantOperationError::Invalid);
+            return Err(operation_failure(diagnostic_operation(binary_operator(operation)), cause));
+        }
 
         let kind = fold_binary(
             binary_operator(operation),
@@ -953,6 +1036,18 @@ where
                 "checked constant conversion must have a scalar target representation, target: {target:?}"
             );
         };
+
+        if representation.complex_component().is_some()
+            && let ConstantValueKind::Tuple(elements) = data.kind()
+        {
+            let [real, imaginary] = elements.as_ref() else {
+                panic!("checked tuple-to-complex conversion has two components");
+            };
+            let kind = super::super::conversion::complex_from_components(
+                self.context.semantic_values(), [*real, *imaginary],
+            ).expect("checked tuple-to-complex conversion has converted real components");
+            return Ok(self.intern_value(target, kind));
+        }
 
         let kind = convert_scalar(data.kind(), representation, || {
             self.context

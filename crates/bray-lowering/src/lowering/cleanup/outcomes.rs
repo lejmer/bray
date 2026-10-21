@@ -471,6 +471,7 @@ impl Lowerer<'_> {
             });
         }
 
+        let pending_inputs = temporaries;
         let mut temporaries = temporaries.iter().rev().peekable();
 
         for plan in plans {
@@ -507,6 +508,9 @@ impl Lowerer<'_> {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
+                if self.input_cleanup_owns(*access, phase, pending_inputs) {
+                    continue;
+                }
                 steps.push(AbnormalCleanupStep {
                     occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
                     operation: AbnormalCleanupOperation::Access {

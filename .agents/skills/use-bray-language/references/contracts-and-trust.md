@@ -70,7 +70,7 @@ func guarded_identity(pos value: bool) -> bool
 }
 ```
 
-`pure` excludes runtime effects, including allocation, mutation, synchronization and suspension. `total` proves normal
+`pure` excludes observable runtime effects, including external mutation, allocation, synchronization and suspension. Confined local mutation needs proof through selected calls and cleanup. A local reference does not make its referent local. `total` proves normal
 termination on valid inputs, including every returned `Result.Error`. It does not prove resource cleanup complete.
 Use checked postconditions for that state. Async guarantees apply when the body begins, with postconditions available
 after normal completion. Callers need valid entry evidence for guarded guarantees. Relevant later mutation invalidates
@@ -99,7 +99,7 @@ predicate every_index_fits(indices: &[usize], length: usize) = all(
 
 predicate any_flag(flags: &[bool]) = any(flags);
 
-trusted predicate readable_byte(pointer: RawPointer<u8>);
+trusted predicate readable_byte(pointer: DataPointer<u8>);
 ```
 
 Predicate parameters have names and types without callable ownership modifiers or defaults. Predicate declarations can be module-level, type-associated, trait requirements or defaults, and trait implementation fulfillments.
@@ -171,10 +171,10 @@ using core.memory;
 
 struct ReadableByte
 {
-    pointer: RawPointer<u8>;
+    pointer: DataPointer<u8>;
 }
 
-trusted func initialize_byte(pos pointer: RawPointer<u8>, pos value: u8)
+trusted func initialize_byte(pos pointer: DataPointer<u8>, pos value: u8)
     requires(
         trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -185,7 +185,7 @@ trusted func initialize_byte(pos pointer: RawPointer<u8>, pos value: u8)
     trusted core.memory.write<u8>(pointer, value);
 }
 
-trusted func assume_readable_byte(pos pointer: RawPointer<u8>) -> ReadableByte
+trusted func assume_readable_byte(pos pointer: DataPointer<u8>) -> ReadableByte
     requires(
         trusted readable_byte(pointer),
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
@@ -231,7 +231,7 @@ See [trusted implementation capabilities](https://github.com/lejmer/bray/blob/de
 ```bray
 using core.memory;
 
-trusted func read_pair(pos first: RawPointer<u8>, pos second: RawPointer<u8>) -> u16
+trusted func read_pair(pos first: DataPointer<u8>, pos second: DataPointer<u8>) -> u16
     requires(
         trusted core.memory.valid_read<u8>(pointer = first, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = first),
@@ -265,7 +265,7 @@ A declaration that uses a trusted obligation must discharge it internally or pre
 ```bray
 using core.memory;
 
-callable ByteReader = trusted func(pos pointer: RawPointer<u8>) -> u8
+callable ByteReader = trusted func(pos pointer: DataPointer<u8>) -> u8
     requires(
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -273,7 +273,7 @@ callable ByteReader = trusted func(pos pointer: RawPointer<u8>) -> u8
     )
     uses(raw_memory);
 
-trusted func read_wrapper(pos pointer: RawPointer<u8>) -> u8
+trusted func read_wrapper(pos pointer: DataPointer<u8>) -> u8
     requires(
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),

@@ -17,15 +17,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> StorageInvalidation {
         let paths = match invalidation {
             StorageInvalidation::All { .. } => {
-                let invocation = occurrence.expression().is_some_and(|expression| {
-                    matches!(
-                        self.execution.semantics.selections().expression(expression),
-                        Some(bray_bound_tree::SemanticSelection::Call(_))
-                    ) || matches!(
+                let invocation = self.dependencies.calls().contains_key(&occurrence)
+                    || occurrence.expression().is_some_and(|expression| matches!(
                         self.request.view().expression(expression),
                         Some(bray_bound_tree::BoundExpression::Await(_))
-                    )
-                });
+                    ));
 
                 return if invocation {
                     self.opaque_observations(

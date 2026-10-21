@@ -86,9 +86,9 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
         state = std.sync.SpinLock<ChannelState<T>>(state),
     };
 
-    let pointer: RawPointer<ChannelCore<T>> = trusted std.memory.allocate_value<ChannelCore<T>>(shared);
+    let pointer: DataPointer<ChannelCore<T>> = trusted std.memory.allocate_value<ChannelCore<T>>(shared);
 
-    let make_sender = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> Sender<T>
+    let make_sender = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> Sender<T>
         ensures(
             trusted std.channel.owner.live(&result.owner.instance),
             trusted std.channel.owner.sender(&result.owner.instance)
@@ -106,7 +106,7 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
         };
     };
 
-    let make_receiver = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> Receiver<T>
+    let make_receiver = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> Receiver<T>
         ensures(
             trusted std.channel.owner.live(&result.owner.instance),
             trusted std.channel.owner.receiver(&result.owner.instance)

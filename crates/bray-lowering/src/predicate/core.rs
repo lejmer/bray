@@ -279,6 +279,10 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let ty = self.context.predicate_type(node.ty())?;
 
         let (continued, value) = match node.operation() {
+            CheckedTemplateOperation::ArrayElement { .. } =>
+                panic!("checked array element is lowered only under its transform binding"),
+            CheckedTemplateOperation::ArrayTransform { subject, element, value } =>
+                self.array_transform(block, *subject, *element, *value, ty)?,
             CheckedTemplateOperation::Unreachable => panic!(
                 "excluded template value is lowered only as a terminating conditional alternative"
             ),
@@ -290,11 +294,27 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 .expect("runtime expression cannot read a type-only input")
                 .clone(),
             ),
+            CheckedTemplateOperation::Sequence { before, value } => {
+                let (continued, _) = self.node(block, *before)?;
+                self.node(continued, *value)?
+            }
             CheckedTemplateOperation::Constant { term, .. } => self.term(block, *term, ty)?,
             CheckedTemplateOperation::Unary { operation, operand } => {
                 let (continued, operand) = self.node(block, *operand)?;
 
                 (continued, self.unary(continued, *operation, operand, ty)?)
+            }
+            CheckedTemplateOperation::MachineUnary { operation, operand } => {
+                let (continued, operand) = self.node(block, *operand)?;
+                (continued, self.machine_unary(continued, *operation, operand, ty)?)
+            }
+            CheckedTemplateOperation::MachineBinary { operation, left, right } => {
+                let operand_type = self.context.predicate_type(
+                    self.template.nodes()[usize::try_from(left.raw()).expect("checked operand fits host")].ty())?;
+                let operand_type = self.context.semantic_values().unborrowed_type(operand_type);
+                let (continued, left) = self.node(block, *left)?;
+                let (continued, right) = self.node(continued, *right)?;
+                self.machine_binary(continued, *operation, left, right, operand_type, ty)?
             }
             CheckedTemplateOperation::Binary {
                 operation: bray_symbols::ConstantBinaryOperation::LogicalAnd,
@@ -393,6 +413,13 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             }
             operation => self.structural(block, operation, ty)?,
         };
+
+        let value = if let Some(bits) = node.unsigned_integer_bits() {
+            let exact = self.context.semantic_values().intern_type(bray_symbols::TypeData::ExactInteger {
+                bits: std::num::NonZeroU16::new(u16::from(bits.get())).expect("checked width is nonzero"), signed: false,
+            }).map_err(crate::SyntheticLoweringError::SemanticValue)?;
+            self.convert(continued, value, exact)?
+        } else { value };
 
         // This invocation owns the memoized operand while its immutable place remains shared.
         self.values.insert(id, value.clone());

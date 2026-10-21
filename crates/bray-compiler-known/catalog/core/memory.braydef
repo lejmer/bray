@@ -6,7 +6,7 @@ scope CoreMemory at core.memory {
         implementation AddressOf;
 
         surface {
-            func address_of<T>(pos value: &T) -> RawPointer<T>
+            func address_of<T>(pos value: &T) -> DataPointer<T>
                 ensures(
                     trusted core.memory.valid_read<T>(pointer = result, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = result),
@@ -25,7 +25,7 @@ scope CoreMemory at core.memory {
         implementation AddressOfMut;
 
         surface {
-            func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+            func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
                 ensures(
                     trusted core.memory.valid_read<T>(pointer = result, count = 1),
                     trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -44,14 +44,14 @@ scope CoreMemory at core.memory {
         availability RawMemory;
         implementation RawPointerNull;
 
-        surface { func null<T>() -> RawPointer<T>; }
+        surface { func null<T>() -> DataPointer<T>; }
     }
 
     declaration RawPointerIsNull {
         availability RawMemory;
         implementation RawPointerIsNull;
 
-        surface { func is_null<T>(pos pointer: RawPointer<T>) -> bool; }
+        surface { func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
     }
 
     declaration RawPointerOffset {
@@ -60,9 +60,9 @@ scope CoreMemory at core.memory {
 
         surface {
             func offset<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 elements: isize,
-            ) -> RawPointer<T>;
+            ) -> DataPointer<T>;
         }
     }
 
@@ -72,9 +72,18 @@ scope CoreMemory at core.memory {
 
         surface {
             func byte_offset<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 bytes: isize,
-            ) -> RawPointer<T>;
+            ) -> DataPointer<T>;
+        }
+    }
+
+    declaration RawPointerByteAddress {
+        availability RawMemory;
+        implementation RawPointerByteAddress;
+
+        surface {
+            const func byte_address<T>(pos pointer: DataPointer<T>) -> DataPointer<u8>;
         }
     }
 
@@ -84,8 +93,8 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted func reinterpret<Target, Source>(
-                pos pointer: RawPointer<Source>,
-            ) -> RawPointer<Target>
+                pos pointer: DataPointer<Source>,
+            ) -> DataPointer<Target>
                 uses(layout_reinterpret);
         }
     }
@@ -94,7 +103,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate callable_address_valid<F>(pointer: RawPointer<F>);
+            trusted predicate callable_address_valid<F>(pointer: FunctionPointer<F>);
         }
     }
 
@@ -103,7 +112,7 @@ scope CoreMemory at core.memory {
         implementation CallableFromPointer;
 
         surface {
-            trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+            trusted func callable_from_pointer<F>(pos pointer: FunctionPointer<F>) -> F
                 requires(
                     trusted core.memory.callable_address_valid<F>(pointer = pointer),
                 )
@@ -116,7 +125,7 @@ scope CoreMemory at core.memory {
         implementation PointerFromCallable;
 
         surface {
-            trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+            trusted func function_address<F>(pos value: F) -> FunctionPointer<F>
                 ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
                 uses(layout_reinterpret);
         }
@@ -127,7 +136,7 @@ scope CoreMemory at core.memory {
         implementation RawPointerRead;
 
         surface {
-            trusted func read<T>(pos pointer: RawPointer<T>) -> T
+            trusted func read<T>(pos pointer: DataPointer<T>) -> T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -143,7 +152,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted func write<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 pos value: T,
             ) -> unit
                 requires(
@@ -163,8 +172,8 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted func copy<T>(
-                pos source: RawPointer<T>,
-                pos destination: RawPointer<T>,
+                pos source: DataPointer<T>,
+                pos destination: DataPointer<T>,
                 count: usize,
             ) -> unit
                 requires(
@@ -197,8 +206,8 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted func copy_overlapping<T>(
-                pos source: RawPointer<T>,
-                pos destination: RawPointer<T>,
+                pos source: DataPointer<T>,
+                pos destination: DataPointer<T>,
                 count: usize,
             ) -> unit
                 requires(
@@ -241,14 +250,14 @@ scope CoreMemory at core.memory {
         availability RawMemory;
         implementation UninitPointer;
 
-        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> executes(pure, total); }
+        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> DataPointer<T> executes(pure, total); }
     }
 
     declaration UninitPointerMut {
         availability RawMemory;
         implementation UninitPointerMut;
 
-        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T> executes(pure, total); }
+        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> DataPointer<T> executes(pure, total); }
     }
 
     declaration UninitWrite {
@@ -293,7 +302,7 @@ scope CoreMemory at core.memory {
         surface {
             trusted func borrow_from<T, Owner>(
                 pos owner: &Owner,
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
             ) -> &T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
@@ -317,7 +326,7 @@ scope CoreMemory at core.memory {
         surface {
             trusted func borrow_mut_from<T, Capability>(
                 pos capability: &mut Capability,
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
             ) -> &mut T
                 requires(
                     trusted core.memory.valid_write(pointer = pointer, count = 1),
@@ -339,7 +348,7 @@ scope CoreMemory at core.memory {
         implementation RawAllocate;
 
         surface {
-            trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
+            trusted func allocate(bytes: usize, align: usize) -> DataPointer<u8>
                 ensures(
                     trusted core.memory.owned_allocation(
                         pointer = result,
@@ -358,7 +367,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted func deallocate(
-                pos pointer: RawPointer<u8>,
+                pos pointer: DataPointer<u8>,
                 bytes: usize,
                 align: usize,
             ) -> unit
@@ -378,7 +387,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate valid_read<T>(
-                pointer: RawPointer<T>,
+                pointer: DataPointer<T>,
                 count: usize,
             );
         }
@@ -389,7 +398,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate valid_write<T>(
-                pointer: RawPointer<T>,
+                pointer: DataPointer<T>,
                 count: usize,
             );
         }
@@ -399,7 +408,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate initialized_as<T>(pointer: RawPointer<T>);
+            trusted predicate initialized_as<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -408,7 +417,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate initialized_range_as<T>(
-                pointer: RawPointer<T>,
+                pointer: DataPointer<T>,
                 count: usize,
             );
         }
@@ -418,7 +427,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate nul_terminated_read(pointer: RawPointer<u8>);
+            trusted predicate nul_terminated_read(pointer: DataPointer<u8>);
         }
     }
 
@@ -426,7 +435,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate wide_nul_terminated_read(pointer: RawPointer<u16>);
+            trusted predicate wide_nul_terminated_read(pointer: DataPointer<u16>);
         }
     }
 
@@ -434,7 +443,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate aligned_for<T>(pointer: RawPointer<T>);
+            trusted predicate aligned_for<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -443,9 +452,9 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate non_overlapping<T>(
-                left: RawPointer<T>,
+                left: DataPointer<T>,
                 left_count: usize,
-                right: RawPointer<T>,
+                right: DataPointer<T>,
                 right_count: usize,
             );
         }
@@ -456,7 +465,7 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate owned_allocation(
-                pointer: RawPointer<u8>,
+                pointer: DataPointer<u8>,
                 bytes: usize,
                 align: usize,
             );
@@ -468,8 +477,8 @@ scope CoreMemory at core.memory {
 
         surface {
             trusted predicate same_allocation<T>(
-                left: RawPointer<T>,
-                right: RawPointer<T>,
+                left: DataPointer<T>,
+                right: DataPointer<T>,
             );
         }
     }
@@ -478,7 +487,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate shared_alias_valid<T>(pointer: RawPointer<T>);
+            trusted predicate shared_alias_valid<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -494,7 +503,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate exclusive_alias_valid<T>(pointer: RawPointer<T>);
+            trusted predicate exclusive_alias_valid<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -502,7 +511,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate epoch_current<T>(pointer: RawPointer<T>);
+            trusted predicate epoch_current<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -510,7 +519,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate synchronized_access<T>(pointer: RawPointer<T>);
+            trusted predicate synchronized_access<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -518,7 +527,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate movement_stable<T>(pointer: RawPointer<T>);
+            trusted predicate movement_stable<T>(pointer: DataPointer<T>);
         }
     }
 
@@ -526,7 +535,39 @@ scope CoreMemory at core.memory {
         availability RawMemory;
 
         surface {
-            trusted predicate finalization_pending<T>(pointer: RawPointer<T>);
+            trusted predicate finalization_pending<T>(pointer: DataPointer<T>);
+        }
+    }
+}
+
+scope CoreFunctionMemory at core.memory.function {
+    declaration FunctionPointerReinterpret {
+        availability RawMemory;
+        implementation FunctionPointerReinterpret;
+
+        surface {
+            trusted func reinterpret<Target, Source>(pos pointer: FunctionPointer<Source>) -> FunctionPointer<Target>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration FunctionPointerFromData {
+        availability RawMemory;
+        implementation FunctionPointerFromData;
+
+        surface {
+            trusted func from_data<F>(pos pointer: DataPointer<u8>) -> FunctionPointer<F>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration FunctionPointerToData {
+        availability RawMemory;
+        implementation FunctionPointerToData;
+
+        surface {
+            trusted func to_data<F>(pos pointer: FunctionPointer<F>) -> DataPointer<u8>
+                uses(layout_reinterpret);
         }
     }
 }

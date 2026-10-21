@@ -52,9 +52,9 @@ pub fn fold_machine_integer_binary(
         target_width
     }));
 
-    assert!(fits_integer_representation(right, representation, || {
-        target_width
-    }));
+    if !matches!(operator, BoundOperator::ShiftLeft | BoundOperator::ShiftRight | BoundOperator::Exponentiate) {
+        assert!(fits_integer_representation(right, representation, || target_width));
+    }
 
     let width = width(representation, target_width);
 
@@ -78,6 +78,17 @@ pub fn fold_machine_integer_binary(
         if count < BigInt::from(0_u8) || count >= BigInt::from(width) {
             return None;
         }
+    }
+
+    if operator == BoundOperator::Exponentiate {
+        let exponent = to_big_integer(right);
+        if exponent < BigInt::from(0_u8) {
+            return None;
+        }
+        let modulus = BigInt::from(1_u8) << usize::from(width);
+        let value = to_big_integer(left).modpow(&exponent, &modulus);
+        return Some(normalize_integer(
+            ConstantValueKind::Integer(from_big_integer(value)), representation, target_width));
     }
 
     let maximum_bits = u32::from(width) * 2 + 1;
@@ -252,6 +263,23 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn machine_power_keeps_fixed_width_for_large_typed_exponents() {
+        let one = IntegerConstant::from_u64(1);
+        let two = IntegerConstant::from_u64(2);
+        let maximum = IntegerConstant::from_u64(255);
+        let width = NonZeroU16::new(64).expect("target width is nonzero");
+        assert_eq!(fold_machine_integer_binary(BoundOperator::Exponentiate, &two, &maximum,
+            bray_compiler_known::IntegerRepresentation::Unsigned(8), width),
+            Some(ConstantValueKind::Integer(IntegerConstant::from_u64(0))));
+        assert_eq!(fold_machine_integer_binary(BoundOperator::Exponentiate, &maximum, &maximum,
+            bray_compiler_known::IntegerRepresentation::Unsigned(8), width),
+            Some(ConstantValueKind::Integer(maximum)));
+        assert_eq!(fold_machine_integer_binary(BoundOperator::Exponentiate, &one, &two,
+            bray_compiler_known::IntegerRepresentation::Unsigned(8), width),
+            Some(ConstantValueKind::Integer(one)));
     }
 
     #[test]

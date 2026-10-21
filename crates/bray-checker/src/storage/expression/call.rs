@@ -111,9 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             let source = self.access_with_reached_type(expression, source, target)?;
 
             self.borrow_access(
-                occurrence
-                    .expression()
-                    .expect("invocation input occurrence has an expression"),
+                occurrence,
                 source,
                 kind,
                 self.expression_type(expression).ty(),
@@ -125,9 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         self.builder_mut()
             .plan_occurrence_access(
                 occurrence,
-                occurrence
-                    .expression()
-                    .expect("invocation input occurrence has an expression"),
+                expression,
                 purpose,
                 source,
             )

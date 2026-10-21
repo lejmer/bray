@@ -30,6 +30,12 @@ pub enum BoundUnitKind {
 }
 
 impl BoundUnitKind {
+    /// Whether executable arithmetic uses the operand's machine representation.
+    /// Contract and declaration expressions retain exact integer arithmetic.
+    pub const fn uses_machine_arithmetic(self) -> bool {
+        matches!(self, Self::CallableBody | Self::AnonymousCallable | Self::RuntimeDefault)
+    }
+
     /// Returns this bound-unit kind's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {

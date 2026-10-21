@@ -96,6 +96,8 @@ pub enum DiagnosticInterfaceValidationField {
     Constant,
     /// Checked template.
     Template,
+    /// Established unsigned integer value width.
+    IntegerBitWidth,
     /// Support-graph entry.
     Support,
     /// Nested schema or payload revision.
@@ -172,6 +174,7 @@ impl DiagnosticInterfaceValidationField {
             Self::Type => "type",
             Self::Constant => "constant",
             Self::Template => "template",
+            Self::IntegerBitWidth => "integer_bit_width",
             Self::Support => "support",
             Self::SchemaRevision => "schema_revision",
             Self::Identity => "identity",

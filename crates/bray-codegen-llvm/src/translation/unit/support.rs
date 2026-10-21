@@ -1,6 +1,5 @@
 use bray_codegen::{
     CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenParameterMapping,
-    CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
 use bray_runtime_abi::NativeRunState;
@@ -50,16 +49,6 @@ pub(super) fn parameter_type(
             panic!(
                 "callable signature has no represented type for parameter {parameter}: {signature:?}"
             )
-        }
-    }
-}
-
-pub(super) fn result_type(signature: &CodegenCallableSignature) -> bray_symbols::TypeId {
-    match signature.result() {
-        CodegenResultMapping::Direct { ty, .. } => *ty,
-        CodegenResultMapping::Indirect { pointee, .. } => *pointee,
-        CodegenResultMapping::Void => {
-            panic!("void callable signature has no represented result type: {signature:?}")
         }
     }
 }

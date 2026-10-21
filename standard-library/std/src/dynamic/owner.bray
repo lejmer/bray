@@ -140,14 +140,14 @@ struct DynamicLibrary
 struct DynamicSymbol<T>
 {
     internal owner: &DynamicLibrary;
-    internal address: RawPointer<T>;
+    internal address: DataPointer<T>;
 
     func library() -> &DynamicLibrary
     {
         return self.owner;
     }
 
-    func pointer() -> RawPointer<T>
+    func pointer() -> DataPointer<T>
     {
         return self.address;
     }

@@ -261,30 +261,25 @@ fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
 
 #[test]
 fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
-    use crate::test_support::{source_function_body_key, source_input};
+    use crate::test_support::source_function_body_key;
     use crate::{Compilation, CompilationRequest};
 
     let compilation = Compilation::load(
         CompilationRequest::new(
             bray_symbols::PackageIdentity::try_new("std").expect("standard package is valid"),
-            vec![
-                source_input(
-                    include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-                    0,
-                ),
-                source_input(
-                    include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
-                    1,
-                ),
-                source_input(
-                    r#"module std.test;
+            crate::test_support::source_inputs(&[
+include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
+r#"module std.test;
 
 using std.memory;
 
- func dispose(pos buffer: std.memory.RawBuffer<u8>) {}"#,
-                    2,
-                ),
-            ],
+ func dispose(pos buffer: std.memory.RawBuffer<u8>) {}"#
+]),
         )
         .with_standard_library_source_authority(),
     )
@@ -344,14 +339,20 @@ using std.memory;
 
 #[test]
 fn imported_standard_buffer_cleanup_uses_structural_allowance() {
-    use crate::test_support::{source_function_body_key, source_input};
+    use crate::test_support::source_function_body_key;
     use crate::{Compilation, CompilationRequest};
 
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
 
     let compilation = Compilation::load(CompilationRequest::new(
         crate::test_support::package_identity(),
-        vec![source_input("module app; using internal std.memory; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}", 0)],
+        crate::test_support::source_inputs(&[r#"
+            module app;
+
+            using internal std.memory;
+
+            func dispose(pos buffer: std.memory.RawBuffer<u8>) {}
+        "#]),
     ).with_dependency_interfaces([dependency])).expect("imported storage consumer must load");
 
     let lowered = compilation
@@ -436,7 +437,7 @@ using core.memory;
 
             using core.memory;
             using internal std.memory;
-            func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
+            func pack(pointer: DataPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {
                 return { pointer = pointer, bytes = bytes, align = align };
@@ -464,7 +465,7 @@ fn imported_standard_buffer_accepts_live_generic_storage() {
 
             using core.memory;
             using internal std.memory;
-            func pack<T>(pointer: RawPointer<T>, capacity: usize) -> std.memory.RawBuffer<T>
+            func pack<T>(pointer: DataPointer<T>, capacity: usize) -> std.memory.RawBuffer<T>
                 requires(
                     trusted core.memory.owned_allocation(pointer = trusted std.memory.reinterpret<u8, T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
                     trusted core.memory.valid_write<T>(pointer = pointer, count = capacity),
@@ -498,7 +499,7 @@ fn imported_standard_buffer_requires_bounded_initialized_prefix() {
 
             using core.memory;
             using internal std.memory;
-            func pack<T>(pointer: RawPointer<T>, capacity: usize, initialized: usize) -> std.memory.RawBuffer<T>
+            func pack<T>(pointer: DataPointer<T>, capacity: usize, initialized: usize) -> std.memory.RawBuffer<T>
                 requires(
                     {bound}
                     trusted core.memory.owned_allocation(pointer = trusted std.memory.reinterpret<u8, T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
@@ -553,7 +554,7 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
 
             using core.memory;
             using internal std.memory;
-            func duplicate(pointer: RawPointer<u8>, capacity: usize) -> std.memory.RawBuffer<u8>
+            func duplicate(pointer: DataPointer<u8>, capacity: usize) -> std.memory.RawBuffer<u8>
                 requires(
                     trusted core.memory.owned_allocation(pointer = pointer, bytes = std.memory.stride_of<u8>() * capacity, align = std.memory.align_of<u8>()),
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = capacity),
@@ -778,7 +779,7 @@ fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
 
 #[test]
 fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
-    use crate::test_support::{source_function_body_key, source_input};
+    use crate::test_support::source_function_body_key;
     use crate::{Compilation, CompilationRequest};
     use bray_bound_tree::CheckedMemoryOperationKind;
 
@@ -795,23 +796,21 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
 
     let imported = CompilationRequest::new(
         crate::test_support::package_identity(),
-        vec![source_input(source, 0)],
+        crate::test_support::source_inputs(&[source]),
     )
     .with_dependency_interfaces([super::lifecycle_fixtures::standard_memory_dependency()]);
 
     let source_authority = CompilationRequest::new(
         bray_symbols::PackageIdentity::try_new("std").unwrap(),
-        vec![
-            source_input(
-                include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-                0,
-            ),
-            source_input(
-                include_str!("../../../../../../../../standard-library/std/src/memory.bray"),
-                1,
-            ),
-            source_input(source, 2),
-        ],
+        crate::test_support::source_inputs(&[
+include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
+source
+]),
     )
     .with_standard_library_source_authority();
 

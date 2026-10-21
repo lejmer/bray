@@ -73,7 +73,7 @@ The following type categories have language-defined copy contracts:
 - scalar types with values,
 - `string`,
 - `Range<T>`,
-- `RawPointer<T>`,
+- `DataPointer<T>` and `FunctionPointer<F>`,
 - shared borrow values,
 - nullable values whose contained type is copyable,
 - tuples whose element types are all copyable,
@@ -167,7 +167,7 @@ This is rejected because the type declares a destructor:
 @copy
 struct FileHandle
 {
-    raw: RawPointer<u8>;
+    raw: DataPointer<u8>;
 }
 
 impl FileHandle

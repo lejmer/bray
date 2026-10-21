@@ -144,7 +144,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(_));
+            let temporary = matches!(source, bray_bound_tree::StorageIdentity::Temporary(_) | bray_bound_tree::StorageIdentity::InvocationInput { .. });
 
             if !temporary
                 && !matches!(
@@ -240,16 +240,20 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
         for (site, contracts) in dependencies.calls() {
             for subject in contracts.reference_subjects() {
-                let Some(argument) = super::invocation::invocation_argument(
-                    request.view(),
-                    selections,
-                    *site,
-                    subject.subject_root(),
-                ) else {
-                    continue;
-                };
-
-                let Some(base) = self.expression_places(argument).first() else {
+                let staged = site.expression()
+                    .and_then(|expression| selections.expression(expression))
+                    .filter(|selection| selection.evaluates_defaults())
+                    .and_then(|selection| selection.invocation_input_site(*site, subject.subject_root()))
+                    .and_then(|input| match input {
+                        bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } =>
+                            storage.invocation_input(expression, ordinal),
+                        _ => None,
+                    })
+                    .and_then(|access| storage.logical_path(access));
+                let source = super::invocation::invocation_argument(
+                    request.view(), selections, *site, subject.subject_root(),
+                ).and_then(|argument| self.expression_places(argument).first());
+                let Some(base) = staged.or(source) else {
                     continue;
                 };
 

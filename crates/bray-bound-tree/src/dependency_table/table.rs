@@ -651,7 +651,7 @@ mod tests {
 
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
-        let retained = Some(std::collections::BTreeSet::from([expression]));
+        let retained = Some(std::collections::BTreeSet::from([expression.into()]));
         let phases = phases.with_references(references.clone(), retained.clone());
 
         let published = table()
@@ -674,7 +674,7 @@ mod tests {
                     expression.into(),
                     phases.clone().with_references(
                         references,
-                        Some(std::collections::BTreeSet::from([missing]))
+                        Some(std::collections::BTreeSet::from([missing.into()]))
                     )
                 )]
                 .into()

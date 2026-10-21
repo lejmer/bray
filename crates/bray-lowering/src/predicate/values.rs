@@ -91,6 +91,34 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     target,
                 )
             }
+            (TypeData::Callable(_), TypeData::Callable(_)) => self.value(
+                block,
+                MirOperationKind::Convert {
+                    operand,
+                    conversion: bray_bound_tree::SelectedConversion::new(
+                        source, target, bray_bound_tree::ConversionTarget::CallableContract),
+                },
+                target,
+            ),
+            (TypeData::Tuple(elements), TypeData::Named { definition, .. })
+                if self.context.representation_role(*definition)
+                    .and_then(|role| role.complex_component()).is_some() =>
+            {
+                let component = self.context.representation_role(*definition)
+                    .and_then(|role| role.complex_component())
+                    .expect("checked complex conversion has its real component");
+                let component = self.context.representation_type(component)?;
+                assert!(elements.len() == 2 && elements.iter().all(|ty| *ty == component),
+                    "checked tuple conversion has already converted both complex components");
+                let children = elements.iter().map(|ty|
+                    bray_bound_tree::SelectedConversion::new(*ty, component,
+                        bray_bound_tree::ConversionTarget::Identity)).collect();
+                self.value(block, MirOperationKind::Convert {
+                    operand,
+                    conversion: bray_bound_tree::SelectedConversion::new(source, target,
+                        bray_bound_tree::ConversionTarget::Composite(children)),
+                }, target)
+            }
             (
                 TypeData::Named {
                     definition: source_definition,

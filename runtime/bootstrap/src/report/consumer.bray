@@ -7,6 +7,7 @@ using internal bray.runtime.bootstrap.report.incident;
 using internal bray.runtime.bootstrap.report.output;
 using core.memory;
 using std.memory;
+using std.memory.function;
 
 @layout(c)
 internal struct ReportOutcome
@@ -23,11 +24,11 @@ trusted internal predicate native_primary_callbacks(primary: &ReportPrimary);
 
 trusted internal predicate native_report_callbacks(report: &PanicReportData);
 
-trusted internal predicate native_primary_slot_callbacks(pointer: RawPointer<ReportPrimary>);
+trusted internal predicate native_primary_slot_callbacks(pointer: DataPointer<ReportPrimary>);
 
-trusted internal predicate native_report_slot_callbacks(pointer: RawPointer<PanicReportData>);
+trusted internal predicate native_report_slot_callbacks(pointer: DataPointer<PanicReportData>);
 
-internal callable ReportConsumer = @abi(c) trusted func(pos pointer: RawPointer<PanicReportData>, pos reporting: u32) ->
+internal callable ReportConsumer = @abi(c) trusted func(pos pointer: DataPointer<PanicReportData>, pos reporting: u32) ->
     u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -44,8 +45,10 @@ trusted internal func consume_address() -> usize
 {
     let consumer: ReportConsumer = consume_report;
 
-    return trusted core.target.expose_address<ReportConsumer>(
-        trusted std.memory.pointer_from_callable<ReportConsumer>(consumer)
+    return trusted core.target.expose_address<u8>(
+        trusted std.memory.function.to_data<ReportConsumer>(
+            trusted std.memory.function_address<ReportConsumer>(consumer)
+        )
     );
 }
 
@@ -76,7 +79,7 @@ trusted internal func report_primary_value(pos report: PanicReportData) -> Repor
 
 // The C producer guarantees typed optional callbacks and retains their providers.
 // Reading arbitrary initialized bytes cannot establish this protocol.
-trusted internal func read_primary(pos pointer: RawPointer<ReportPrimary>) -> ReportPrimary
+trusted internal func read_primary(pos pointer: DataPointer<ReportPrimary>) -> ReportPrimary
     requires(
         trusted native_primary_slot_callbacks(pointer = pointer),
         trusted core.memory.valid_write<ReportPrimary>(pointer = pointer, count = 1),
@@ -112,7 +115,7 @@ trusted internal func primary_release(pos primary: &ReportPrimary) -> PanicMessa
 
     if primary.release_message != 0
     {
-        let pointer: RawPointer<PanicMessageRelease> = trusted native_release_address(primary);
+        let pointer: FunctionPointer<PanicMessageRelease> = trusted native_release_address(primary);
 
         callback = trusted std.memory.callable_from_pointer<PanicMessageRelease>(pointer);
     }
@@ -129,7 +132,7 @@ trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageC
 
     if primary.copy_message != 0
     {
-        let pointer: RawPointer<PanicMessageCopy> = trusted native_copy_address(primary);
+        let pointer: FunctionPointer<PanicMessageCopy> = trusted native_copy_address(primary);
 
         callback = trusted std.memory.callable_from_pointer<PanicMessageCopy>(pointer);
     }
@@ -137,23 +140,27 @@ trusted internal func primary_copy(pos primary: &ReportPrimary) -> PanicMessageC
     return callback;
 }
 
-trusted internal func native_copy_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageCopy>
+trusted internal func native_copy_address(pos primary: &ReportPrimary) -> FunctionPointer<PanicMessageCopy>
     requires(trusted native_primary_callbacks(primary = primary), primary.copy_message != 0)
     ensures(trusted core.memory.callable_address_valid<PanicMessageCopy>(pointer = result))
-    uses(intrinsic)
+    uses(intrinsic, layout_reinterpret)
 {
-    return trusted core.target.from_exposed_address<PanicMessageCopy>(address = primary.copy_message);
+    return trusted std.memory.function.from_data<PanicMessageCopy>(
+        trusted core.target.from_exposed_address<u8>(address = primary.copy_message)
+    );
 }
 
-trusted internal func native_release_address(pos primary: &ReportPrimary) -> RawPointer<PanicMessageRelease>
+trusted internal func native_release_address(pos primary: &ReportPrimary) -> FunctionPointer<PanicMessageRelease>
     requires(trusted native_primary_callbacks(primary = primary), primary.release_message != 0)
     ensures(trusted core.memory.callable_address_valid<PanicMessageRelease>(pointer = result))
-    uses(intrinsic)
+    uses(intrinsic, layout_reinterpret)
 {
     // The native protocol supplies exact callback identity and keeps its provider
     // alive through consumption. This projection copies code-address bits without
     // borrowing the C header that carries them.
-    return trusted core.target.from_exposed_address<PanicMessageRelease>(address = primary.release_message);
+    return trusted std.memory.function.from_data<PanicMessageRelease>(
+        trusted core.target.from_exposed_address<u8>(address = primary.release_message)
+    );
 }
 
 trusted internal func release_primary(
@@ -173,7 +180,7 @@ trusted internal func release_primary(
 
     if let ?release = callback
     {
-        let output: RawPointer<u8> = trusted std.memory.reinterpret<u8, ReportOutcome>(
+        let output: DataPointer<u8> = trusted std.memory.reinterpret<u8, ReportOutcome>(
             std.memory.address_of_mut<ReportOutcome>(&mut outcome)
         );
 
@@ -225,7 +232,7 @@ trusted internal func recycle_value(pos value: ReportValue)
 }
 
 @abi(c)
-trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, pos reporting: u32) -> u32
+trusted internal func consume_report(pos pointer: DataPointer<PanicReportData>, pos reporting: u32) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
@@ -338,7 +345,7 @@ trusted internal func consume_panic(pos stored: &StoredReportPrimary, pos report
 }
 
 @abi(c)
-trusted internal func panic_reporting(pos pointer: RawPointer<PanicReportData>) -> u32
+trusted internal func panic_reporting(pos pointer: DataPointer<PanicReportData>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
@@ -352,7 +359,7 @@ trusted internal func panic_reporting(pos pointer: RawPointer<PanicReportData>) 
 }
 
 @abi(c)
-trusted internal func panic_report_destruction(pos pointer: RawPointer<PanicReportData>) -> u32
+trusted internal func panic_report_destruction(pos pointer: DataPointer<PanicReportData>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
@@ -367,8 +374,8 @@ trusted internal func panic_report_destruction(pos pointer: RawPointer<PanicRepo
 
 @abi(c)
 trusted internal func consume_segment(
-    pos metadata: RawPointer<ReportSegment>,
-    pos pointer: RawPointer<PanicReportData>
+    pos metadata: DataPointer<ReportSegment>,
+    pos pointer: DataPointer<PanicReportData>
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

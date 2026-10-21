@@ -56,7 +56,7 @@ internal struct AttachmentExit
                     trusted core.target.abort();
                 }
 
-                let pointers: (RawPointer<Attachment>, RawPointer<usize>, usize) =
+                let pointers: (DataPointer<Attachment>, DataPointer<usize>, usize) =
                 {
                     let mut anchor: HostAnchor = trusted host_anchor(&lease);
                     let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
@@ -70,7 +70,7 @@ internal struct AttachmentExit
                         yield trusted core.target.abort();
                     };
 
-                    let record: RawPointer<Attachment> =
+                    let record: DataPointer<Attachment> =
                     {
                         let row = trusted find_attachment(payload, identity, 0);
 
@@ -97,7 +97,7 @@ internal struct AttachmentExit
                     yield (record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
                 };
 
-                let (record, active, remaining_active): (RawPointer<Attachment>, RawPointer<usize>, usize) = pointers;
+                let (record, active, remaining_active): (DataPointer<Attachment>, DataPointer<usize>, usize) = pointers;
 
                 lease.retirement = AttachmentRetirement
                 {
@@ -136,8 +136,8 @@ internal struct AttachmentRetirement
     mut pending: bool;
     identity: u64;
     native_thread: u64;
-    record: RawPointer<Attachment>;
-    active: RawPointer<usize>;
+    record: DataPointer<Attachment>;
+    active: DataPointer<usize>;
     remaining_active: usize;
 }
 
@@ -152,8 +152,8 @@ trusted internal func thread_attachment_leave() -> u32
 
 internal struct AttachmentSlot
 {
-    value: RawPointer<AttachmentExit>;
-    storage: RawPointer<(AttachmentExit?)>;
+    value: DataPointer<AttachmentExit>;
+    storage: DataPointer<(AttachmentExit?)>;
 }
 
 trusted internal predicate retained_attachment_exit(slot: &AttachmentSlot, lease: &HostLease);
@@ -429,7 +429,7 @@ trusted internal func finish_attachment(pos scope: &bray.runtime.bootstrap.threa
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }
 
-trusted internal func completed_attachment_pointer(pos completed: &HostLease) -> RawPointer<Attachment>
+trusted internal func completed_attachment_pointer(pos completed: &HostLease) -> DataPointer<Attachment>
     requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),
@@ -449,7 +449,7 @@ trusted internal func completed_attachment_pointer(pos completed: &HostLease) ->
     return completed.retirement.record;
 }
 
-trusted internal func completed_active_pointer(pos completed: &HostLease) -> RawPointer<usize>
+trusted internal func completed_active_pointer(pos completed: &HostLease) -> DataPointer<usize>
     requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),

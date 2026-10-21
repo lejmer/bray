@@ -30,6 +30,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                     matches!(
                         identity,
                         bray_bound_tree::StorageIdentity::Temporary(_)
+                            | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                             | bray_bound_tree::StorageIdentity::Result(_)
                             | bray_bound_tree::StorageIdentity::Allocation(_)
                     )

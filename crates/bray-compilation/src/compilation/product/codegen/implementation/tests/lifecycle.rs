@@ -105,7 +105,23 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
             )),
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../standard-library/std/src/memory.bray"
+                "/../../standard-library/std/src/memory/pointer.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/memory/storage.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/memory/allocation.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/memory/buffer.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/memory/function.bray"
             )),
             crate::test_support::RUNTIME_MEMORY_SOURCE,
             crate::test_support::RUNTIME_TEXT_SOURCE,

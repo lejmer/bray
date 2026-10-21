@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundOperator,
-    BoundStructuredExpressionKind, BoundUnitKind, SelectedArgument, SelectedOperation,
+    BoundStructuredExpressionKind, BoundUnitKind, SelectedOperation,
     SemanticSelection, StorageAccessPurpose, StoragePlan,
 };
 use bray_symbols::BorrowKind;
@@ -16,6 +16,7 @@ pub(in crate::analysis) fn expression_is_eligible<C: CheckerRequestContext + ?Si
     expression: BoundExpressionId,
     semantics: &bray_bound_tree::CheckedExpressionSemantics,
     storage: &StoragePlan,
+    flow: &bray_bound_tree::StorageFlow,
     yield_targets: &std::collections::BTreeMap<BoundExpressionId, BoundExpressionId>,
 ) -> bool {
     let selections = semantics.selections();
@@ -48,13 +49,15 @@ pub(in crate::analysis) fn expression_is_eligible<C: CheckerRequestContext + ?Si
             | BoundUnitKind::EmbeddedConstant
     );
 
-    if storage.expression_plans(expression).any(|plan| {
-        matches!(
-            plan.purpose(),
-            StorageAccessPurpose::Write
-                | StorageAccessPurpose::Assignment
-                | StorageAccessPurpose::Borrow(BorrowKind::Mutable)
-        ) || (!callable_body && plan.purpose() == StorageAccessPurpose::Move)
+    let confined_assignment = flow.confined_assignment(storage, expression).is_some();
+
+    if storage.node_plans(expression.into()).any(|plan| {
+        match plan.purpose() {
+            StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => !confined_assignment,
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => true,
+            StorageAccessPurpose::Move => !callable_body,
+            _ => false,
+        }
     }) {
         return false;
     }
@@ -80,6 +83,7 @@ pub(in crate::analysis) fn expression_is_eligible<C: CheckerRequestContext + ?Si
         | BoundExpression::UnqualifiedVariant(_)
         | BoundExpression::TraitQualifiedMember(_) => true,
         BoundExpression::Block(_) | BoundExpression::Match(_) => callable_body,
+        BoundExpression::Assignment(_) => confined_assignment,
         BoundExpression::AnonymousCallable(_) => semantics.types().expression(expression).is_some_and(|ty| matches!(request.semantic_values().type_data(ty.ty()).as_ref(),
                 bray_symbols::TypeData::Callable(callable) if callable.constness() == bray_symbols::CallableConstness::Constant)),
         BoundExpression::ControlTransfer(transfer) => match transfer.kind() {
@@ -118,7 +122,6 @@ pub(in crate::analysis) fn expression_is_eligible<C: CheckerRequestContext + ?Si
             | BoundStructuredExpressionKind::Panic => false,
         },
         BoundExpression::UnresolvedReference(_)
-        | BoundExpression::Assignment(_)
         | BoundExpression::BoxConstruction(_)
         | BoundExpression::ErrorCall(_)
         | BoundExpression::ErrorConversion(_)
@@ -144,40 +147,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 behavior.effects().is_empty()
                     && behavior.capabilities().is_empty()
                     && behavior.trusted_capabilities().is_empty()
-                    && call.arguments().iter().all(|argument| match argument {
-                        SelectedArgument::Explicit {
-                            expression,
-                            conversion,
-                            ..
-                        } => self.predicate_value_fits(
-                            state,
-                            *expression,
-                            conversion.target_type(),
-                            ranges,
-                        ),
-                        // The selected provider is certified by the same dependency graph as callees.
-                        SelectedArgument::Default { .. } => true,
-                    })
+                    && self.predicate_invocation_inputs_fit(state, expression, ranges)
             }
-            Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) => {
-                construction.inputs().iter().all(|input| match input {
-                    bray_bound_tree::SelectedConstructionInput::Explicit {
-                        expression,
-                        conversion,
-                        ..
-                    } => self.predicate_value_fits(
-                        state,
-                        *expression,
-                        conversion.target_type(),
-                        ranges,
-                    ),
-                    bray_bound_tree::SelectedConstructionInput::Default { .. } => true,
-                })
-            }
+            Some(SemanticSelection::Operation(SelectedOperation::Construction(_))) =>
+                self.predicate_invocation_inputs_fit(state, expression, ranges),
             Some(SemanticSelection::Operation(SelectedOperation::Operator {
                 target: bray_bound_tree::OperatorTarget::BuiltIn(operator),
                 ..
             })) => self.predicate_builtin_is_valid(state, expression, *operator, ranges, maxima),
+            Some(SemanticSelection::Operation(SelectedOperation::CompoundAssignment(selected))) => {
+                let bray_bound_tree::OperatorTarget::BuiltIn(operator) = selected.target() else { return false; };
+                self.predicate_builtin_is_valid(state, expression, operator, ranges, maxima)
+            }
             Some(SemanticSelection::Operation(SelectedOperation::Conversion(conversion))) => {
                 let Some(BoundExpression::Conversion(operation)) =
                     self.request.view().expression(expression)
@@ -199,6 +180,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    fn predicate_invocation_inputs_fit(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        ranges: &mut IntegerRanges,
+    ) -> bool {
+        let selection = self.semantics.selections().expression(expression)
+            .expect("checked invocation retains its input selection");
+        selection.inputs().all(|input| {
+            let ty = input.ty(self.request.semantic_values());
+            if selection.evaluates_defaults() {
+                let site = selection.input_site(expression, input.root())
+                    .expect("evaluated invocation retains every input slot");
+                self.predicate_input_fits(state, site, ty, ranges)
+            } else {
+                input.expression().is_some_and(|expression|
+                    self.predicate_value_fits(state, expression, ty, ranges))
+            }
+        })
+    }
+
     fn predicate_builtin_is_valid(
         &self,
         state: &ExecutionState,
@@ -215,15 +217,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             BoundExpression::Unary(operation) => operation.operands(),
             BoundExpression::Binary(operation) => operation.operands(),
+            BoundExpression::Assignment(operation) => operation.operands(),
             _ => unreachable!("built-in operator selection retains its operation"),
         };
 
-        let machine = matches!(
-            self.request.unit().key().kind(),
-            BoundUnitKind::CallableBody
-                | BoundUnitKind::AnonymousCallable
-                | BoundUnitKind::RuntimeDefault
-        );
+        let machine = self.request.unit().key().kind().uses_machine_arithmetic();
 
         if machine && !self.machine_operation_is_valid(state, operator, operands, ranges) {
             return false;
@@ -263,17 +261,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         domain
-            && (!machine
-                || self.predicate_value_fits(
-                    state,
-                    expression,
-                    self.semantics
-                        .types()
-                        .expression(expression)
-                        .expect("checked operator has a type")
-                        .ty(),
-                    ranges,
-                ))
     }
 
     fn machine_operation_is_valid(

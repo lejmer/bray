@@ -181,6 +181,18 @@ pub(crate) fn expression_condition(
                 return ExecutionCondition::Unknown;
             };
 
+            if unit.key().kind().uses_machine_arithmetic()
+                && !matches!(operator,
+                    bray_bound_tree::BoundOperator::Add if operands.len() == 1)
+                && !matches!(operator, bray_bound_tree::BoundOperator::LogicalNot
+                    | bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr
+                    | bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual
+                    | bray_bound_tree::BoundOperator::Less | bray_bound_tree::BoundOperator::LessEqual
+                    | bray_bound_tree::BoundOperator::Greater | bray_bound_tree::BoundOperator::GreaterEqual)
+            {
+                return ExecutionCondition::Expression(expression);
+            }
+
             let operands = operands
                 .iter()
                 .map(|operand| {

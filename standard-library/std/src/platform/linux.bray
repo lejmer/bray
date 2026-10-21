@@ -19,11 +19,11 @@ trusted internal func process_identity() -> u64
     return std.numeric.truncate_to<u64>(identity);
 }
 
-trusted internal func environment_storage_address() -> RawPointer<RawPointer<RawPointer<u8>>>
+trusted internal func environment_storage_address() -> DataPointer<DataPointer<DataPointer<u8>>>
     ensures(
-        trusted core.memory.valid_read<RawPointer<RawPointer<u8>>>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<RawPointer<RawPointer<u8>>>(pointer = result),
-        trusted core.memory.initialized_as<RawPointer<RawPointer<u8>>>(pointer = result),
+        trusted core.memory.valid_read<DataPointer<DataPointer<u8>>>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<DataPointer<DataPointer<u8>>>(pointer = result),
+        trusted core.memory.initialized_as<DataPointer<DataPointer<u8>>>(pointer = result),
     )
 {
     return std.os.linux.ENVIRON;
@@ -32,7 +32,7 @@ trusted internal func environment_storage_address() -> RawPointer<RawPointer<Raw
 trusted internal func environment_cursor() -> NativeTextCursor
     ensures(trusted native_text_cursor_valid(cursor = &result))
 {
-    let entries: RawPointer<RawPointer<u8>> = trusted internal read_native_pointer<RawPointer<u8>>(
+    let entries: DataPointer<DataPointer<u8>> = trusted internal read_native_pointer<DataPointer<u8>>(
         trusted internal environment_storage_address()
     );
 
@@ -69,7 +69,7 @@ trusted internal func clear_unix_error() -> unit
     trusted std.memory.write<i32>(trusted internal std.os.linux.errno_location(), value = 0);
 }
 
-trusted internal func prepare_clock_monotonic_now(pos ticks: RawPointer<u64>) -> Result<u64, PlatformStatus>
+trusted internal func prepare_clock_monotonic_now(pos ticks: DataPointer<u64>) -> Result<u64, PlatformStatus>
     requires(
         trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = ticks),
@@ -111,8 +111,8 @@ trusted internal func prepare_clock_monotonic_now(pos ticks: RawPointer<u64>) ->
 }
 
 trusted internal func prepare_clock_wall_now(
-    pos seconds: RawPointer<i64>,
-    pos nanoseconds: RawPointer<u32>
+    pos seconds: DataPointer<i64>,
+    pos nanoseconds: DataPointer<u32>
 ) -> Result<(i64, u32), PlatformStatus>
     requires(
         trusted core.memory.valid_write<i64>(pointer = seconds, count = 1),
@@ -188,9 +188,9 @@ trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> Pla
 }
 
 trusted internal func prepare_entropy_fill(
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> Result<usize, PlatformStatus>
     requires(
         trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
@@ -214,7 +214,7 @@ trusted internal func prepare_entropy_fill(
 
     while completed < count
     {
-        let address: RawPointer<u8> = std.memory.offset<u8>(
+        let address: DataPointer<u8> = std.memory.offset<u8>(
             destination,
             elements = std.numeric.truncate_to<isize>(completed)
         );

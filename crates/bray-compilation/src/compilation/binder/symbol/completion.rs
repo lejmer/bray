@@ -521,7 +521,7 @@ mod tests {
             trusted_capabilities[1].capability()
         );
 
-        let pointer = declaration::<StructSymbolId>(symbols, "RawPointer");
+        let pointer = declaration::<StructSymbolId>(symbols, "DataPointer");
 
         let Some(pointer_owner) = GenericOwnerId::try_new(pointer.into()) else {
             panic!("raw pointer must be a generic owner");

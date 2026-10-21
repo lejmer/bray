@@ -82,7 +82,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         candidate.calls.keys().copied(),
         expressions.selections(),
         memory,
-        request.semantic_values(),
+        request.trusted_contracts(),
         &mut candidate.dependencies,
     );
 
@@ -161,7 +161,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
         }
 
         let mut state = (property == ExecutionProperty::Total
-            && (predicate || !reachable.domain.sequence_lengths.is_empty()))
+                && (predicate || !reachable.domain.sequence_lengths.is_empty()))
         .then(|| {
             // Replay operations on a copy without changing the solved block entry.
             reachable
@@ -186,6 +186,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             }
 
             let preserves = match operation.kind() {
+                AnalysisOperationKind::Call { phase: crate::analysis::model::AnalysisCallPhase::Input, .. } => true,
                 AnalysisOperationKind::Result {
                     expression,
                     phase: super::super::model::AnalysisResultPhase::Begin,
@@ -195,6 +196,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                         expression,
                         expressions,
                         storage,
+                        body.storage_flow(),
                         reachable.domain.yield_targets,
                     ) {
                         record_constant_failure(request, candidate, expression.into());
@@ -213,6 +215,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     exit,
                     phase,
                     property,
+                    |access| candidate.inert_cleanup.get(&(exit, access)).copied().unwrap_or(false),
                     &mut candidate.dependencies,
                     diagnostics,
                 )?,
@@ -226,13 +229,21 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     panic!("selected call invocation retains an actual expression owner");
                 }
                 AnalysisOperationKind::Call {
+                    invocation: invocation @ bray_bound_tree::BoundExecutionSite::CallInput { .. },
+                    ..
+                } => !visited.insert(invocation) || super::operation::check_input(
+                    request, invocation, expressions.selections(), storage, property, &mut candidate.dependencies,
+                ),
+                AnalysisOperationKind::Call {
                     invocation:
-                        invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        invocation @ (bray_bound_tree::BoundExecutionSite::Iterate(_)
+                        | bray_bound_tree::BoundExecutionSite::Next(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                         | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
                     ..
                 } => {
                     if visited.insert(invocation) {
-                        super::operation::collect_scoped_dependency(
+                        super::operation::collect_invocation_dependency(
                             expressions.selections(),
                             invocation,
                             property,
@@ -267,6 +278,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                                 expression,
                                 expressions,
                                 storage,
+                                body.storage_flow(),
                                 reachable.domain.yield_targets,
                             ) {
                                 record_constant_failure(request, candidate, expression.into());
@@ -357,6 +369,7 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
         super::operation::ExecutionGoal::Property(property),
         expressions.selections(),
         storage,
+        Some(body.storage_flow()),
         memory,
         operation_domain_proven,
         dependencies,

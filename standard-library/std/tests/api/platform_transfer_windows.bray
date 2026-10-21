@@ -25,7 +25,7 @@ trusted func handle_zero_length_and_failure_preserve_progress()
 {
     let mut transferred: u64 = 99;
     let handle: u64 = 0;
-    let bytes: RawPointer<u8> = std.memory.null<u8>();
+    let bytes: DataPointer<u8> = std.memory.null<u8>();
 
     let read: std.platform.PlatformStatus = trusted internal std.platform.handle_read(
         handle,
@@ -50,7 +50,7 @@ trusted func handle_zero_length_and_failure_preserve_progress()
     assert(transferred == 0);
 
     let mut byte: u8 = 0;
-    let destination: RawPointer<u8> = std.memory.address_of_mut<u8>(&mut byte);
+    let destination: DataPointer<u8> = std.memory.address_of_mut<u8>(&mut byte);
 
     transferred = 99;
 

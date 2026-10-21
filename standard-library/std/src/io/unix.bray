@@ -9,9 +9,9 @@ using internal std.platform;
 
 @abi(c)
 trusted internal func platform_standard_input_read(
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
@@ -29,9 +29,9 @@ trusted internal func platform_standard_input_read(
 
 @abi(c)
 trusted internal func platform_standard_output_write(
-    pos source: RawPointer<u8>,
+    pos source: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
@@ -50,9 +50,9 @@ trusted internal func platform_standard_output_write(
 
 @abi(c)
 trusted internal func platform_standard_error_write(
-    pos source: RawPointer<u8>,
+    pos source: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),

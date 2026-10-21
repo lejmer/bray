@@ -279,9 +279,9 @@ fn portable_storage_identity(
         | StorageIdentity::ContractParameter(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
-        | StorageIdentity::IterationCursor(_)
-        | StorageIdentity::IterationElement(_)
+        | StorageIdentity::InvocationResult(_)
         | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)

@@ -4,7 +4,7 @@ using core.memory;
 using std.memory;
 
 @abi(c)
-trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> PlatformStatus
+trusted internal func clock_monotonic_now(pos ticks: DataPointer<u64>) -> PlatformStatus
     requires(
         trusted core.memory.valid_write<u64>(pointer = ticks, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = ticks),
@@ -26,7 +26,7 @@ trusted internal func clock_monotonic_now(pos ticks: RawPointer<u64>) -> Platfor
 }
 
 @abi(c)
-trusted internal func clock_wall_now(pos seconds: RawPointer<i64>, pos nanoseconds: RawPointer<u32>) -> PlatformStatus
+trusted internal func clock_wall_now(pos seconds: DataPointer<i64>, pos nanoseconds: DataPointer<u32>) -> PlatformStatus
     requires(
         trusted core.memory.valid_write<i64>(pointer = seconds, count = 1),
         trusted core.memory.aligned_for<i64>(pointer = seconds),

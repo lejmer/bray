@@ -17,7 +17,7 @@ fn successive_returned_views_retain_their_own_borrow_capabilities() {
 
         struct Holder
         {
-            pointer: RawPointer<u8>;
+            pointer: DataPointer<u8>;
             mut value: u8;
         }
         func holder_value(pos holder: &Holder) -> &u8 { return &holder.value; }

@@ -44,6 +44,7 @@ impl Compilation {
 
     pub(super) fn trusted_storage_formation(
         &self,
+        owner: bray_bound_tree::BoundExpressionId,
         construction: &SelectedConstruction,
         cancellation: &CancellationToken,
     ) -> Result<Option<TrustedCallContract>, FactQueryError> {
@@ -69,16 +70,24 @@ impl Compilation {
 
         let mut fields = std::collections::BTreeMap::new();
 
+        let staged = construction.inputs().iter().any(|input|
+            matches!(input, SelectedConstructionInput::Default { .. }));
         for input in construction.inputs() {
             if let SelectedConstructionInput::Explicit {
-                input: ConstructionInputId::StructField(field),
-                expression,
-                ..
-            } = input
-            {
+                input: ConstructionInputId::StructField(field), ordinal, ..
+            } | SelectedConstructionInput::Default {
+                input: ConstructionInputId::StructField(field), ordinal, ..
+            } = input {
                 let reference = BoundReferenceTarget::Surface((*field).into());
-
-                contract.arguments.insert(reference, (*expression).into());
+                let site = if staged {
+                    bray_bound_tree::BoundExecutionSite::CallInput { expression: owner, ordinal: bray_symbols::SymbolOrdinal::new(*ordinal) }
+                } else {
+                    let SelectedConstructionInput::Explicit { expression, .. } = input else {
+                        unreachable!("unstaged formation has explicit inputs");
+                    };
+                    (*expression).into()
+                };
+                contract.arguments.insert(reference, site);
 
                 if let Some(name) = context
                     .member_name((*field).into())

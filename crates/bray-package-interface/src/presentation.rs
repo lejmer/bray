@@ -379,6 +379,7 @@ const fn diagnostic_field(field: InterfaceValidationField) -> DiagnosticInterfac
         Field::Type => Diagnostic::Type,
         Field::Constant => Diagnostic::Constant,
         Field::Template => Diagnostic::Template,
+        Field::IntegerBitWidth => Diagnostic::IntegerBitWidth,
         Field::Support => Diagnostic::Support,
         Field::SchemaRevision => Diagnostic::SchemaRevision,
         Field::Identity => Diagnostic::Identity,

@@ -1,8 +1,8 @@
 use super::inputs::{evaluation_dependencies, nullable_inputs, operation_inputs};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundExpressionId, ConstructionInputId, ConstructionTarget, DefaultValueProvider, IndexTarget,
-    OperatorTarget, SelectedArgument, SelectedConstructionInput, SelectedOperation,
+    BoundExpressionId, ConstructionTarget, IndexTarget,
+    OperatorTarget, SelectedConstructionInput, SelectedOperation,
 };
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
@@ -123,10 +123,6 @@ fn direct_dependencies(
 ) -> crate::dependency::defaults::CallResultDependencies {
     crate::dependency::defaults::CallResultDependencies {
         template,
-        evaluation_effects: std::sync::Arc::from([]),
-        evaluation_completes: true,
-        evaluation_preserves_storage: true,
-        evaluation_reports: DependencyContractTemplateData::new([]),
         escaping_evaluation_inputs: Vec::new(),
     }
 }
@@ -134,102 +130,18 @@ fn direct_dependencies(
 fn construction_dependencies<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     construction: &bray_bound_tree::SelectedConstruction,
-) -> Result<crate::dependency::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>>
-{
-    if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
-        // Normalization retains the selected conversion's immutable child plans.
-        let arguments = construction
-            .inputs()
-            .iter()
-            .map(|input| match input {
-                SelectedConstructionInput::Explicit {
-                    expression,
-                    input: ConstructionInputId::CallableParameter(parameter),
-                    conversion,
-                    ordinal,
-                } => SelectedArgument::Explicit {
-                    expression: *expression,
-                    parameter: Some(*parameter),
-                    conversion: conversion.clone(),
-                    ordinal: *ordinal,
-                    reborrow: None,
-                },
-                SelectedConstructionInput::Default {
-                    input: ConstructionInputId::CallableParameter(parameter),
-                    provider: DefaultValueProvider::CallableParameter(provider),
-                    ty,
-                    ordinal,
-                } => SelectedArgument::Default {
-                    parameter: *parameter,
-                    provider: *provider,
-                    ty: *ty,
-                    ordinal: *ordinal,
-                },
-                _ => panic!("type-form construction retains callable parameter inputs"),
-            })
-            .collect::<Vec<_>>();
-
-        let template = invocation_dependencies(
-            request,
-            callable,
-            None,
-            arguments.iter().map(|argument| match argument {
-                SelectedArgument::Explicit { ordinal, .. }
-                | SelectedArgument::Default { ordinal, .. } => {
-                    DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))
-                }
-            }),
-        )?;
-
-        return crate::dependency::defaults::expand_result_defaults(
-            request,
-            &arguments,
-            None,
-            Some(callable),
-            &template,
-        );
-    }
-
-    let mut template =
-        DependencyContractTemplateData::new(construction.inputs().iter().filter_map(|input| {
-            match input {
-                SelectedConstructionInput::Explicit { ordinal, .. } => {
-                    Some(DependencyRequirement::direct(
-                        DependencySubject::root(DependencySubjectRoot::Parameter(
-                            SymbolOrdinal::new(*ordinal),
-                        )),
-                        DependencyRequirementKind::ValueDependencies,
-                    ))
-                }
-                _ => None,
-            }
-        }))
-        .with_effects([]);
-
-    for input in construction.inputs() {
-        let SelectedConstructionInput::Default { provider, .. } = input else {
-            continue;
-        };
-
-        let default = request.default_result_dependencies(*provider)?;
-
-        let default = if let bray_symbols::TypeData::Named { substitution, .. } = request
-            .semantic_values()
-            .type_data(construction.result_type())
-            .as_ref()
-        {
-            request
-                .semantic_values()
-                .substitute_dependency_contract(default, *substitution)
-                .expect("construction default uses its selected type substitution")
-        } else {
-            default
-        };
-
-        let default = crate::dependency::resolved_result_template(request, None, default)?;
-
-        template = super::conversion::sequence_dependencies(template, default);
-    }
-
+) -> Result<crate::dependency::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+    let roots = construction.inputs().iter().map(|input| {
+        let (SelectedConstructionInput::Explicit { ordinal, .. }
+            | SelectedConstructionInput::Default { ordinal, .. }) = input;
+        DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))
+    });
+    let template = if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
+        invocation_dependencies(request, callable, None, roots)?
+    } else {
+        DependencyContractTemplateData::new(roots.map(|root|
+            DependencyRequirement::direct(DependencySubject::root(root), DependencyRequirementKind::ValueDependencies)))
+            .with_effects([])
+    };
     Ok(direct_dependencies(template))
 }

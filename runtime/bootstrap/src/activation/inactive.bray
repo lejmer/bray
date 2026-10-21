@@ -11,17 +11,17 @@ using internal bray.runtime.bootstrap.activation;
 // outcome slot. Its provider and captured dependencies remain live through return.
 // Destroy consumes a quiescent owner. Broadcast retains the complete owner.
 trusted internal predicate entry(
-    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 );
 
 // The native caller retains this separate stack slot even after consuming the frame.
 // Only the entry-local issuer below can introduce this independent permission.
-trusted internal predicate destination(output: RawPointer<bray.runtime.bootstrap.ReportOutcome>);
+trusted internal predicate destination(output: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
 
 trusted internal func acquire(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
 ) -> bray.runtime.bootstrap.activation.run.Cursor
     requires(
         trusted entry(token = pointer, outcome = outcome),
@@ -38,8 +38,8 @@ trusted internal func acquire(
     uses(intrinsic)
 {
     let read = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-        pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
     ) -> bray.runtime.bootstrap.activation.Inactive
         requires(
             trusted entry(token = pointer, outcome = outcome),
@@ -92,7 +92,7 @@ trusted internal func resolve(
     pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
     pos ready: bray.runtime.bootstrap.activation.callback.Ready,
     pos destroying: bool,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
 ) -> bray.runtime.bootstrap.ReportOutcome
     requires(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
@@ -199,10 +199,10 @@ trusted internal func resolve(
 }
 
 trusted internal func execute(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
     pos destroying: bool,
 )
     requires(
@@ -222,8 +222,8 @@ trusted internal func execute(
 {
     // Establish the independent output before any action can consume frame storage.
     let output = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-        pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
     )
         requires(trusted entry(token = pointer, outcome = outcome))
         ensures(
@@ -246,10 +246,10 @@ trusted internal func execute(
 
 @abi(c)
 trusted internal func broadcast(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
 )
     requires(
         trusted entry(token = pointer, outcome = outcome),
@@ -270,10 +270,10 @@ trusted internal func broadcast(
 
 @abi(c)
 trusted internal func destroy(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
 )
     requires(
         trusted entry(token = pointer, outcome = outcome),

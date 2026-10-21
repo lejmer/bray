@@ -315,6 +315,14 @@ where
             return Some(Some(current));
         };
 
+        if let Some(selection @ SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(_))) =
+            self.selections().and_then(|selections| selections.expression(id))
+            && selection.evaluates_defaults()
+        {
+            let current = self.build_selected_inputs(id, selection, current)?;
+            return Some(Some(self.push_source_operation(id, current)));
+        }
+
         match expression {
             BoundExpression::Block(expression) => self.build_block_expression(*expression, current),
             BoundExpression::Binary(expression)
@@ -335,10 +343,8 @@ where
             BoundExpression::Generator(expression) => {
                 let current = self.build_expression(expression.source(), current)?;
                 let current = current.unwrap_or_else(|| self.push_block());
-                let current = self.push_source_operation(id, current);
-
                 self.build_iteration(
-                    expression.pattern(),
+                    id, expression.pattern(),
                     expression.body(),
                     None,
                     expression.region(),
@@ -779,7 +785,7 @@ where
         self.checked_storage
     }
 
-    pub(super) const fn selections(&self) -> Option<&bray_bound_tree::CheckedSemanticSelections> {
+    pub(super) const fn selections(&self) -> Option<&'view bray_bound_tree::CheckedSemanticSelections> {
         self.selections
     }
 

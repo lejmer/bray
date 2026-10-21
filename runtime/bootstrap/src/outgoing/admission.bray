@@ -9,8 +9,8 @@ using internal bray.runtime.bootstrap;
 
 @abi(c)
 trusted internal func admission(
-    pos pointer: RawPointer<bray.runtime.bootstrap.storage.Bundle>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos pointer: DataPointer<bray.runtime.bootstrap.storage.Bundle>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -37,7 +37,7 @@ trusted internal func admission(
 
 trusted internal func accept(
     pos bundle: bray.runtime.bootstrap.storage.Bundle,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> bool
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -116,7 +116,7 @@ trusted internal func accept_locked(
 }
 
 @abi(c)
-trusted internal func discharge(pos pointer: RawPointer<bray.runtime.bootstrap.storage.Bundle>)
+trusted internal func discharge(pos pointer: DataPointer<bray.runtime.bootstrap.storage.Bundle>)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Bundle>(pointer = pointer, count = 1),

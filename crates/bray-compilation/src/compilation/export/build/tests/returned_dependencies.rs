@@ -676,8 +676,8 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
     let provider = compilation(
         r#"
         module api;
-        struct Holder<T> { reference: &T; address: RawPointer<T>; }
-        func make<T>(pos input: &T, pos address: RawPointer<T>) -> Holder<T> { return { reference = input, address = address }; }
+        struct Holder<T> { reference: &T; address: DataPointer<T>; }
+        func make<T>(pos input: &T, pos address: DataPointer<T>) -> Holder<T> { return { reference = input, address = address }; }
     "#,
     );
 
@@ -686,7 +686,7 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
         r#"
         module app;
         using example.package.api;
-        func forwarded(pos input: &bool, pos address: RawPointer<bool>) -> example.package.api.Holder<bool> { return example.package.api.make(input, address); }
+        func forwarded(pos input: &bool, pos address: DataPointer<bool>) -> example.package.api.Holder<bool> { return example.package.api.make(input, address); }
     "#,
     );
 
@@ -788,7 +788,7 @@ fn imported_generic_addresses_retain_authority_only_while_the_owner_lives() {
     let provider = compilation(
         r#"
         module api;
-        func forward<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
+        func forward<T>(pos pointer: DataPointer<T>) -> DataPointer<T>
             executes(pure, total)
         { return pointer; }
     "#,
@@ -959,7 +959,7 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
         module api;
 
         using core.memory;
-        func pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func pointer<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
     "#,
@@ -970,7 +970,7 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
         r#"
         module app;
         using example.package.api.pointer;
-        func caller(pos storage: &Uninit<bool>) -> RawPointer<bool> {
+        func caller(pos storage: &Uninit<bool>) -> DataPointer<bool> {
             return example.package.api.pointer<bool>(storage);
         }
     "#,
@@ -1594,7 +1594,7 @@ fn imported_escape_effects_distinguish_retained_arguments_from_opaque_execution(
 
         extern trusted func opaque();
 
-        extern trusted func publish(pos pointer: RawPointer<Owner>);
+        extern trusted func publish(pos pointer: DataPointer<Owner>);
 
         trusted func make() -> Owner
             ensures(trusted live(&result.marker))
@@ -1707,14 +1707,14 @@ fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
 
         struct Owner
         {
-            pointer: RawPointer<u32>;
+            pointer: DataPointer<u32>;
         }
 
         func forward(pos owner: &Owner, pos counter: &core.atomic.Atomic<usize>) -> Owner
         {
             let _: usize = core.atomic.fetch_add<usize, 0>(counter, 1);
 
-            let make = lambda(pos pointer: RawPointer<u32>) -> Owner
+            let make = lambda(pos pointer: DataPointer<u32>) -> Owner
             {
                 return
                 {
@@ -1763,19 +1763,19 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
         struct Owner
         {
             marker: Marker;
-            pointer: RawPointer<u32>;
+            pointer: DataPointer<u32>;
         }
 
         trusted predicate live(marker: &Marker);
 
-        extern func pointer() -> RawPointer<u32>;
+        extern func pointer() -> DataPointer<u32>;
 
-        extern func touch(pos pointer: RawPointer<u32>);
+        extern func touch(pos pointer: DataPointer<u32>);
 
         func make() -> Result<Owner, bool>
             ensures(!(result matches Ok(_)) || trusted live(result_marker(&result)))
         {
-            let make_owner = trusted lambda(pos pointer: RawPointer<u32>) -> Owner
+            let make_owner = trusted lambda(pos pointer: DataPointer<u32>) -> Owner
                 ensures(trusted live(&result.marker))
             {
                 return Owner
@@ -1801,7 +1801,7 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
             }
         }
 
-        func copy_pointer(pos owner: &Owner) -> RawPointer<u32>
+        func copy_pointer(pos owner: &Owner) -> DataPointer<u32>
         {
             return owner.pointer;
         }
@@ -1842,19 +1842,19 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
 #[test]
 fn propagation_preserves_the_selected_payload_reference_relation() {
     for (ty, input, result, count) in [
-        ("RawPointer<u32>?", "input?", "pointer", 1),
+        ("DataPointer<u32>?", "input?", "pointer", 1),
         ("Wrapper?", "input?", "pointer", 1),
         ("Outer?", "input?", "pointer", 1),
         ("Result<Wrapper, bool>", "try input", "Ok(pointer)", 1),
         ("Result<Outer, Wrapper>", "try input", "Ok(pointer)", 2),
         (
-            "Result<RawPointer<u32>, bool>",
+            "Result<DataPointer<u32>, bool>",
             "try input",
             "Ok(pointer)",
             1,
         ),
         (
-            "Result<RawPointer<u32>, RawPointer<u32>>",
+            "Result<DataPointer<u32>, DataPointer<u32>>",
             "try input",
             "Ok(pointer)",
             2,
@@ -1893,7 +1893,7 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
 
                 struct Wrapper
                 {{
-                    pointer: RawPointer<u32>;
+                    pointer: DataPointer<u32>;
                 }}
 
                 struct Outer
@@ -1961,11 +1961,11 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
 
         struct Value
         {
-            child: RawPointer<Child>;
+            child: DataPointer<Child>;
             fail: bool;
         }
 
-        extern func replace(pos child: RawPointer<Child>);
+        extern func replace(pos child: DataPointer<Child>);
 
         impl ValueAdd = Value(Add<Value>)
         {
@@ -2075,7 +2075,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
 
         struct Slot
         {
-            mut pointer: RawPointer<bool>;
+            mut pointer: DataPointer<bool>;
         }
 
         func choose(pos left: &mut Slot, pos right: &mut Slot, pos first: bool) -> &mut Slot
@@ -2087,7 +2087,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
             return right;
         }
 
-        func store(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+        func store(pos left: &mut Slot, pos right: &mut Slot, pos pointer: DataPointer<bool>, pos first: bool)
         {
             let destination = choose(left, right, first);
             destination.pointer = pointer;
@@ -2103,7 +2103,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
         let body = r#"
             extern func opaque();
 
-            func forward(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+            func forward(pos left: &mut Slot, pos right: &mut Slot, pos pointer: DataPointer<bool>, pos first: bool)
             {
                 store(left, right, pointer, first);
                 opaque();

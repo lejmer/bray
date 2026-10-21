@@ -124,7 +124,7 @@
           "parameters": [
             {
               "name": "key",
-              "type": "RawPointer<u64>",
+              "type": "DataPointer<u64>",
               "native_type": "pthread_key_t *"
             },
             {
@@ -184,7 +184,7 @@
               "native_type": "pthread_key_t"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "pthread",
           "error_state": "returns the current thread value or null when unset",
@@ -211,7 +211,7 @@
             },
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const void *"
             }
           ],
@@ -237,7 +237,7 @@
           "parameters": [
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -262,7 +262,7 @@
           "native": "_NSGetArgc",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<i32>",
+          "result": "DataPointer<i32>",
           "native_result": "int *",
           "link": "c",
           "error_state": "returns process argument count storage",
@@ -283,7 +283,7 @@
           "native": "_NSGetArgv",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<RawPointer<RawPointer<u8>>>",
+          "result": "DataPointer<DataPointer<DataPointer<u8>>>",
           "native_result": "char ***",
           "link": "c",
           "error_state": "returns process argument vector storage",
@@ -294,9 +294,9 @@
             "raw_memory"
           ],
           "ensures": [
-            "trusted core.memory.valid_read<RawPointer<RawPointer<u8>>>(pointer = result, count = 1)",
-            "trusted core.memory.aligned_for<RawPointer<RawPointer<u8>>>(pointer = result)",
-            "trusted core.memory.initialized_as<RawPointer<RawPointer<u8>>>(pointer = result)"
+            "trusted core.memory.valid_read<DataPointer<DataPointer<u8>>>(pointer = result, count = 1)",
+            "trusted core.memory.aligned_for<DataPointer<DataPointer<u8>>>(pointer = result)",
+            "trusted core.memory.initialized_as<DataPointer<DataPointer<u8>>>(pointer = result)"
           ]
         },
         {
@@ -304,7 +304,7 @@
           "native": "__error",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<i32>",
+          "result": "DataPointer<i32>",
           "native_result": "int *",
           "link": "c",
           "error_state": "returns the calling native thread error storage",

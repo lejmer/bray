@@ -115,9 +115,15 @@ impl ControlFlowGraphAssembler {
 
         self.push_edge(current, entered, AnalysisEdgeKind::ScopeExit, None);
 
+        let mut scoped_attempt = None;
         let completed = if let Some((expression, result)) = scoped {
+            self.push_call(entered, bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                AnalysisCallPhase::Input);
+            let attempt = self.push_block();
+            scoped_attempt = Some(attempt);
+            self.push_edge(entered, attempt, AnalysisEdgeKind::Sequential, None);
             self.push_call(
-                entered,
+                attempt,
                 bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                 AnalysisCallPhase::Attempt,
             );
@@ -126,14 +132,14 @@ impl ControlFlowGraphAssembler {
 
             if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
                 self.push_suspension(
-                    entered,
+                    attempt,
                     bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                     AnalysisSuspensionKind::ScopedCall,
                 );
 
                 let suspended = self.push_block();
 
-                self.push_edge(entered, suspended, AnalysisEdgeKind::Suspension, None);
+                self.push_edge(attempt, suspended, AnalysisEdgeKind::Suspension, None);
 
                 // Cleanup is shielded, so cancellation waits until exit completes.
                 self.push_edge(
@@ -146,7 +152,7 @@ impl ControlFlowGraphAssembler {
                 );
             } else {
                 self.push_edge(
-                    entered,
+                    attempt,
                     completed,
                     AnalysisEdgeKind::Sequential,
                     Some(super::model::AnalysisRefinement::InvocationCompletion(
@@ -183,8 +189,11 @@ impl ControlFlowGraphAssembler {
 
             if !preserves_exit_value {
                 // A failing exit still resolves the remaining cleanup, without its normal guarantees.
+                self.push_edge(entered, cancellation, AnalysisEdgeKind::Sequential,
+                    Some(AnalysisRefinement::PreconditionFailure(
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression))));
                 self.push_edge(
-                    entered,
+                    scoped_attempt.expect("selected scope exit retains its admitted attempt"),
                     cancellation,
                     AnalysisEdgeKind::Sequential,
                     Some(AnalysisRefinement::InvocationFailure(
@@ -404,7 +413,9 @@ mod tests {
                         for operation in block.operations() {
                             match graph.operation(*operation).unwrap().kind() {
                                 AnalysisOperationKind::Call { phase, .. } => {
+                                    if phase == AnalysisCallPhase::Input { continue; }
                                     events.push(match phase {
+                                        AnalysisCallPhase::Input => unreachable!(),
                                         AnalysisCallPhase::Attempt => "exit attempt",
                                         AnalysisCallPhase::Completion => "exit complete",
                                     })

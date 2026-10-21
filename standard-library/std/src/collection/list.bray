@@ -56,9 +56,9 @@ trusted internal func swap_at<T>(pos list: &mut List<T>, left: usize, right: usi
         return unit;
     }
 
-    let left_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[left]);
+    let left_pointer: DataPointer<T> = std.memory.address_of_mut<T>(&mut values[left]);
     let temporary: T = trusted std.memory.read<T>(left_pointer);
-    let right_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);
+    let right_pointer: DataPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);
     let replacement: T = trusted std.memory.read<T>(right_pointer);
 
     trusted std.memory.write<T>(left_pointer, replacement);
@@ -224,7 +224,7 @@ func reverse<T>(pos list: &mut List<T>) -> unit
 trusted internal func copied_index(pos selector: &usize) -> usize
     uses(raw_memory)
 {
-    let pointer: RawPointer<usize> = std.memory.address_of<usize>(selector);
+    let pointer: DataPointer<usize> = std.memory.address_of<usize>(selector);
 
     return trusted std.memory.read<usize>(pointer);
 }

@@ -5,7 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -305,7 +305,7 @@ pub struct StorageFlow {
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     proven_preconditions: Arc<[crate::BoundExecutionSite]>,
-    assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+    assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StorageTarget>,
     dependencies: bray_symbols::DependencyContractTemplateData,
     report_collections: Arc<[Option<BoundExpressionId>]>,
     reporting_completions: Arc<[crate::BoundExecutionSite]>,
@@ -674,10 +674,10 @@ impl StorageFlow {
         self.proven_preconditions.binary_search(&invocation).is_ok()
     }
 
-    /// Publishes exact assignment destinations agreed by every reachable evaluation.
+    /// Publishes assignment origins agreed by every reachable evaluation without discarding referents.
     pub fn with_assignment_targets(
         mut self,
-        targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
+        targets: std::collections::BTreeMap<BoundExpressionId, crate::StorageTarget>,
     ) -> Result<Self, StorageFlowBuildError> {
         if targets.iter().any(|(expression, access)| {
             expression.unit() != self.unit || !access.is_valid_for(self.unit)
@@ -690,9 +690,22 @@ impl StorageFlow {
         Ok(self)
     }
 
-    /// Returns the physical destination established for an assignment through a reference.
-    pub fn assignment_target(&self, expression: BoundExpressionId) -> Option<&crate::StoragePath> {
+    /// Returns the resolved origin established for an assignment, including borrowed referents.
+    pub fn assignment_target(&self, expression: BoundExpressionId) -> Option<&crate::StorageTarget> {
         self.assignment_targets.get(&expression)
+    }
+
+    /// Returns a whole local slot whose assignment cannot affect an enclosing invocation.
+    /// Referents, allocations and projections require their own established state transition.
+    pub fn confined_assignment(
+        &self,
+        storage: &StoragePlan,
+        expression: BoundExpressionId,
+    ) -> Option<&crate::StoragePath> {
+        let path = self.assignment_target(expression)?.storage_path()?;
+        (path.projections.is_empty()
+            && storage.identity(path.root)?.is_invocation_owned(self.kind))
+            .then_some(path)
     }
 
     /// Returns the established decision for a selected raw-memory operation.
@@ -963,9 +976,39 @@ mod tests {
                 .unwrap();
 
         assert_eq!(
-            flow.with_assignment_targets([(expression, target)].into()),
+            flow.with_assignment_targets([(expression, crate::StorageTarget::storage(target))].into()),
             Err(StorageFlowBuildError::ForeignUnit)
         );
+    }
+
+    #[test]
+    fn assignment_publication_retains_borrowed_origins_and_checks_their_selectors() {
+        let unit = BoundUnitId::new(6);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+
+        for selector_unit in [unit, BoundUnitId::new(7)] {
+            let target = crate::StorageTarget {
+                previous: false,
+                origin: crate::StorageOrigin::Entry {
+                    reference: crate::StoragePath::root(StorageIdentityId::from_slot(unit, 0)),
+                    layer: 1,
+                    projections: [crate::StorageProjection::Element(
+                        BoundExpressionId::from_slot(selector_unit, 0),
+                    )].into(),
+                },
+            };
+
+            let flow = StorageFlow::try_new(
+                unit, BoundUnitKind::CallableBody, [], [], [], [], [], false,
+            ).unwrap();
+            let published = flow.with_assignment_targets([(expression, target.clone())].into());
+
+            if selector_unit == unit {
+                assert_eq!(published.unwrap().assignment_target(expression), Some(&target));
+            } else {
+                assert_eq!(published, Err(StorageFlowBuildError::ForeignUnit));
+            }
+        }
     }
 
     #[test]

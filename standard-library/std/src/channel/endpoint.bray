@@ -63,7 +63,7 @@ struct Sender<T>
 
         trusted internal retain_counter(&shared.owners);
 
-        let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+        let make_owner = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
             ensures(trusted std.channel.owner.live(&result.instance))
         {
             return
@@ -178,7 +178,7 @@ struct Sender<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+            let make_owner = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
                 ensures(trusted std.channel.owner.live(&result.instance))
             {
                 return
@@ -362,7 +362,7 @@ struct Receiver<T>
 
             trusted internal retain_counter(&shared.owners);
 
-            let make_owner = trusted lambda(pos pointer: RawPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
+            let make_owner = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
                 ensures(trusted std.channel.owner.live(&result.instance))
             {
                 return

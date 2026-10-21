@@ -121,7 +121,7 @@ impl InternState {
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
             builder
-                .push_node(CheckedTemplateNode::new(operation, ty))
+                .push_node(CheckedTemplateNode::new(operation, ty).with_unsigned_integer_bits(node.unsigned_integer_bits()))
                 .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
         }
 

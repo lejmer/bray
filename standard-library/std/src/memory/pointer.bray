@@ -1,0 +1,146 @@
+module std.memory;
+
+using core.memory;
+
+extern func address_of<T>(pos value: &T) -> DataPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.shared_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
+
+extern func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = result),
+        trusted core.memory.epoch_current<T>(pointer = result),
+        trusted core.memory.synchronized_access<T>(pointer = result),
+        trusted core.memory.movement_stable<T>(pointer = result),
+        trusted core.memory.finalization_pending<T>(pointer = result),
+    );
+
+extern func null<T>() -> DataPointer<T>;
+
+extern func is_null<T>(pos pointer: DataPointer<T>) -> bool;
+
+extern func offset<T>(pos pointer: DataPointer<T>, elements: isize) -> DataPointer<T>;
+
+extern func byte_offset<T>(pos pointer: DataPointer<T>, bytes: isize) -> DataPointer<T>;
+
+extern const func byte_address<T>(pos pointer: DataPointer<T>) -> DataPointer<u8>;
+
+extern trusted func reinterpret<Target, Source>(pos pointer: DataPointer<Source>) -> DataPointer<Target>
+    uses(layout_reinterpret);
+
+extern trusted func callable_from_pointer<F>(pos pointer: FunctionPointer<F>) -> F
+    requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
+    uses(layout_reinterpret);
+
+extern trusted func function_address<F>(pos value: F) -> FunctionPointer<F>
+    ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
+    uses(layout_reinterpret);
+
+extern trusted func read<T>(pos pointer: DataPointer<T>) -> T
+    requires(
+        trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+    )
+    uses(raw_memory);
+
+extern trusted func write<T>(pos pointer: DataPointer<T>, pos value: T) -> unit
+    requires(
+        trusted core.memory.valid_write<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+    )
+    ensures(trusted core.memory.initialized_as<T>(pointer = pointer))
+    uses(raw_memory, unchecked_init);
+
+extern trusted func copy<T>(pos source: DataPointer<T>, pos destination: DataPointer<T>, count: usize) -> unit
+    requires(
+        trusted core.memory.valid_read<T>(pointer = source, count = count),
+        trusted core.memory.valid_write<T>(pointer = destination, count = count),
+        trusted core.memory.initialized_range_as<T>(pointer = source, count = count),
+        trusted core.memory.non_overlapping<T>(
+            left = source,
+            left_count = count,
+            right = destination,
+            right_count = count,
+        ),
+    )
+    ensures(trusted core.memory.initialized_range_as<T>(pointer = destination, count = count))
+    uses(raw_memory, unchecked_init);
+
+extern trusted func copy_overlapping<T>(pos source: DataPointer<T>, pos destination: DataPointer<T>, count: usize) -> unit
+    requires(
+        trusted core.memory.valid_read<T>(pointer = source, count = count),
+        trusted core.memory.valid_write<T>(pointer = destination, count = count),
+        trusted core.memory.initialized_range_as<T>(pointer = source, count = count),
+    )
+    ensures(trusted core.memory.initialized_range_as<T>(pointer = destination, count = count))
+    uses(raw_memory, unchecked_init);
+
+trusted func replace_value<T>(pos storage: &mut T, pos value: T) -> T
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let value_pointer: DataPointer<T> = address_of_mut<T>(storage);
+    let previous: T = trusted read<T>(value_pointer);
+
+    trusted write<T>(value_pointer, value);
+
+    return previous;
+}
+
+trusted internal func swap_values<T>(pos left: &mut T, pos right: &mut T)
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let previous: T = trusted read<T>(address_of_mut<T>(left));
+    let replacement: T = trusted replace_value<T>(right, previous);
+
+    trusted write<T>(address_of_mut<T>(left), replacement);
+}
+
+trusted internal func slice_pointer<T>(pos values: &[T], count: usize) -> DataPointer<T>
+    requires(count <= values.length())
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = count),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_range_as<T>(pointer = result, count = count),
+    )
+    executes(pure)
+{
+    if count == 0
+    {
+        return null<T>();
+    }
+
+    return address_of<T>(&values[0]);
+}
+
+trusted internal func slice_pointer_mut<T>(pos values: &mut [T], count: usize) -> DataPointer<T>
+    requires(count <= values.length())
+    ensures(
+        trusted core.memory.valid_read<T>(pointer = result, count = count),
+        trusted core.memory.valid_write<T>(pointer = result, count = count),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_range_as<T>(pointer = result, count = count),
+    )
+    executes(pure)
+{
+    if count == 0
+    {
+        return null<T>();
+    }
+
+    return address_of_mut<T>(&mut values[0]);
+}

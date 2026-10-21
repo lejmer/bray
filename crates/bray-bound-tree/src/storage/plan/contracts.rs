@@ -12,8 +12,8 @@ use std::sync::Arc;
 /// The semantic construct that establishes a borrow capability.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BorrowCapabilityOrigin {
-    /// A borrow or reborrow expression evaluated inside the unit.
-    Expression(BoundExpressionId),
+    /// The exact source or implicit invocation establishing this loan.
+    Operation(crate::BoundExecutionSite),
     /// A borrow supplied by the caller when the unit begins.
     Entry(StorageBindingTarget),
 }
@@ -54,18 +54,26 @@ impl PlannedBorrowCapability {
         self.origin
     }
 
-    /// Returns the expression that establishes the capability, when evaluated in the unit.
-    pub const fn expression(self) -> Option<BoundExpressionId> {
+    /// Returns the operation establishing this capability, excluding entry loans.
+    pub const fn occurrence(self) -> Option<crate::BoundExecutionSite> {
         match self.origin {
-            BorrowCapabilityOrigin::Expression(expression) => Some(expression),
+            BorrowCapabilityOrigin::Operation(occurrence) => Some(occurrence),
             BorrowCapabilityOrigin::Entry(_) => None,
+        }
+    }
+
+    /// Returns the source expression owning this loan's establishment.
+    pub const fn expression(self) -> Option<BoundExpressionId> {
+        match self.occurrence() {
+            Some(occurrence) => occurrence.expression(),
+            None => None,
         }
     }
 
     /// Returns the entry binding that supplies the capability, when any.
     pub const fn entry_binding(self) -> Option<StorageBindingTarget> {
         match self.origin {
-            BorrowCapabilityOrigin::Expression(_) => None,
+            BorrowCapabilityOrigin::Operation(_) => None,
             BorrowCapabilityOrigin::Entry(target) => Some(target),
         }
     }
@@ -117,8 +125,31 @@ pub enum StorageBindingTarget {
     PatternSubject(BoundPatternId),
     /// A callable result visible to a postcondition.
     PostconditionResult(PostconditionResultSymbolId),
+    /// The receiver-first input staged for a selected call.
+    InvocationInput {
+        /// The call whose evaluation owns this slot.
+        expression: BoundExpressionId,
+        /// The receiver-first input ordinal.
+        ordinal: bray_symbols::SymbolOrdinal,
+    },
+    /// The result owned by one selected implicit invocation.
+    InvocationResult(crate::BoundExecutionSite),
     /// The value produced by the bound unit.
     Result,
+}
+
+impl StorageBindingTarget {
+    /// Returns the source value named by an ordinary parameter, receiver or local binding.
+    pub fn reference_target(self) -> Option<crate::BoundReferenceTarget> {
+        use crate::BoundReferenceTarget;
+        match self {
+            Self::Local(id) => Some(BoundReferenceTarget::Local(id.into())),
+            Self::Parameter(id) => Some(BoundReferenceTarget::Surface(id.into())),
+            Self::Receiver(id) => Some(BoundReferenceTarget::Surface(id.into())),
+            Self::AnonymousParameter(id) => Some(BoundReferenceTarget::Local(id.into())),
+            _ => None,
+        }
+    }
 }
 
 /// The persistent storage or evaluated access named by a semantic identity.

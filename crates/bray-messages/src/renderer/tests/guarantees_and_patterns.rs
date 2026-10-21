@@ -189,3 +189,4 @@ fn constant_call_requirements_identify_the_call_and_required_correction() {
         "supply constant arguments that satisfy the selected callable's requires(...) clauses"
     );
 }
+

@@ -371,7 +371,7 @@ func caught_user(pos input: string) -> Result<User, PanicReport>
     };
 }
 
-trusted func raw_sum(pos first: RawPointer<u8>, pos second: RawPointer<u8>) -> u8
+trusted func raw_sum(pos first: DataPointer<u8>, pos second: DataPointer<u8>) -> u8
     uses(raw_memory)
 {
     let direct: u8 = trusted core.memory.read<u8>(first);
@@ -431,7 +431,7 @@ func callable_forms(pos path: Path) -> usize
         return await read_response();
     };
 
-    let raw = trusted lambda(pos pointer: RawPointer<u8>) -> u8
+    let raw = trusted lambda(pos pointer: DataPointer<u8>) -> u8
         uses(raw_memory)
     {
         return core.memory.read<u8>(pointer);

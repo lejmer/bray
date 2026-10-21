@@ -10,7 +10,11 @@ pub(crate) const fn implementation_dependency_source(
         | ImplementationHook::PointerFromCallable
         | ImplementationHook::RawPointerOffset
         | ImplementationHook::RawPointerByteOffset
-        | ImplementationHook::RawPointerReinterpret => Some((
+        | ImplementationHook::RawPointerByteAddress
+        | ImplementationHook::RawPointerReinterpret
+        | ImplementationHook::FunctionPointerReinterpret
+        | ImplementationHook::FunctionPointerFromData
+        | ImplementationHook::FunctionPointerToData => Some((
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
             None,
         )),

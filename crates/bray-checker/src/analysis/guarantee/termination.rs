@@ -164,7 +164,7 @@ fn local_unsigned_scalar<C: CheckerRequestContext + ?Sized>(
         return None;
     }
 
-    storage.expression_plans(expression).find_map(|plan| {
+    storage.node_plans((expression).into()).find_map(|plan| {
         let root = storage.root_identity(plan.access())?;
 
         matches!(storage.identity(root), Some(StorageIdentity::LocalOwned(_))).then_some(root)

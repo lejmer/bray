@@ -37,13 +37,13 @@ pub(crate) const RUNTIME_MEMORY_SOURCE: &str = r#"trusted internal module std.ru
 
 using core.memory;
 
-trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
+trusted func allocate(pos bytes: usize, pos align: usize) -> DataPointer<u8>
 {
     return core.memory.null<u8>();
 }
 
 trusted func deallocate(
-    pos pointer: RawPointer<u8>,
+    pos pointer: DataPointer<u8>,
     pos bytes: usize,
     pos align: usize,
 ) -> unit
@@ -57,9 +57,9 @@ using core.memory;
 
 internal struct OwnedText
 {
-    data: RawPointer<u8>;
+    data: DataPointer<u8>;
     length: usize;
-    owner: RawPointer<u8>;
+    owner: DataPointer<u8>;
 }
 
 internal struct ValidatedText
@@ -68,28 +68,28 @@ internal struct ValidatedText
     text: OwnedText;
 }
 
-trusted internal func scalar_count(pos data: RawPointer<u8>, pos length: usize) -> usize
+trusted internal func scalar_count(pos data: DataPointer<u8>, pos length: usize) -> usize
 {
     return 0;
 }
 
 trusted internal func equals(
-    pos left_data: RawPointer<u8>,
+    pos left_data: DataPointer<u8>,
     pos left_length: usize,
-    pos right_data: RawPointer<u8>,
+    pos right_data: DataPointer<u8>,
     pos right_length: usize,
 ) -> bool
 {
     return false;
 }
 
-trusted internal func scalar_at(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u32?
+trusted internal func scalar_at(pos data: DataPointer<u8>, pos length: usize, pos index: usize) -> u32?
 {
     return none;
 }
 
 trusted internal func scalar_slice(
-    pos data: RawPointer<u8>,
+    pos data: DataPointer<u8>,
     pos length: usize,
     pos start: usize,
     pos end: usize,
@@ -98,7 +98,7 @@ trusted internal func scalar_slice(
     return empty_text();
 }
 
-trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> ValidatedText
+trusted internal func from_utf8(pos data: DataPointer<u8>, pos length: usize) -> ValidatedText
 {
     return
     {
@@ -109,7 +109,7 @@ trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> 
 
 internal func empty_text() -> OwnedText
 {
-    let empty: RawPointer<u8> = core.memory.null<u8>();
+    let empty: DataPointer<u8> = core.memory.null<u8>();
 
     return
     {
@@ -601,7 +601,7 @@ pub(crate) fn compilation_with_sources_product_and_worker_budget(
     }
 }
 
-fn source_inputs(sources: &[&str]) -> Vec<SourceInput> {
+pub(crate) fn source_inputs(sources: &[&str]) -> Vec<SourceInput> {
     sources
         .iter()
         .copied()

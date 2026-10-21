@@ -520,9 +520,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
     ) {
-        if occurrence
-            .expression()
-            .is_some_and(|expression| self.memory.operation(expression).is_some())
+        if matches!(occurrence, BoundExecutionSite::Node(_))
+            && occurrence.expression().is_some_and(|expression| self.memory.operation(expression).is_some())
         {
             return;
         }
@@ -532,6 +531,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         state.memory.begin_transition(occurrence);
+
+        if let BoundExecutionSite::CallInput { expression, ordinal } = occurrence
+            && let Some(selection) = self.execution.semantics.selections().expression(expression)
+        {
+            let input = selection.input(ordinal).expect("input reference transfer retains its selection");
+            let projections = match input.conversion() {
+                None if input.expression().is_some() => Some(&[][..]),
+                Some(conversion) => match conversion.target() {
+                    bray_bound_tree::ConversionTarget::Identity
+                    | bray_bound_tree::ConversionTarget::CallableContract => Some(&[][..]),
+                    bray_bound_tree::ConversionTarget::NullablePresent => Some(&[bray_bound_tree::StorageProjection::NullableValue][..]),
+                    _ => None,
+                },
+                None => None,
+            };
+            if let Some(projections) = projections
+                && let Some(source) = self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
+                && let Some(destination) = self.invocation_result(occurrence)
+            {
+                source.stage(&mut state.memory, occurrence, Target::storage(destination).project(projections));
+            }
+        }
 
         for reference in contracts.references() {
             let relation = reference.relation();

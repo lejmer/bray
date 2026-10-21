@@ -285,7 +285,7 @@ pub const fn atomic_target_representation(
         RepresentationRole::ScalarIsize | RepresentationRole::ScalarUsize => {
             TargetAtomicRepresentation::for_storage_size((pointer_width_bits / 8) as u64)
         }
-        RepresentationRole::RawPointer => Some(TargetAtomicRepresentation::Pointer),
+        RepresentationRole::RawPointer | RepresentationRole::FunctionPointer => Some(TargetAtomicRepresentation::Pointer),
         _ => None,
     }
 }

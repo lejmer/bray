@@ -72,6 +72,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         edge: &AnalysisEdge,
     ) -> Option<(ExecutionCondition, bool)> {
         match edge.refinement()? {
+            AnalysisRefinement::InvocationPresence(invocation, present) => {
+                let access = self.storage.invocation_result(invocation)
+                    .expect("protocol presence has its actual result");
+                let ty = self.storage.access(access)
+                    .expect("protocol result retains its type").reached_type();
+                let (_, absent) = crate::execution_guarantees::pattern_value(
+                    self.request.semantic_values(), ty, bray_bound_tree::PatternPredicate::NullableAbsent)
+                    .expect("next result is nullable");
+                Some((ExecutionCondition::pattern(self.invocation_value(state, invocation),
+                    bray_bound_tree::BoundOperator::Equal, absent), !present))
+            }
+            AnalysisRefinement::InvocationBoolean(invocation, value) => Some((
+                self.invocation_value(state, invocation)
+                    .component(bray_symbols::ConstantProjectionKind::NullableValue), value)),
             AnalysisRefinement::PatternOutcome {
                 subject,
                 pattern,

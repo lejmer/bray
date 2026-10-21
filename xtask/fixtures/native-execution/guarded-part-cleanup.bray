@@ -132,7 +132,7 @@ impl InlineStorage<T>(Storage<T>)
 // These projections expose the invariant established by InlineStorage<T>.create. The storage protocol
 // supplies a live initialized target until compiler-owned destruction.
 // The borrow retains the storage capability.
-trusted func stored_pointer<T>(pos storage: &InlineStorage<T>) -> RawPointer<T>
+trusted func stored_pointer<T>(pos storage: &InlineStorage<T>) -> DataPointer<T>
     executes(pure, total)
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
@@ -148,7 +148,7 @@ trusted func stored_pointer<T>(pos storage: &InlineStorage<T>) -> RawPointer<T>
     return core.memory.uninit_pointer<T>(&storage.value);
 }
 
-trusted func stored_pointer_mut<T>(pos storage: &mut InlineStorage<T>) -> RawPointer<T>
+trusted func stored_pointer_mut<T>(pos storage: &mut InlineStorage<T>) -> DataPointer<T>
     executes(pure, total)
     ensures(
         trusted core.memory.valid_write<T>(pointer = result, count = 1),

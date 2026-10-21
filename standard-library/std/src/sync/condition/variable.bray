@@ -23,7 +23,7 @@ struct ConditionVariable
             storage = std.memory.uninit_from<SpinLock<std.sync.condition.Queue>>(
                 SpinLock<std.sync.condition.Queue>(
                     {
-                        head = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+                        head = core.atomic.initialize<DataPointer<std.sync.condition.Waiter>>(
                             std.memory.null<std.sync.condition.Waiter>()
                         )
                     }
@@ -36,7 +36,7 @@ struct ConditionVariable
         requires(trusted std.sync.condition.valid(&self.instance))
         uses(raw_memory)
     {
-        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<SpinLock<std.sync.condition.Queue>>)
             ensures(
                 trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
@@ -71,7 +71,7 @@ struct ConditionVariable
         ensures(trusted std.sync.condition.valid(&self.instance), trusted std.sync.mutex.acquired(&result.acquisition))
         uses(raw_memory, unchecked_alias)
     {
-        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<SpinLock<std.sync.condition.Queue>>)
             ensures(
                 trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
@@ -96,7 +96,7 @@ struct ConditionVariable
 
         authorize_queue(queue);
 
-        let authorize_waiter = trusted lambda(pos pointer: RawPointer<std.sync.condition.Waiter>)
+        let authorize_waiter = trusted lambda(pos pointer: DataPointer<std.sync.condition.Waiter>)
             ensures(
                 trusted core.memory.valid_read<std.sync.condition.Waiter>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.condition.Waiter>(pointer = pointer),
@@ -111,10 +111,10 @@ struct ConditionVariable
 
         let waiter: std.sync.condition.Waiter =
         {
-            previous = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+            previous = core.atomic.initialize<DataPointer<std.sync.condition.Waiter>>(
                 std.memory.null<std.sync.condition.Waiter>()
             ),
-            next = core.atomic.initialize<RawPointer<std.sync.condition.Waiter>>(
+            next = core.atomic.initialize<DataPointer<std.sync.condition.Waiter>>(
                 std.memory.null<std.sync.condition.Waiter>()
             ),
             signalled = core.atomic.initialize<u32>(0),
@@ -129,9 +129,9 @@ struct ConditionVariable
             let mut held = queue.lock();
             let list = held.get();
 
-            let head = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&list.head);
+            let head = core.atomic.load<DataPointer<std.sync.condition.Waiter>, 0>(&list.head);
 
-            core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next, head);
+            core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&waiter.next, head);
 
             if !std.memory.is_null<std.sync.condition.Waiter>(head)
             {
@@ -139,10 +139,10 @@ struct ConditionVariable
 
                 let first = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, head);
 
-                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&first.previous, address);
+                core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&first.previous, address);
             }
 
-            core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&list.head, address);
+            core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&list.head, address);
         }
 
         guard.unlock();
@@ -152,12 +152,12 @@ struct ConditionVariable
         {
             let mut held = queue.lock();
             let list = held.get();
-            let previous = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.previous);
-            let next = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
+            let previous = core.atomic.load<DataPointer<std.sync.condition.Waiter>, 0>(&waiter.previous);
+            let next = core.atomic.load<DataPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
 
             if std.memory.is_null<std.sync.condition.Waiter>(previous)
             {
-                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&list.head, next);
+                core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&list.head, next);
             }
             else
             {
@@ -165,7 +165,7 @@ struct ConditionVariable
 
                 let before = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, previous);
 
-                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&before.next, next);
+                core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&before.next, next);
             }
 
             if !std.memory.is_null<std.sync.condition.Waiter>(next)
@@ -174,7 +174,7 @@ struct ConditionVariable
 
                 let after = trusted std.memory.borrow_from<std.sync.condition.Waiter, Self>(&self, next);
 
-                core.atomic.store<RawPointer<std.sync.condition.Waiter>, 0>(&after.previous, previous);
+                core.atomic.store<DataPointer<std.sync.condition.Waiter>, 0>(&after.previous, previous);
             }
         }
 
@@ -200,7 +200,7 @@ struct ConditionVariable
         ensures(trusted std.sync.condition.valid(&self.instance))
         uses(raw_memory, unchecked_alias)
     {
-        let authorize = trusted lambda(pos pointer: RawPointer<SpinLock<std.sync.condition.Queue>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<SpinLock<std.sync.condition.Queue>>)
             ensures(
                 trusted core.memory.valid_read<SpinLock<std.sync.condition.Queue>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<SpinLock<std.sync.condition.Queue>>(pointer = pointer),
@@ -225,7 +225,7 @@ struct ConditionVariable
 
         authorize_queue(queue);
 
-        let authorize_waiter = trusted lambda(pos pointer: RawPointer<std.sync.condition.Waiter>)
+        let authorize_waiter = trusted lambda(pos pointer: DataPointer<std.sync.condition.Waiter>)
             ensures(
                 trusted core.memory.valid_read<std.sync.condition.Waiter>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.condition.Waiter>(pointer = pointer),
@@ -240,7 +240,7 @@ struct ConditionVariable
 
         let mut held = queue.lock();
         let list = held.get();
-        let mut current = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&list.head);
+        let mut current = core.atomic.load<DataPointer<std.sync.condition.Waiter>, 0>(&list.head);
 
         while !std.memory.is_null<std.sync.condition.Waiter>(current)
         {
@@ -259,7 +259,7 @@ struct ConditionVariable
                 }
             }
 
-            current = core.atomic.load<RawPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
+            current = core.atomic.load<DataPointer<std.sync.condition.Waiter>, 0>(&waiter.next);
         }
     }
 }

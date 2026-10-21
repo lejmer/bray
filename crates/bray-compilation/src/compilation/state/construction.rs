@@ -887,7 +887,7 @@ mod tests {
                     "module app;\n",
                     "@link(name = \"native\")\n",
                     "struct NativeMutex;\n",
-                    "func use(pos pointer: RawPointer<NativeMutex>) {}\n",
+                    "func use(pos pointer: DataPointer<NativeMutex>) {}\n",
                 ),
                 0,
             )],

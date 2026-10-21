@@ -66,7 +66,7 @@ fn borrowed_places() -> (
 
     let borrow = storage
         .push_borrow_capability(bray_bound_tree::PlannedBorrowCapability::new(
-            bray_bound_tree::BorrowCapabilityOrigin::Expression(expressions[0]),
+            bray_bound_tree::BorrowCapabilityOrigin::Operation((expressions[0]).into()),
             bray_symbols::BorrowKind::Shared,
             access,
             None,

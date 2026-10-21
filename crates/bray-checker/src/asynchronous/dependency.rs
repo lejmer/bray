@@ -396,7 +396,7 @@ mod tests {
 
         let mutable = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(expression),
+                BorrowCapabilityOrigin::Operation((expression).into()),
                 BorrowKind::Mutable,
                 access,
                 None,
@@ -407,7 +407,7 @@ mod tests {
 
         let shared = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(expression),
+                BorrowCapabilityOrigin::Operation((expression).into()),
                 BorrowKind::Shared,
                 access,
                 None,
@@ -418,7 +418,7 @@ mod tests {
 
         let reborrow = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(expression),
+                BorrowCapabilityOrigin::Operation((expression).into()),
                 BorrowKind::Mutable,
                 access,
                 Some(mutable),

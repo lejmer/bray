@@ -154,7 +154,7 @@ where
             .checked_storage()
             .and_then(|storage| {
                 storage
-                    .expression_plans(operand)
+                    .node_plans((operand).into())
                     .find_map(|plan| storage.access(plan.access()))
                     .map(|access| access.reached_type())
             })

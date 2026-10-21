@@ -44,7 +44,7 @@ scope CoreTargetControl at core.target {
         implementation VolatileLoad;
 
         surface {
-            trusted func volatile_load<T>(pos pointer: RawPointer<T>) -> T
+            trusted func volatile_load<T>(pos pointer: DataPointer<T>) -> T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -60,7 +60,7 @@ scope CoreTargetControl at core.target {
 
         surface {
             trusted func volatile_store<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 pos value: T,
             ) -> unit
                 requires(
@@ -114,7 +114,7 @@ scope CoreTargetControl at core.target {
         implementation PointerExposeAddress;
 
         surface {
-            trusted func expose_address<T>(pos pointer: RawPointer<T>) -> usize
+            trusted func expose_address<T>(pos pointer: DataPointer<T>) -> usize
                 uses(intrinsic);
         }
     }
@@ -124,7 +124,7 @@ scope CoreTargetControl at core.target {
         implementation PointerFromExposedAddress;
 
         surface {
-            trusted func from_exposed_address<T>(address: usize) -> RawPointer<T>
+            trusted func from_exposed_address<T>(address: usize) -> DataPointer<T>
                 uses(intrinsic);
         }
     }
@@ -135,8 +135,8 @@ scope CoreTargetControl at core.target {
 
         surface {
             trusted func address_equal<T>(
-                pos left: RawPointer<T>,
-                pos right: RawPointer<T>,
+                pos left: DataPointer<T>,
+                pos right: DataPointer<T>,
             ) -> bool
                 uses(intrinsic);
         }
@@ -148,8 +148,8 @@ scope CoreTargetControl at core.target {
 
         surface {
             trusted func address_less<T>(
-                pos left: RawPointer<T>,
-                pos right: RawPointer<T>,
+                pos left: DataPointer<T>,
+                pos right: DataPointer<T>,
             ) -> bool
                 uses(intrinsic);
         }

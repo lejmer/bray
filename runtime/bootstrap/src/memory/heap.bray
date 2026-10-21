@@ -4,7 +4,7 @@ using core.memory;
 using std.memory;
 using internal std.runtime.memory;
 
-trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
+trusted internal func allocate(pos bytes: usize, align: usize) -> DataPointer<u8>
     ensures(
         std.memory.is_null<u8>(result) || trusted core.memory.owned_allocation(
             pointer = result,
@@ -17,7 +17,7 @@ trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
     return trusted internal std.runtime.memory.try_allocate(bytes, align);
 }
 
-trusted internal func deallocate_bytes(pos pointer: RawPointer<u8>, pos bytes: usize, align: usize)
+trusted internal func deallocate_bytes(pos pointer: DataPointer<u8>, pos bytes: usize, align: usize)
     requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
     uses(manual_alloc)
 {
@@ -37,14 +37,14 @@ trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer
     }
 
     let bytes: usize = stride * capacity;
-    let allocation: RawPointer<u8> = trusted allocate(bytes, align = std.memory.align_of<T>());
+    let allocation: DataPointer<u8> = trusted allocate(bytes, align = std.memory.align_of<T>());
 
     if std.memory.is_null<u8>(allocation)
     {
         return none;
     }
 
-    let pointer: RawPointer<T> = trusted allocation_pointer<T>(allocation, capacity);
+    let pointer: DataPointer<T> = trusted allocation_pointer<T>(allocation, capacity);
 
     let buffer: std.memory.RawBuffer<T> =
     {
@@ -59,7 +59,7 @@ trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer
     return result;
 }
 
-trusted internal func allocation_pointer<T>(pos pointer: RawPointer<u8>, pos capacity: usize) -> RawPointer<T>
+trusted internal func allocation_pointer<T>(pos pointer: DataPointer<u8>, pos capacity: usize) -> DataPointer<T>
     requires(
         trusted core.memory.owned_allocation(
             pointer = pointer,
@@ -69,7 +69,7 @@ trusted internal func allocation_pointer<T>(pos pointer: RawPointer<u8>, pos cap
     )
     ensures(
         trusted core.memory.owned_allocation(
-            pointer = trusted std.memory.reinterpret<u8, T>(result),
+            pointer = std.memory.byte_address<T>(result),
             bytes = std.memory.stride_of<T>() * capacity,
             align = std.memory.align_of<T>(),
         ),

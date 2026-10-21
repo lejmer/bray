@@ -122,6 +122,55 @@ impl Lowerer<'_> {
             .collect()
     }
 
+    pub(super) fn materialize_call_input(
+        &mut self,
+        input: bray_bound_tree::BoundExecutionSite,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        value: MirOperand,
+        ty: TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        let bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } = input else {
+            panic!("selected input materialization has its exact occurrence");
+        };
+        let Some(access) = self.input.storage_plan().invocation_input(expression, ordinal) else {
+            return self.materialize_owned_input(block, source, value, ty);
+        };
+        let identity = self.input.storage_plan().root_identity(access)
+            .expect("staged input owns a storage root");
+        let origin = self.input.unit().view().expression(expression)
+            .expect("selected input retains its source owner").origin();
+        let place = self.place_for_identity(identity, ty, origin)?;
+        self.push_operation(block, Self::retained_source(source), bray_ir::MirOperationKind::Store {
+            kind: bray_ir::MirStoreKind::Initialize,
+            destination: Self::retained_place(&place),
+            value,
+        }, None)?;
+        let phases = self.input_cleanup_phases(ty);
+        self.track_input(block, source, Self::retained_place(&place), InputCleanup::Value(phases))?;
+        self.initialized_temporaries.insert(identity);
+        Ok(MirOperand::Move(place))
+    }
+
+    pub(super) fn input_cleanup_owns(
+        &self,
+        access: bray_bound_tree::StorageAccessId,
+        phase: MirCleanupPhase,
+        temporaries: &[InputTemporary],
+    ) -> bool {
+        let storage = self.input.storage_plan();
+        let Some(identity) = storage.root_identity(access).filter(|identity|
+            matches!(storage.identity(*identity), Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })))
+        else {
+            return false;
+        };
+        let Some(storage) = self.storages.get(&identity) else {
+            return false;
+        };
+        temporaries.iter().any(|temporary|
+            temporary.requires_cleanup(phase) && temporary.place.storage() == *storage)
+    }
+
     pub(super) fn materialize_owned_input(
         &mut self,
         block: MirBlockId,
@@ -179,7 +228,9 @@ impl Lowerer<'_> {
         // A partial array is owned exactly by its range. It has no whole-value
         // initialization flag. Ordinary inputs need a guard because a call can
         // consume their complete value before a later input fails.
-        if matches!(action, InputCleanup::Value(Some(_))) {
+        if matches!(action, InputCleanup::Value(Some(_))) && self.initialization_guards.contains_key(&place.storage()) {
+            self.set_storage_initialized(block, source, &place, true)?;
+        } else if matches!(action, InputCleanup::Value(Some(_))) {
             let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
             let guard = self.new_initialization_guard(block, source, boolean, &[], true)?;
 

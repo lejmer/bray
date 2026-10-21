@@ -32,7 +32,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let target = self
             .checked_body
             .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
-            .and_then(|flow| flow.assignment_target(expression?));
+            .and_then(|flow| flow.assignment_target(expression?))
+            .and_then(bray_bound_tree::StorageTarget::storage_path);
 
         let assignment =
             target.and_then(|target| crate::ExecutionPlace::storage_path(self.storage, target));
@@ -65,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             match phase {
                 super::super::super::model::AnalysisResultPhase::Begin => {
-                    if self.values.can_repeat(expression) {
+                    if self.values.can_repeat(expression.into()) {
                         state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
                             expression.into(),
                         ));
@@ -75,44 +76,75 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     state.pending_results.remove(&expression);
                 }
                 super::super::super::model::AnalysisResultPhase::Completion => {
-                    self.expression(state, expression, None, None);
+                    self.publish_result(state, expression);
                 }
             }
 
             return;
         }
 
-        if let super::super::super::model::AnalysisOperationKind::Call {
-            invocation:
-                invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
-                | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
-            phase,
-        } = operation
-        {
+        if let super::super::super::model::AnalysisOperationKind::Call { invocation, phase } = operation {
+            use super::super::super::model::AnalysisCallPhase;
+            use bray_bound_tree::BoundExecutionSite as Site;
             match phase {
-                super::super::super::model::AnalysisCallPhase::Attempt => {
-                    let entry = self.call_entry(state, invocation);
-
-                    if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation
-                    {
-                        // Exit may transfer obligations from its captured input contract. The
-                        // entered capability itself grants no authority beyond this boundary.
-                        state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+                AnalysisCallPhase::Input => {
+                    if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+                        state.expressions.remove(&expression);
+                        state.pending_results.remove(&expression);
                     }
-
-                    self.invalidate(state, invocation, invalidation);
-
-                    // The invocation owns its captured inputs after transfer. Invalidation
-                    // retires caller authority and earlier computations, not this callee's entry evidence.
+                    if self.values.can_repeat(invocation) {
+                        state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(invocation));
+                    }
+                    if let Some(entry) = self.call_entry(state, invocation) {
+                        state.entries.insert(invocation, entry);
+                    }
+                }
+                AnalysisCallPhase::Attempt => {
+                    let observed = match invocation {
+                        Site::Node(AnyBoundNodeId::Expression(expression)) =>
+                            self.observed_call_result(state, expression),
+                        _ => None,
+                    };
+                    let entry = state.entries.remove(&invocation);
+                    if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+                        if let Some(observed) = observed {
+                            state.pending_results.insert(expression, observed);
+                        }
+                        self.expression(state, expression, invalidation, assignment_place);
+                        if let Some(value) = state.expressions.remove(&expression) {
+                            state.pending_results.insert(expression, value);
+                        }
+                        state.trust_boundaries.remove(&expression);
+                    } else {
+                        if let Site::ScopedExit(expression) = invocation {
+                            state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+                        }
+                        self.invalidate(state, invocation, invalidation);
+                    }
+                    // Callee entry is captured before admission. Its own effects retire caller
+                    // evidence without erasing the inputs transferred to this invocation.
                     if let Some(entry) = entry {
                         state.entries.insert(invocation, entry);
                     }
                 }
-                super::super::super::model::AnalysisCallPhase::Completion => {
+                AnalysisCallPhase::Completion => {
+                    if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+                        if let Some(value) = state.pending_results.remove(&expression) {
+                            state.expressions.insert(expression, value);
+                        }
+                    }
                     self.complete_operation(state, operation, None);
                 }
             }
+            return;
+        }
 
+        if let super::super::super::model::AnalysisOperationKind::Bound(
+            AnyBoundNodeId::Expression(expression)) = operation
+            && self.request.view().expression(expression)
+                .is_some_and(bray_bound_tree::BoundExpression::has_result_region)
+        {
+            self.publish_result(state, expression);
             return;
         }
 
@@ -157,18 +189,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ) {
                     // Only a cyclic occurrence can have an earlier incarnation. Its cache
                     // may already have expired, while values copied from it still survive.
-                    if self.values.can_repeat(expression) {
-                        state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
-                            expression.into(),
-                        ));
+                    if self.values.can_repeat(expression.into())
+                        && !self.request.view().expression(expression)
+                            .is_some_and(bray_bound_tree::BoundExpression::has_result_region)
+                    {
+                        state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(expression.into()));
                     }
 
                     if let Some(entry) = self.call_entry(state, expression.into()) {
                         state.entries.insert(expression.into(), entry);
                     }
 
-                    // Split calls apply their effects at entry. Normal completion only
-                    // contributes the result and completion contracts.
+                    if let Some(observed) = self.observed_call_result(state, expression) {
+                        state.pending_results.insert(expression, observed);
+                    }
                     self.expression(state, expression, invalidation, assignment_place);
                 }
 
@@ -227,7 +261,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if !matches!(
                 kind,
                 crate::analysis::model::AnalysisOperationKind::Call {
-                    phase: crate::analysis::model::AnalysisCallPhase::Attempt,
+                    phase: crate::analysis::model::AnalysisCallPhase::Input
+                        | crate::analysis::model::AnalysisCallPhase::Attempt,
                     ..
                 } | crate::analysis::model::AnalysisOperationKind::Suspension { .. }
             ) {
@@ -254,6 +289,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             state.entries.remove(&invocation);
+            if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+                state.pending_results.remove(&expression);
+            }
+        }
+        if let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() {
+            state.entries.remove(&invocation);
         }
     }
 
@@ -266,13 +307,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if matches!(
             operation,
             super::super::super::model::AnalysisOperationKind::Call {
-                phase: super::super::super::model::AnalysisCallPhase::Attempt,
+                phase: super::super::super::model::AnalysisCallPhase::Input
+                    | super::super::super::model::AnalysisCallPhase::Attempt,
                 ..
             } | super::super::super::model::AnalysisOperationKind::Suspension { .. }
         ) {
             return;
         }
 
+        let input = matches!(operation.occurrence(), bray_bound_tree::BoundExecutionSite::CallInput { .. });
+        if input {
+            self.complete_input(state, operation.occurrence());
+        }
         let Some(expression) = operation.occurrence().expression() else {
             return;
         };
@@ -301,6 +347,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(&empty);
 
         self.observe_references(state, observations.references());
+        if input {
+            let invocation = operation.occurrence();
+            let result = self.invocation_value(state, invocation);
+            self.complete_trusted_call(state, invocation, result, observations.borrow_origins());
+            return;
+        }
 
         if matches!(
             operation,
@@ -311,7 +363,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if matches!(
             operation.occurrence(),
-            bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+            bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
         ) {
             let invocation = operation.occurrence();
@@ -347,6 +401,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    fn publish_result(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
+        let value = state.pending_results.remove(&expression)
+            .unwrap_or_else(|| self.value(state, expression));
+        state.expressions.insert(expression, value);
+    }
+
     fn expression(
         &self,
         state: &mut ExecutionState,
@@ -356,9 +416,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         state.expressions.remove(&expression);
 
-        let mut value = state
-            .pending_results
-            .remove(&expression)
+        let machine_value = self.machine_operation_value(state, expression);
+        let assignment = matches!(self.request.view().expression(expression), Some(BoundExpression::Assignment(_)));
+        let mut value = state.pending_results.remove(&expression)
+            .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
             .unwrap_or_else(|| self.value(state, expression));
 
         if !matches!(value, ExecutionCondition::Expression(_))
@@ -409,7 +470,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 .cloned()
                                 .unwrap_or_else(|| self.value(state, *source))
                         } else {
-                            ExecutionCondition::Unknown
+                            match machine_value.clone().unwrap_or(ExecutionCondition::Unknown) {
+                                ExecutionCondition::Unknown => ExecutionCondition::PostState(
+                                    bray_bound_tree::StorageMutation::Operation(expression.into()),
+                                    assignment_place.unwrap_or(&place).clone()),
+                                value => value,
+                            }
                         };
 
                         let value = value.coerce(

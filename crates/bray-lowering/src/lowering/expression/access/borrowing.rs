@@ -146,7 +146,7 @@ impl Lowerer<'_> {
                 _ => None,
             })
             .and_then(|id| storage.borrow_capability(id))
-            .filter(|borrow| borrow.expression() == Some(access_expression))
+            .filter(|borrow| borrow.occurrence() == Some(access_expression.into()))
             .map_or(decision.access(), |borrow| borrow.access());
 
         self.lower_materialized_access_place_with(

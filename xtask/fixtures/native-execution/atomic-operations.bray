@@ -54,19 +54,19 @@ func main() -> i32
 
     let first: u32 = 17;
     let second: u32 = 19;
-    let first_pointer: RawPointer<u32> = core.memory.address_of<u32>(&first);
-    let second_pointer: RawPointer<u32> = core.memory.address_of<u32>(&second);
-    let pointer = core.atomic.initialize<RawPointer<u32>>(first_pointer);
-    let loaded_pointer = core.atomic.load<RawPointer<u32>, 1>(&pointer);
-    let exchanged_pointer = core.atomic.exchange<RawPointer<u32>, 3>(&pointer, second_pointer);
+    let first_pointer: DataPointer<u32> = core.memory.address_of<u32>(&first);
+    let second_pointer: DataPointer<u32> = core.memory.address_of<u32>(&second);
+    let pointer = core.atomic.initialize<DataPointer<u32>>(first_pointer);
+    let loaded_pointer = core.atomic.load<DataPointer<u32>, 1>(&pointer);
+    let exchanged_pointer = core.atomic.exchange<DataPointer<u32>, 3>(&pointer, second_pointer);
 
-    let pointer_exchange = core.atomic.compare_exchange<RawPointer<u32>, 4, 1>(
+    let pointer_exchange = core.atomic.compare_exchange<DataPointer<u32>, 4, 1>(
         &pointer,
         second_pointer,
         loaded_pointer
     );
 
-    let pointer_restore = core.atomic.compare_exchange<RawPointer<u32>, 4, 1>(
+    let pointer_restore = core.atomic.compare_exchange<DataPointer<u32>, 4, 1>(
         &pointer,
         loaded_pointer,
         exchanged_pointer

@@ -67,6 +67,15 @@ pub enum CheckedTemplateBuildError {
         /// The type produced by the operation.
         actual: TypeId,
     },
+    /// A sequence result differs from the value it produces.
+    SequenceTypeMismatch {
+        /// The sequence operation.
+        node: CheckedTemplateNodeId,
+        /// The following value's type.
+        expected: TypeId,
+        /// The type assigned to the sequence.
+        actual: TypeId,
+    },
     /// A conversion result differs from its checked destination type.
     ConversionTypeMismatch {
         /// The conversion operation.

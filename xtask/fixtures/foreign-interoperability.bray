@@ -36,7 +36,7 @@ extern trusted func native_read_exported_value() -> i32
 
 @symbol(name = "bray_foreign_read_counter")
 @abi(c)
-extern trusted func native_read_counter(pos value: RawPointer<i32>) -> i32
+extern trusted func native_read_counter(pos value: DataPointer<i32>) -> i32
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_sum_variadic")
@@ -66,12 +66,12 @@ extern trusted func native_record_alignment() -> u64
 
 @symbol(name = "bray_foreign_narrow_length")
 @abi(c)
-extern trusted func native_narrow_length(pos value: RawPointer<u8>) -> u64
+extern trusted func native_narrow_length(pos value: DataPointer<u8>) -> u64
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_wide_length")
 @abi(c)
-extern trusted func native_wide_length(pos value: RawPointer<std.ffi.c.WideChar>) -> u64
+extern trusted func native_wide_length(pos value: DataPointer<std.ffi.c.WideChar>) -> u64
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_resource_acquire")
@@ -240,9 +240,9 @@ extern trusted func native_invoke_plain(
 @abi(c)
 extern trusted func native_invoke(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
@@ -251,9 +251,9 @@ extern trusted func native_invoke(
 @abi(c)
 extern trusted func native_invoke_on_thread(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
@@ -262,9 +262,9 @@ extern trusted func native_invoke_on_thread(
 @abi(c)
 extern trusted func native_invoke_concurrently(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos first_value: i32,
     pos second_value: i32,
 ) -> i32
@@ -279,7 +279,7 @@ trusted func plain_callback(pos value: i32) -> i32
 
 @symbol(name = "bray_foreign_stateful_callback")
 @abi(c)
-trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+trusted func stateful_callback(pos context: DataPointer<i32>, pos value: i32) -> i32
     uses(raw_memory)
 {
     let state: &i32 = trusted std.ffi.callback_state<i32>(context);
@@ -296,16 +296,16 @@ trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> 
 @abi(c)
 extern trusted func native_invoke_reentrant(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_reentrant_callback")
 @abi(c)
-trusted func reentrant_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+trusted func reentrant_callback(pos context: DataPointer<i32>, pos value: i32) -> i32
     uses(foreign_call)
 {
     if value == 0
@@ -314,7 +314,7 @@ trusted func reentrant_callback(pos context: RawPointer<i32>, pos value: i32) ->
     }
 
     let entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call) = reentrant_callback;
 
     return trusted native_invoke_reentrant(entry, context, value = 0);
@@ -436,7 +436,7 @@ trusted func audit_callbacks()
     >(trusted std.ffi.CallbackContext<i32>(40));
 
     let entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory) = stateful_callback;
 
     let callback = trusted std.ffi.borrow_callback(&context, entry);
@@ -446,7 +446,7 @@ trusted func audit_callbacks()
     assert(trusted native_invoke_concurrently(callback.entry(), callback.context(), 1, 2) == 83);
 
     let reentrant_entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call) = reentrant_callback;
 
     let reentrant = trusted std.ffi.borrow_callback(&context, reentrant_entry);

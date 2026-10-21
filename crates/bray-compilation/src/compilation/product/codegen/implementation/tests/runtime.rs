@@ -144,9 +144,9 @@ fn runtime_source_imports_share_generated_runtime_calls() {
     let source = r#"
             trusted module app;
             @abi(c)
-            extern trusted internal func reserve(pos count: usize, pos outcome: RawPointer<u8>) uses(foreign_call);
+            extern trusted internal func reserve(pos count: usize, pos outcome: DataPointer<u8>) uses(foreign_call);
             struct Guard { destruct() {} }
-            public trusted func invoke(pos outcome: RawPointer<u8>) uses(foreign_call) {
+            public trusted func invoke(pos outcome: DataPointer<u8>) uses(foreign_call) {
                 let guard = Guard {};
                 trusted reserve(1, outcome);
             }
@@ -187,9 +187,9 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
     let source = concat!(
         "trusted module app;\n",
         "@abi(c)\n",
-        "trusted internal func attachment_identity(pos descriptor: RawPointer<u8>) -> u64\n",
+        "trusted internal func attachment_identity(pos descriptor: DataPointer<u8>) -> u64\n",
         "{\n",
-        "    let _: RawPointer<u8> = descriptor;\n",
+        "    let _: DataPointer<u8> = descriptor;\n",
         "    return 7;\n",
         "}\n",
     );
@@ -241,7 +241,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
                 r#"
             trusted module app;
             @abi(c)
-            trusted internal func register(pos callback: RawPointer<u8>) -> u32
+            trusted internal func register(pos callback: DataPointer<u8>) -> u32
             {{ let _ = callback; {body} }}
         "#
             );
@@ -315,7 +315,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
     let source = r#"
         trusted module app;
         @abi(c)
-        trusted internal func register(pos callback: RawPointer<u8>) -> u32 {
+        trusted internal func register(pos callback: DataPointer<u8>) -> u32 {
             let _ = callback;
             let outcome: RunResult<unit> = Cancelled;
             try outcome;
@@ -1129,8 +1129,8 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         trusted module app;
         trusted internal predicate native_entry();
         @abi(c)
-        trusted internal func invoke(pos callback: RawPointer<u8>, pos context: usize,
-            pos main: u32, pos outcome: RawPointer<u8>) -> u32
+        trusted internal func invoke(pos callback: DataPointer<u8>, pos context: usize,
+            pos main: u32, pos outcome: DataPointer<u8>) -> u32
             requires(trusted native_entry()) {
             let _ = callback;
             let _ = context;

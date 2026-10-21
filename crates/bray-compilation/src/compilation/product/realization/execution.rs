@@ -300,13 +300,6 @@ impl Compilation {
                 }
             }
 
-            if let MirTerminatorKind::Iterate { next, .. } = block.terminator().kind() {
-                let selected =
-                    self.lifecycle_invocation_lanes(next.instance(), calls, cancellation)?;
-
-                lanes = ExecutionLaneRequirement::set(lanes.iter().chain(selected.iter()).copied());
-            }
-
             local.push(lanes);
         }
 

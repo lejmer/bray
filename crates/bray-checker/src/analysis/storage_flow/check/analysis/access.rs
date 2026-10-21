@@ -308,9 +308,9 @@ where
             Some(
                 StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
+                | StorageIdentity::InvocationInput { .. }
                 | StorageIdentity::CustomIndexBorrow(_)
-                | StorageIdentity::IterationCursor(_)
-                | StorageIdentity::IterationElement(_)
+                | StorageIdentity::InvocationResult(_)
                 | StorageIdentity::ScopedCapability { .. }
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_),

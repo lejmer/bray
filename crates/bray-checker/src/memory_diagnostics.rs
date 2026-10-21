@@ -58,7 +58,7 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::RawPointerIsNull => Operation::PointerNullCheck,
         Hook::RawPointerOffset => Operation::PointerElementOffset,
         Hook::RawPointerByteOffset => Operation::PointerByteOffset,
-        Hook::RawPointerReinterpret => Operation::PointerReinterpretation,
+        Hook::RawPointerByteAddress | Hook::RawPointerReinterpret | Hook::FunctionPointerReinterpret | Hook::FunctionPointerFromData | Hook::FunctionPointerToData => Operation::PointerReinterpretation,
         Hook::CallableFromPointer => Operation::CallableFromPointer,
         Hook::PointerFromCallable => Operation::PointerFromCallable,
         Hook::CallbackState | Hook::TransferredValueBorrow => Operation::CallbackState,
@@ -158,7 +158,8 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             unit: MemoryOffsetUnit::Byte,
             ..
         } => Operation::PointerByteOffset,
-        CheckedMemoryOperationKind::Reinterpret { .. } => Operation::PointerReinterpretation,
+        CheckedMemoryOperationKind::ByteAddress { .. }
+        | CheckedMemoryOperationKind::Reinterpret { .. } => Operation::PointerReinterpretation,
         CheckedMemoryOperationKind::CallableFromPointer { .. } => Operation::CallableFromPointer,
         CheckedMemoryOperationKind::PointerFromCallable { .. } => Operation::PointerFromCallable,
         CheckedMemoryOperationKind::Read { .. } => Operation::PointerRead,

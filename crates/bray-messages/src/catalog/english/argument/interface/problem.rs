@@ -409,6 +409,9 @@ fn format_english_checked_template_problem(
         } => format!(
             "conversion node {node} produces type {actual_type}, but its destination is type {expected_type}"
         ),
+        Problem::SequenceTypeMismatch { node, expected_type, actual_type } => format!(
+            "sequence node {node} produces type {actual_type}, but its following value has type {expected_type}"
+        ),
         Problem::ConditionalBranchTypeMismatch {
             node,
             when_true_type,

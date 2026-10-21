@@ -37,7 +37,7 @@ pub(super) fn nonmaterializable_type<C: CheckerRequestContext + ?Sized>(
             if matches!(
                 role,
                 Some(
-                    RepresentationRole::RawPointer
+                    RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Atomic
                         | RepresentationRole::Uninit

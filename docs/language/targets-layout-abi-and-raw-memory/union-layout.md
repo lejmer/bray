@@ -63,7 +63,7 @@ union NativeValue
 {
     Integer(value: std.ffi.c.Int);
     Floating(value: r32);
-    Pointer(value: RawPointer<u8>);
+    Pointer(value: DataPointer<u8>);
 }
 ```
 

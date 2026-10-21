@@ -50,7 +50,11 @@ const INCOMPATIBLE_NULLABLE_PROPAGATION_SOURCE: &str = concat!(
 #[test]
 fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
     let compilation = standard_text_compilation(&[
-        include_str!("../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../standard-library/std/src/bytes/buffer.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/list.bray"),
         include_str!("../../../../../../standard-library/std/src/collection/deque.bray"),

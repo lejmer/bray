@@ -844,6 +844,11 @@ pub enum CheckedMemoryOperationKind {
         /// Pointed-to value type.
         pointee: TypeId,
     },
+    /// Observe a data pointer's exact address without granting memory authority.
+    ByteAddress {
+        /// Original data pointee type.
+        pointee: TypeId,
+    },
     /// Reinterpret a raw pointer's element type.
     Reinterpret {
         /// Source element type.
@@ -1111,6 +1116,7 @@ impl CheckedMemoryOperationKind {
             | Self::UninitMove { .. }
             | Self::Address { .. }
             | Self::IsNull { .. }
+            | Self::ByteAddress { .. }
             | Self::Reinterpret { .. }
             | Self::CallableFromPointer { .. }
             | Self::PointerFromCallable { .. }
@@ -1179,6 +1185,7 @@ impl CheckedMemoryOperationKind {
             | Self::UninitMove { .. }
             | Self::Address { .. }
             | Self::IsNull { .. }
+            | Self::ByteAddress { .. }
             | Self::Reinterpret { .. }
             | Self::CallableFromPointer { .. }
             | Self::PointerFromCallable { .. }

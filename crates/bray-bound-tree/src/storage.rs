@@ -13,6 +13,9 @@ mod replacement;
 mod retention;
 mod scope;
 mod shape;
+mod target;
+
+pub use target::{StorageOrigin, StorageTarget};
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{

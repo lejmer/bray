@@ -103,6 +103,12 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         }
 
         let memory = match hook {
+            ImplementationHook::RawPointerByteAddress => {
+                let pointee = self.context.compiler_known_symbols().unary_representation_argument(
+                    self.context.semantic_values(), RepresentationRole::RawPointer, types[0],
+                ).expect("checked byte-address projection retains its data pointee");
+                Some(CheckedMemoryOperationKind::ByteAddress { pointee })
+            }
             ImplementationHook::RawPointerNull | ImplementationHook::RawPointerIsNull => {
                 let pointer = if hook == ImplementationHook::RawPointerNull {
                     result

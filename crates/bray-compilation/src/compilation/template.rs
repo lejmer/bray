@@ -8,6 +8,7 @@ mod index;
 mod inputs;
 mod pattern;
 mod query;
+mod state;
 
 pub(in crate::compilation) use build::{
     SourceTemplateInput, SourceTemplateRequest, build_source_template,

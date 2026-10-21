@@ -10,12 +10,12 @@ trusted predicate valid(marker: &Marker);
 
 struct Queue
 {
-    head: core.atomic.Atomic<RawPointer<Waiter>>;
+    head: core.atomic.Atomic<DataPointer<Waiter>>;
 }
 
 struct Waiter
 {
-    previous: core.atomic.Atomic<RawPointer<Waiter>>;
-    next: core.atomic.Atomic<RawPointer<Waiter>>;
+    previous: core.atomic.Atomic<DataPointer<Waiter>>;
+    next: core.atomic.Atomic<DataPointer<Waiter>>;
     signalled: core.atomic.Atomic<u32>;
 }

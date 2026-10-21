@@ -191,6 +191,17 @@ impl Compilation {
             [],
         );
 
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let checked_body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        for bag in [storage.result().diagnostics(), checked_body.result().diagnostics()] {
+            diagnostics.add_range(bag.clone());
+        }
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(None, diagnostics));
+        }
+
         let execution = if matches!(
             key.kind(),
             bray_bound_tree::BoundUnitKind::RuntimeDefault
@@ -229,6 +240,8 @@ impl Compilation {
                 types: semantics.types(),
                 selections: semantics.selections(),
                 literals: semantics.literals(),
+                storage: storage.result().value(),
+                flow: checked_body.result().value().storage_flow(),
                 expression,
                 inputs,
                 execution,

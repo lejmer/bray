@@ -144,6 +144,8 @@ pub enum InterfaceValidationField {
     Constant,
     /// Checked template.
     Template,
+    /// Established unsigned integer value width.
+    IntegerBitWidth,
     /// Support-graph entry.
     Support,
     /// Nested schema or payload revision.

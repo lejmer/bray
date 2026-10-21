@@ -1564,9 +1564,9 @@ mod tests {
                 let source = format!(
                     "trusted module app; struct Holder {{}} \
                      trait Provides {{ trusted {execution}func get(\
-                     pos pointer: RawPointer<i32>, pos storage: &mut Uninit<i32>) {required}; }} \
+                     pos pointer: DataPointer<i32>, pos storage: &mut Uninit<i32>) {required}; }} \
                      impl Holder(Provides) {{ trusted {execution}func get(\
-                     pos pointer: RawPointer<i32>, pos storage: &mut Uninit<i32>) {provided} \
+                     pos pointer: DataPointer<i32>, pos storage: &mut Uninit<i32>) {provided} \
                      {{ {raw} {initialization} }} }}"
                 );
 

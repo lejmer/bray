@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundForExpression, BoundGeneratorExpression,
+    BoundExecutionSite, BoundExpression, BoundExpressionId, BoundForExpression, BoundGeneratorExpression,
     BoundStructuredExpression, BoundStructuredExpressionKind, IterationSourceMode, SelectedCall,
     SemanticSelection, StorageAccessPurpose, StorageIdentity,
 };
@@ -7,7 +7,7 @@ use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
     MirGeneratorKind, MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationKind,
-    MirPlace, MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirPlace, MirProjection, MirProjectionKind, MirPatternPredicate, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi, ReceiverMode};
 
@@ -391,7 +391,7 @@ impl Lowerer<'_> {
             source_operand
         } else {
             let (continuation, cursor_value) = self.push_checked_call(
-                id,
+                BoundExecutionSite::Iterate(id),
                 current,
                 Self::retained_source(&source),
                 MirCall::protocol(
@@ -416,15 +416,19 @@ impl Lowerer<'_> {
 
         let cursor = self.iteration_place(
             id,
-            StorageIdentity::IterationCursor(id),
+            StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Iterate(id)),
             selection.cursor_type(),
         )?;
 
-        let element = self.iteration_place(
-            id,
-            StorageIdentity::IterationElement(id),
-            selection.element_type(),
-        )?;
+        let step_type = self.input.storage_plan()
+            .invocation_result(BoundExecutionSite::Next(id))
+            .and_then(|access| self.input.storage_plan().access(access))
+            .expect("checked next invocation owns its nullable result").reached_type();
+        let step = self.iteration_place(id,
+            StorageIdentity::InvocationResult(BoundExecutionSite::Next(id)), step_type)?;
+        let element = MirPlace::new(step.storage(), [
+            MirProjection::new(MirProjectionKind::NullableValue, step_type, selection.element_type()),
+        ], selection.element_type());
 
         self.push_operation(
             current,
@@ -449,48 +453,40 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let item_value = self.builder.push_block_parameter(
-            item,
-            Self::retained_source(&source),
-            selection.element_type(),
-        )?;
-
         self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
         )?;
 
-        let terminator = if range_cursor {
-            MirTerminatorKind::RangeIterate {
-                cursor: Self::retained_place(&cursor),
-                element_type: selection.element_type(),
-                item,
-                exhausted: MirEdge::new(exhausted, []),
-            }
+        let (completed, next_value) = if range_cursor {
+            let next = self.lower_range_next_from_cursor(id, header, Self::retained_place(&cursor),
+                selection.cursor_type(), step_type)?;
+            (next.block.expect("range next completes"), next.value.expect("range next returns a nullable value"))
         } else {
-            MirTerminatorKind::Iterate {
-                cursor: Self::retained_place(&cursor),
-                next: MirCallableReference::new(selection.next(), CallableAbi::Bray),
-                witness: selection.iterator_witness(),
-                element_type: selection.element_type(),
-                item,
-                exhausted: MirEdge::new(exhausted, []),
-            }
+            let receiver_type = self.input.semantic_values().intern_type(bray_symbols::TypeData::Borrow {
+                kind: BorrowKind::Mutable, target: selection.cursor_type(),
+            })?;
+            let receiver = self.push_typed_value_operation(id, header, Self::retained_source(&source),
+                MirOperationKind::Borrow { kind: BorrowKind::Mutable, place: Self::retained_place(&cursor) },
+                receiver_type)?;
+            self.push_checked_call(BoundExecutionSite::Next(id), header, Self::retained_source(&source),
+                MirCall::protocol(
+                    MirCallTarget::Direct(MirCallableReference::new(selection.next(), CallableAbi::Bray)),
+                    bray_bound_tree::BoundCallResult::Immediate(step_type), [receiver],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        selection.iterator_requirement(), selection.iterator_witness())],
+                ), step_type)?
         };
-
-        self.set_terminator(header, Self::retained_source(&source), terminator)?;
-
-        self.push_operation(
-            item,
-            Self::retained_source(&source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Assign,
-                destination: Self::retained_place(&element),
-                value: MirOperand::Value(item_value),
-            },
-            None,
-        )?;
+        self.push_operation(completed, Self::retained_source(&source), MirOperationKind::Store {
+            kind: MirStoreKind::Initialize, destination: Self::retained_place(&step), value: next_value,
+        }, None)?;
+        self.set_terminator(completed, Self::retained_source(&source),
+            MirTerminatorKind::PatternBranch {
+                subject: MirOperand::Copy(step),
+                predicate: MirPatternPredicate::NullablePresent,
+                matched: MirEdge::new(item, []), unmatched: MirEdge::new(exhausted, []),
+            })?;
 
         Ok(Iteration {
             header,
@@ -606,7 +602,7 @@ impl Lowerer<'_> {
             decision.access(),
             current,
             |lowerer, current, cursor| {
-                lowerer.lower_range_next_from_cursor(id, current, cursor, receiver.target_type())
+                lowerer.lower_range_next_from_cursor(id, current, cursor, receiver.target_type(), lowerer.expression_type(id))
             },
         )
     }
@@ -617,6 +613,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
         cursor: MirPlace,
         cursor_type: bray_symbols::TypeId,
+        result_type: bray_symbols::TypeId,
     ) -> Result<LoweredExpression, LoweringError> {
         let element_type = self
             .input
@@ -633,7 +630,6 @@ impl Lowerer<'_> {
                 )
             });
 
-        let result_type = self.expression_type(id);
         let source = self.expression_source(id);
 
         let item = self

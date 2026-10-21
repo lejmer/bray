@@ -68,21 +68,21 @@ func assertion_failure()
 trusted func invalid_allocation_alignment()
     uses(manual_alloc)
 {
-    let _: RawPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 3);
+    let _: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 3);
 }
 
 @test
 trusted func allocation_size_overflow()
     uses(manual_alloc)
 {
-    let _: RawPointer<u8> = trusted core.memory.allocate(bytes = ~0, align = 8);
+    let _: DataPointer<u8> = trusted core.memory.allocate(bytes = ~0, align = 8);
 }
 
 @test
 trusted func allocation_then_panic_preserves_report()
     uses(manual_alloc)
 {
-    let allocation: RawPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 8);
+    let allocation: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 8);
 
     trusted core.memory.deallocate(pointer = allocation, bytes = 8, align = 8);
     panic("panic after valid allocation");

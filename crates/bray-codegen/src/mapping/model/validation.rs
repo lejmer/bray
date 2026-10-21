@@ -366,7 +366,6 @@ fn terminator_runtime_references(
         MirTerminatorKind::Goto(_)
         | MirTerminatorKind::Branch { .. }
         | MirTerminatorKind::PatternBranch { .. }
-        | MirTerminatorKind::Iterate { .. }
         | MirTerminatorKind::RangeIterate { .. }
         | MirTerminatorKind::Switch { .. }
         | MirTerminatorKind::InlineAssembly(_)

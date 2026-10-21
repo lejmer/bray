@@ -78,7 +78,7 @@ impl Lowerer<'_> {
         let plan = self
             .input
             .storage_plan()
-            .expression_plans(expression)
+            .node_plans((expression).into())
             .find(|plan| accepts(*plan))?;
 
         let decision = self.input.storage_operation(plan).unwrap_or_else(|| {

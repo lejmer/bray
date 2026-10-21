@@ -9,7 +9,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureQuery;
 
 use super::call::{
-    selected_call_contracts, selected_iteration_contract, selected_scoped_contracts,
+    selected_call_contracts, selected_implicit_contracts,
 };
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::unit::assert_unit_inputs;
@@ -70,7 +70,10 @@ where
         let requirements = operation_requirements(storage, operation);
 
         let occurrence = match operation.occurrence() {
-            scoped @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+            scoped @ (bray_bound_tree::BoundExecutionSite::Iterate(_)
+            | bray_bound_tree::BoundExecutionSite::Next(_)
+            | bray_bound_tree::BoundExecutionSite::CallInput { .. }
+            | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
             | bray_bound_tree::BoundExecutionSite::ScopedExit(_)) => scoped,
             bray_bound_tree::BoundExecutionSite::Node(_) => operation.expression().into(),
             bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
@@ -93,11 +96,11 @@ where
         let contract = match entry.selection() {
             SemanticSelection::Call(_) | SemanticSelection::Operation(_) => {
                 let selected = match entry.selection() {
-                    SemanticSelection::Call(call) => selected_call_contracts(
+                    SemanticSelection::Call(_) => selected_call_contracts(
                         request,
                         storage,
                         entry.expression(),
-                        call,
+                        entry.selection(),
                         value_inputs,
                     )
                     .map(Some),
@@ -117,6 +120,19 @@ where
 
                 match selected {
                     Ok(Some((contracts, escaping))) => {
+                        if entry.selection().evaluates_defaults() {
+                            let inputs = match super::call::selected_input_contracts(
+                                request, storage, entry.expression(), entry.selection(),
+                            ) {
+                                Ok(inputs) => inputs,
+                                Err(error) => return failed_contract(error, entry.expression()),
+                            };
+                            for (site, input) in inputs {
+                                expression_requirements.entry(site).or_insert_with(Vec::new)
+                                    .extend(input.invocation().requirements().iter().cloned());
+                                calls.insert(site, input);
+                            }
+                        }
                         if let Some(root) = escaping.first().copied() {
                             diagnostics.add(super::defaults::escaping_evaluation_diagnostic(
                                 request,
@@ -149,40 +165,34 @@ where
                     Err(error) => Err(error),
                 }
             }
-            SemanticSelection::Iteration(iteration) => {
-                selected_iteration_contract(request, storage, iteration)
-            }
-            SemanticSelection::ScopedUse(scoped) => {
-                for occurrence in [
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
-                    bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
-                ] {
-                    match selected_scoped_contracts(
-                        request,
-                        storage,
-                        scoped,
-                        occurrence,
-                        value_inputs,
+            SemanticSelection::Iteration(_) | SemanticSelection::ScopedUse(_) => {
+                let sites = match entry.selection() {
+                    SemanticSelection::Iteration(_) => [
+                        bray_bound_tree::BoundExecutionSite::Iterate(entry.expression()),
+                        bray_bound_tree::BoundExecutionSite::Next(entry.expression()),
+                    ],
+                    SemanticSelection::ScopedUse(_) => [
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(entry.expression()),
+                    ],
+                    _ => unreachable!("implicit invocation selection was matched above"),
+                };
+                for occurrence in sites {
+                    match selected_implicit_contracts(
+                        request, storage, entry.selection(), occurrence, value_inputs,
                     ) {
                         Ok(contracts) => {
-                            expression_requirements
-                                .entry(occurrence)
-                                .or_insert_with(Vec::new)
+                            expression_requirements.entry(occurrence).or_insert_with(Vec::new)
                                 .extend(contracts.invocation().requirements().iter().cloned());
-
                             if let Some(deferred) = contracts.deferred() {
-                                deferred_expression_requirements
-                                    .entry(occurrence)
-                                    .or_insert_with(Vec::new)
+                                deferred_expression_requirements.entry(occurrence).or_insert_with(Vec::new)
                                     .extend(deferred.requirements().iter().cloned());
                             }
-
                             calls.insert(occurrence, contracts);
                         }
                         Err(error) => return failed_contract(error, entry.expression()),
                     }
                 }
-
                 continue;
             }
             SemanticSelection::Reference(_)

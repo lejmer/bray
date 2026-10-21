@@ -119,7 +119,7 @@ fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
                     return count;
                 }}
 
-                trusted func copy(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, count: usize)
+                trusted func copy(pos source: DataPointer<u8>, pos destination: DataPointer<u8>, count: usize)
                     requires(
                         trusted core.memory.valid_read<u8>(pointer = source, count = count),
                         trusted core.memory.valid_write<u8>(pointer = destination, count = count),
@@ -162,7 +162,7 @@ fn closed_writes_preserve_storage_validity_but_opaque_calls_revoke_it() {
             using core.memory;
             func harmless() {{}}
             extern func opaque();
-            trusted func roundtrip(pos pointer: RawPointer<u8>) -> u8
+            trusted func roundtrip(pos pointer: DataPointer<u8>) -> u8
                 requires(
                     trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
@@ -213,11 +213,11 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
             @abi(c)
             @link(name = "native")
             @symbol(name = "touch_word")
-            extern trusted func touch_word(pos pointer: RawPointer<u32>) uses(foreign_call);
+            extern trusted func touch_word(pos pointer: DataPointer<u32>) uses(foreign_call);
             @abi(c)
             @link(name = "native")
             @symbol(name = "touch_marker")
-            extern trusted func touch_marker(pos pointer: RawPointer<Marker>) uses(foreign_call);
+            extern trusted func touch_marker(pos pointer: DataPointer<Marker>) uses(foreign_call);
             @abi(c)
             @link(name = "native")
             @symbol(name = "opaque")
@@ -475,10 +475,10 @@ fn conditional_memory_obligations_accept_smaller_proven_ranges() {
             trusted module app;
 
             using core.memory;
-            extern trusted func consume_range(pos pointer: RawPointer<u8>, count: usize)
+            extern trusted func consume_range(pos pointer: DataPointer<u8>, count: usize)
                 requires({condition});
 
-            trusted func caller(pos pointer: RawPointer<u8>, extent: usize, count: usize)
+            trusted func caller(pos pointer: DataPointer<u8>, extent: usize, count: usize)
                 requires(
                     count > 0,
                     count <= extent,
@@ -505,10 +505,10 @@ fn conditional_memory_obligations_accept_smaller_proven_ranges() {
         trusted module app;
 
         using core.memory;
-        extern trusted func consume_range(pos pointer: RawPointer<u8>, count: usize)
+        extern trusted func consume_range(pos pointer: DataPointer<u8>, count: usize)
             requires(count == 0 || trusted core.memory.valid_write<u8>(pointer = pointer, count = count));
 
-        trusted func caller(pos pointer: RawPointer<u8>, count: usize)
+        trusted func caller(pos pointer: DataPointer<u8>, count: usize)
             requires(count == 0 || trusted core.memory.valid_write<u8>(pointer = pointer, count = count))
         {
             trusted consume_range(pointer, count = count);
@@ -531,7 +531,7 @@ fn closed_memory_ranges_can_supply_smaller_checked_ranges() {
             trusted module app;
 
             using core.memory;
-            trusted func write_byte(pos pointer: RawPointer<u8>)
+            trusted func write_byte(pos pointer: DataPointer<u8>)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = {range}),
                     trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -562,7 +562,7 @@ fn checked_nonempty_ranges_supply_one_element_obligations() {
             trusted module app;
 
             using core.memory;
-            trusted func write_byte(pos pointer: RawPointer<u8>, count: usize)
+            trusted func write_byte(pos pointer: DataPointer<u8>, count: usize)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = count),
                     trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -727,13 +727,13 @@ fn cursor_witness_survives_observation_and_independent_loop_counters() {
         using core.memory;
         struct Cursor
         {
-            first: RawPointer<u8>;
+            first: DataPointer<u8>;
             limit: usize;
-            mut current: RawPointer<u8>;
+            mut current: DataPointer<u8>;
             mut remaining: usize;
         }
         trusted predicate valid(cursor: &Cursor);
-        trusted func observe(pos cursor: &Cursor) -> (RawPointer<u8>, usize)
+        trusted func observe(pos cursor: &Cursor) -> (DataPointer<u8>, usize)
             requires(trusted valid(cursor = cursor))
             ensures(
                 trusted valid(cursor = cursor),
@@ -757,7 +757,7 @@ fn cursor_witness_survives_observation_and_independent_loop_counters() {
 
             loop
             {
-                let observed: (RawPointer<u8>, usize) = trusted observe(&cursor);
+                let observed: (DataPointer<u8>, usize) = trusted observe(&cursor);
 
                 if core.memory.is_null<u8>(observed.0)
                 {
@@ -830,7 +830,7 @@ fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
         struct Owner { value: u8; }
         trusted predicate valid(owner: &Owner);
 
-        extern trusted func address(pos owner: &Owner) -> RawPointer<u8>
+        extern trusted func address(pos owner: &Owner) -> DataPointer<u8>
             requires(trusted valid(owner = owner))
             ensures(
                 PRESERVATION,
@@ -842,8 +842,8 @@ fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
             requires(trusted valid(owner = owner))
             uses(raw_memory)
         {
-            let pointer: RawPointer<u8> = trusted address(owner);
-            let copied: RawPointer<u8> = pointer;
+            let pointer: DataPointer<u8> = trusted address(owner);
+            let copied: DataPointer<u8> = pointer;
 
             return trusted core.memory.read<u8>(copied);
         }
@@ -863,14 +863,24 @@ fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
 #[test]
 fn copied_callable_addresses_preserve_validity_without_creating_it() {
     for (producer, valid) in [
-        ("core.memory.pointer_from_callable<Callback>(entry)", true),
-        ("core.memory.null<Callback>()", false),
+        ("core.memory.function_address<Callback>(entry)", true),
+        (
+            "core.memory.function.from_data<Callback>(core.memory.function.to_data<Callback>(core.memory.function_address<Callback>(entry)))",
+            true,
+        ),
+        (
+            "core.memory.function.reinterpret<Callback, Callback>(core.memory.function_address<Callback>(entry))",
+            true,
+        ),
+        ("core.memory.function.from_data<Callback>(core.memory.null<u8>())", false),
     ] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
 
             using core.memory;
+            using core.memory.function;
+
             callable Callback = @abi(c) func();
 
             @abi(c)
@@ -879,8 +889,8 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
             trusted func caller()
                 uses(layout_reinterpret)
             {{
-                let pointer: RawPointer<Callback> = {producer};
-                let copied: RawPointer<Callback> = pointer;
+                let pointer: FunctionPointer<Callback> = {producer};
+                let copied: FunctionPointer<Callback> = pointer;
                 let callback: Callback = core.memory.callable_from_pointer<Callback>(copied);
                 let _ = callback;
             }}
@@ -909,8 +919,8 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
         trusted module app;
 
         using core.memory;
-        trusted predicate live(pointer: RawPointer<u8>);
-        trusted func owner() -> RawPointer<u8> ensures(trusted live(result))
+        trusted predicate live(pointer: DataPointer<u8>);
+        trusted func owner() -> DataPointer<u8> ensures(trusted live(result))
         {
             return core.memory.null<u8>();
         }
@@ -927,7 +937,7 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
 #[test]
 fn conditional_storage_guarantees_preserve_copyable_addresses() {
     for (ty, predicate) in [
-        ("RawPointer<u8>", "core.memory.valid_read<u8>"),
+        ("DataPointer<u8>", "core.memory.valid_read<u8>"),
         ("DevicePointer<u8>", "core.target.device_valid_read<u8>"),
     ] {
         for guard in ["flag", "enabled(flag)"] {
@@ -981,11 +991,11 @@ fn address_guarantees_expire_with_the_borrowed_storage_owner() {
 
             using core.memory;
             struct Owner {{ byte: Uninit<u8>; }}
-            trusted func address_view(pos owner: &Owner) -> RawPointer<u8>
+            trusted func address_view(pos owner: &Owner) -> DataPointer<u8>
                 executes(pure, total)
                 ensures(trusted core.memory.valid_read<u8>(pointer = result, count = 1))
             {{ return core.memory.uninit_pointer<u8>(&owner.byte); }}
-            func observe(pos pointer: RawPointer<u8>)
+            func observe(pos pointer: DataPointer<u8>)
                 requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {{}}
             func caller() {{
                 let mut pointer = core.memory.null<u8>();
@@ -2147,7 +2157,7 @@ fn raw_read_uses_declared_storage_obligations() {
         trusted module app;
 
         using core.memory;
-        trusted func read_byte(pos pointer: RawPointer<u8>) -> u8
+        trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -2604,7 +2614,7 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
 
         using core.memory;
         struct Header { capacity: usize; }
-        trusted func write_unknown_storage(pos header: &mut Header, pos destination: RawPointer<u8>) -> usize
+        trusted func write_unknown_storage(pos header: &mut Header, pos destination: DataPointer<u8>) -> usize
             requires(trusted core.memory.valid_write<u8>(pointer = destination, count = 1))
             when(true) { ensures(result <= header.capacity) }
             uses(raw_memory, unchecked_init)
@@ -2673,7 +2683,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             trusted module app;
 
             using core.memory;
-            trusted func read_byte(pos pointer: RawPointer<u8>) -> u8
+            trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
                 requires({requirements}) executes(pure, total) uses(raw_memory)
             {{ return trusted core.memory.read<u8>(pointer); }}
         "#
@@ -2709,7 +2719,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
 
             using core.memory;
             struct Owner {{ value: u8; }}
-            trusted func mutate(pos pointer: RawPointer<{pointee}>) -> {result}
+            trusted func mutate(pos pointer: DataPointer<{pointee}>) -> {result}
                 requires(
                     trusted core.memory.valid_{access}<{pointee}>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<{pointee}>(pointer = pointer),
@@ -2733,7 +2743,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
         trusted module app;
 
         using core.memory;
-        trusted func allocate() -> RawPointer<u8> executes(total) uses(manual_alloc)
+        trusted func allocate() -> DataPointer<u8> executes(total) uses(manual_alloc)
         { return trusted core.memory.allocate(bytes = 1, align = 1); }
     "#,
     );
@@ -3030,7 +3040,7 @@ fn returned_addresses_preserve_only_the_checked_input_authority() {
             trusted module app;
 
             using core.memory;
-            func forward(pos pointer: RawPointer<u8>, pos other: RawPointer<u8>) -> RawPointer<u8>
+            func forward(pos pointer: DataPointer<u8>, pos other: DataPointer<u8>) -> DataPointer<u8>
                 executes(pure, total)
             {{ return {returned}; }}
             trusted func caller() -> u8 uses(raw_memory) {{
@@ -3067,7 +3077,7 @@ fn returned_address_authority_expires_with_its_original_owner() {
         trusted module app;
 
         using core.memory;
-        func forward(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        func forward(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             executes(pure, total)
         { return pointer; }
         trusted func caller() -> u8 uses(raw_memory) {
@@ -3095,7 +3105,7 @@ fn address_formation_keeps_the_value_owner_distinct_from_the_address_witness() {
 
         using core.memory;
         struct Bytes { first: u8; }
-        func observe(pos pointer: RawPointer<Bytes>)
+        func observe(pos pointer: DataPointer<Bytes>)
             requires(trusted core.memory.valid_read<Bytes>(pointer = pointer, count = 1)) {}
         func caller() -> u8 {
             let owner = Bytes { first = 1 };
@@ -3295,7 +3305,7 @@ fn returned_borrow_alias_keeps_address_authority_tied_to_physical_storage() {
 
             using core.memory;
             func identity(pos value: &u8) -> &u8 {{ return value; }}
-            func locate(pos value: &u8) -> RawPointer<u8>
+            func locate(pos value: &u8) -> DataPointer<u8>
                 ensures(
                     trusted core.memory.valid_read<u8>(pointer = result, count = 1),
                     trusted core.memory.initialized_as<u8>(pointer = result),
@@ -3498,7 +3508,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
         ("", true, true),
         ("", false, false),
         (
-            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer); publish(escaped);",
+            "let escaped = core.memory.address_of_mut<DataPointer<u8>>(&mut pointer); publish(escaped);",
             true,
             false,
         ),
@@ -3514,9 +3524,9 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
             trusted module app;
 
             using core.memory;
-            trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
-            extern func publish(pos pointer: RawPointer<RawPointer<u8>>);
-            trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
+            trusted extern func renew(pos value: DataPointer<u8>) {postcondition};
+            extern func publish(pos pointer: DataPointer<DataPointer<u8>>);
+            trusted func run(pos input: DataPointer<u8>) uses(raw_memory, unchecked_init)
             {{
                 let mut pointer = input;
                 {exposure}
@@ -3542,7 +3552,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
 fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
     for (write, valid) in [
         (
-            "core.memory.write<RawPointer<u8>>(slot, replacement);",
+            "core.memory.write<DataPointer<u8>>(slot, replacement);",
             true,
         ),
         ("opaque();", false),
@@ -3553,13 +3563,13 @@ fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
 
             using core.memory;
             extern func opaque();
-            struct Pointer {{ value: RawPointer<u8>; }}
-            trusted func run(pos owner: &Pointer, pos slot: RawPointer<RawPointer<u8>>, pos replacement: RawPointer<u8>)
+            struct Pointer {{ value: DataPointer<u8>; }}
+            trusted func run(pos owner: &Pointer, pos slot: DataPointer<DataPointer<u8>>, pos replacement: DataPointer<u8>)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = owner.value, count = 1),
                     trusted core.memory.aligned_for<u8>(pointer = owner.value),
-                    trusted core.memory.valid_write<RawPointer<u8>>(pointer = slot, count = 1),
-                    trusted core.memory.aligned_for<RawPointer<u8>>(pointer = slot),
+                    trusted core.memory.valid_write<DataPointer<u8>>(pointer = slot, count = 1),
+                    trusted core.memory.aligned_for<DataPointer<u8>>(pointer = slot),
                 ) uses(raw_memory, unchecked_init)
             {{
                 let captured = owner.value;
@@ -3593,7 +3603,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             "",
             false,
         ),
-        ("RawPointer<u8>", "", "", "", false),
+        ("DataPointer<u8>", "", "", "", false),
         ("&u64", "", "", "", false),
         ("core.memory.Uninit<u64>", "", "", "", false),
         ("core.atomic.Atomic<u64>", "", "", "", false),
@@ -3609,7 +3619,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             trusted predicate acquired(owner: &Owner);
             trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
             extern func opaque({parameter});
-            extern func publish(pos pointer: RawPointer<Owner>);
+            extern func publish(pos pointer: DataPointer<Owner>);
             func inspect(pos owner: &Owner) requires(trusted acquired(owner)) executes(pure, total) {{}}
             trusted func run() {{
                 let mut owner = trusted acquire();
@@ -3709,7 +3719,7 @@ fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
 
         using core.memory;
         trusted predicate destination_owned();
-        trusted func destination_pointer(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        trusted func destination_pointer(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             requires(trusted destination_owned())
             ensures(
                 trusted core.memory.valid_write<u8>(pointer = result, count = 1),
@@ -3725,7 +3735,7 @@ fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
             result = value;
             return result;
         }
-        trusted func update(pos value: &mut Payload, pos destination: RawPointer<u8>)
+        trusted func update(pos value: &mut Payload, pos destination: DataPointer<u8>)
             requires(trusted destination_owned())
             uses(raw_memory, unchecked_init)
         {
@@ -3760,7 +3770,7 @@ fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
             trusted module app;
 
             using core.target;
-            struct Owner {{ pointer: RawPointer<u8>; }}
+            struct Owner {{ pointer: DataPointer<u8>; }}
             trusted predicate live(owner: &Owner);
             {helper}
             func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
@@ -3812,7 +3822,7 @@ fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Cursor {{ root: RawPointer<u8>; member: RawPointer<u8>; }}
+            struct Cursor {{ root: DataPointer<u8>; member: DataPointer<u8>; }}
             trusted predicate selected(cursor: &Cursor);
             extern trusted func update(pos cursor: &Cursor)
                 requires(trusted selected(cursor)) {guarantee};

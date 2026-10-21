@@ -903,14 +903,14 @@ mod tests {
 
     #[test]
     fn long_extern_callable_headers_wrap_parameters() {
-        let source = "trusted module fixture;\n\nextern trusted func create_thread(pos attributes: RawPointer<SecurityAttributes>, pos stack_size: usize, pos entry: ThreadStartRoutine, pos context: RawPointer<u8>, pos creation_flags: u32, pos thread_identifier: RawPointer<u32>) -> RawPointer<u8>\n    uses(foreign_call);\n";
+        let source = "trusted module fixture;\n\nextern trusted func create_thread(pos attributes: DataPointer<SecurityAttributes>, pos stack_size: usize, pos entry: ThreadStartRoutine, pos context: DataPointer<u8>, pos creation_flags: u32, pos thread_identifier: DataPointer<u32>) -> DataPointer<u8>\n    uses(foreign_call);\n";
 
         let formatted = format_text(source, &FormatterConfiguration::default())
             .unwrap_or_else(|error| panic!("fixture must format: {error:?}"));
 
         assert_eq!(
             formatted.text(),
-            "trusted module fixture;\n\nextern trusted func create_thread(\n    pos attributes: RawPointer<SecurityAttributes>,\n    pos stack_size: usize,\n    pos entry: ThreadStartRoutine,\n    pos context: RawPointer<u8>,\n    pos creation_flags: u32,\n    pos thread_identifier: RawPointer<u32>\n) -> RawPointer<u8>\n    uses(foreign_call);\n"
+            "trusted module fixture;\n\nextern trusted func create_thread(\n    pos attributes: DataPointer<SecurityAttributes>,\n    pos stack_size: usize,\n    pos entry: ThreadStartRoutine,\n    pos context: DataPointer<u8>,\n    pos creation_flags: u32,\n    pos thread_identifier: DataPointer<u32>\n) -> DataPointer<u8>\n    uses(foreign_call);\n"
         );
     }
 

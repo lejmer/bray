@@ -23,11 +23,12 @@ non-Bray code.
 
 Bray static declarations have product or exact-thread address identity and do not implicitly create foreign data-symbol
 exports. `@symbol(...)` explicitly exports one non-generic Bray static. `extern static` imports provider-owned storage
-and produces a provider-rooted `RawPointer<T>`. Target profiles participate in closed static identity, and native-thread
+and produces a provider-rooted `DataPointer<T>`. Target profiles participate in closed static identity, and native-thread
 availability also governs `@thread_local` static availability.
 
-`RawPointer<T>` is a copyable raw pointer value, not a reference or owner. Its pointee can be complete data, incomplete
-data, or an ABI-qualified callable type, with operations restricted by the pointee category.
+`DataPointer<T>` addresses data storage, including stored callable values. `FunctionPointer<F>` represents raw function
+entries intended for contract `F`. Both are copyable raw addresses and can contain native null or unusable values.
+Neither grants access, callability, ownership or lifetime authority. Ordinary APIs express absence with `T?` and `none`.
 
 `core.memory` is the compiler-known raw memory declaration scope and reserved path.
 

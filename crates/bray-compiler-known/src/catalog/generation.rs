@@ -573,9 +573,9 @@ mod tests {
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
             .iter()
-            .find(|declaration| declaration.key().as_str() == "RawPointer")
+            .find(|declaration| declaration.key().as_str() == "DataPointer")
         else {
-            panic!("published catalog should contain RawPointer");
+            panic!("published catalog should contain DataPointer");
         };
 
         let Some(surface) = COMPILER_KNOWN_CATALOG.declaration_surface(declaration.surface())
@@ -663,6 +663,7 @@ mod tests {
             "NullableIsAbsent",
             "NullableIsPresent",
             "NullableSurface",
+            "RawPointerByteAddress",
             "RawPointerByteOffset",
             "RawPointerIsNull",
             "RawPointerNull",
@@ -729,6 +730,7 @@ mod tests {
             "StandardMemoryRawBufferPop",
             "StandardMemoryByteBufferFill",
             "StandardMemoryByteBufferRead",
+            "StandardMemoryByteAddress",
             "StandardMemoryByteOffset",
             "StandardMemoryCallableFromPointer",
             "StandardMemoryCapacity",

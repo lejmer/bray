@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(
             input
                 .storage_plan()
-                .expression_plans(first)
+                .node_plans((first).into())
                 .collect::<Vec<_>>(),
             plans[1..]
         );
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(
             input
                 .storage_plan()
-                .expression_plans(second)
+                .node_plans((second).into())
                 .collect::<Vec<_>>(),
             plans[..1]
         );

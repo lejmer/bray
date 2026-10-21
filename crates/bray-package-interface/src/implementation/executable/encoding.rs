@@ -1232,23 +1232,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.edge(matched)?;
                 self.edge(unmatched)?;
             }
-            MirTerminatorKind::Iterate {
-                cursor,
-                next,
-                witness,
-                element_type,
-                item,
-                exhausted,
-            } => {
-                self.wire.write_u32(3);
-                self.place(cursor)?;
-                self.callable_instance(next.instance())?;
-                self.callable_abi(next.abi());
-                self.implementation(*witness)?;
-                self.ty(*element_type)?;
-                self.wire.write_u32(item.slot());
-                self.edge(exhausted)?;
-            }
             MirTerminatorKind::Switch {
                 discriminant,
                 cases,
@@ -1950,6 +1933,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             Kind::IsNull { pointee } => {
                 self.wire.write_u32(2);
+                self.ty(pointee)?;
+            }
+            Kind::ByteAddress { pointee } => {
+                self.wire.write_u32(60);
                 self.ty(pointee)?;
             }
             Kind::Offset { unit, pointee } => {

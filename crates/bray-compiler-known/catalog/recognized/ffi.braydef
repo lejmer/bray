@@ -28,7 +28,7 @@ scope StandardFfi at std.ffi {
 
         surface {
             trusted func callback_state<State>(
-                pos context: RawPointer<State>,
+                pos context: DataPointer<State>,
             ) -> &State
                 uses(raw_memory);
         }

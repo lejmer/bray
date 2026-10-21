@@ -49,7 +49,7 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
         Observation::Scalar
     } else if matches!(
         role,
-        RepresentationRole::RawPointer | RepresentationRole::DevicePointer
+        RepresentationRole::RawPointer | RepresentationRole::FunctionPointer | RepresentationRole::DevicePointer
     ) {
         Observation::Address
     } else {

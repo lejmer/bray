@@ -72,6 +72,7 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     for node in template.nodes() {
         encode_operation(encoder, node.operation());
         encoder.write_u32(node.ty().raw());
+        encoder.write_u8(node.unsigned_integer_bits().map_or(0, std::num::NonZeroU8::get));
     }
 
     write_count(encoder, template.temporaries().len());
@@ -137,6 +138,21 @@ fn encode_input_kind(encoder: &mut WireEncoder, kind: &InterfaceCheckedTemplateI
 fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTemplateOperation) {
     match operation {
         InterfaceCheckedTemplateOperation::Unreachable => encoder.write_u32(21),
+        InterfaceCheckedTemplateOperation::ArrayElement { subject } => {
+            encoder.write_u32(23);
+            encoder.write_u32(subject.raw());
+        }
+        InterfaceCheckedTemplateOperation::ArrayTransform { subject, element, value } => {
+            encoder.write_u32(24);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(element.raw());
+            encoder.write_u32(value.raw());
+        }
+        InterfaceCheckedTemplateOperation::Sequence { before, value } => {
+            encoder.write_u32(22);
+            encoder.write_u32(before.raw());
+            encoder.write_u32(value.raw());
+        }
         InterfaceCheckedTemplateOperation::Input(input) => {
             write_tagged_template_id(encoder, 1, input.raw());
         }
@@ -157,6 +173,17 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             right,
         } => {
             encoder.write_u32(13);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(left.raw());
+            encoder.write_u32(right.raw());
+        }
+        InterfaceCheckedTemplateOperation::MachineUnary { operation, operand } => {
+            encoder.write_u32(25);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(operand.raw());
+        }
+        InterfaceCheckedTemplateOperation::MachineBinary { operation, left, right } => {
+            encoder.write_u32(26);
             encoder.write_u32(operation.to_wire());
             encoder.write_u32(left.raw());
             encoder.write_u32(right.raw());

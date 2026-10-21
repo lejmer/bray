@@ -151,6 +151,51 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         self.value(block, MirOperationKind::Unary { operator, operand }, result)
     }
 
+    pub(in crate::predicate) fn machine_unary(
+        &mut self,
+        block: MirBlockId,
+        operation: ConstantUnaryOperation,
+        operand: MirOperand,
+        ty: TypeId,
+    ) -> Result<MirOperand, C::Error> {
+        let operand = self.observe(block, operand)?;
+        if self.integer_shape(&operand).is_none() {
+            return self.unary(block, operation, operand, ty);
+        }
+        let operator = match operation {
+            ConstantUnaryOperation::Identity | ConstantUnaryOperation::BorrowObservation
+            | ConstantUnaryOperation::EntryCondition => return self.convert(block, operand, ty),
+            ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
+            ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,
+            ConstantUnaryOperation::BitwiseNot => MirUnaryOperator::BitwiseNot,
+            ConstantUnaryOperation::PredicateTrust => panic!("trusted evidence has no executable unary value"),
+        };
+        let operand = self.convert(block, operand, ty)?;
+        self.value(block, MirOperationKind::Unary { operator, operand }, ty)
+    }
+
+    pub(in crate::predicate) fn machine_binary(
+        &mut self,
+        block: MirBlockId,
+        operation: ConstantBinaryOperation,
+        left: MirOperand,
+        right: MirOperand,
+        operand_type: TypeId,
+        ty: TypeId,
+    ) -> Result<(MirBlockId, MirOperand), C::Error> {
+        let left = self.observe(block, left)?;
+        let right = self.observe(block, right)?;
+        if self.integer_shape(&left).is_none() {
+            return self.binary(block, operation, left, right, ty);
+        }
+        let left = self.convert(block, left, operand_type)?;
+        if operation == ConstantBinaryOperation::Exponentiate {
+            return self.power(block, left, right, Some(ty));
+        }
+        let right = self.convert(block, right, operand_type)?;
+        Ok((block, self.machine(block, machine_operator(operation), left, right, ty)?))
+    }
+
     pub(in crate::predicate) fn binary(
         &mut self,
         block: MirBlockId,
@@ -197,7 +242,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         }
 
         if operation == Operation::Exponentiate {
-            return self.power(block, left, right, ty);
+            return self.power(block, left, right, None);
         }
 
         let operator = machine_operator(operation);

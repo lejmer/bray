@@ -1,13 +1,13 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module std.platform.heap;
 
-trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
+trusted internal func allocate(pos bytes: usize, align: usize) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted aligned_allocate(bytes = bytes, alignment = align);
 }
 
-trusted internal func deallocate(pos allocation: RawPointer<u8>) -> bool
+trusted internal func deallocate(pos allocation: DataPointer<u8>) -> bool
     uses(foreign_call)
 {
     trusted aligned_free(allocation);
@@ -18,11 +18,11 @@ trusted internal func deallocate(pos allocation: RawPointer<u8>) -> bool
 @link(name = "ucrt", kind = system)
 @symbol(name = "_aligned_malloc")
 @abi(c)
-extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> RawPointer<u8>
+extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> DataPointer<u8>
     uses(foreign_call);
 
 @link(name = "ucrt", kind = system)
 @symbol(name = "_aligned_free")
 @abi(c)
-extern trusted func aligned_free(pos allocation: RawPointer<u8>) -> unit
+extern trusted func aligned_free(pos allocation: DataPointer<u8>) -> unit
     uses(foreign_call);

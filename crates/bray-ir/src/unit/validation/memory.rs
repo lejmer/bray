@@ -60,7 +60,8 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::Address { .. }
         | CheckedMemoryOperationKind::Null { .. }
         | CheckedMemoryOperationKind::IsNull { .. }
-        | CheckedMemoryOperationKind::Reinterpret { .. }
+        | CheckedMemoryOperationKind::ByteAddress { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. }
         | CheckedMemoryOperationKind::CallableFromPointer { .. }
         | CheckedMemoryOperationKind::PointerFromCallable { .. } => true,
         CheckedMemoryOperationKind::UninitFrom { element } => types[0] == element,

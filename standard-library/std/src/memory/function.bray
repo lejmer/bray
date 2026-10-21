@@ -1,0 +1,12 @@
+module std.memory.function;
+
+extern trusted func reinterpret<Target, Source>(
+    pos pointer: FunctionPointer<Source>
+) -> FunctionPointer<Target>
+    uses(layout_reinterpret);
+
+extern trusted func from_data<F>(pos pointer: DataPointer<u8>) -> FunctionPointer<F>
+    uses(layout_reinterpret);
+
+extern trusted func to_data<F>(pos pointer: FunctionPointer<F>) -> DataPointer<u8>
+    uses(layout_reinterpret);

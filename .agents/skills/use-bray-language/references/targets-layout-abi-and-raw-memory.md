@@ -154,7 +154,7 @@ union NativeValue
 {
     Integer(value: std.ffi.c.Int);
     Floating(value: r32);
-    Pointer(value: RawPointer<u8>);
+    Pointer(value: DataPointer<u8>);
 }
 
 const VECTOR_BYTES: usize = std.memory.size_of<Vector>();
@@ -192,16 +192,16 @@ trusted module native_math
     }
 
     callable Transform = @abi(c)
-        func(pos context: RawPointer<u8>, pos point: Point) -> Point;
+        func(pos context: DataPointer<u8>, pos point: Point) -> Point;
 
     @symbol(name = "native_transform")
     @abi(c)
-    extern trusted func transform(pos callback: Transform, pos context: RawPointer<u8>, pos point: Point) -> Point
+    extern trusted func transform(pos callback: Transform, pos context: DataPointer<u8>, pos point: Point) -> Point
         uses(foreign_call);
 
     @symbol(name = "bray_translate")
     @abi(c)
-    func translate(pos context: RawPointer<u8>, pos point: Point) -> Point
+    func translate(pos context: DataPointer<u8>, pos point: Point) -> Point
     {
         return Point(x = point.x + 1.0, y = point.y + 1.0);
     }
@@ -216,12 +216,12 @@ trusted module native_math
 
     @symbol(name = "native_printf")
     @abi(c)
-    extern trusted func printf(pos format: RawPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
+    extern trusted func printf(pos format: DataPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
         uses(foreign_call);
 }
 ```
 
-`extern` selects a runtime definition or storage supplied outside the Bray declaration. An extern function supplies a linked callable surface, while an extern static reference produces a provider-rooted `RawPointer<T>`. `mut` records the native storage's mutation contract, with write authority established through ordinary trusted memory rules. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol and can select a name or ordinal plus version, binding, and presence policy. An ordinary static with `@symbol` exports Bray-owned storage. A foreign callback is an ABI-qualified capture-free callable. Pass state as an ABI-laid-out context product, or own stable-address state with `std.ffi.CallbackContext<State>`, pass its opaque context pointer, and borrow the state inside the matching exported entry through trusted `std.ffi.callback_state<State>(context)`.
+`extern` selects a runtime definition or storage supplied outside the Bray declaration. An extern function supplies a linked callable surface, while an extern static reference produces a provider-rooted `DataPointer<T>`. `mut` records the native storage's mutation contract, with write authority established through ordinary trusted memory rules. `@link` selects an artifact already supplied by the build graph, while `@symbol` identifies the imported or exported native symbol and can select a name or ordinal plus version, binding, and presence policy. An ordinary static with `@symbol` exports Bray-owned storage. A foreign callback is an ABI-qualified capture-free callable. Pass state as an ABI-laid-out context product, or own stable-address state with `std.ffi.CallbackContext<State>`, pass its opaque context pointer, and borrow the state inside the matching exported entry through trusted `std.ffi.callback_state<State>(context)`.
 
 Variadic syntax follows one or more fixed parameters on an extern trusted function or ABI-qualified callable type. Trailing arguments are positional and receive the selected ABI's default promotions.
 
@@ -233,9 +233,11 @@ See [callable ABI](https://github.com/lejmer/bray/blob/develop/docs/language/tar
 
 ## Raw pointers and trusted memory access
 
-`RawPointer<T>` is a copyable address value without ownership, lifetime, validity, alignment, initialization, aliasing, or provenance guarantees. `T` may be complete data, an incomplete bodyless struct, a flexible-layout product, or an ABI-qualified callable. Raw access succeeds only when the declaration contract proves the relevant predicates and the implementation acknowledges the required capabilities.
+`DataPointer<T>` is a copyable address value without ownership, lifetime, validity, alignment, initialization, aliasing, or provenance guarantees. `T` may be complete data, an incomplete bodyless struct, a flexible-layout product, or an ABI-qualified callable. Raw access succeeds only when the declaration contract proves the relevant predicates and the implementation acknowledges the required capabilities.
 
-For an ABI-qualified capture-free callable `F`, `core.memory.callable_from_pointer<F>` creates a callable after proving `callable_address_valid<F>`. `core.memory.pointer_from_callable<F>` exposes its code address. Both preserve provider dependencies.
+`DataPointer<T>` addresses storage, including storage of a callable value. `FunctionPointer<F>` represents a raw function entry and grants no callable authority. Both can contain native null or unusable addresses. Ordinary absence uses `T?`/`none`, with absent and present-null raw pointers distinct.
+
+For an ABI-qualified capture-free callable `F`, `core.memory.function_address<F>` returns `FunctionPointer<F>` and `core.memory.callable_from_pointer<F>` reconstructs a callable only after proving `callable_address_valid<F>`. Both preserve provider dependencies. The three target-supported conversions under `core.memory.function` and `std.memory.function` are `from_data<F>`, `to_data<F>` and `reinterpret<Target, Source>`. They require `layout_reinterpret` and grant no access or callable validity. `byte_address<T>` accepts any `DataPointer<T>`, including stored callable data, preserves its exact address and dependencies, and rejects function pointers by ordinary typing.
 
 ```bray
 trusted module raw_example;
@@ -243,10 +245,10 @@ trusted module raw_example;
 using core.memory;
 
 trusted func duplicate_words(
-    pos source: RawPointer<u32>,
-    pos destination: RawPointer<u32>,
+    pos source: DataPointer<u32>,
+    pos destination: DataPointer<u32>,
     count: usize,
-) -> (u32, RawPointer<u8>)
+) -> (u32, DataPointer<u8>)
     requires(
         count > 0,
         trusted core.memory.valid_read<u32>(pointer = source, count = count),
@@ -267,14 +269,14 @@ trusted func duplicate_words(
     trusted core.memory.copy<u32>(source = source, destination = destination, count = count);
 
     let first: u32 = trusted core.memory.read<u32>(destination);
-    let next: RawPointer<u32> = core.memory.offset<u32>(destination, elements = 1);
-    let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u32>(next);
-    let following: RawPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 4);
+    let next: DataPointer<u32> = core.memory.offset<u32>(destination, elements = 1);
+    let bytes: DataPointer<u8> = trusted core.memory.reinterpret<u8, u32>(next);
+    let following: DataPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 4);
 
     return (first, following);
 }
 
-trusted func initialize_byte(pos pointer: RawPointer<u8>, value: u8)
+trusted func initialize_byte(pos pointer: DataPointer<u8>, value: u8)
     requires(
         trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),
@@ -285,7 +287,7 @@ trusted func initialize_byte(pos pointer: RawPointer<u8>, value: u8)
     trusted core.memory.write<u8>(pointer, value);
 }
 
-trusted func shift_words(pos source: RawPointer<u32>, pos destination: RawPointer<u32>, count: usize)
+trusted func shift_words(pos source: DataPointer<u32>, pos destination: DataPointer<u32>, count: usize)
     requires(
         trusted core.memory.valid_read<u32>(pointer = source, count = count),
         trusted core.memory.valid_write<u32>(pointer = destination, count = count),
@@ -297,11 +299,11 @@ trusted func shift_words(pos source: RawPointer<u32>, pos destination: RawPointe
     trusted core.memory.copy_overlapping<u32>(source = source, destination = destination, count = count);
 }
 
-func observe_references(pos value: &u32, pos mutable: &mut u32) -> (RawPointer<u32>, RawPointer<u32>, bool)
+func observe_references(pos value: &u32, pos mutable: &mut u32) -> (DataPointer<u32>, DataPointer<u32>, bool)
 {
-    let pointer: RawPointer<u32> = core.memory.address_of<u32>(value);
-    let mutable_pointer: RawPointer<u32> = core.memory.address_of_mut<u32>(mutable);
-    let null: RawPointer<u32> = core.memory.null<u32>();
+    let pointer: DataPointer<u32> = core.memory.address_of<u32>(value);
+    let mutable_pointer: DataPointer<u32> = core.memory.address_of_mut<u32>(mutable);
+    let null: DataPointer<u32> = core.memory.null<u32>();
 
     return (pointer, mutable_pointer, core.memory.is_null<u32>(null));
 }
@@ -343,7 +345,7 @@ trusted func construct_in_place<T>(pos value: T) -> T
 
 trusted func anchored_read<T, Owner>(
     pos owner: &Owner,
-    pos pointer: RawPointer<T>,
+    pos pointer: DataPointer<T>,
 ) -> std.memory.AnchoredView<T, Owner>
     requires(
         trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
@@ -361,7 +363,7 @@ trusted func anchored_read<T, Owner>(
 
 trusted func anchored_write<T, Capability>(
     pos capability: &mut Capability,
-    pos pointer: RawPointer<T>,
+    pos pointer: DataPointer<T>,
 ) -> std.memory.AnchoredViewMut<T, Capability>
     requires(
         trusted core.memory.valid_write<T>(pointer = pointer, count = 1),
@@ -394,7 +396,7 @@ See [manual allocation](https://github.com/lejmer/bray/blob/develop/docs/languag
 
 ## Device memory and operating-system surfaces
 
-Host `RawPointer<T>` and target-address-space `DevicePointer<T>` are distinct protected types. Device memory is not host-accessible until a recognized mapping contract establishes scoped host validity, alignment, initialization, synchronization, and access conditions.
+Host `DataPointer<T>` and target-address-space `DevicePointer<T>` are distinct protected types. Device memory is not host-accessible until a recognized mapping contract establishes scoped host validity, alignment, initialization, synchronization, and access conditions.
 
 ```bray
 module target_surfaces;
@@ -455,7 +457,7 @@ trusted module target_control;
 using core.target;
 using core.memory;
 
-trusted func observe_register(pos pointer: RawPointer<u32>) -> (u32, usize)
+trusted func observe_register(pos pointer: DataPointer<u32>) -> (u32, usize)
     requires(
         trusted core.memory.valid_read<u32>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = pointer),
@@ -465,7 +467,7 @@ trusted func observe_register(pos pointer: RawPointer<u32>) -> (u32, usize)
 {
     let value: u32 = trusted core.target.volatile_load<u32>(pointer);
     let address: usize = trusted core.target.expose_address<u32>(pointer);
-    let reconstructed: RawPointer<u32> = trusted core.target.from_exposed_address<u32>(address = address);
+    let reconstructed: DataPointer<u32> = trusted core.target.from_exposed_address<u32>(address = address);
 
     assert(trusted core.target.address_equal<u32>(pointer, reconstructed));
 
@@ -480,7 +482,7 @@ trusted func observe_register(pos pointer: RawPointer<u32>) -> (u32, usize)
     return (value, address);
 }
 
-trusted func update_register(pos pointer: RawPointer<u32>, value: u32)
+trusted func update_register(pos pointer: DataPointer<u32>, value: u32)
     requires(
         trusted core.memory.valid_write<u32>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = pointer),
@@ -592,7 +594,7 @@ See [target control and inline assembly](https://github.com/lejmer/bray/blob/dev
 | Export a Bray callable as a native symbol | A Bray body with `@symbol` and `@abi`                            |
 | Export Bray-owned native storage          | An ordinary static with `@symbol`                                |
 | Observe size or allocate typed storage    | `std.memory` layout helpers and owners                           |
-| Address storage without borrow semantics  | `RawPointer<T>` plus explicit operations                         |
+| Address storage without borrow semantics  | `DataPointer<T>` plus explicit operations                         |
 | Build a value in protected storage        | `Uninit<T>`, `Output<T>`, or `InPlace<T>`                        |
 | Borrow foreign or mapped storage          | Anchored borrow conversion with exact authority                  |
 | Access a non-host address space           | `DevicePointer<T>` and `device_memory` contracts                 |

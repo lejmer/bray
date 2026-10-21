@@ -706,7 +706,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.context()[1].value(),
-            &DiagnosticFailureValue::Text("RawPointer".to_owned())
+            &DiagnosticFailureValue::Text("DataPointer".to_owned())
         );
     }
 

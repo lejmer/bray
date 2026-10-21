@@ -22,8 +22,13 @@ contexts when its arguments are valid in that context and its ordinary callable 
 A const function must be pure, deterministic, total for valid inputs, terminating, observational, effect-free, and
 allocation-free.
 
-A const function cannot read runtime storage, mutate storage, perform I/O, start tasks, await, suspend, catch or raise
-panics as runtime behavior, use runtime dynamic dispatch, or depend on runtime identity.
+A const function can compute with its supplied values and mutate storage confined to its own computation, subject to
+the [purity rules](../contracts-and-trust/execution-guarantees.md#pure-execution). A local reference does not establish
+that its referent is local. The proof includes selected calls, cleanup and every completion path.
+
+A const function cannot mutate storage observable outside the computation, read changing ambient state, perform I/O,
+start tasks, await, suspend, catch or raise panics as runtime behavior, use effectful runtime dynamic dispatch, or depend
+on runtime identity.
 
 The body of a const function is checked in constant-evaluation context.
 

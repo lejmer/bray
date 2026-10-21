@@ -39,7 +39,7 @@ trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.Re
 {
     let pointer = std.memory.uninit_pointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(&STORAGE);
 
-    let authorize = trusted lambda(pos pointer: RawPointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>)
+    let authorize = trusted lambda(pos pointer: DataPointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>)
         ensures(
             trusted core.memory.valid_read<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
                 pointer = pointer,

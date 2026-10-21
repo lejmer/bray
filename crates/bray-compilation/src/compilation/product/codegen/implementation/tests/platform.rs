@@ -148,11 +148,11 @@ func generic_alternate<T>(pos value: T) -> never
     loop {}
 }
 
-public trusted func assemble_addresses(pos pointer: RawPointer<u8>)
+public trusted func assemble_addresses(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
     let ignored: (i32,) = trusted core.target.assembly<
-        (func() -> never, func(pos value: i32) -> never, RawPointer<u8>),
+        (func() -> never, func(pos value: i32) -> never, DataPointer<u8>),
         (i32,),
     >(
         template = "",
@@ -189,10 +189,10 @@ const MEMORY_ASSEMBLY_SOURCE: &str = r#"trusted module memory_assembly;
 
 using core.target;
 
-public trusted func assemble_memory(pos pointer: RawPointer<u8>)
+public trusted func assemble_memory(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.assembly<(RawPointer<u8>,), unit>(
+    trusted core.target.assembly<(DataPointer<u8>,), unit>(
         template = "incb $0",
         constraints = "m",
         clobbers = "memory",
@@ -212,11 +212,11 @@ func alternate() -> never
     loop {}
 }
 
-public trusted func branch_void(pos pointer: RawPointer<u8>)
+public trusted func branch_void(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
     trusted core.target.branching_assembly<
-        (RawPointer<u8>,),
+        (DataPointer<u8>,),
         unit,
         (func() -> never,),
     >(

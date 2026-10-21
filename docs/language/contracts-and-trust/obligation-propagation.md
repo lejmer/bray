@@ -8,7 +8,7 @@ This prevents trusted obligations from being hidden by wrappers.
 ```bray
 using core.memory;
 
-func bad(pos pointer: RawPointer<u8>) -> u8
+func bad(pos pointer: DataPointer<u8>) -> u8
 {
     return trusted core.memory.read<u8>(pointer);
 }
@@ -22,7 +22,7 @@ This is valid because the obligation is exposed:
 ```bray
 using core.memory;
 
-func read_wrapper(pos pointer: RawPointer<u8>) -> u8
+func read_wrapper(pos pointer: DataPointer<u8>) -> u8
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),

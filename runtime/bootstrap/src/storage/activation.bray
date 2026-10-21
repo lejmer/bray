@@ -145,7 +145,7 @@ trusted internal func activate_value(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos lease: &Lease,
     pos descriptor: &Descriptor
-) -> RawPointer<u8>
+) -> DataPointer<u8>
     uses(intrinsic)
 {
     if !trusted matches_shape(pool, lease, descriptor)

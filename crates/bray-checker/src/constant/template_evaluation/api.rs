@@ -407,6 +407,63 @@ mod tests {
         assert_eq!(outcome.value().usage().literal_bytes(), 3);
         assert_eq!(outcome.value().usage().expansions(), 4);
 
+        let sequenced = bray_bound_tree::CheckedTemplate::from_checked_parts(
+            template.kind(),
+            template.inputs().iter().cloned(),
+            [
+                template.nodes()[0].clone(),
+                CheckedTemplateNode::new(
+                    CheckedTemplateOperation::Constant {
+                        term,
+                        usage: bray_bound_tree::CheckedTemplateConstantUsage::new(0, 2, 1),
+                    },
+                    ty,
+                ),
+                CheckedTemplateNode::new(
+                    CheckedTemplateOperation::Sequence {
+                        before: bray_bound_tree::CheckedTemplateNodeId::new(1),
+                        value: bray_bound_tree::CheckedTemplateNodeId::new(0),
+                    },
+                    ty,
+                ),
+                CheckedTemplateNode::new(
+                    CheckedTemplateOperation::Sequence {
+                        before: bray_bound_tree::CheckedTemplateNodeId::new(2),
+                        value: bray_bound_tree::CheckedTemplateNodeId::new(0),
+                    },
+                    ty,
+                ),
+            ],
+            [],
+            bray_bound_tree::CheckedTemplateNodeId::new(3),
+            template.behavior().clone(),
+        );
+
+        let evaluate_sequence = |limits| {
+            evaluate_constant_callable_template(
+                &TestCheckerContext::new(false),
+                &sequenced,
+                &request(limits),
+                &UnusedTemplateResolver,
+                Some(diagnostic_span),
+                &[],
+            )
+            .into_result()
+            .expect("sequenced constant body must evaluate")
+        };
+
+        let ordered = evaluate_sequence(ConstantEvaluationLimits::default());
+        assert!(ordered.diagnostics().is_empty());
+        assert_eq!(ordered.value().value(), value);
+        assert_eq!(ordered.value().usage().literal_bytes(), 5);
+        assert_eq!(ordered.value().usage().expansions(), 5);
+
+        let first_failure = evaluate_sequence(ConstantEvaluationLimits::new(16, 1, 1));
+        assert_goal_state_diagnostic_kind(
+            first_failure.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+        );
+
         let aggregate_outcome = evaluate_constant_callable_template(
             &TestCheckerContext::new(false),
             &template,

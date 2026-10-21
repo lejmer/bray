@@ -1031,7 +1031,7 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
             | RepresentationRole::ScalarC64
             | RepresentationRole::ScalarC128
             | RepresentationRole::ScalarC256
-            | RepresentationRole::RawPointer
+            | RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
     )
 }
 

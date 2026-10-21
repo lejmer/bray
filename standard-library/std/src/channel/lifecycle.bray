@@ -225,7 +225,7 @@ trusted internal func notify_channel<T>(pos shared: &ChannelCore<T>)
 }
 
 // Access requires protocol authority, which endpoint operations never return to callers.
-trusted internal func channel_owner_pointer<T>(pos owner: &std.channel.owner.Owner<T>) -> RawPointer<ChannelCore<T>>
+trusted internal func channel_owner_pointer<T>(pos owner: &std.channel.owner.Owner<T>) -> DataPointer<ChannelCore<T>>
     requires(trusted std.channel.owner.access(&owner.instance))
     ensures(
         trusted core.memory.valid_read<ChannelCore<T>>(pointer = result, count = 1),
@@ -246,7 +246,7 @@ trusted internal func channel_core<T>(pos owner: &std.channel.owner.Owner<T>) ->
     ensures(trusted std.sync.spin_lock.valid(&result.state.instance), trusted std.channel.owner.valid(&result.instance))
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
+    let pointer: DataPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
 
     return trusted std.memory.borrow_from<ChannelCore<T>, std.channel.owner.Owner<T>>(owner, pointer);
 }

@@ -226,6 +226,7 @@ impl Compilation {
             if crate::compilation::foreign::compiler_known_representation(self, *definition).is_some_and(|role|
                 role.numeric_kind().is_some()
                     || matches!(role, bray_compiler_known::RepresentationRole::RawPointer
+                        | bray_compiler_known::RepresentationRole::FunctionPointer
                         | bray_compiler_known::RepresentationRole::DevicePointer)))
         {
             return Ok(true);

@@ -3,6 +3,7 @@ trusted internal module bray.runtime.bootstrap.entry;
 
 using core.memory;
 using std.memory;
+using std.memory.function;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.attachment;
@@ -10,18 +11,18 @@ using internal bray.runtime.bootstrap.report.chain;
 using internal bray.runtime.bootstrap.entry.bridge;
 
 internal callable Continuation = @abi(c) trusted func(
-    pos callback: RawPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
     pos main: u32,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry());
 
 @abi(c)
 trusted internal func root(
-    pos callback: RawPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry())
 {
@@ -30,9 +31,9 @@ trusted internal func root(
 
 @abi(c)
 trusted internal func foreign(
-    pos callback: RawPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry())
 {
@@ -40,10 +41,10 @@ trusted internal func foreign(
 }
 
 trusted internal func dispatch(
-    pos callback: RawPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
     pos main: u32,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry())
     uses(layout_reinterpret)
@@ -60,8 +61,8 @@ trusted internal func dispatch(
     {
         let continuation: Continuation = invoke;
 
-        let address = trusted std.memory.reinterpret<u8, Continuation>(
-            trusted std.memory.pointer_from_callable<Continuation>(continuation)
+        let address = trusted std.memory.function.to_data<Continuation>(
+            trusted std.memory.function_address<Continuation>(continuation)
         );
 
         return trusted active_bridge(address, callback, context, main, outcome);
@@ -72,21 +73,21 @@ trusted internal func dispatch(
 
 @abi(c)
 trusted internal func invoke(
-    pos callback: RawPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
     pos main: u32,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry())
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
-    let address = trusted lambda(pos callback: RawPointer<u8>) -> RawPointer<Callback>
+    let address = trusted lambda(pos callback: DataPointer<u8>) -> FunctionPointer<Callback>
         requires(trusted native_entry())
         ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
         executes(pure, total)
         uses(layout_reinterpret)
     {
-        return trusted std.memory.reinterpret<Callback, u8>(callback);
+        return trusted std.memory.function.from_data<Callback>(callback);
     };
 
     let prepare = trusted lambda()

@@ -22,10 +22,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .get(&operation.occurrence())
             .is_some_and(|contract| contract.deferred_effects().is_some());
 
-        let memory = operation
-            .occurrence()
-            .expression()
-            .and_then(|expression| self.memory.operation(expression));
+        let memory = matches!(operation.occurrence(), BoundExecutionSite::Node(_))
+            .then(|| operation.occurrence().expression().and_then(|expression| self.memory.operation(expression)))
+            .flatten();
 
         if memory.is_some_and(|operation| {
             matches!(
@@ -50,7 +49,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let direct_write = memory.is_some()
             || self
                 .storage
-                .node_plans(operation.node())
+                .occurrence_plans(operation.occurrence())
                 .any(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment);
 
         let may_store = direct_write
@@ -76,7 +75,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             self.append_reference_roots(
                 state,
-                value,
+                value.into(),
+                self.argument_storage(value),
                 self.expression_reference(state, value),
                 &mut stored,
             );
@@ -145,6 +145,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
     ) -> Vec<Target> {
         let mut roots = Vec::new();
+        if matches!(occurrence, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)
+            | BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_))
+        {
+            let selection = self.execution.semantics.selections()
+                .expression(occurrence.expression().expect("implicit invocation has its owner"))
+                .expect("implicit invocation retains its selected protocol");
+            let root = if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
+                DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+            } else { DependencySubjectRoot::Receiver };
+            let input = selection.invocation_input_site(occurrence, root)
+                .expect("implicit invocation retains its sole actual input");
+            self.append_reference_roots(state, input, self.invocation_place(occurrence, root),
+                self.invocation_reference(state, occurrence, root), &mut roots);
+            return roots;
+        }
+
+
+        if let Some(expression) = occurrence.expression()
+            && let Some(selection) = self.execution.semantics.selections().expression(expression)
+            && selection.evaluates_defaults()
+        {
+            if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
+                let input = selection.input(ordinal).expect("input roots retain their selected input");
+                if let Some(argument) = input.expression() {
+                    self.append_reference_roots(state, argument.into(), self.argument_storage(argument),
+                        self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver), &mut roots);
+                    return roots;
+                }
+                if !matches!(input.default_provider(), Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))) {
+                    return roots;
+                }
+            }
+            for input in selection.inputs() {
+                let root = input.root();
+                let ordinal = selection.input_ordinal(root).expect("selected input has an ordinal");
+                if matches!(occurrence, BoundExecutionSite::CallInput { ordinal: current, .. } if ordinal >= current) {
+                    continue;
+                }
+                self.append_reference_roots(state, BoundExecutionSite::CallInput { expression, ordinal },
+                    self.invocation_place(occurrence, root),
+                    self.invocation_reference(state, occurrence, root), &mut roots);
+            }
+            return roots;
+        }
 
         if let Some(expression) = occurrence
             .expression()
@@ -167,7 +211,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     self.expression_reference(state, argument)
                 };
 
-                self.append_reference_roots(state, argument, source, &mut roots);
+                self.append_reference_roots(state, argument.into(), self.argument_storage(argument), source, &mut roots);
             }
         }
 
@@ -195,7 +239,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.append_reference_roots(
             state,
-            *value,
+            (*value).into(),
+            self.argument_storage(*value),
             self.expression_reference(state, *value),
             &mut roots,
         );
@@ -206,11 +251,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn append_reference_roots(
         &self,
         state: &StorageFlowState,
-        argument: BoundExpressionId,
+        argument: BoundExecutionSite,
+        place: Option<Place>,
         source: Option<Source>,
         roots: &mut Vec<Target>,
     ) {
-        if let Some(place) = self.argument_storage(argument) {
+        if let Some(place) = place {
             roots.extend(
                 state
                     .memory
@@ -248,55 +294,32 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_borrow_origins(
         &self,
         occurrence: BoundExecutionSite,
-    ) -> BTreeMap<BoundExpressionId, std::collections::BTreeSet<Place>> {
+    ) -> BTreeMap<BoundExecutionSite, std::collections::BTreeSet<Place>> {
         let mut borrow_origins = BTreeMap::new();
 
-        if let Some(SemanticSelection::Call(call)) = occurrence
-            .expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression))
+        if let Some(expression) = occurrence.expression()
+            && let Some(selection) = self.execution.semantics.selections().expression(expression)
         {
-            let arguments = call
-                .arguments()
-                .iter()
-                .filter_map(|argument| match argument {
-                    bray_bound_tree::SelectedArgument::Explicit {
-                        ordinal,
-                        conversion,
-                        ..
-                    } if matches!(
-                        self.request
-                            .semantic_values()
-                            .type_data(conversion.target_type())
-                            .as_ref(),
-                        bray_symbols::TypeData::Borrow { .. }
-                    ) =>
-                    {
-                        Some(DependencySubjectRoot::Parameter(
-                            bray_symbols::SymbolOrdinal::new(*ordinal),
-                        ))
-                    }
-                    _ => None,
-                })
-                .chain(
-                    call.receiver()
-                        .filter(|receiver| {
-                            matches!(
-                                receiver.mode(),
-                                bray_symbols::ReceiverMode::Shared
-                                    | bray_symbols::ReceiverMode::Mutable
-                            )
-                        })
-                        .map(|_| DependencySubjectRoot::Receiver),
-                );
-
-            for root in arguments {
-                let argument = invocation_argument(
-                    self.request.view(),
-                    self.execution.semantics.selections(),
-                    occurrence,
-                    root,
-                )
-                .expect("selected borrow input retains its argument");
+            let current = match occurrence {
+                BoundExecutionSite::CallInput { ordinal, .. } =>
+                    Some((ordinal, selection.input(ordinal).expect("borrow origins retain the exact input"))),
+                _ => None,
+            };
+            let source = current.and_then(|(_, input)| input.expression().map(|source|
+                (source.into(), input.ty(self.request.semantic_values()))));
+            let prefix = current.is_none_or(|(_, input)| matches!(input.default_provider(),
+                Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))));
+            let inputs = source.into_iter().chain(selection.inputs().filter(|_| prefix).filter_map(|input| {
+                let ordinal = selection.input_ordinal(input.root()).expect("selected input has its ordinal");
+                if current.is_some_and(|(current, _)| ordinal >= current) {
+                    return None;
+                }
+                Some((selection.input_site(expression, input.root())?, input.ty(self.request.semantic_values())))
+            }));
+            for (argument, ty) in inputs {
+                if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                    continue;
+                }
 
                 let owners = self
                     .liveness
@@ -349,26 +372,33 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return self.invocation_result(occurrence);
         }
 
+        if matches!(occurrence, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)
+            | BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_))
+        {
+            let selection = self.execution.semantics.selections().expression(occurrence.expression()?)?;
+            selection.invocation_input_site(occurrence, root)?;
+            return self.storage.occurrence_plans(occurrence)
+                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .and_then(|plan| self.storage.logical_path(plan.access())).cloned();
+        }
+
+        let expression = occurrence.expression()?;
+        if let Some(selection) = self.execution.semantics.selections().expression(expression)
+            && selection.evaluates_defaults()
+            && let Some(BoundExecutionSite::CallInput { expression, ordinal }) =
+                selection.invocation_input_site(occurrence, root)
+        {
+            let access = self.storage.invocation_input(expression, ordinal)
+                .expect("selected input root retains its staged storage");
+            return self.storage.logical_path(access).cloned();
+        }
+
         if let Some(argument) = invocation_argument(
-            self.request.view(),
-            self.execution.semantics.selections(),
-            occurrence,
-            root,
+            self.request.view(), self.execution.semantics.selections(), occurrence, root,
         ) {
             return self.argument_storage(argument);
         }
 
-        if matches!(occurrence, BoundExecutionSite::ScopedExit(_))
-            && root == DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
-        {
-            // A transition owns its observed path while sharing the immutable projection list.
-            return self
-                .storage
-                .occurrence_plans(occurrence)
-                .next()
-                .and_then(|plan| self.storage.logical_path(plan.access()))
-                .cloned();
-        }
 
         None
     }
@@ -379,6 +409,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<Source> {
+        if matches!(occurrence, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)
+            | BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_))
+        {
+            if root == DependencySubjectRoot::Result {
+                return self.invocation_result(occurrence).map(|place| Source::Value(Target::storage(place)));
+            }
+            let selection = self.execution.semantics.selections().expression(occurrence.expression()?)?;
+            selection.invocation_input_site(occurrence, root)?;
+            let plan = self.storage.occurrence_plans(occurrence)
+                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .expect("implicit invocation retains its actual input");
+            if let Some(capability) = self.storage.borrow_for_plan(plan)
+                && state.memory.has_borrow(capability)
+            {
+                return Some(Source::Borrow(capability));
+            }
+            return self.invocation_place(occurrence, root)
+                .map(|place| Source::Value(Target::storage(place)));
+        }
+
         if let Some(argument) = invocation_argument(
             self.request.view(),
             self.execution.semantics.selections(),
@@ -465,6 +515,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
     ) -> Option<Place> {
         match occurrence {
+            BoundExecutionSite::CallInput { expression, ordinal } => {
+                let access = self.storage.invocation_input(expression, ordinal)
+                    .expect("input completion retains its exact slot");
+                self.storage.logical_path(access).cloned()
+            }
+            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)) =>
+                self.storage.invocation_result(site).and_then(|access| self.storage.logical_path(access)).cloned(),
             BoundExecutionSite::ScopedEnter(expression) => self.storage.identity_entries()
                 .find_map(|(id, identity)| matches!(identity, bray_bound_tree::StorageIdentity::ScopedCapability { expression: owner, .. } if owner == expression).then_some(Place::root(id))),
             BoundExecutionSite::ScopedExit(_) => None,
@@ -480,10 +537,17 @@ pub(super) fn invocation_argument(
     occurrence: BoundExecutionSite,
     root: DependencySubjectRoot,
 ) -> Option<BoundExpressionId> {
-    match selections.expression(occurrence.expression()?)? {
-        SemanticSelection::Call(call) => {
-            crate::dependency::result_argument(call.arguments(), call.receiver(), root)
-        }
+    let selection = selections.expression(occurrence.expression()?)?;
+    if selection.evaluates_defaults() {
+        return match selection.invocation_input_site(occurrence, root)? {
+            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =>
+                Some(expression),
+            _ => None,
+        };
+    }
+    match selection {
+        SemanticSelection::Call(call) =>
+            crate::dependency::result_argument(call.arguments(), call.receiver(), root),
         SemanticSelection::Operation(operation) => {
             crate::dependency::operation_inputs(view, occurrence.expression()?, operation)
                 .into_iter()

@@ -132,7 +132,7 @@ trusted internal func enter_attachment_locked(
 
     storage.active += 1;
 
-    let pointer: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = next as usize);
+    let pointer: DataPointer<u8> = trusted core.target.from_exposed_address<u8>(address = next as usize);
 
     let published: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_store(
         key,

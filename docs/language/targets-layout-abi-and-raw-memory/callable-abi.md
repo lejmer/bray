@@ -103,7 +103,7 @@ using std.ffi.c;
 
 @abi(c)
 extern trusted func printf(
-    pos format: RawPointer<std.ffi.c.Char>,
+    pos format: DataPointer<std.ffi.c.Char>,
     ...
 ) -> std.ffi.c.Int
     uses(foreign_call);

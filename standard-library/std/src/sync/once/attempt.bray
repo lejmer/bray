@@ -21,7 +21,7 @@ struct Attempt<T>
         {
             let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
 
-            let authorize = trusted lambda(pos pointer: RawPointer<State<T>>)
+            let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
                 ensures(
                     trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<State<T>>(pointer = pointer),
@@ -56,7 +56,7 @@ struct Attempt<T>
         {
             let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
 
-            let authorize = trusted lambda(pos pointer: RawPointer<State<T>>)
+            let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
                 ensures(
                     trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<State<T>>(pointer = pointer),
@@ -81,7 +81,7 @@ struct Attempt<T>
 
         let pointer = std.memory.address_of<Uninit<T>>(&state.value);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<Uninit<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<Uninit<T>>)
             ensures(
                 trusted core.memory.valid_write<Uninit<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<Uninit<T>>(pointer = pointer),
@@ -103,7 +103,7 @@ struct Attempt<T>
         {
             let payload = std.memory.uninit_pointer<T>(&state.value);
 
-            let readable = trusted lambda(pos payload: RawPointer<T>)
+            let readable = trusted lambda(pos payload: DataPointer<T>)
                 ensures(
                     trusted core.memory.valid_read<T>(pointer = payload, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = payload),

@@ -115,7 +115,7 @@ trusted internal func describe(
 
     let authorize = trusted lambda(
         pos cursor: &bray.runtime.bootstrap.activation.run.Cursor,
-        pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>
+        pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>
     )
         requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
         ensures(

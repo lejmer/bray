@@ -16,13 +16,13 @@ internal struct Descriptor
     completion_bytes: usize;
     completion_align: usize;
     states: u32;
-    state: RawPointer<u8>;
-    resume: RawPointer<u8>;
-    cancel: RawPointer<u8>;
-    broadcast: RawPointer<u8>;
-    resolve: RawPointer<u8>;
-    move_completion: RawPointer<u8>;
-    destroy: RawPointer<u8>;
+    state: DataPointer<u8>;
+    resume: DataPointer<u8>;
+    cancel: DataPointer<u8>;
+    broadcast: DataPointer<u8>;
+    resolve: DataPointer<u8>;
+    move_completion: DataPointer<u8>;
+    destroy: DataPointer<u8>;
 }
 
 // Crossing the native boundary copies a lease, never its ownership. Activation
@@ -32,7 +32,7 @@ internal struct Descriptor
 internal struct Inactive
 {
     lease: bray.runtime.bootstrap.storage.Lease;
-    descriptor: RawPointer<Descriptor>;
+    descriptor: DataPointer<Descriptor>;
 }
 
 @layout(c)
@@ -50,7 +50,7 @@ internal struct Progress
 internal struct Header
 {
     lease: bray.runtime.bootstrap.storage.Lease;
-    descriptor: RawPointer<Descriptor>;
+    descriptor: DataPointer<Descriptor>;
     context: usize;
     mut parent: usize;
     mut child: usize;

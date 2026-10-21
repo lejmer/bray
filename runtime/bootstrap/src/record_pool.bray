@@ -207,7 +207,7 @@ trusted internal func activate_record(pos pool: &mut ReportPool) -> usize
 }
 
 @abi(c)
-trusted internal func report_records_admit(pos count: usize, pos destination: RawPointer<ReportRecords>) -> u32
+trusted internal func report_records_admit(pos count: usize, pos destination: DataPointer<ReportRecords>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
@@ -227,7 +227,7 @@ trusted internal func report_records_admit(pos count: usize, pos destination: Ra
 trusted internal func admit_record_values(
     pos count: usize,
     pos mut output: ReportRecords,
-    pos destination: RawPointer<ReportRecords>
+    pos destination: DataPointer<ReportRecords>
 ) -> (u32, ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

@@ -38,19 +38,19 @@ attachment.
 
 An ordinary static owns Bray storage. An extern static names provider-owned storage.
 
-Referencing an extern static produces a `RawPointer<T>` to its storage rather than reading a `T` or creating a Bray
+Referencing an extern static produces a `DataPointer<T>` to its storage rather than reading a `T` or creating a Bray
 borrow. The reference performs symbol-address resolution only. It does not read, initialize, copy, move, borrow, or
 validate the reached storage.
 
 ```bray
 using std.ffi.c;
 
-let address: RawPointer<std.ffi.c.Int> = errno;
+let address: DataPointer<std.ffi.c.Int> = errno;
 ```
 
 The resulting pointer carries the declaration's provider dependency. A thread-local result also carries its exact
 native-thread attachment dependency. Moving or copying the pointer preserves those semantic dependencies even though
-`RawPointer<T>` has no source lifetime parameter.
+`DataPointer<T>` has no source lifetime parameter.
 
 An extern static declaration establishes no automatic validity, initialization, aliasing, synchronization, or borrow
 guarantee. Reading, writing, or converting its address to a Bray borrow uses the ordinary trusted memory operations and
@@ -87,7 +87,7 @@ because one external symbol cannot identify multiple closed substitutions.
 An immutable exported static keeps its ordinary Bray access surface. Foreign mutation violates its ABI contract.
 
 An exported `static mut` declares storage that foreign code may mutate. It is valid only as a trusted native-symbol
-declaration in a trusted module, and source references produce `RawPointer<T>` rather than an ordinary safe access path.
+declaration in a trusted module, and source references produce `DataPointer<T>` rather than an ordinary safe access path.
 Bray code uses the same trusted raw-memory and synchronization rules as any other externally mutable storage.
 Interior-mutation types remain the ordinary choice for mutable product statics that are not exposed as native data
 symbols.
@@ -111,7 +111,7 @@ The optional standard options are:
 - `presence = required` or `presence = optional`
 
 The defaults are strong binding and required presence. A required symbol that cannot be resolved fails product
-formation. An optional extern static resolves to a null `RawPointer<T>` when absent. Address use checks
+formation. An optional extern static resolves to a null `DataPointer<T>` when absent. Address use checks
 `core.memory.is_null` or uses an ordinary wrapper that performs the same check before access.
 
 Weak binding controls target link selection. Optional presence controls whether an unresolved symbol is accepted. They
@@ -120,14 +120,16 @@ are independent contracts.
 The selected target profile validates which names, ordinals, versions, bindings, presence modes, import forms, export
 forms, and combinations are available. `presence = optional` is available for imported data symbols, whose raw-pointer
 access can represent absence. Imported callable declarations use required presence, while optional dynamically loaded
-code uses a raw callable pointer or `DynamicSymbol<F>`. An export always defines its symbol.
+functions use a raw function pointer obtained through the native symbol owner's checked lookup and conversion. An export
+always defines its symbol.
 
 ## Dynamic data and code symbols
 
-Dynamic lookup produces raw pointers whose dependency contracts retain the exact dynamic-library owner. A data lookup
-for `T` produces `RawPointer<T>`. A code lookup for an ABI-qualified callable type `F` produces `RawPointer<F>`.
+Dynamic lookup retains the exact dynamic-library owner through its dependency contracts. A data lookup for `T`
+produces `DataPointer<T>`. A native API returning an erased data address uses `core.memory.function.from_data<F>` to
+represent a function entry as `FunctionPointer<F>` when the target supports that conversion.
 
-`RawPointer<F>` is an address intended to designate code with callable contract `F`. It is not callable. The trusted
+`FunctionPointer<F>` is an address intended for callable contract `F`. It is not callable. The trusted
 `core.memory.callable_from_pointer<F>` operation requires a non-null executable address, the exact ABI contract, target
 representation support, and a live provider dependency.
 
@@ -136,7 +138,7 @@ using core.memory;
 
 callable Transform = @abi(c) func(pos value: i32) -> i32;
 
-trusted func activate_transform(pos address: RawPointer<Transform>) -> Transform
+trusted func activate_transform(pos address: FunctionPointer<Transform>) -> Transform
     requires(trusted core.memory.callable_address_valid<Transform>(pointer = address))
     uses(layout_reinterpret)
 {
@@ -147,9 +149,10 @@ trusted func activate_transform(pos address: RawPointer<Transform>) -> Transform
 The resulting callable preserves every dependency carried by the pointer. A standard-library `DynamicSymbol<T>` owner
 can wrap the pointer or callable while retaining the library owner and preventing unload.
 
-`core.memory.pointer_from_callable<F>` exposes the raw code address of an ABI-qualified capture-free callable when the
-target supports that representation. It preserves the callable's provider dependency. Data-memory operations, element
-offsets, and dereference syntax remain unavailable for callable pointees.
+`core.memory.function_address<F>` exposes the raw code address of an ABI-qualified capture-free callable when the
+target supports that representation. It preserves the callable's provider dependency. Data-memory operations and
+element offsets reject function pointers. Addressing a stored callable value with `address_of` instead produces a
+`DataPointer<F>` to that value's storage.
 
 ## Navigation
 

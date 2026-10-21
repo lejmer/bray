@@ -13,20 +13,20 @@ using internal bray.runtime.bootstrap;
 // activation. Retaining operations keep its frame alive, and consuming retirement
 // retains its descriptor copy and provider code through return.
 trusted internal predicate authorized(
-    execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-    descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
     context: usize,
     operation: u32,
     argument: usize,
-    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 );
 
 // The native caller checks the exact selected lane and attachment against this
 // snapshot. It cannot change activation state or consume an owner during this
 // query. A non-success status leaves the producer and its records untouched.
 internal callable Ready = @abi(c) trusted func(
-    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -43,13 +43,13 @@ internal callable Ready = @abi(c) trusted func(
 // The native bridge contains unwind and retains the selected provider throughout
 // the call. Frame headers are not borrowed while producer code executes.
 internal callable Invoke = @abi(c) trusted func(
-    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-    pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
     pos context: usize,
     pos operation: u32,
     pos argument: usize,
-    pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 )
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -80,19 +80,19 @@ internal callable Invoke = @abi(c) trusted func(
 // The output owns its report provider and all unused records. Initialized fields
 // alone cannot manufacture this evidence.
 trusted internal predicate returned(
-    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 );
 
 trusted internal func invoke(
     pos callback: Invoke,
-    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-    pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
     pos context: usize,
     pos operation: u32,
     pos argument: usize,
-    pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -112,8 +112,8 @@ trusted internal func invoke(
     trusted callback(execution, descriptor, context, operation, argument, progress, records);
 
     let take = trusted lambda(
-        pos source: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+        pos source: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
     ) -> bray.runtime.bootstrap.activation.Progress
         requires(
             trusted returned(progress = source, records = records),

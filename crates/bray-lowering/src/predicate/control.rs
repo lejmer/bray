@@ -167,7 +167,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         Ok((join, MirOperand::Value(value)))
     }
 
-    fn rewind_values(&mut self, retained: usize) {
+    pub(super) fn rewind_values(&mut self, retained: usize) {
         while self.inserted.len() > retained {
             let id = self
                 .inserted

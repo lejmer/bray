@@ -121,6 +121,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) => self.value(state, expression),
+            bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
+                let access = self.storage.invocation_input(expression, ordinal)
+                    .expect("input value has its planned slot");
+                let place = self.storage.logical_path(access).and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path))
+                    .expect("input slot has an execution place");
+                place.value_in(&state.current).unwrap_or(ExecutionCondition::Unknown)
+            }
+            bray_bound_tree::BoundExecutionSite::Iterate(_) | bray_bound_tree::BoundExecutionSite::Next(_) => {
+                let place = self.input_place(invocation)
+                    .expect("implicit invocation result has an execution place");
+                place.value_in(&state.current).unwrap_or_else(||
+                    ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), place))
+            }
             bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
                 ExecutionCondition::ScopedCapability(expression)
             }
@@ -132,22 +145,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    pub(in crate::analysis::guarantee) fn observation_type(
+        &self,
+        value: &ExecutionCondition,
+    ) -> Option<bray_symbols::TypeId> {
+        match value {
+            ExecutionCondition::Input(place)
+            | ExecutionCondition::Joined(_, _, place)
+            | ExecutionCondition::PostState(_, place) => self.observed_types.get(place).copied().flatten()
+                .or_else(|| match place.root {
+                    crate::execution_guarantees::ExecutionInput::Storage(identity)
+                        if place.projections.is_empty() => self.storage.identity_type(identity),
+                    _ => None,
+                }),
+            ExecutionCondition::Expression(expression) => self.semantics.types()
+                .expression(*expression).map(|entry| entry.ty()),
+            ExecutionCondition::Literal(value) => Some(value.ty()),
+            _ => None,
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn unsigned_value(
         &self,
         value: &ExecutionCondition,
     ) -> bool {
-        let ty = match value {
-            ExecutionCondition::Input(place) | ExecutionCondition::Joined(_, _, place) => {
-                self.observed_types.get(place).copied().flatten()
-            }
-            ExecutionCondition::Expression(expression) => self
-                .semantics
-                .types()
-                .expression(*expression)
-                .map(|entry| entry.ty()),
-            ExecutionCondition::Literal(value) => Some(value.ty()),
-            _ => None,
-        };
+        let ty = self.observation_type(value);
 
         ty.and_then(|ty| crate::representation::type_representation(self.request, ty))
             .and_then(bray_compiler_known::RepresentationRole::integer_representation)
@@ -219,12 +241,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
                 (ExecutionCondition::ScopedCapability(expression), true)
             }
+            Some(bray_bound_tree::StorageIdentity::InvocationResult(invocation)) => {
+                (self.invocation_value(state, invocation), true)
+            }
             _ => (self.value(state, expression), false),
         };
 
         let source = self
             .storage
-            .expression_plans(expression)
+            .node_plans((expression).into())
             .filter(|source| {
                 source.node() == AnyBoundNodeId::Expression(expression)
                     && self.storage.access_contains(source.access(), access)

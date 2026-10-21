@@ -40,6 +40,8 @@ pub struct TrustedCallContract {
     pub transferred_inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
     /// Whether this operation establishes guarantees at its normal completion.
     pub completes: bool,
+    /// Whether ordinary value preconditions can fail before callee ownership transfer.
+    pub checks_preconditions: bool,
     /// Whether declared purity preserves inputs after the caller establishes its requirements.
     pub preserves_inputs: bool,
     /// Checked witness carriers paired with their conditional completion guarantee.

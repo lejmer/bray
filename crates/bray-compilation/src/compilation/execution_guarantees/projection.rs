@@ -209,18 +209,19 @@ using core.atomic;
             trusted module app;
 
             using core.memory;
+            using core.memory.function;
 
             callable Callback = @abi(c) func();
             @abi(c)
             func entry() {}
 
-            trusted func address() -> RawPointer<u8>
+            trusted func address() -> DataPointer<u8>
                 executes(pure, total)
                 uses(layout_reinterpret)
             {
-                let pointer: RawPointer<Callback> = trusted core.memory.pointer_from_callable<Callback>(entry);
+                let pointer: FunctionPointer<Callback> = trusted core.memory.function_address<Callback>(entry);
 
-                return trusted core.memory.reinterpret<u8, Callback>(pointer);
+                return trusted core.memory.function.to_data<Callback>(pointer);
             }
             "#,
         );
@@ -239,13 +240,14 @@ using core.atomic;
             trusted module app;
 
             using core.memory;
+            using core.memory.function;
 
             callable Callback = @abi(c) func();
 
-            trusted func caller(pos pointer: RawPointer<u8>) -> Callback
+            trusted func caller(pos pointer: DataPointer<u8>) -> Callback
                 uses(layout_reinterpret)
             {
-                let callable_pointer: RawPointer<Callback> = trusted core.memory.reinterpret<Callback, u8>(pointer);
+                let callable_pointer: FunctionPointer<Callback> = trusted core.memory.function.from_data<Callback>(pointer);
 
                 return trusted core.memory.callable_from_pointer<Callback>(callable_pointer);
             }

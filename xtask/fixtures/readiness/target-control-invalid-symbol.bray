@@ -2,10 +2,10 @@ trusted module target_control_invalid_symbol;
 
 using core.target;
 
-trusted func runtime_pointer_is_not_a_symbol(pos pointer: RawPointer<u8>) -> u8
+trusted func runtime_pointer_is_not_a_symbol(pos pointer: DataPointer<u8>) -> u8
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    return trusted core.target.assembly<(RawPointer<u8>,), (u8,)>(
+    return trusted core.target.assembly<(DataPointer<u8>,), (u8,)>(
         template = "",
         constraints = "=reg,s",
         clobbers = "",

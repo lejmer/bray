@@ -1522,6 +1522,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             2 => Ok(Kind::IsNull {
                 pointee: self.ty()?,
             }),
+            60 => Ok(Kind::ByteAddress {
+                pointee: self.ty()?,
+            }),
             3 => Ok(Kind::Offset {
                 unit: match read_u32(&mut self.reader)? {
                     0 => bray_bound_tree::MemoryOffsetUnit::Element,
@@ -2110,14 +2113,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 predicate: self.pattern_predicate()?,
                 matched: self.edge()?,
                 unmatched: self.edge()?,
-            }),
-            3 => Ok(MirTerminatorKind::Iterate {
-                cursor: self.place()?,
-                next: MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
-                witness: self.implementation()?,
-                element_type: self.ty()?,
-                item: self.block_id()?,
-                exhausted: self.edge()?,
             }),
             4 => {
                 let discriminant = self.operand()?;

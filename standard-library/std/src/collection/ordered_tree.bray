@@ -139,7 +139,7 @@ trusted internal func ordered_tree_node<Item>(pos tree: &OrderedTree<Item>, inde
 trusted internal func ordered_tree_item<Item>(pos tree: &OrderedTree<Item>, index: usize) -> &Item
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<Item> = trusted ordered_tree_item_pointer(tree, index = index);
+    let pointer: DataPointer<Item> = trusted ordered_tree_item_pointer(tree, index = index);
 
     return trusted std.memory.borrow_from<Item, OrderedTree<Item>>(tree, pointer);
 }
@@ -147,12 +147,12 @@ trusted internal func ordered_tree_item<Item>(pos tree: &OrderedTree<Item>, inde
 trusted internal func ordered_tree_item_mut<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> &mut Item
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<Item> = trusted ordered_tree_item_pointer_mut(tree, index = index);
+    let pointer: DataPointer<Item> = trusted ordered_tree_item_pointer_mut(tree, index = index);
 
     return trusted std.memory.borrow_mut_from<Item, OrderedTree<Item>>(tree, pointer);
 }
 
-trusted internal func ordered_tree_item_pointer<Item>(pos tree: &OrderedTree<Item>, index: usize) -> RawPointer<Item>
+trusted internal func ordered_tree_item_pointer<Item>(pos tree: &OrderedTree<Item>, index: usize) -> DataPointer<Item>
     ensures(
         trusted core.memory.valid_read<Item>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Item>(pointer = result),
@@ -178,7 +178,7 @@ trusted internal func ordered_tree_item_pointer<Item>(pos tree: &OrderedTree<Ite
 trusted internal func ordered_tree_item_pointer_mut<Item>(
     pos tree: &mut OrderedTree<Item>,
     index: usize
-) -> RawPointer<Item>
+) -> DataPointer<Item>
     ensures(
         trusted core.memory.valid_write<Item>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Item>(pointer = result),

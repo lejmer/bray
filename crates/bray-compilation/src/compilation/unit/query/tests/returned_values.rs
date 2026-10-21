@@ -1875,10 +1875,10 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
 
         struct Cell<T> {
             storage: Uninit<T>;
-            func pointer() -> RawPointer<T> executes(pure, total) {
+            func pointer() -> DataPointer<T> executes(pure, total) {
                 return core.memory.uninit_pointer<T>(&self.storage);
             }
-            func forwarded() -> RawPointer<T> executes(pure, total) {
+            func forwarded() -> DataPointer<T> executes(pure, total) {
                 return self.pointer();
             }
         }
@@ -1888,28 +1888,28 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
             func storage() -> &Uninit<T> executes(pure, total) {
                 return &self.cell.storage;
             }
-            func pointer() -> RawPointer<T> executes(pure, total) {
+            func pointer() -> DataPointer<T> executes(pure, total) {
                 return direct<T>(self.storage());
             }
         }
 
-        func holder_method<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+        func holder_method<T>(pos holder: &Holder<T>) -> DataPointer<T> {
             return holder.pointer();
         }
 
-        func direct<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func direct<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
 
-        func method<T>(pos cell: &Cell<T>) -> RawPointer<T> {
+        func method<T>(pos cell: &Cell<T>) -> DataPointer<T> {
             return cell.forwarded();
         }
 
-        func forwarded<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func forwarded<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return direct<T>(storage);
         }
 
-        func field<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+        func field<T>(pos holder: &Holder<T>) -> DataPointer<T> {
             return forwarded<T>(&holder.cell.storage);
         }
     "#,

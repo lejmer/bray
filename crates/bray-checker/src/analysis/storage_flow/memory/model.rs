@@ -4,58 +4,9 @@ use crate::analysis::storage_flow::model::StorageAbsence;
 use bray_bound_tree::{BorrowCapabilityId, BoundExecutionSite, BoundExpressionId};
 use bray_symbols::TypeId;
 
-pub(in crate::analysis::storage_flow) use bray_bound_tree::StoragePath as Place;
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::analysis::storage_flow) enum Origin {
-    Entry {
-        reference: Place,
-        // Successive borrow layers at the same component path denote distinct entry snapshots.
-        layer: usize,
-        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
-    },
-    // One returned referent has stable identity without equating it with a lifetime anchor.
-    Returned {
-        reference: Place,
-        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
-    },
-    Storage(Place),
-    Allocation(Place),
-}
-
-/// `previous` summarizes older executions of one creation site. It is never a must-alias.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::analysis::storage_flow) struct Target {
-    // Epoch precedes the path in ordering so subtree ranges cannot cross an older cell.
-    pub(super) previous: bool,
-    pub(in crate::analysis::storage_flow) origin: Origin,
-}
-
-impl Origin {
-    pub(in crate::analysis::storage_flow) fn entry(reference: Place) -> Self {
-        Self::Entry {
-            reference,
-            layer: 1,
-            projections: std::sync::Arc::from([]),
-        }
-    }
-}
-
-impl Target {
-    pub(in crate::analysis::storage_flow) fn storage(place: Place) -> Self {
-        Self {
-            origin: Origin::Storage(place),
-            previous: false,
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn storage_path(&self) -> Option<&Place> {
-        match &self.origin {
-            Origin::Storage(place) if !self.previous => Some(place),
-            _ => None,
-        }
-    }
-}
+pub(in crate::analysis::storage_flow) use bray_bound_tree::{
+    StorageOrigin as Origin, StoragePath as Place, StorageTarget as Target,
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Effect {

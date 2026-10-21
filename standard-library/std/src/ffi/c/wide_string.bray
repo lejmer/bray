@@ -25,7 +25,7 @@ struct BorrowedWideString
         return self.units_value;
     }
 
-    func pointer() -> RawPointer<WideChar>
+    func pointer() -> DataPointer<WideChar>
     {
         return std.memory.address_of<WideChar>(&self.units_value[0]);
     }

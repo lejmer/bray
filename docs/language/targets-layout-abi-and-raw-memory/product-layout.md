@@ -72,7 +72,7 @@ struct FILE;
 
 Without an explicit layout size and alignment, it is incomplete. An incomplete product cannot exist by value, be
 embedded as a stored field, be allocated as a typed slot, or participate in any operation that requires size, alignment,
-stride, construction, movement, copying, or destruction. It can be named in contracts and used as a `RawPointer<T>`
+stride, construction, movement, copying, or destruction. It can be named in contracts and used as a `DataPointer<T>`
 pointee.
 
 An explicit opaque layout makes the bodyless product complete for storage while preserving structural opacity.

@@ -178,7 +178,7 @@ trusted internal func reserve(
         case none { return trusted core.target.abort(); }
     };
 
-    let pointer: RawPointer<u8> = std.memory.pointer<u8>(&region);
+    let pointer: DataPointer<u8> = std.memory.pointer<u8>(&region);
     let address: usize = trusted core.target.expose_address<u8>(pointer);
     let skip: usize = (shape.descriptor.align - (address & padding)) & padding;
     let first: usize = shape.total + 1;

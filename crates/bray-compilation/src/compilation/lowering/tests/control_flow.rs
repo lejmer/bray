@@ -323,11 +323,7 @@ fn half_open_ranges_lower_to_aggregate_cursors_and_direct_advancement() {
         MirTerminatorKind::RangeIterate { .. }
     )));
 
-    assert!(
-        !mir.blocks()
-            .iter()
-            .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Iterate { .. }))
-    );
+
 }
 
 #[test]
@@ -401,21 +397,53 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
     let key = source_callable_body_key(&compilation);
 
     let result = compilation
-        .lowered_unit(key)
+        .lowered_unit(key.clone())
         .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
 
     let mir = lowered_mir(&result);
+    let bound = compilation.bound_unit(key).unwrap();
+    let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).unwrap();
+    let mut iteration_bodies = 0;
+    for (expression, node) in bound.value().tree().expressions() {
+        if let bray_bound_tree::BoundExpression::For(loop_) = node {
+            assert_eq!(owners.scope(Some(bray_bound_tree::StorageIdentity::InvocationResult(
+                bray_bound_tree::BoundExecutionSite::Next(expression)))), Some(loop_.body()));
+            assert_ne!(owners.scope(Some(bray_bound_tree::StorageIdentity::InvocationResult(
+                bray_bound_tree::BoundExecutionSite::Iterate(expression)))), Some(loop_.body()));
+            iteration_bodies += 1;
+        }
+    }
+    assert!(iteration_bodies > 0);
+
+    let symbols = compilation.symbol_graph().unwrap();
+    let mut checked_next_calls = 0;
+    for block in mir.blocks() {
+        let calls_next = block.operations().iter().any(|operation| {
+            let operation = mir.operation(*operation).expect("MIR block retains its operation");
+            let MirOperationKind::Call(call) = operation.kind() else { return false; };
+            let bray_ir::MirCallTarget::Direct(target) = call.target() else { return false; };
+            symbols.member_name(target.instance().definition().symbol())
+                .is_some_and(|name| name.as_str() == "next")
+        });
+        if calls_next {
+            // This iterator panics. Its call must pass through ordinary failure cleanup,
+            // before any result is inspected or yielded as an element.
+            assert!(matches!(block.terminator().kind(), MirTerminatorKind::CheckCallOutcome { .. }));
+            checked_next_calls += 1;
+        }
+    }
+    assert!(checked_next_calls >= 3, "both folds and the for loop must use checked next calls");
+
 
     assert!(mir.blocks().iter().any(|block| matches!(
         block.terminator().kind(),
         MirTerminatorKind::PatternBranch { .. }
     )));
 
-    assert!(
-        mir.blocks()
-            .iter()
-            .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Iterate { .. }))
-    );
+    assert!(mir.operations().iter().any(|operation|
+        matches!(operation.kind(), MirOperationKind::Call(call) if !call.witnesses().is_empty())));
+    assert!(mir.blocks().iter().any(|block| matches!(block.terminator().kind(),
+        MirTerminatorKind::PatternBranch { predicate: bray_ir::MirPatternPredicate::NullablePresent, .. })));
 
     assert!(
         mir.blocks()

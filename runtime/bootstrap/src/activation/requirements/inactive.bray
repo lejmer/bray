@@ -13,8 +13,8 @@ trusted internal predicate inactive_owner(token: &bray.runtime.bootstrap.activat
 // The caller retains an exclusive inactive owner and this independent output
 // slot throughout the metadata callback. Neither may be activated by reentry.
 trusted internal predicate retained(
-    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-    output: RawPointer<Execution>,
+    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    output: DataPointer<Execution>,
 );
 
 trusted internal func read(
@@ -51,7 +51,7 @@ trusted internal func read(
     // phase. The producer keeps the initialized frame stable until this returns.
     let authorize = trusted lambda(
         pos token: &bray.runtime.bootstrap.activation.Inactive,
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>
     )
         requires(
             trusted bray.runtime.bootstrap.activation.producer(token = token),
@@ -86,7 +86,7 @@ trusted internal func read(
 
     let invoke = trusted lambda(
         pos token: &bray.runtime.bootstrap.activation.Inactive,
-        pos callback: RawPointer<Query>,
+        pos callback: FunctionPointer<Query>,
         pos context: usize,
         pos state: u32,
         pos operation: u32,
@@ -103,7 +103,7 @@ trusted internal func read(
         uses(layout_reinterpret)
     {
         let authorize = trusted lambda(
-            pos callback: RawPointer<Query>,
+            pos callback: FunctionPointer<Query>,
             pos context: usize,
             pos state: u32,
             pos operation: u32,
@@ -138,11 +138,11 @@ trusted internal func read(
 
 @abi(c)
 trusted internal func inspect(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     pos state: u32,
     pos operation: u32,
     pos argument: usize,
-    pos output: RawPointer<Execution>,
+    pos output: DataPointer<Execution>,
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
@@ -155,11 +155,11 @@ trusted internal func inspect(
     uses(raw_memory, unchecked_init)
 {
     let query = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
         pos state: u32,
         pos operation: u32,
         pos argument: usize,
-        pos output: RawPointer<Execution>,
+        pos output: DataPointer<Execution>,
     ) -> Execution?
         requires(
             trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
@@ -175,8 +175,8 @@ trusted internal func inspect(
         )
     {
         let read_owned = trusted lambda(
-            pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-            pos output: RawPointer<Execution>
+            pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+            pos output: DataPointer<Execution>
         ) -> bray.runtime.bootstrap.activation.Inactive
             requires(
                 trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),

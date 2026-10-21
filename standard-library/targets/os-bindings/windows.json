@@ -432,7 +432,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "PVOID",
           "link": "Kernel32",
           "error_state": "returns null when unset or after recording GetLastError state on failure",
@@ -459,7 +459,7 @@
             },
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             }
           ],
@@ -510,16 +510,16 @@
           "parameters": [
             {
               "name": "command_line",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "count",
-              "type": "RawPointer<i32>",
+              "type": "DataPointer<i32>",
               "native_type": "int *"
             }
           ],
-          "result": "RawPointer<RawPointer<u16>>",
+          "result": "DataPointer<DataPointer<u16>>",
           "native_result": "LPWSTR *",
           "link": "Shell32",
           "error_state": "returns null and records GetLastError state",
@@ -542,7 +542,7 @@
           "parameters": [
             {
               "name": "left",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWCH"
             },
             {
@@ -552,7 +552,7 @@
             },
             {
               "name": "right",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWCH"
             },
             {
@@ -584,12 +584,12 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             }
           ],
@@ -612,7 +612,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
@@ -627,7 +627,7 @@
             },
             {
               "name": "security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             },
             {
@@ -642,11 +642,11 @@
             },
             {
               "name": "template_file",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns INVALID_HANDLE_VALUE and records GetLastError state on failure",
@@ -665,17 +665,17 @@
           "parameters": [
             {
               "name": "read_pipe",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "PHANDLE"
             },
             {
               "name": "write_pipe",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "PHANDLE"
             },
             {
               "name": "security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             },
             {
@@ -703,22 +703,22 @@
           "parameters": [
             {
               "name": "application",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "command_line",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPWSTR"
             },
             {
               "name": "process_security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             },
             {
               "name": "thread_security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             },
             {
@@ -733,22 +733,22 @@
             },
             {
               "name": "environment",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
               "name": "working_directory",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "startup",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPSTARTUPINFOW"
             },
             {
               "name": "process_information",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPPROCESS_INFORMATION"
             }
           ],
@@ -771,7 +771,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             }
           ],
@@ -794,7 +794,7 @@
           "parameters": [
             {
               "name": "attributes",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPPROC_THREAD_ATTRIBUTE_LIST"
             }
           ],
@@ -815,7 +815,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             }
           ],
@@ -837,12 +837,12 @@
           "parameters": [
             {
               "name": "process",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "exit_code",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "LPDWORD"
             }
           ],
@@ -864,7 +864,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             }
           ],
@@ -885,7 +885,7 @@
           "parameters": [
             {
               "name": "attributes",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPPROC_THREAD_ATTRIBUTE_LIST"
             },
             {
@@ -900,7 +900,7 @@
             },
             {
               "name": "size",
-              "type": "RawPointer<usize>",
+              "type": "DataPointer<usize>",
               "native_type": "PSIZE_T"
             }
           ],
@@ -922,7 +922,7 @@
           "parameters": [
             {
               "name": "pattern",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
@@ -932,7 +932,7 @@
             },
             {
               "name": "data",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -942,7 +942,7 @@
             },
             {
               "name": "search_filter",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -951,7 +951,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns INVALID_HANDLE_VALUE and records GetLastError state on failure",
@@ -970,7 +970,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
@@ -1001,22 +1001,22 @@
           "parameters": [
             {
               "name": "source_process",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "source",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "target_process",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "target",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "LPHANDLE"
             },
             {
@@ -1053,12 +1053,12 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "data",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPWIN32_FIND_DATAW"
             }
           ],
@@ -1081,7 +1081,7 @@
           "parameters": [
             {
               "name": "environment",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPWCH"
             }
           ],
@@ -1103,7 +1103,7 @@
           "native": "GetCommandLineW",
           "abi": "system",
           "parameters": [],
-          "result": "RawPointer<u16>",
+          "result": "DataPointer<u16>",
           "native_result": "LPWSTR",
           "link": "Kernel32",
           "error_state": "returns the process command line",
@@ -1129,7 +1129,7 @@
             },
             {
               "name": "destination",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPWSTR"
             }
           ],
@@ -1149,7 +1149,7 @@
           "native": "GetCurrentProcess",
           "abi": "system",
           "parameters": [],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns the current process pseudo handle",
@@ -1179,7 +1179,7 @@
           "native": "GetEnvironmentStringsW",
           "abi": "system",
           "parameters": [],
-          "result": "RawPointer<u16>",
+          "result": "DataPointer<u16>",
           "native_result": "LPWCH",
           "link": "Kernel32",
           "error_state": "returns null and records GetLastError state",
@@ -1197,7 +1197,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
@@ -1207,7 +1207,7 @@
             },
             {
               "name": "data",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             }
           ],
@@ -1230,12 +1230,12 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "data",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPBY_HANDLE_FILE_INFORMATION"
             }
           ],
@@ -1258,12 +1258,12 @@
           "parameters": [
             {
               "name": "source",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "destination",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
@@ -1291,11 +1291,11 @@
           "parameters": [
             {
               "name": "allocation",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HLOCAL"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HLOCAL",
           "link": "Kernel32",
           "error_state": "returns null on success and the retained allocation on failure",
@@ -1315,7 +1315,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             }
           ],
@@ -1338,7 +1338,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
@@ -1348,7 +1348,7 @@
             },
             {
               "name": "position",
-              "type": "RawPointer<LargeInteger>",
+              "type": "DataPointer<LargeInteger>",
               "native_type": "PLARGE_INTEGER"
             },
             {
@@ -1376,7 +1376,7 @@
           "parameters": [
             {
               "name": "process",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
@@ -1403,7 +1403,7 @@
           "parameters": [
             {
               "name": "attributes",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPPROC_THREAD_ATTRIBUTE_LIST"
             },
             {
@@ -1418,7 +1418,7 @@
             },
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             },
             {
@@ -1428,12 +1428,12 @@
             },
             {
               "name": "previous",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             },
             {
               "name": "return_size",
-              "type": "RawPointer<usize>",
+              "type": "DataPointer<usize>",
               "native_type": "PSIZE_T"
             }
           ],
@@ -1455,7 +1455,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -1470,7 +1470,7 @@
             },
             {
               "name": "previous",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "PDWORD"
             }
           ],
@@ -1492,7 +1492,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
@@ -1520,7 +1520,7 @@
           "parameters": [
             {
               "name": "text",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             }
           ],

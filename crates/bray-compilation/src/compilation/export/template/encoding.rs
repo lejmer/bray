@@ -71,7 +71,7 @@ pub(in crate::compilation::export) fn encode_template(
             Ok(InterfaceCheckedTemplateNode::new(
                 operation,
                 references.borrow_mut().type_id(node.ty())?,
-            ))
+            ).with_unsigned_integer_bits(node.unsigned_integer_bits()))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 

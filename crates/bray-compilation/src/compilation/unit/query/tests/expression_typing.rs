@@ -20,8 +20,8 @@ using internal app.platform;
 trusted func main()
 {
     let mut transferred: u64 = 99;
-    let progress: RawPointer<u64> = core.memory.address_of_mut<u64>(&mut transferred);
-    let handle: RawPointer<u8> = core.memory.null<u8>();
+    let progress: DataPointer<u64> = core.memory.address_of_mut<u64>(&mut transferred);
+    let handle: DataPointer<u8> = core.memory.null<u8>();
 
     let read: u32 = trusted internal app.platform.handle_read(
         handle,
@@ -36,9 +36,9 @@ trusted func main()
 trusted internal func handle_read(
     pos handle: u64,
     standard_stream: u32 = 0,
-    destination: RawPointer<u8>,
+    destination: DataPointer<u8>,
     length: u64,
-    transferred: RawPointer<u64>,
+    transferred: DataPointer<u64>,
 ) -> u32
 {
     return 0;

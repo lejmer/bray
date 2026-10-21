@@ -28,7 +28,7 @@ func complete() -> unit
     return unit;
 }
 
-func transfer_pointer<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
+func transfer_pointer<T>(pos pointer: DataPointer<T>) -> DataPointer<T>
 {
     return consume pointer;
 }

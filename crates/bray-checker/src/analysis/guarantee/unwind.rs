@@ -97,6 +97,7 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
             super::operation::ExecutionGoal::NoUnwind,
             expressions.selections(),
             storage,
+            None,
             memory,
             false,
             &mut dependencies,
@@ -129,15 +130,25 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
     }
 
     for operation in graph.operations() {
-        if let super::super::model::AnalysisOperationKind::Call { invocation, .. } =
+        if let super::super::model::AnalysisOperationKind::Call {
+            invocation: invocation @ bray_bound_tree::BoundExecutionSite::CallInput { .. },
+            phase: super::super::model::AnalysisCallPhase::Attempt,
+        } = operation.kind() {
+            may_unwind |= !super::operation::check_input(request, invocation,
+                expressions.selections(), storage, ExecutionProperty::Total, &mut dependencies);
+        }
+        if let super::super::model::AnalysisOperationKind::Call {
+            invocation, phase: super::super::model::AnalysisCallPhase::Attempt } =
             operation.kind()
             && matches!(
                 invocation,
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                bray_bound_tree::BoundExecutionSite::Iterate(_)
+                    | bray_bound_tree::BoundExecutionSite::Next(_)
+                    | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                     | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
             )
         {
-            super::operation::collect_scoped_dependency(
+            super::operation::collect_invocation_dependency(
                 expressions.selections(),
                 invocation,
                 ExecutionProperty::Total,

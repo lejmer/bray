@@ -195,7 +195,9 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value = self.materialize_owned_input(block, &source, value, ty)?;
+                            let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: id, ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                            }, block, &source, value, ty)?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }
@@ -258,7 +260,9 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value = self.materialize_owned_input(block, &source, value, ty)?;
+                            let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: id, ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                            }, block, &source, value, ty)?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }

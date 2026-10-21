@@ -389,12 +389,14 @@ where
 
     pub(in crate::storage) fn borrow_access(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
         result: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let capability = self.plan_borrow(expression, access, kind)?;
+        let occurrence = occurrence.into();
+        let expression = occurrence.expression().expect("borrow creation has its source owner");
+        let capability = self.plan_borrow(occurrence, access, kind)?;
 
         self.push_expression_access(
             expression,
@@ -409,10 +411,12 @@ where
 
     pub(super) fn plan_borrow(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
     ) -> Result<bray_bound_tree::BorrowCapabilityId, PlanError<C::UpstreamError>> {
+        let occurrence = occurrence.into();
+        let expression = occurrence.expression().expect("borrow creation has its source owner");
         let borrowed = self
             .builder()
             .access(access).unwrap_or_else(|| panic!("borrow_access requires planned storage access, expression: {expression:?}, access: {access:?}"));
@@ -426,7 +430,7 @@ where
             .unwrap_or_else(|| missing_node(expression));
 
         let capability = PlannedBorrowCapability::new(
-            BorrowCapabilityOrigin::Expression(expression),
+            BorrowCapabilityOrigin::Operation(occurrence),
             kind,
             access,
             parent,
@@ -508,7 +512,7 @@ where
             .unwrap_or_else(|| missing_node(expression));
 
         let capability = PlannedBorrowCapability::new(
-            BorrowCapabilityOrigin::Expression(expression),
+            BorrowCapabilityOrigin::Operation((expression).into()),
             kind,
             receiver_access,
             receiver.root().borrow_capability(),
@@ -578,9 +582,13 @@ where
         let source = node.origin().source_anchor();
         let is_recovered = node.is_recovered();
 
-        let storage = self
-            .builder_mut()
-            .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
+        let storage = match identity {
+            StorageIdentity::InvocationResult(occurrence) => self.bind_identity(
+                StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
+            )?.expect("selected invocation result is planned once"),
+            _ => self.builder_mut().push_identity(identity)
+                .expect("protocol identity belongs to its checked unit"),
+        };
 
         self.builder_mut()
             .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
@@ -650,7 +658,7 @@ where
         )
     }
 
-    fn push_expression_access(
+    pub(super) fn push_expression_access(
         &mut self,
         expression: BoundExpressionId,
         root: StorageAccessRoot,
@@ -716,7 +724,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             .root()
             .borrow_capability()
             .and_then(|id| self.builder().borrow_capability(id))
-            .is_some_and(|borrow| borrow.expression() == Some(expression))
+            .is_some_and(|borrow| borrow.occurrence() == Some(expression.into()))
     }
 
     pub(in crate::storage) fn materialization_purpose(

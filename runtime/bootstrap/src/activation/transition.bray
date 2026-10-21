@@ -39,7 +39,7 @@ trusted internal func begin(pos token: &Inactive, pos origin: u64) -> usize
 
         let pointer = trusted core.target.from_exposed_address<Header>(address = address);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<Header>)
+        let authorize = trusted lambda(pos pointer: DataPointer<Header>)
             ensures(
                 trusted core.memory.valid_read<Header>(pointer = pointer, count = 1),
                 trusted core.memory.valid_write<Header>(pointer = pointer, count = 1),
@@ -126,10 +126,10 @@ trusted internal func detach(
 // this token and retains its exclusive slot, backing and descriptor provider through
 // return. The native caller consumes its token only after a nonzero result.
 // This entry reads the slot before locking and never writes through its pointer.
-trusted internal predicate entry_slot_authorized(pointer: RawPointer<Inactive>, origin: u64);
+trusted internal predicate entry_slot_authorized(pointer: DataPointer<Inactive>, origin: u64);
 
 @abi(c)
-trusted internal func activate(pos pointer: RawPointer<Inactive>, pos origin: u64) -> usize
+trusted internal func activate(pos pointer: DataPointer<Inactive>, pos origin: u64) -> usize
     requires(
         trusted producer_slot(pointer = pointer),
         trusted entry_slot_authorized(pointer = pointer, origin = origin),
@@ -139,7 +139,7 @@ trusted internal func activate(pos pointer: RawPointer<Inactive>, pos origin: u6
         trusted core.memory.aligned_for<Inactive>(pointer = pointer),
     )
 {
-    let read_entry = trusted lambda(pos pointer: RawPointer<Inactive>, pos origin: u64) -> Inactive
+    let read_entry = trusted lambda(pos pointer: DataPointer<Inactive>, pos origin: u64) -> Inactive
         requires(
             trusted producer_slot(pointer = pointer),
             trusted entry_slot_authorized(pointer = pointer, origin = origin),

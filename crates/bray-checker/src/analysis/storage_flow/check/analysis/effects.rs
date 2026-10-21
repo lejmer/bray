@@ -23,7 +23,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         self.prepare_assignment_reference(state, operation, assignment);
 
-        if let Some(expression) = operation.occurrence().expression()
+        if let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = operation.occurrence()
             && self.memory.operation(expression).is_some()
         {
             return self.memory_effects(state, expression);
@@ -65,9 +65,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             state.memory.defer_effects(invocation, Some(effects));
         }
 
-        if let Some(bray_bound_tree::SemanticSelection::Call(call)) = invocation
-            .expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression))
+        if let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
+            && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                self.execution.semantics.selections().expression(expression)
             && crate::analysis::storage_invalidation::call_preserves_storage(call, None)
         {
             return Some(Vec::new());
@@ -229,7 +229,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && kind
                 .occurrence()
                 .expression()
-                .is_some_and(|expression| self.memory.operation(expression).is_none())
+                .is_some_and(|expression| !matches!(kind.occurrence(), bray_bound_tree::BoundExecutionSite::Node(_))
+                    || self.memory.operation(expression).is_none())
         {
             if let Some(invalidation) =
                 invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))

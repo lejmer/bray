@@ -3,27 +3,28 @@ trusted internal module bray.runtime.bootstrap.thread.destruction;
 
 using core.memory;
 using std.memory;
+using std.memory.function;
 using std.os.windows;
 
-internal callable ExitCallback = @abi(system) trusted func(pos value: RawPointer<u8>)
+internal callable ExitCallback = @abi(system) trusted func(pos value: DataPointer<u8>)
     requires(trusted native_attachment_exit());
 
 @abi(system)
-trusted internal func thread_storage_exit(pos value: RawPointer<u8>)
+trusted internal func thread_storage_exit(pos value: DataPointer<u8>)
     requires(trusted native_attachment_exit())
 {
     trusted finish_native_attachment(value);
 }
 
-trusted internal func attachment_destructor_address() -> RawPointer<u8>
+trusted internal func attachment_destructor_address() -> FunctionPointer<std.os.windows.ThreadStorageDestructor>
     uses(layout_reinterpret)
     ensures(
         trusted core.memory.callable_address_valid<std.os.windows.ThreadStorageDestructor>(
-            pointer = trusted std.memory.reinterpret<std.os.windows.ThreadStorageDestructor, u8>(result)
+            pointer = result
         )
     )
 {
     let callback: ExitCallback = thread_storage_exit;
 
-    return trusted std.memory.reinterpret<u8, ExitCallback>(trusted std.memory.pointer_from_callable(callback));
+    return trusted std.memory.function.reinterpret<std.os.windows.ThreadStorageDestructor, ExitCallback>(trusted std.memory.function_address(callback));
 }

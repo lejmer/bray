@@ -370,7 +370,7 @@ where
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
-    assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
+    assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Target>>,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
@@ -558,6 +558,7 @@ where
                 phase: crate::analysis::model::AnalysisResultPhase::Begin,
                 ..
             } => {
+                self.initialize_operation_storage(state, kind);
                 self.execution.transfer_operation(
                     state
                         .execution
@@ -600,7 +601,8 @@ where
         self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind);
 
-        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }) {
             self.trusted
                 .before_operation(self.execution, &execution, kind);
         }
@@ -611,7 +613,7 @@ where
         let completing = matches!(
             kind,
             AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Completion,
+                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Completion,
                 ..
             } | AnalysisOperationKind::Result { .. }
         );
@@ -620,7 +622,7 @@ where
             .then(|| self.assignment_target(state, kind.node()))
             .flatten();
 
-        self.apply_scoped_entry_borrows(state, kind, &refinements);
+        self.apply_invocation_inputs(state, kind, &refinements);
 
         let assignment_mutation = (!completing)
             .then(|| self.assignment_mutation(kind, &execution))
@@ -728,7 +730,7 @@ where
 
             self.record_operation_observations(
                 kind,
-                assignment_path.as_ref(),
+                assignment.as_ref(),
                 invalidation.as_ref(),
             );
 
@@ -744,7 +746,8 @@ where
             );
         }
 
-        if matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if matches!(kind, AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }) {
             self.execution
                 .transfer_operation(&mut execution, kind, None, None);
         }
@@ -797,7 +800,7 @@ where
         state.refinements = refinements;
     }
 
-    fn apply_scoped_entry_borrows(
+    fn apply_invocation_inputs(
         &mut self,
         state: &mut StorageFlowState,
         kind: AnalysisOperationKind,
@@ -806,10 +809,10 @@ where
         if matches!(
             kind,
             AnalysisOperationKind::Call {
-                invocation: bray_bound_tree::BoundExecutionSite::ScopedEnter(_),
-                phase: AnalysisCallPhase::Attempt
+                phase: AnalysisCallPhase::Input, ..
             }
         ) {
+            self.initialize_operation_storage(state, kind);
             for plan in self
                 .storage
                 .occurrence_plans(kind.occurrence())
@@ -855,7 +858,7 @@ where
     fn record_operation_observations(
         &mut self,
         kind: AnalysisOperationKind,
-        assignment: Option<&crate::analysis::storage_flow::memory::Place>,
+        assignment: Option<&crate::analysis::storage_flow::memory::Target>,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
         if !self.publish {
@@ -896,6 +899,9 @@ where
         kind: AnalysisOperationKind,
         memory_status: Option<MemoryOperationStatus>,
     ) {
+        if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }) {
+            return;
+        }
         let observations = if !matches!(
             kind,
             AnalysisOperationKind::Call {
@@ -918,7 +924,8 @@ where
                 .complete_operation(execution, kind, Some(&observations));
         }
 
-        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }) {
             self.trusted
                 .after_operation(self.execution, execution, kind, self.memory_evidence);
         }
@@ -1033,10 +1040,13 @@ where
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) -> Option<MemoryOperationStatus> {
+        if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }) {
+            return None;
+        }
         if let AnalysisOperationKind::PatternObservation(pattern) = operation.kind() {
             state
                 .observed_pattern_bindings
-                .extend(self.input.definitions(pattern.into()));
+                .extend(self.input.definitions(AnyBoundNodeId::from(pattern).into()));
 
             return None;
         }
@@ -1073,16 +1083,27 @@ where
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(_))
                     if phase == AnalysisCallPhase::Attempt =>
                 {
+                    for plan in self.storage.occurrence_plans(invocation)
+                        .filter(|plan| !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                            && matches!(self.storage.root_identity(plan.access())
+                            .and_then(|root| self.storage.identity(root)), Some(StorageIdentity::InvocationInput { .. })))
+                    {
+                        self.apply_plan(state, plan, refinements.clone());
+                    }
+                    state.memory.finish_value_transfers();
                     return None;
                 }
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
                         for plan in self
                             .storage
                             .occurrence_plans(operation.kind().occurrence())
                             .filter(|plan| {
-                                !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                                !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_) | StorageAccessPurpose::Initialize)
                             })
                         {
                             self.apply_plan(state, plan, refinements.clone());
@@ -1128,17 +1149,17 @@ where
 
         self.initialize_operation_storage(state, operation.kind());
 
-        for plan in self.storage.node_plans(operation.kind().node()) {
-            if matches!(operation.kind(), AnalysisOperationKind::Result { .. })
-                && self
-                    .storage
-                    .root_identity(plan.access())
-                    .and_then(|identity| self.storage.identity(identity))
-                    .is_some_and(StorageIdentity::is_iteration_storage)
+        let region_bound = matches!(operation.kind(), AnalysisOperationKind::Bound(_))
+            && operation.kind().occurrence().expression()
+                .and_then(|expression| self.request.view().expression(expression))
+                .is_some_and(bray_bound_tree::BoundExpression::has_result_region);
+        for plan in self.storage.node_plans(operation.kind().node()).filter(|_| !region_bound) {
+            if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+                && matches!(self.storage.root_identity(plan.access()).and_then(|root| self.storage.identity(root)),
+                    Some(StorageIdentity::InvocationInput { .. }))
             {
                 continue;
             }
-
             self.apply_plan(state, plan, refinements.clone());
         }
 
@@ -1426,7 +1447,7 @@ where
                         .borrow_capability(borrow)
                         .expect("checked borrow retains its capability");
 
-                    if capability.expression() == Some(plan.expression()) {
+                    if capability.occurrence() == Some(plan.occurrence()) {
                         let access = capability.access();
 
                         if let Some(source) =
@@ -1503,22 +1524,29 @@ where
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
     ) {
-        let definitions = self.input.definitions(operation.node());
-
-        let included = |identity: &bray_bound_tree::StorageIdentityId| {
-            !matches!(operation, AnalysisOperationKind::Result { .. })
-                || !self
-                    .storage
-                    .identity(*identity)
-                    .expect("operation definition retains its storage identity")
-                    .is_iteration_storage()
+        use crate::analysis::model::AnalysisResultPhase;
+        let completes = !matches!(operation,
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }
+            | AnalysisOperationKind::Result { phase: AnalysisResultPhase::Begin, .. });
+        let definitions = self.input.definitions(operation.occurrence());
+        let region = operation.occurrence().expression()
+            .and_then(|expression| self.request.view().expression(expression))
+            .is_some_and(bray_bound_tree::BoundExpression::has_result_region);
+        let begins = match operation {
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. } => return,
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. }
+            | AnalysisOperationKind::Result { phase: AnalysisResultPhase::Completion, .. } => false,
+            AnalysisOperationKind::Bound(_) if region => false,
+            _ => true,
         };
+        if !begins {
+            if completes { state.initialized.extend(definitions.iter().copied()); }
+            return;
+        }
 
-        let defines = |identity: &bray_bound_tree::StorageIdentityId| {
-            definitions.contains(identity) && included(identity)
-        };
+        let defines = |identity: &bray_bound_tree::StorageIdentityId| definitions.contains(identity);
 
-        for identity in definitions.iter().filter(|identity| included(identity)) {
+        for identity in definitions {
             state.memory.begin(*identity);
         }
 
@@ -1536,11 +1564,13 @@ where
 
         state
             .live
-            .extend(definitions.iter().copied().filter(included));
+            .extend(definitions.iter().copied());
 
-        state
-            .initialized
-            .extend(definitions.iter().copied().filter(included));
+        if completes {
+            state.initialized.extend(definitions.iter().copied());
+        } else {
+            state.initialized.retain(|identity| !defines(identity));
+        }
     }
 
     fn moved_origins(
@@ -1724,7 +1754,7 @@ where
 
     fn take_assignment_targets(
         &mut self,
-    ) -> BTreeMap<BoundExpressionId, bray_bound_tree::StoragePath> {
+    ) -> BTreeMap<BoundExpressionId, bray_bound_tree::StorageTarget> {
         std::mem::take(&mut self.assignments)
             .into_iter()
             .filter_map(|(expression, target)| target.map(|target| (expression, target)))
@@ -1965,10 +1995,11 @@ where
                 DiagnosticStorageRoot::PostconditionResult
             }
             Some(StorageIdentity::Result(_)) => DiagnosticStorageRoot::Result,
-            Some(StorageIdentity::Temporary(_)) => DiagnosticStorageRoot::Temporary,
+            Some(StorageIdentity::Temporary(_) | StorageIdentity::InvocationInput { .. }) => DiagnosticStorageRoot::Temporary,
             Some(StorageIdentity::CustomIndexBorrow(_)) => DiagnosticStorageRoot::CustomIndexBorrow,
-            Some(StorageIdentity::IterationCursor(_)) => DiagnosticStorageRoot::IterationCursor,
-            Some(StorageIdentity::IterationElement(_)) => DiagnosticStorageRoot::IterationElement,
+            Some(StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Iterate(_))) => DiagnosticStorageRoot::IterationCursor,
+            Some(StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Next(_))) => DiagnosticStorageRoot::IterationElement,
+            Some(StorageIdentity::InvocationResult(_)) => DiagnosticStorageRoot::Temporary,
             Some(StorageIdentity::ScopedCapability { .. }) => {
                 DiagnosticStorageRoot::ScopedCapability
             }

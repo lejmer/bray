@@ -151,6 +151,7 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::Address { pointee, .. }
         | CheckedMemoryOperationKind::Null { pointee }
         | CheckedMemoryOperationKind::IsNull { pointee }
+        | CheckedMemoryOperationKind::ByteAddress { pointee }
         | CheckedMemoryOperationKind::Offset { pointee, .. }
         | CheckedMemoryOperationKind::Read { pointee, .. }
         | CheckedMemoryOperationKind::Write { pointee }
@@ -260,13 +261,7 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             collect_edge_types(matched, types);
             collect_edge_types(unmatched, types);
         }
-        MirTerminatorKind::Iterate {
-            cursor,
-            element_type,
-            exhausted,
-            ..
-        }
-        | MirTerminatorKind::RangeIterate {
+        MirTerminatorKind::RangeIterate {
             cursor,
             element_type,
             exhausted,

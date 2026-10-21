@@ -79,6 +79,10 @@ pub struct ExecutionDependency {
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
+    pub(crate) inert_cleanup: std::collections::BTreeMap<
+        (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
+        bool,
+    >,
     pub(crate) disposal: std::collections::BTreeMap<
         (
             bray_bound_tree::BoundExecutionSite,

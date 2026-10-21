@@ -7,14 +7,14 @@ using std.memory;
 
 // A native entry retains one exclusive dispatch claim. It issues its Cursor
 // locally and never returns it through the ABI.
-trusted internal predicate owned(root: RawPointer<bray.runtime.bootstrap.activation.Header>);
+trusted internal predicate owned(root: DataPointer<bray.runtime.bootstrap.activation.Header>);
 
 // This non-copyable capability anchors every header borrow in one entry. Moving
 // traversal changes its selected member. Copying these fields issues no authority.
 internal struct Cursor
 {
-    root: RawPointer<bray.runtime.bootstrap.activation.Header>;
-    mut pointer: RawPointer<bray.runtime.bootstrap.activation.Header>;
+    root: DataPointer<bray.runtime.bootstrap.activation.Header>;
+    mut pointer: DataPointer<bray.runtime.bootstrap.activation.Header>;
 }
 
 trusted internal predicate selected(cursor: &Cursor);

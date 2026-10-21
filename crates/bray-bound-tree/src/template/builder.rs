@@ -200,6 +200,12 @@ fn validate_operation_types(
                 });
             }
         }
+        CheckedTemplateOperation::Sequence { value, .. } => {
+            let expected = referenced_node_type(*value, nodes)?;
+            if expected != actual {
+                return Err(CheckedTemplateBuildError::SequenceTypeMismatch { node, expected, actual });
+            }
+        }
         CheckedTemplateOperation::Convert { target, .. } if *target != actual => {
             return Err(CheckedTemplateBuildError::ConversionTypeMismatch {
                 node,
@@ -219,7 +225,9 @@ fn validate_operation_types(
         CheckedTemplateOperation::Unreachable
         | CheckedTemplateOperation::Constant { .. }
         | CheckedTemplateOperation::Unary { .. }
+        | CheckedTemplateOperation::MachineUnary { .. }
         | CheckedTemplateOperation::Binary { .. }
+        | CheckedTemplateOperation::MachineBinary { .. }
         | CheckedTemplateOperation::Borrow { .. }
         | CheckedTemplateOperation::Declaration { .. }
         | CheckedTemplateOperation::Call { .. }
@@ -228,6 +236,8 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Construct { .. }
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
+        | CheckedTemplateOperation::ArrayElement { .. }
+        | CheckedTemplateOperation::ArrayTransform { .. }
         | CheckedTemplateOperation::Project { .. }
         | CheckedTemplateOperation::VariantTest { .. }
         | CheckedTemplateOperation::TupleElement { .. }
@@ -970,6 +980,18 @@ mod tests {
                 actual,
             )),
             Err(CheckedTemplateBuildError::ConversionTypeMismatch {
+                node: CheckedTemplateNodeId::new(1),
+                expected,
+                actual,
+            })
+        );
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Sequence { before: value, value },
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::SequenceTypeMismatch {
                 node: CheckedTemplateNodeId::new(1),
                 expected,
                 actual,

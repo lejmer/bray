@@ -18,11 +18,19 @@ define_catalog_enum! {
         RawPointerOffset => "RawPointerOffset",
         /// Offsets a raw pointer by a byte count.
         RawPointerByteOffset => "RawPointerByteOffset",
+        /// Observes the same data pointer with a byte element type.
+        RawPointerByteAddress => "RawPointerByteAddress",
         /// Reinterprets a raw pointer's element type.
         RawPointerReinterpret => "RawPointerReinterpret",
-        /// Creates an ABI-qualified callable from a checked code pointer.
+        /// Changes the intended contract of a raw function pointer.
+        FunctionPointerReinterpret => "FunctionPointerReinterpret",
+        /// Converts a supported data address to a raw function pointer.
+        FunctionPointerFromData => "FunctionPointerFromData",
+        /// Converts a supported function entry address to a data pointer.
+        FunctionPointerToData => "FunctionPointerToData",
+        /// Creates an ABI-qualified callable from a checked function pointer.
         CallableFromPointer => "CallableFromPointer",
-        /// Exposes an ABI-qualified callable's code pointer.
+        /// Exposes an ABI-qualified callable's function entry address.
         PointerFromCallable => "PointerFromCallable",
         /// Reads a value from raw storage.
         RawPointerRead => "RawPointerRead",
@@ -270,7 +278,11 @@ impl ImplementationHook {
         Self::RawPointerIsNull,
         Self::RawPointerOffset,
         Self::RawPointerByteOffset,
+        Self::RawPointerByteAddress,
         Self::RawPointerReinterpret,
+        Self::FunctionPointerReinterpret,
+        Self::FunctionPointerFromData,
+        Self::FunctionPointerToData,
         Self::CallableFromPointer,
         Self::PointerFromCallable,
         Self::RawPointerRead,

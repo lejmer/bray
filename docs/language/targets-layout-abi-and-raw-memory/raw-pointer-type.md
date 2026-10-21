@@ -1,52 +1,38 @@
-# Raw pointer type
+# Raw pointer types
 
-`RawPointer<T>` is a compiler-known protected-representation value type.
+`DataPointer<T>` and `FunctionPointer<F>` are compiler-known protected-representation value types.
+Both are copyable raw addresses. Copying one copies its address without copying, borrowing, moving, initializing,
+destroying or otherwise affecting reached storage or a function provider.
 
-`T` can be a complete data type, an incomplete bodyless struct, a product with flexible trailing storage, or an
-ABI-qualified callable type.
+`DataPointer<T>` addresses data storage. Its element type can be a complete value type, an incomplete bodyless struct,
+or a product with flexible trailing storage. A stored callable value is data, so `DataPointer<F>` addresses storage
+containing a callable value rather than the function entry itself.
 
-`RawPointer<T>` is copyable.
+`FunctionPointer<F>` represents a raw function entry address intended for contract `F`. It is not invocable.
+`core.memory.callable_from_pointer<F>` creates an ordinary callable value only after its exact callable contract,
+ABI, target support and provider-liveness obligations are established. `F` must then be an ABI-qualified capture-free
+callable type. `core.memory.function_address<F>` obtains a function entry address from such a callable.
 
-Copying a raw pointer copies the pointer value.
+Neither raw type owns storage or a provider, extends a lifetime, grants ordinary borrow protection, or establishes
+validity, alignment, initialization, aliasing, provenance or access authority. Either can contain a native null, dangling,
+sentinel or otherwise unusable address. A null check alone establishes no memory or callable authority.
 
-Copying a raw pointer does not copy, borrow, move, initialize, destroy, or otherwise affect the reached storage.
+Raw pointers have no ordinary dereference, indexing, field-access or arithmetic syntax. They do not implicitly convert
+to integers or between data and function addresses. Use compiler-known memory operations or wrappers with the same
+contracts. Ordinary assignment, parameter passing and return copy raw addresses under their dependency contracts.
 
-`RawPointer<T>` is not an owner type.
+Operations impose the storage conditions they need. Element offsets, allocation, reads, writes and copies require
+complete fixed-size stored values. Byte offsets and `byte_address` can operate on incomplete data without inspecting its
+layout. These data operations accept `DataPointer<T>` and reject `FunctionPointer<F>` by ordinary type checking.
 
-A raw pointer does not carry an automatic lifetime.
+The three representation conversions under `core.memory.function` require `layout_reinterpret` and target support.
+They retain existing dependencies and grant no validity or callable authority. Targets determine data and function
+address representations. An unsupported conversion is rejected.
 
-A raw pointer does not carry ordinary borrow protection.
-
-A raw pointer does not imply that the address is non-null, valid, aligned, initialized, live, in-bounds, uniquely
-reachable, or part of any allocation.
-
-A raw pointer can represent a null address.
-
-A raw pointer can represent a dangling, unaligned, uninitialized, invalid, or otherwise unusable address.
-
-Validity is never implied by `RawPointer<T>` alone.
-
-Raw pointers have no ordinary dereference syntax.
-
-Raw pointers have no indexing syntax.
-
-Raw pointers have no field access syntax.
-
-Raw pointers have no pointer arithmetic syntax.
-
-Raw pointers do not implicitly convert to or from integer types.
-
-Raw pointers are usable only through compiler-known raw memory declarations, standard-library wrappers over those
-declarations, ordinary copying, ordinary assignment, ordinary parameter passing, and ordinary return.
-
-Operations impose the pointee conditions they require. Element offsets, typed allocation, typed reads, typed writes, and
-typed copies require a complete fixed-size data pointee. Byte offsets can operate on incomplete data pointees when the
-target data-address contract permits them. Data-memory operations are invalid for callable pointees.
-
-For an ABI-qualified callable type `F`, `RawPointer<F>` is a raw code address intended to designate a callable with
-contract `F`. It remains non-callable until `core.memory.callable_from_pointer<F>` establishes address validity, ABI
-agreement, target support, and provider liveness. Targets with distinct data and code pointer representations preserve
-that distinction through the concrete `RawPointer<T>` representation and reject unsupported reinterpretations.
+Ordinary APIs express absence with the existing nullable type `T?` and `none`, and failures with `Result`. Native
+wrappers translate their actual null, sentinel or error conventions and expose owners, borrows or callable values when
+their contracts permit them. An absent `DataPointer<T>?` differs from a present raw null pointer. No single-pointer
+representation or nullable foreign-ABI representation is implied.
 
 ## Navigation
 

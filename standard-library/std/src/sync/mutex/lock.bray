@@ -33,7 +33,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -62,7 +62,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -137,7 +137,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),

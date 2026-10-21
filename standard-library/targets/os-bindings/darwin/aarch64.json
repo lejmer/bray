@@ -61,7 +61,7 @@
         },
         {
           "native": "pthread_t",
-          "bray": "RawPointer<u8>",
+          "bray": "DataPointer<u8>",
           "size": 8,
           "align": 8,
           "signed": false
@@ -287,7 +287,7 @@
             {
               "name": "pointer",
               "native": "sival_ptr",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *",
               "offset": 0
             }
@@ -331,7 +331,7 @@
             },
             {
               "name": "time",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "struct timespec *"
             }
           ],
@@ -345,11 +345,11 @@
           "parameters": [
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "trusted": true,
           "requires": [
@@ -364,7 +364,7 @@
           "parameters": [
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -400,7 +400,7 @@
             },
             {
               "name": "time",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "struct timespec *"
             }
           ],
@@ -443,7 +443,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -461,7 +461,7 @@
           "native": "dlerror",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "char *",
           "link": "c",
           "error_state": "returns and clears the calling native thread's dynamic loader state",
@@ -479,7 +479,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -488,7 +488,7 @@
               "native_type": "int"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "c",
           "error_state": "returns null and records dynamic loader state on failure",
@@ -507,16 +507,16 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
               "name": "name",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "c",
           "error_state": "returns null and records dynamic loader state when lookup fails",
@@ -534,7 +534,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -563,7 +563,7 @@
               "native_type": "off_t"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "c",
           "error_state": "returns MAP_FAILED and sets the C runtime error state",
@@ -581,7 +581,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -608,7 +608,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -636,7 +636,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -674,7 +674,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -722,7 +722,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -755,7 +755,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -788,12 +788,12 @@
           "parameters": [
             {
               "name": "thread",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "pthread_t *"
             },
             {
               "name": "attributes",
-              "type": "RawPointer<PThreadAttribute>",
+              "type": "DataPointer<PThreadAttribute>",
               "native_type": "const pthread_attr_t *"
             },
             {
@@ -803,7 +803,7 @@
             },
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -819,11 +819,11 @@
             "raw_memory"
           ],
           "requires": [
-            "trusted core.memory.valid_write<RawPointer<u8>>(pointer = thread, count = 1)",
-            "trusted core.memory.aligned_for<RawPointer<u8>>(pointer = thread)"
+            "trusted core.memory.valid_write<DataPointer<u8>>(pointer = thread, count = 1)",
+            "trusted core.memory.aligned_for<DataPointer<u8>>(pointer = thread)"
           ],
           "ensures": [
-            "result != 0 || trusted core.memory.initialized_as<RawPointer<u8>>(pointer = thread)"
+            "result != 0 || trusted core.memory.initialized_as<DataPointer<u8>>(pointer = thread)"
           ]
         },
         {
@@ -833,7 +833,7 @@
           "parameters": [
             {
               "name": "thread",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "pthread_t"
             }
           ],
@@ -855,12 +855,12 @@
           "parameters": [
             {
               "name": "thread",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "pthread_t"
             },
             {
               "name": "result",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "void **"
             }
           ],
@@ -882,7 +882,7 @@
           "native": "pthread_self",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "pthread_t",
           "link": "pthread",
           "error_state": "returns the calling native thread identity",
@@ -900,7 +900,7 @@
           "parameters": [
             {
               "name": "name",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -919,7 +919,7 @@
         {
           "name": "ENVIRON",
           "native": "environ",
-          "type": "RawPointer<RawPointer<u8>>",
+          "type": "DataPointer<DataPointer<u8>>",
           "native_type": "char **",
           "link": "c",
           "mutable": true,
@@ -952,7 +952,7 @@
           "library": "/usr/lib/libSystem.B.dylib",
           "symbol": "environ",
           "target": "data",
-          "type": "RawPointer<RawPointer<u8>>",
+          "type": "DataPointer<DataPointer<u8>>",
           "ownership": "the returned owner retains libSystem",
           "dependencies": [
             "blocking_execution",

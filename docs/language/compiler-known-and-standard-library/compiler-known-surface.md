@@ -6,7 +6,7 @@ The compiler-known surface consists of:
   machine-sized integer type families defined by the scalar-type rules,
 - the compiler-known text type `string`,
 - the compiler-known half-open integer range type `Range<T>`,
-- the compiler-known raw pointer type `RawPointer<T>`,
+- the compiler-known raw pointer type `DataPointer<T>` and `FunctionPointer<F>`,
 - the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view,
   owned-indirection, and callable type forms,
 - the compiler-provided `length()` and `is_empty()` members on fixed-size arrays and slices,

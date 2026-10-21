@@ -128,6 +128,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             _ => return,
         };
 
+        if phase == AnalysisCallPhase::Input { return; }
         if phase == AnalysisCallPhase::Attempt {
             self.prepare_call_reports(state, invocation);
             return;
@@ -356,7 +357,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                 // Call phases also delimit compiler-owned evaluation without a source invocation.
                 contract
             }
-            BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_) => {
+            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::CallInput { .. } | BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_) => {
                 Some(self.dependencies.calls().get(&occurrence).unwrap_or_else(|| {
                     panic!("selected scoped invocation retains its dependency contracts: {occurrence:?}")
                 }))

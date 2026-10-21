@@ -5,6 +5,7 @@ using core.target;
 using core.atomic;
 using core.memory;
 using std.memory;
+using std.memory.function;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.entry;
@@ -19,14 +20,14 @@ trusted internal predicate native_provider();
 @layout(c)
 internal struct NativeCallbacks
 {
-    context: RawPointer<u8>;
-    report: RawPointer<u8>;
+    context: DataPointer<u8>;
+    report: DataPointer<u8>;
 }
 
 internal callable Observer = @abi(c) trusted func(
     pos kind: u32,
-    pos primary: RawPointer<bray.runtime.bootstrap.ReportPrimary>,
-    pos identity: RawPointer<bytes<32>>
+    pos primary: DataPointer<bray.runtime.bootstrap.ReportPrimary>,
+    pos identity: DataPointer<bytes<32>>
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -39,27 +40,27 @@ internal callable Observer = @abi(c) trusted func(
     );
 
 internal callable Callback = @abi(c) trusted func(
-    pos continuation: RawPointer<u8>,
-    pos callback: RawPointer<u8>,
+    pos continuation: DataPointer<u8>,
+    pos callback: DataPointer<u8>,
     pos context: usize,
     pos main: u32,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted bray.runtime.bootstrap.entry.native_entry());
 
 @abi(c)
 trusted internal func install(
-    pos pointer: RawPointer<NativeCallbacks>,
-    pos previous: RawPointer<NativeCallbacks>
+    pos pointer: DataPointer<NativeCallbacks>,
+    pos previous: DataPointer<NativeCallbacks>
 ) -> u32
     requires(trusted native_provider())
     uses(layout_reinterpret)
 {
-    let read_callbacks = trusted lambda(pos pointer: RawPointer<NativeCallbacks>) -> NativeCallbacks
+    let read_callbacks = trusted lambda(pos pointer: DataPointer<NativeCallbacks>) -> NativeCallbacks
         requires(trusted native_provider())
         uses(raw_memory)
     {
-        let readable = trusted lambda(pos value: RawPointer<NativeCallbacks>) -> RawPointer<NativeCallbacks>
+        let readable = trusted lambda(pos value: DataPointer<NativeCallbacks>) -> DataPointer<NativeCallbacks>
             requires(trusted native_provider())
             ensures(
                 trusted core.memory.valid_read<NativeCallbacks>(pointer = result, count = 1),
@@ -77,13 +78,13 @@ trusted internal func install(
     let callbacks = trusted read_callbacks(pointer);
     let context_address = callbacks.context;
 
-    let address = trusted lambda(pos pointer: RawPointer<u8>) -> RawPointer<Callback>
+    let address = trusted lambda(pos pointer: DataPointer<u8>) -> FunctionPointer<Callback>
         requires(trusted native_provider())
         ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
         executes(pure, total)
         uses(layout_reinterpret)
     {
-        return trusted std.memory.reinterpret<Callback, u8>(pointer);
+        return trusted std.memory.function.from_data<Callback>(pointer);
     };
 
     let mut selected: Callback? = none;
@@ -93,13 +94,13 @@ trusted internal func install(
         selected = trusted std.memory.callable_from_pointer<Callback>(trusted address(context_address));
     }
 
-    let observer_address = trusted lambda(pos pointer: RawPointer<u8>) -> RawPointer<Observer>
+    let observer_address = trusted lambda(pos pointer: DataPointer<u8>) -> FunctionPointer<Observer>
         requires(trusted native_provider())
         ensures(trusted core.memory.callable_address_valid<Observer>(pointer = result))
         executes(pure, total)
         uses(layout_reinterpret)
     {
-        return trusted std.memory.reinterpret<Observer, u8>(pointer);
+        return trusted std.memory.function.from_data<Observer>(pointer);
     };
 
     let mut observer: Observer? = none;
@@ -128,7 +129,7 @@ trusted internal func exchange(
     pos identity: u64,
     pos selected: Callback?,
     pos observer: Observer?,
-    pos previous: RawPointer<NativeCallbacks>
+    pos previous: DataPointer<NativeCallbacks>
 ) -> u32
     requires(
         trusted native_provider(),
@@ -145,7 +146,7 @@ trusted internal func exchange(
     executes(total)
     uses(raw_memory, unchecked_init, intrinsic)
 {
-    let destination = trusted lambda(pos pointer: RawPointer<NativeCallbacks>) -> RawPointer<NativeCallbacks>
+    let destination = trusted lambda(pos pointer: DataPointer<NativeCallbacks>) -> DataPointer<NativeCallbacks>
         requires(trusted native_provider())
         ensures(
             trusted core.memory.valid_write<NativeCallbacks>(pointer = result, count = 1),
@@ -209,14 +210,16 @@ trusted internal func current() -> Result<Callback?, u32>
     requires(trusted bray.runtime.bootstrap.entry.native_entry())
     uses(layout_reinterpret)
 {
-    let native_address = trusted lambda(pos value: usize) -> RawPointer<Callback>
+    let native_address = trusted lambda(pos value: usize) -> FunctionPointer<Callback>
         requires(trusted bray.runtime.bootstrap.entry.native_entry(), value != 0)
         ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
         executes(total)
-        uses(intrinsic)
+        uses(intrinsic, layout_reinterpret)
     {
         // Lookup and invocation stay within the native scope retaining this provider.
-        return trusted core.target.from_exposed_address<Callback>(address = value);
+        return trusted std.memory.function.from_data<Callback>(
+            trusted core.target.from_exposed_address<u8>(address = value)
+        );
     };
 
     let address: usize =
@@ -313,8 +316,10 @@ trusted internal func code_address(pos callback: Callback?) -> usize
 {
     if let ?selected = callback
     {
-        return trusted core.target.expose_address<Callback>(
-            trusted std.memory.pointer_from_callable<Callback>(selected)
+        return trusted core.target.expose_address<u8>(
+            trusted std.memory.function.to_data<Callback>(
+                trusted std.memory.function_address<Callback>(selected)
+            )
         );
     }
 
@@ -327,8 +332,10 @@ trusted internal func observer_code_address(pos callback: Observer?) -> usize
 {
     if let ?selected = callback
     {
-        return trusted core.target.expose_address<Observer>(
-            trusted std.memory.pointer_from_callable<Observer>(selected)
+        return trusted core.target.expose_address<u8>(
+            trusted std.memory.function.to_data<Observer>(
+                trusted std.memory.function_address<Observer>(selected)
+            )
         );
     }
 
@@ -343,13 +350,15 @@ trusted internal func observe(
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
     uses(layout_reinterpret)
 {
-    let native_address = trusted lambda(pos value: usize) -> RawPointer<Observer>
+    let native_address = trusted lambda(pos value: usize) -> FunctionPointer<Observer>
         requires(trusted bray.runtime.bootstrap.pool.protocol_access(), value != 0)
         ensures(trusted core.memory.callable_address_valid<Observer>(pointer = result))
         executes(total)
-        uses(intrinsic)
+        uses(intrinsic, layout_reinterpret)
     {
-        return trusted core.target.from_exposed_address<Observer>(address = value);
+        return trusted std.memory.function.from_data<Observer>(
+            trusted core.target.from_exposed_address<u8>(address = value)
+        );
     };
 
     let address: usize =

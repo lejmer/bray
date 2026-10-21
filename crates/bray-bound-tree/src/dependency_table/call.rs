@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::{BoundDependencyContract, BoundExpressionId, BoundUnitId};
+use crate::{BoundDependencyContract, BoundUnitId};
 
 /// One owned report output of immediate or deferred execution.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -114,7 +114,7 @@ pub struct BoundCallDependencyContracts {
     deferred_reports: Option<BoundCallReports>,
     references: Vec<BoundCallReference>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
-    retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+    retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
     reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
     normal_completion: bool,
     normal_storage_preserved: bool,
@@ -365,7 +365,7 @@ impl BoundCallDependencyContracts {
     pub fn with_references(
         mut self,
         references: Vec<BoundCallReference>,
-        retained_inputs: Option<BTreeSet<BoundExpressionId>>,
+        retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
     ) -> Self {
         self.references = references;
         self.retained_inputs = retained_inputs;
@@ -394,7 +394,7 @@ impl BoundCallDependencyContracts {
     }
 
     /// Returns retained witness inputs when the returned value has a checked dependency source.
-    pub const fn retained_inputs(&self) -> Option<&BTreeSet<BoundExpressionId>> {
+    pub const fn retained_inputs(&self) -> Option<&BTreeSet<crate::BoundExecutionSite>> {
         self.retained_inputs.as_ref()
     }
 
@@ -432,6 +432,6 @@ impl BoundCallDependencyContracts {
                 .retained_inputs
                 .iter()
                 .flatten()
-                .all(|input| input.unit() == unit)
+                .all(|input| input.node().unit() == unit)
     }
 }

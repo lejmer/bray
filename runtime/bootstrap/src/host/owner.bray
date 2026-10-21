@@ -287,11 +287,11 @@ trusted internal func load_attachment_identity(pos key: u64) -> u64
     executes(total)
     uses(intrinsic, raw_memory, unchecked_init)
 {
-    let mut value: RawPointer<u8> = std.memory.null<u8>();
+    let mut value: DataPointer<u8> = std.memory.null<u8>();
 
     let status: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_load(
         key,
-        std.memory.address_of_mut<RawPointer<u8>>(&mut value),
+        std.memory.address_of_mut<DataPointer<u8>>(&mut value),
     );
 
     if status.category != 0

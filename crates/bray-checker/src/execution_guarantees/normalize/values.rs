@@ -8,6 +8,36 @@ use bray_symbols::{ConstantValueKind, SemanticValueStore};
 
 use crate::ExecutionCondition;
 
+pub(crate) fn construction_condition(
+    expression: BoundExpressionId,
+    construction: &bray_bound_tree::SelectedConstruction,
+    mut input_value: impl FnMut(&bray_bound_tree::SelectedConstructionInput) -> ExecutionCondition,
+) -> ExecutionCondition {
+    let fields = construction.inputs().iter().filter_map(|input| {
+        let (bray_bound_tree::SelectedConstructionInput::Explicit { input: identity, .. }
+            | bray_bound_tree::SelectedConstructionInput::Default { input: identity, .. }) = input;
+        let field = match identity {
+            bray_bound_tree::ConstructionInputId::StructField(field) =>
+                bray_bound_tree::StorageProjection::ProductField(*field),
+            bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => {
+                let bray_bound_tree::ConstructionTarget::UnionVariant(variant) = construction.target() else {
+                    unreachable!("checked union payload input selects its union variant");
+                };
+                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field: *field }
+            }
+            bray_bound_tree::ConstructionInputId::CallableParameter(_) => return None,
+        };
+        Some((field, input_value(input)))
+    }).collect::<Vec<_>>();
+    let base = ExecutionCondition::Expression(expression);
+    let base = match construction.target() {
+        bray_bound_tree::ConstructionTarget::UnionVariant(variant) =>
+            ExecutionCondition::Tagged(variant, std::sync::Arc::new(base)),
+        _ => base,
+    };
+    ExecutionCondition::Constructed(std::sync::Arc::new(base), fields.into())
+}
+
 pub(super) fn constructed_condition(
     expression: BoundExpressionId,
     bound: &BoundExpression,
@@ -35,73 +65,11 @@ pub(super) fn constructed_condition(
                 | bray_bound_tree::ConstructionTarget::UnionVariant(_)
         )
     {
-        let fields = construction
-            .inputs()
-            .iter()
-            .filter_map(|input| {
-                let (input, source, target) = match input {
-                    bray_bound_tree::SelectedConstructionInput::Explicit {
-                        input,
-                        expression,
-                        conversion,
-                        ..
-                    } => (*input, Some(*expression), conversion.target_type()),
-                    bray_bound_tree::SelectedConstructionInput::Default { input, ty, .. } => {
-                        (*input, None, *ty)
-                    }
-                };
-
-                let field = match input {
-                    bray_bound_tree::ConstructionInputId::StructField(field) => {
-                        bray_bound_tree::StorageProjection::ProductField(field)
-                    }
-                    bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => {
-                        let bray_bound_tree::ConstructionTarget::UnionVariant(variant) =
-                            construction.target()
-                        else {
-                            unreachable!("checked union payload input must select a union variant");
-                        };
-
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            variant,
-                            field,
-                        }
-                    }
-                    bray_bound_tree::ConstructionInputId::CallableParameter(_) => return None,
-                };
-
-                Some((
-                    field,
-                    source
-                        .map(|source| {
-                            value(source).coerce(
-                                values,
-                                semantics
-                                    .types()
-                                    .expression(source)
-                                    .expect("construction source retains its type")
-                                    .ty(),
-                                target,
-                            )
-                        })
-                        .unwrap_or(ExecutionCondition::Unknown),
-                ))
-            })
-            .collect::<Vec<_>>();
-
-        let base = ExecutionCondition::Expression(expression);
-
-        let base = match construction.target() {
-            bray_bound_tree::ConstructionTarget::UnionVariant(variant) => {
-                ExecutionCondition::Tagged(variant, std::sync::Arc::new(base))
-            }
-            _ => base,
-        };
-
-        return Some(ExecutionCondition::Constructed(
-            std::sync::Arc::new(base),
-            fields.into(),
-        ));
+        return Some(construction_condition(expression, construction, |input| match input {
+            bray_bound_tree::SelectedConstructionInput::Explicit { expression, conversion, .. } =>
+                value(*expression).coerce(values, conversion.source_type(), conversion.target_type()),
+            bray_bound_tree::SelectedConstructionInput::Default { .. } => ExecutionCondition::Unknown,
+        }));
     }
 
     match bound {

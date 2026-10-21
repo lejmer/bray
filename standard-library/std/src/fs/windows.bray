@@ -14,9 +14,9 @@ using std.time;
 @abi(c)
 trusted internal func platform_file_read(
     pos handle: u64,
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
@@ -35,9 +35,9 @@ trusted internal func platform_file_read(
 @abi(c)
 trusted internal func platform_file_write(
     pos handle: u64,
-    pos source: RawPointer<u8>,
+    pos source: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length as usize),
@@ -58,7 +58,7 @@ trusted internal func platform_file_write(
 trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    let native_handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let native_handle: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
     if trusted std.os.windows.flush_file_buffers(native_handle) == 0
     {
@@ -72,7 +72,7 @@ trusted internal func prepare_file_seek(
     pos handle: u64,
     pos offset_bits: u64,
     pos origin: u32,
-    pos position: RawPointer<u64>,
+    pos position: DataPointer<u64>,
 ) -> Result<u64, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_write<u64>(pointer = position, count = 1),
@@ -106,7 +106,7 @@ trusted internal func prepare_file_seek(
 
     let mut native_position: i64 = 0;
 
-    let native_position_pointer: RawPointer<std.os.windows.LargeInteger> = trusted std.memory.reinterpret<
+    let native_position_pointer: DataPointer<std.os.windows.LargeInteger> = trusted std.memory.reinterpret<
         std.os.windows.LargeInteger,
         i64,
     >(std.memory.address_of_mut<i64>(&mut native_position));
@@ -138,7 +138,7 @@ trusted internal func platform_file_close(pos handle: u64) -> std.platform.Platf
 trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> Result<File, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
@@ -205,7 +205,7 @@ trusted internal func prepare_file_open(
                 is_open = false,
             };
 
-            let native_handle: RawPointer<u8> = trusted std.os.windows.create_file_w(
+            let native_handle: DataPointer<u8> = trusted std.os.windows.create_file_w(
                 trusted std.memory.reinterpret<u16, u8>(terminated_path.pointer),
                 access = access,
                 share = std.os.windows.FILE_SHARE_READ | std.os.windows.FILE_SHARE_WRITE |
@@ -382,7 +382,7 @@ trusted internal func platform_file_metadata_value(pos handle: u64) -> Result<Fi
     uses(foreign_call, layout_reinterpret)
 {
     let mut storage: [u64; 7] = [0; 7];
-    let data: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut storage[0]));
+    let data: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut storage[0]));
 
     if trusted std.os.windows.get_file_information_by_handle(
         trusted internal std.platform.handle_pointer(handle),
@@ -411,7 +411,7 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
         {
             let mut storage: [u64; 5] = [0; 5];
 
-            let data: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+            let data: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
                 std.memory.address_of_mut<u64>(&mut storage[0])
             );
 
@@ -451,7 +451,7 @@ trusted internal func platform_directory_open(
         case Error(status) { return Error(internal std.io.platform_status_error(status)); }
     };
 
-    let search_handle: RawPointer<u8> = trusted std.os.windows.find_first_file_ex_w(
+    let search_handle: DataPointer<u8> = trusted std.os.windows.find_first_file_ex_w(
         trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(&pattern)),
         information_level = std.os.windows.FIND_EX_INFO_BASIC,
         data = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut state[0])),
@@ -475,7 +475,7 @@ trusted internal func platform_directory_next(
 ) -> Result<DirectoryEntry?, std.io.IoError>
     uses(foreign_call, layout_reinterpret)
 {
-    let native_handle: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let native_handle: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
     loop
     {

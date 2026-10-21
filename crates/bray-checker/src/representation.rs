@@ -17,6 +17,7 @@ pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
         TypeData::Borrow { target, .. } => Some(*target),
         _ => [
             RepresentationRole::RawPointer,
+            RepresentationRole::FunctionPointer,
             RepresentationRole::DevicePointer,
         ]
         .into_iter()
@@ -39,7 +40,7 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         Some(bray_symbols::DependencyReferenceKind::Borrow)
     } else if matches!(
         type_representation(request, ty),
-        Some(RepresentationRole::RawPointer | RepresentationRole::DevicePointer)
+        Some(RepresentationRole::RawPointer | RepresentationRole::FunctionPointer | RepresentationRole::DevicePointer)
     ) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {

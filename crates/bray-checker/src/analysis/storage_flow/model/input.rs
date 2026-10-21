@@ -1,7 +1,7 @@
 use crate::storage::local_initialization_destinations;
 use crate::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness,
+    BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness,
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
     StoragePlan,
 };
@@ -14,7 +14,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         BTreeMap<bray_bound_tree::StoragePath, BTreeSet<bray_bound_tree::StoragePath>>,
     expression_places:
         BTreeMap<BoundExpressionId, Vec<crate::analysis::storage_flow::memory::Place>>,
-    definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    definitions: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
@@ -276,7 +276,11 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
-        for plan in storage.access_plans().iter().copied() {
+        for plan in storage.access_plans().iter().copied()
+            .filter(|plan| matches!(plan.occurrence(), bray_bound_tree::BoundExecutionSite::Node(_))
+                && !matches!(storage.root_identity(plan.access()).and_then(|identity| storage.identity(identity)),
+                    Some(StorageIdentity::InvocationInput { .. })))
+        {
             if let Some(place) = storage.logical_path(plan.access()).cloned() {
                 self.expression_places
                     .entry(plan.expression())
@@ -290,14 +294,14 @@ impl StorageFlowInput {
         let initialized_at = self
             .initialization_destinations
             .iter()
-            .map(|(expression, identity)| (*identity, AnyBoundNodeId::Expression(*expression)))
+            .map(|(expression, identity)| (*identity, bray_bound_tree::BoundExecutionSite::from(*expression)))
             .collect::<BTreeMap<_, _>>();
 
         for (storage, identity) in storage.identity_entries() {
             let Some(node) = initialized_at
                 .get(&storage)
                 .copied()
-                .or_else(|| identity_definition_node(identity))
+                .or_else(|| identity_definition_occurrence(identity))
             else {
                 continue;
             };
@@ -394,7 +398,7 @@ impl StorageFlowInput {
                 storage
                     .identity_entries()
                     .filter_map(|(identity, definition)| {
-                        Some((identity, definition.definition_node()?.into()))
+                        Some((identity, definition.definition_occurrence()?))
                     }),
             );
 
@@ -481,7 +485,7 @@ impl StorageFlowInput {
             .borrow_for_plan(plan)
             .and_then(|borrow| storage.borrow_capability(borrow))
             .map(|borrow| {
-                if borrow.expression() == Some(plan.expression()) {
+                if borrow.occurrence() == Some(plan.occurrence()) {
                     borrow.access()
                 } else {
                     // Reusing an input capability still accesses the reached field or element.
@@ -492,10 +496,10 @@ impl StorageFlowInput {
 
     pub(in crate::analysis::storage_flow) fn definitions(
         &self,
-        node: AnyBoundNodeId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
     ) -> &[StorageIdentityId] {
         self.definitions
-            .get(&node)
+            .get(&occurrence)
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
@@ -546,10 +550,10 @@ impl StorageFlowInput {
     }
 }
 
-fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
+fn identity_definition_occurrence(identity: StorageIdentity) -> Option<bray_bound_tree::BoundExecutionSite> {
     match identity {
         StorageIdentity::Result(_) => None,
-        _ => identity.definition_node(),
+        _ => identity.definition_occurrence(),
     }
 }
 

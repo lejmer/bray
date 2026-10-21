@@ -34,7 +34,7 @@ func scalar_types(
     text: string,
     done: unit,
     range: Range<i32>,
-    pointer: RawPointer<u8>,
+    pointer: DataPointer<u8>,
     result: Result<Value, Error>,
     run_result: RunResult<Value>,
     future: Future<Value>,
@@ -49,7 +49,7 @@ func stop() -> never
 }
 ```
 
-Scalars with values are copyable and have no partial state. `never` has no values. `string` is a protected named value type. `Range<T>` is a protected named copyable value type for target-available integer `T` and carries language-defined iteration. `RawPointer<T>`, result unions, futures, and tasks each follow their compiler-known contracts.
+Scalars with values are copyable and have no partial state. `never` has no values. `string` is a protected named value type. `Range<T>` is a protected named copyable value type for target-available integer `T` and carries language-defined iteration. `DataPointer<T>`, result unions, futures, and tasks each follow their compiler-known contracts.
 
 The target-available scalar forms [`r16`, `r128`, `c32`, and `c256`](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/conformance-catalog.md#target-available-compiler-known-entries) enter the usable surface when their matching `target.scalar.*` properties hold.
 
@@ -77,13 +77,13 @@ func type_forms(
     callback: func(pos value: i32) -> i32,
     compile_time: const func(pos value: i32) -> i32,
     asynchronous: async func(pos request: Request) -> Response,
-    foreign: @abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32,
+    foreign: @abi(c) func(pos context: DataPointer<u8>, pos value: i32) -> i32,
 )
 {
 }
 
 trusted func trusted_callable_type(
-    callback: trusted func(pos pointer: RawPointer<u8>) -> u8
+    callback: trusted func(pos pointer: DataPointer<u8>) -> u8
         uses(raw_memory),
 )
     uses(raw_memory)
@@ -179,7 +179,7 @@ union NativeValue
 {
     Integer(value: std.ffi.c.Int);
     Floating(value: r32);
-    Pointer(value: RawPointer<u8>);
+    Pointer(value: DataPointer<u8>);
 }
 ```
 

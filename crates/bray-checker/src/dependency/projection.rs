@@ -97,6 +97,9 @@ impl ValueInputs {
             let mut changed = false;
 
             for (pattern, initializer) in subjects {
+                // Implicit invocation values have no source initializer to substitute.
+                let bray_bound_tree::BoundExecutionSite::Node(
+                    bray_bound_tree::AnyBoundNodeId::Expression(initializer)) = initializer else { continue; };
                 let mut pending = vec![(*pattern, *initializer)];
 
                 while let Some((id, initializer)) = pending.pop() {

@@ -1399,3 +1399,44 @@ fn explicit_conversions_consume_noncopyable_source_storage() {
         );
     }
 }
+
+#[test]
+fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referents() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Counter
+            {
+                mut count: u8;
+            }
+
+            func borrowed(pos value: &mut Counter)
+            {
+                value.count = 1;
+            }
+
+            func owned(pos mut value: Counter)
+            {
+                value.count = 1;
+            }
+        "#,
+    );
+
+    assert!(!compilation.check_diagnostics().has_errors(), "{:#?}", compilation.check_diagnostics());
+
+    for (name, borrowed) in [("borrowed", true), ("owned", false)] {
+        let key = crate::test_support::source_function_body_key(&compilation, name);
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let flow = compilation.storage_flow(key).unwrap();
+        let assignment = bound.value().tree().expressions().find_map(|(id, expression)| {
+            matches!(expression, bray_bound_tree::BoundExpression::Assignment(_)).then_some(id)
+        }).unwrap();
+        let target = flow.value().assignment_target(assignment)
+            .expect("a settled assignment must retain its established origin");
+
+        assert_eq!(matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { layer: 1, .. }), borrowed);
+        assert_eq!(target.storage_path().is_none(), borrowed);
+        assert!(!target.previous);
+    }
+}

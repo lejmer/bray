@@ -12,7 +12,7 @@ initialization. A volatile read of a non-copyable value moves the value and cons
 volatile store establishes initialization only after the store completes.
 
 `core.target.device_volatile_load` and `core.target.device_volatile_store` use `DevicePointer<T>`, which is not
-interchangeable with host `RawPointer<T>`. The selected code generation target assigns the device pointer's exact
+interchangeable with host `DataPointer<T>`. The selected code generation target assigns the device pointer's exact
 address-space identity. They require both `raw_memory` and `device_memory`. A target without a device address space
 rejects them before code generation.
 

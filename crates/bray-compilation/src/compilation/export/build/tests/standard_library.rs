@@ -120,7 +120,11 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -136,30 +140,34 @@ fn raw_addresses_do_not_extend_borrows_or_retain_local_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             module app;
 
             using std.memory;
 
-            func shared_address() -> RawPointer<i32> {
+            func shared_address() -> DataPointer<i32> {
                 let local: i32 = 1;
                 return std.memory.address_of(&local);
             }
 
-            func mutable_address() -> RawPointer<i32> {
+            func mutable_address() -> DataPointer<i32> {
                 let mut local: i32 = 1;
                 let pointer = std.memory.address_of_mut(&mut local);
                 local = 2;
                 return pointer;
             }
 
-            func protected_address() -> RawPointer<i32> {
+            func protected_address() -> DataPointer<i32> {
                 let local: Uninit<i32> = std.memory.uninit<i32>();
                 return std.memory.uninit_pointer(&local);
             }
 
-            func protected_mutable_address() -> RawPointer<i32> {
+            func protected_mutable_address() -> DataPointer<i32> {
                 let mut local: Uninit<i32> = std.memory.uninit<i32>();
                 return std.memory.uninit_pointer_mut(&mut local);
             }
@@ -212,7 +220,11 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -229,14 +241,18 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
             using core.memory;
             using std.memory;
 
-            func consume_pair(pos pointer: RawPointer<i32>)
+            func consume_pair(pos pointer: DataPointer<i32>)
                 requires(
                     trusted core.memory.valid_write<i32>(pointer = pointer, count = 2),
                     trusted core.memory.aligned_for<i32>(pointer = pointer),
@@ -258,7 +274,7 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
                 consume_pair(internal std.memory.slice_pointer_mut<i32>(values, count = 2));
             }
 
-            func empty_address() -> RawPointer<i32> {
+            func empty_address() -> DataPointer<i32> {
                 let values: [i32; 1] = [0];
 
                 return internal std.memory.slice_pointer<i32>(&values[0..0], count = 0);
@@ -278,18 +294,22 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
             using core.memory;
             using std.memory;
 
-            func observe(pos pointer: RawPointer<i32>)
+            func observe(pos pointer: DataPointer<i32>)
                 requires(trusted core.memory.valid_read<i32>(pointer = pointer, count = 2)) {}
 
             func expired() {
-                let pointer: RawPointer<i32> = {
+                let pointer: DataPointer<i32> = {
                     let values: [i32; 2] = [1, 2];
 
                     yield internal std.memory.slice_pointer<i32>(&values[0..2], count = 2);
@@ -356,7 +376,11 @@ func conflict<S>(pos pair: &mut Pair<S>)
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         source,
     ]);
 
@@ -382,7 +406,11 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
@@ -463,7 +491,11 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/collection/hash_table.bray"),
     ];
 
@@ -528,7 +560,11 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         r#"
             trusted module app;
@@ -631,7 +667,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
         using core.memory;
 
-        trusted func preserve_text(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        trusted func preserve_text(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             requires(trusted core.memory.nul_terminated_read(pointer = pointer))
             ensures(trusted core.memory.nul_terminated_read(pointer = result))
         {
@@ -652,12 +688,12 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
         using core.memory;
 
-        trusted func copy_address(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        trusted func copy_address(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             requires(trusted core.memory.nul_terminated_read(pointer = pointer))
             ensures(trusted core.memory.nul_terminated_read(pointer = result))
         {
-            let address: RawPointer<u8> = trusted preserve_text(pointer);
-            let copied: RawPointer<u8> = address;
+            let address: DataPointer<u8> = trusted preserve_text(pointer);
+            let copied: DataPointer<u8> = address;
 
             return copied;
         }
@@ -682,7 +718,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
             r#"
         module app;
 
-        func missing_termination(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        func missing_termination(pos pointer: DataPointer<u8>) -> DataPointer<u8>
         {
             return trusted preserve_text(pointer);
         }
@@ -693,7 +729,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
         using core.memory;
         using std.memory;
 
-        trusted func changed_termination(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+        trusted func changed_termination(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             requires(
                 trusted core.memory.nul_terminated_read(pointer = pointer),
                 trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
@@ -713,7 +749,11 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
             let compilation = standard_library_compilation([
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
                 include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-                include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
                 &declarations,
                 &source,
             ]);
@@ -741,25 +781,25 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
             @link(name = "c", kind = system)
             @symbol(name = "getcwd")
             @abi(c)
-            extern trusted func native_directory(pos destination: RawPointer<u8>, pos capacity: usize) -> RawPointer<u8>
+            extern trusted func native_directory(pos destination: DataPointer<u8>, pos capacity: usize) -> DataPointer<u8>
                 requires(capacity != 0, trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
                 ensures(core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result))
                 uses(foreign_call);
 
-            trusted func preserve_text(pos pointer: RawPointer<u8>) -> RawPointer<u8>
+            trusted func preserve_text(pos pointer: DataPointer<u8>) -> DataPointer<u8>
                 requires(trusted core.memory.nul_terminated_read(pointer = pointer))
             {{
                 return pointer;
             }}
 
-            trusted func consume_directory(pos destination: RawPointer<u8>, pos capacity: usize)
+            trusted func consume_directory(pos destination: DataPointer<u8>, pos capacity: usize)
                 requires(capacity != 0, trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
                 uses(foreign_call)
             {{
-                let pointer: RawPointer<u8> = trusted native_directory(destination, capacity);
+                let pointer: DataPointer<u8> = trusted native_directory(destination, capacity);
                 {guard}
 
-                let _: RawPointer<u8> = trusted preserve_text(pointer);
+                let _: DataPointer<u8> = trusted preserve_text(pointer);
             }}
         "#
         );
@@ -989,8 +1029,8 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
             &linux_platform,
             [
                 "let cursor: NativeTextCursor = trusted internal environment_cursor();",
-                "let mut cursor: NativeTextCursor = trusted internal environment_cursor(); cursor.current = std.memory.null<RawPointer<u8>>();",
-                "let cursor: NativeTextCursor = { first = std.memory.null<RawPointer<u8>>(), limit = 1, current = std.memory.null<RawPointer<u8>>(), remaining = 1 };",
+                "let mut cursor: NativeTextCursor = trusted internal environment_cursor(); cursor.current = std.memory.null<DataPointer<u8>>();",
+                "let cursor: NativeTextCursor = { first = std.memory.null<DataPointer<u8>>(), limit = 1, current = std.memory.null<DataPointer<u8>>(), remaining = 1 };",
             ],
         ),
         (
@@ -1000,8 +1040,8 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
             &windows_platform,
             [
                 "{ let arguments: LocalAllocation = trusted internal native_arguments(); if arguments.count > 0 { let _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = trusted internal native_environment();",
-                "let original = trusted internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<RawPointer<u16>>(std.memory.null<u16>()) };",
-                "let owner: EnvironmentBlock = { identity = NativeTextOwner {}, pointer = std.memory.null<u16>(), current = std.memory.uninit_from<RawPointer<u16>>(std.memory.null<u16>()) };",
+                "let original = trusted internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
+                "let owner: EnvironmentBlock = { identity = NativeTextOwner {}, pointer = std.memory.null<u16>(), current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
             ],
         ),
     ] {
@@ -1027,7 +1067,11 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
                     include_str!(
                         "../../../../../../../standard-library/std/src/numeric/policy.bray"
                     ),
-                    include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+                    include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
                     native,
                     &platform,
                 ],
@@ -1114,7 +1158,11 @@ using internal std.thread;
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &thread,
             &source,
         ]);
@@ -1161,7 +1209,11 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1220,7 +1272,11 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
             let compilation = standard_library_compilation([
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
                 include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-                include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
                 &source,
             ]);
 
@@ -1241,7 +1297,11 @@ fn standard_runtime_text_storage_has_complete_contracts() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/runtime/text.bray"),
     ]);
 
@@ -1257,7 +1317,11 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
     ];
 
     for (guard, valid) in [
@@ -1275,7 +1339,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             module std.memory;
 
             using core.memory;
-            trusted internal func read_prefix(pos pointer: RawPointer<u8>, count: usize) -> u8
+            trusted internal func read_prefix(pos pointer: DataPointer<u8>, count: usize) -> u8
                 requires(
                     trusted core.memory.valid_read<u8>(pointer = pointer, count = count),
                     trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = count),
@@ -1311,7 +1375,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         using core.memory;
         using std.numeric;
 
-        trusted internal func fill_widened_count(pos destination: RawPointer<u8>, length: u64)
+        trusted internal func fill_widened_count(pos destination: DataPointer<u8>, length: u64)
             requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize))
             uses(raw_memory, unchecked_init) {
             trusted internal byte_buffer_fill(destination, value = 7, count = length as usize);
@@ -1319,11 +1383,11 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
         internal func fill_with_widened_count(pos bytes: &mut [u8]) {
             let count: usize = bytes.length();
-            let byte_pointer: RawPointer<u8> = internal slice_pointer_mut(bytes, count = count);
+            let byte_pointer: DataPointer<u8> = internal slice_pointer_mut(bytes, count = count);
             trusted internal fill_widened_count(byte_pointer, length = count as u64);
         }
 
-        internal struct ByteSpan { address: RawPointer<u8>; count: usize; }
+        internal struct ByteSpan { address: DataPointer<u8>; count: usize; }
 
         internal func returned_bytes(pos source: &[u8]) -> &[u8] executes(pure, total) {
             return source;
@@ -1365,9 +1429,9 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
         trusted internal func read_after_pointer_and_scalar_calculations(pos bytes: &[u8]) -> u8 uses(raw_memory) {
             if !(1 <= bytes.length()) { panic("source empty"); }
-            let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = 1);
-            let _: RawPointer<u8> = offset(byte_pointer, elements = 1);
-            let _: RawPointer<u8> = byte_offset(byte_pointer, bytes = 1);
+            let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = 1);
+            let _: DataPointer<u8> = offset(byte_pointer, elements = 1);
+            let _: DataPointer<u8> = byte_offset(byte_pointer, bytes = 1);
             let _: bool = is_null(null<u8>());
             let _: usize = size_of<u32>();
             let _: usize = align_of<u32>();
@@ -1377,7 +1441,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
         trusted internal func read_loop(pos bytes: &[u8]) uses(raw_memory) {
             let count: usize = bytes.length();
-            let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = count);
+            let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
 
             while index < count && index != 18_446_744_073_709_551_615 {
@@ -1388,7 +1452,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
         trusted internal func read_twice(pos bytes: &[u8]) -> u8 requires(2 <= bytes.length()) executes(pure) uses(raw_memory) {
             if !(2 <= bytes.length()) { panic("source too small"); }
-            let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = 2);
+            let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = 2);
             let first: u8 = trusted internal byte_buffer_read(byte_pointer, index = 0);
             let second: u8 = trusted internal byte_buffer_read(byte_pointer, index = 1);
             return first ^ second;
@@ -1399,10 +1463,10 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             trusted internal fill_bytes(&mut destination[..], value = 7);
         }
 
-        trusted internal func copy_to_fresh_storage(pos source: &[u8]) -> RawPointer<u8> uses(manual_alloc, raw_memory, unchecked_init) {
+        trusted internal func copy_to_fresh_storage(pos source: &[u8]) -> DataPointer<u8> uses(manual_alloc, raw_memory, unchecked_init) {
             let count: usize = source.length();
-            let source_pointer: RawPointer<u8> = internal slice_pointer(source, count = count);
-            let destination: RawPointer<u8> = trusted core.memory.allocate(bytes = count, align = 1);
+            let source_pointer: DataPointer<u8> = internal slice_pointer(source, count = count);
+            let destination: DataPointer<u8> = trusted core.memory.allocate(bytes = count, align = 1);
             trusted std.memory.copy_overlapping<u8>(source_pointer, destination, count = count);
             return destination;
         }
@@ -1414,7 +1478,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             match consume created {
                 case Ok(buffer) {
                     let mut buffer: RawBuffer<u8> = buffer;
-                    let source_pointer: RawPointer<u8> = internal slice_pointer(source, count = count);
+                    let source_pointer: DataPointer<u8> = internal slice_pointer(source, count = count);
                     let initialized: usize = trusted internal copy_spare_raw_bytes(&mut buffer,
                         source = source_pointer, count = count);
                     trusted set_initialized_count(&mut buffer, count = initialized);
@@ -1424,7 +1488,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             }
         }
 
-        trusted internal func copy_raw_to_fresh_buffer(pos source: RawPointer<u8>, count: usize) -> RawBuffer<u8>
+        trusted internal func copy_raw_to_fresh_buffer(pos source: DataPointer<u8>, count: usize) -> RawBuffer<u8>
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = count),
                 trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
@@ -1437,8 +1501,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
         trusted internal func copy_slice_bytes(pos source: &[u8], pos destination: &mut [u8]) uses(raw_memory, unchecked_init) {
             if !(2 <= source.length()) || !(2 <= destination.length()) { panic("storage too small"); }
-            let source_pointer: RawPointer<u8> = internal slice_pointer(source, count = 2);
-            let destination_pointer: RawPointer<u8> = internal slice_pointer_mut(destination, count = 2);
+            let source_pointer: DataPointer<u8> = internal slice_pointer(source, count = 2);
+            let destination_pointer: DataPointer<u8> = internal slice_pointer_mut(destination, count = 2);
             trusted std.memory.copy_overlapping<u8>(source_pointer, destination_pointer, count = 2);
         }
         "#]));
@@ -1454,7 +1518,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         module std.memory;
         internal func read_after_changing_guarded_index(pos bytes: &[u8]) {
             let count: usize = bytes.length();
-            let byte_pointer: RawPointer<u8> = internal slice_pointer(bytes, count = count);
+            let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
 
             while index < count && index != 18_446_744_073_709_551_615 {
@@ -1467,7 +1531,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         module std.memory;
 
         using core.memory;
-        internal func read_without_initialization(pos pointer: RawPointer<u8>) -> u8
+        internal func read_without_initialization(pos pointer: DataPointer<u8>) -> u8
             requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {
             return trusted internal byte_buffer_read(pointer, index = 0);
         }
@@ -1476,7 +1540,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         module std.memory;
 
         using core.memory;
-        internal func copy_without_initialization(pos source: RawPointer<u8>, pos destination: RawPointer<u8>)
+        internal func copy_without_initialization(pos source: DataPointer<u8>, pos destination: DataPointer<u8>)
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = 1),
                 trusted core.memory.valid_write<u8>(pointer = destination, count = 1),
@@ -1488,7 +1552,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         module std.memory;
 
         using core.memory;
-        internal func overflowing_index(pos pointer: RawPointer<u8>) -> u8
+        internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 0),
                 trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 0),
@@ -1564,7 +1628,11 @@ fn copying_raw_reads_preserve_initialization() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1574,7 +1642,7 @@ fn copying_raw_reads_preserve_initialization() {
             trusted func read_twice() -> i32 uses(raw_memory) {
                 let state: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
                 let value: i32 = 7;
-                let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);
+                let pointer: DataPointer<i32> = std.memory.address_of<i32>(&value);
                 let first: i32 = trusted std.memory.read<i32>(pointer);
                 let _: u32 = core.atomic.load<u32, 0>(&state);
                 let second: i32 = trusted std.memory.read<i32>(pointer);
@@ -1609,9 +1677,9 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
 
             struct Token {{ value: i32; }}
 
-            extern func interfere(pos pointer: RawPointer<i32>);
+            extern func interfere(pos pointer: DataPointer<i32>);
 
-            trusted func invalid(pos pointer: RawPointer<{value_type}>)
+            trusted func invalid(pos pointer: DataPointer<{value_type}>)
                 requires(
                     trusted core.memory.valid_read<{value_type}>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<{value_type}>(pointer = pointer),
@@ -1628,7 +1696,11 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1655,7 +1727,7 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
             using core.memory;
             using std.memory;
 
-            func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
+            func pack(pointer: DataPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {{
                 return {{ pointer = pointer, bytes = bytes, align = align }};
@@ -1666,7 +1738,7 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
                 {operation}
             }}
 
-            func pack_with_owner(owner: std.memory.RawAllocation, pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
+            func pack_with_owner(owner: std.memory.RawAllocation, pointer: DataPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {{
                 return {{ pointer = pointer, bytes = bytes, align = align }};
@@ -1677,7 +1749,11 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1699,7 +1775,7 @@ using std.memory;
 
 struct Resource
 {{
-    pointer: RawPointer<u8>;
+    pointer: DataPointer<u8>;
     bytes: usize;
     align: usize;
 }}
@@ -1726,7 +1802,11 @@ func duplicate()
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1742,7 +1822,11 @@ fn raw_allocation_address_copies_preserve_whole_owner_transfer() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1796,7 +1880,11 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1812,7 +1900,11 @@ fn raw_allocation_field_construction_requires_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1836,14 +1928,18 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
             using core.memory;
             using std.memory;
 
-            func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
+            func pack(pointer: DataPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {
                 return { pointer = pointer, bytes = bytes, align = align };
@@ -1863,13 +1959,17 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             module app;
 
             using core.memory;
 
-            struct RawBuffer { pointer: RawPointer<u8>; capacity: usize; initialized: usize; }
+            struct RawBuffer { pointer: DataPointer<u8>; capacity: usize; initialized: usize; }
 
             func ordinary() -> RawBuffer {
                 return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 1 };
@@ -1889,14 +1989,18 @@ fn raw_allocation_field_construction_transfers_ownership_once() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
             using core.memory;
             using std.memory;
 
-            func duplicate(pointer: RawPointer<u8>, bytes: usize, align: usize)
+            func duplicate(pointer: DataPointer<u8>, bytes: usize, align: usize)
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {
                 let first: std.memory.RawAllocation = { pointer = pointer, bytes = bytes, align = align };
@@ -1916,7 +2020,11 @@ fn standard_memory_surface_exports_uninitialized_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
     ]);
 
     let source_graph = compilation
@@ -2012,7 +2120,11 @@ fn standard_memory_api_fixture_checks() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/tests/api/memory.bray"),
     ]);
 
@@ -2757,7 +2869,7 @@ fn empty_raw_copies_preserve_deallocation_authority() {
             using std.memory;
 
             using core.memory;
-            trusted func copy_nothing(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, pos count: usize)
+            trusted func copy_nothing(pos source: DataPointer<u8>, pos destination: DataPointer<u8>, pos count: usize)
                 requires(
                     count == 0,
                     trusted core.memory.valid_read<u8>(pointer = source, count = {extent}),
@@ -2776,7 +2888,11 @@ fn empty_raw_copies_preserve_deallocation_authority() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -2814,19 +2930,19 @@ fn thread_storage_load_only_initializes_successful_outputs() {
 
         using core.memory;
         using internal std.platform;
-        trusted internal func need_initialized(pos pointer: RawPointer<RawPointer<u8>>)
-            requires(trusted core.memory.initialized_as<RawPointer<u8>>(pointer = pointer)) {}
+        trusted internal func need_initialized(pos pointer: DataPointer<DataPointer<u8>>)
+            requires(trusted core.memory.initialized_as<DataPointer<u8>>(pointer = pointer)) {}
         trusted internal func prepare_thread_storage_load(
-            pos key: u64, pos value: RawPointer<RawPointer<u8>>
-        ) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+            pos key: u64, pos value: DataPointer<DataPointer<u8>>
+        ) -> Result<DataPointer<u8>, std.platform.PlatformStatus>
             executes(total)
             requires(
-                trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
-                trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+                trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
+                trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
             )
             ensures(
-                trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
-                trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+                trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
+                trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
             ) {
             return Error({ category = 5, reserved = 0, native_code = 0 });
         }
@@ -2839,11 +2955,11 @@ fn thread_storage_load_only_initializes_successful_outputs() {
 
             using core.memory;
             using std.memory;
-            trusted internal func load_uninitialized_slot(pos pointer: RawPointer<RawPointer<u8>>) -> RawPointer<u8>
+            trusted internal func load_uninitialized_slot(pos pointer: DataPointer<DataPointer<u8>>) -> DataPointer<u8>
                 requires(
-                    trusted core.memory.valid_read<RawPointer<u8>>(pointer = pointer, count = 1),
-                    trusted core.memory.valid_write<RawPointer<u8>>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<RawPointer<u8>>(pointer = pointer),
+                    trusted core.memory.valid_read<DataPointer<u8>>(pointer = pointer, count = 1),
+                    trusted core.memory.valid_write<DataPointer<u8>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<DataPointer<u8>>(pointer = pointer),
                 ) {{
                 let status = trusted platform_thread_storage_load(18_446_744_073_709_551_615, pointer);
                 {}
@@ -2861,7 +2977,11 @@ fn thread_storage_load_only_initializes_successful_outputs() {
         let compilation = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
             platform,
             &preparation,
@@ -3061,7 +3181,11 @@ fn unix_native_outputs_remain_in_typed_storage() {
         let sources = [
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             include_str!("../../../../../../../standard-library/std/src/os/unix/thread.bray"),
             "module std.os {}",
             &native,
@@ -3085,9 +3209,10 @@ fn unix_native_outputs_remain_in_typed_storage() {
 using std.os;
 
 using std.memory;
+using std.memory.function;
 
- trusted func forged_output(pos output: RawPointer<{}>, pos entry: ThreadStartRoutine) uses(foreign_call) {{ let native_entry = trusted std.memory.callable_from_pointer(trusted std.memory.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(trusted std.memory.pointer_from_callable(entry))); let _ = trusted std.os.{system}.pthread_create(output, attributes = std.memory.null<std.os.{system}.PThreadAttribute>(), entry = native_entry, context = std.memory.null<u8>()); }}"#,
-            if darwin { "RawPointer<u8>" } else { "u64" }
+ trusted func forged_output(pos output: DataPointer<{}>, pos entry: ThreadStartRoutine) uses(foreign_call) {{ let native_entry = trusted std.memory.callable_from_pointer(trusted std.memory.function.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(trusted std.memory.function_address(entry))); let _ = trusted std.os.{system}.pthread_create(output, attributes = std.memory.null<std.os.{system}.PThreadAttribute>(), entry = native_entry, context = std.memory.null<u8>()); }}"#,
+            if darwin { "DataPointer<u8>" } else { "u64" }
         );
 
         let compilation = standard_library_compilation_with_options(
@@ -3154,7 +3279,11 @@ fn production_path_view_preserves_its_borrowed_storage() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/path.bray"),
@@ -3189,7 +3318,11 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     let declarations = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),

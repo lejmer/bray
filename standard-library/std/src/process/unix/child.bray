@@ -18,10 +18,10 @@ internal struct ChildDescriptors
 internal struct SpawnStorage
 {
     text: std.memory.RawBuffer<u8>;
-    arguments: std.memory.RawBuffer<RawPointer<u8>>;
-    environment: std.memory.RawBuffer<RawPointer<u8>>;
-    executable: RawPointer<u8>;
-    working_directory: RawPointer<u8>;
+    arguments: std.memory.RawBuffer<DataPointer<u8>>;
+    environment: std.memory.RawBuffer<DataPointer<u8>>;
+    executable: DataPointer<u8>;
+    working_directory: DataPointer<u8>;
 }
 
 trusted internal func platform_child_spawn(
@@ -108,7 +108,7 @@ trusted internal func platform_child_spawn(
         }
     };
 
-    let actions_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&actions));
+    let actions_pointer: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(std.memory.pointer<u64>(&actions));
     let initialized: i32 = trusted std.os.unix.initialize_spawn_actions(actions_pointer);
 
     if initialized != 0
@@ -143,8 +143,8 @@ trusted internal func platform_child_spawn(
         std.memory.address_of_mut<i32>(&mut process),
         executable = storage.executable,
         actions = actions_pointer,
-        arguments = std.memory.pointer<RawPointer<u8>>(&storage.arguments),
-        environment = std.memory.pointer<RawPointer<u8>>(&storage.environment),
+        arguments = std.memory.pointer<DataPointer<u8>>(&storage.arguments),
+        environment = std.memory.pointer<DataPointer<u8>>(&storage.environment),
     );
 
     let destroyed: i32 = trusted std.os.unix.destroy_spawn_actions(actions_pointer);
@@ -202,8 +202,8 @@ trusted internal func platform_child_spawn(
 @abi(c)
 trusted internal func platform_child_wait(
     pos child: u64,
-    pos terminal: RawPointer<u32>,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos terminal: DataPointer<u32>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
@@ -234,8 +234,8 @@ trusted internal func platform_child_wait(
 
 trusted internal func prepare_child_wait(
     pos child: u64,
-    pos terminal: RawPointer<u32>,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos terminal: DataPointer<u32>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> Result<PlatformExitStatus, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
@@ -303,7 +303,7 @@ trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) ->
 @abi(c)
 trusted internal func platform_child_reap(
     pos child: u64,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
 {
     match internal std.platform.checked_descriptor(child)

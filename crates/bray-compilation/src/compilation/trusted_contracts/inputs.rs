@@ -107,11 +107,11 @@ impl Compilation {
         }
 
         for (expression, node) in bound.tree().expressions() {
-            if let Some(SemanticSelection::ScopedUse(scoped)) =
+            if let Some(selection @ (SemanticSelection::ScopedUse(_) | SemanticSelection::Iteration(_))) =
                 semantics.selections().expression(expression)
             {
-                self.add_scoped_trusted_contracts(
-                    scoped,
+                self.add_implicit_trusted_contracts(
+                    selection,
                     &mut inputs,
                     cancellation,
                     &mut diagnostics,
@@ -125,6 +125,7 @@ impl Compilation {
                 if let Some(SemanticSelection::Operation(operation)) =
                     semantics.selections().expression(expression)
                     && let Some(contract) = self.trusted_operation_contract(
+                        expression,
                         operation,
                         node,
                         cancellation,

@@ -43,6 +43,8 @@ pub(in crate::compilation) struct SourceTemplateRequest<'a> {
     pub(in crate::compilation) types: &'a CheckedExpressionTypes,
     pub(in crate::compilation) selections: &'a CheckedSemanticSelections,
     pub(in crate::compilation) literals: &'a CheckedLiteralValues,
+    pub(in crate::compilation) storage: &'a bray_bound_tree::StoragePlan,
+    pub(in crate::compilation) flow: &'a bray_bound_tree::StorageFlow,
     pub(in crate::compilation) expression: SyntaxAnchor,
     pub(in crate::compilation) inputs: Vec<SourceTemplateInput>,
     pub(in crate::compilation) execution: Option<&'a bray_checker::ExecutionCandidate>,
@@ -151,13 +153,17 @@ pub(in crate::compilation) struct SourceTemplateBuilder<'context, 'compilation, 
     pub(super) types: &'unit CheckedExpressionTypes,
     pub(in crate::compilation) selections: &'unit CheckedSemanticSelections,
     literals: &'unit CheckedLiteralValues,
+    pub(super) storage: &'unit bray_bound_tree::StoragePlan,
+    pub(super) flow: &'unit bray_bound_tree::StorageFlow,
     pub(super) execution: Option<&'unit bray_checker::ExecutionCandidate>,
     pub(super) inputs: Vec<CheckedTemplateInput>,
     input_ids: BTreeMap<BoundReferenceTarget, CheckedTemplateInputId>,
     pub(super) nodes: Vec<CheckedTemplateNode>,
     expression_nodes: BTreeMap<BoundExpressionId, CheckedTemplateNodeId>,
     pub(super) local_values: BTreeMap<BoundReferenceTarget, CheckedTemplateNodeId>,
+    pub(super) binding_changes: Vec<(BoundReferenceTarget, CheckedTemplateNodeId)>,
     pub(super) path: super::control::TemplatePath,
+    pub(super) evaluation: Option<CheckedTemplateNodeId>,
     pub(super) exits: BTreeMap<
         bray_bound_tree::SelectedPropagationBoundary,
         Vec<(super::control::TemplatePath, CheckedTemplateNodeId)>,
@@ -193,13 +199,17 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             types: request.types,
             selections: request.selections,
             literals: request.literals,
+            storage: request.storage,
+            flow: request.flow,
             execution: request.execution,
             inputs,
             input_ids,
             nodes: Vec::new(),
             expression_nodes: BTreeMap::new(),
             local_values: BTreeMap::new(),
+            binding_changes: Vec::new(),
             path: super::control::TemplatePath::Always,
+            evaluation: None,
             exits: BTreeMap::new(),
             return_type: None,
             pattern_values: BTreeMap::new(),
@@ -345,9 +355,8 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         let value = self.expression(expression)?;
 
         let target = conversion.target_type();
-        let node = CheckedTemplateNodeId::new(index(self.nodes.len()));
-
         let operation = self.conversion_operation(value, conversion)?;
+        let node = CheckedTemplateNodeId::new(index(self.nodes.len()));
 
         self.nodes.push(CheckedTemplateNode::new(operation, target));
 
@@ -369,23 +378,12 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         let bits = u16::try_from((u64::BITS - maximum.leading_zeros()).max(1))
             .expect("u64 upper bound has at most 64 bits");
 
-        let ty =
-            self.context
-                .semantic_values()
-                .intern_type(bray_symbols::TypeData::ExactInteger {
-                    bits: std::num::NonZeroU16::new(bits)
-                        .expect("integer bound has a nonzero width"),
-                    signed: false,
-                })?;
-
-        // This representation carries the owning analysis's bound to emission without reproving it.
-        Ok(self.push_node(
-            CheckedTemplateOperation::Convert {
-                value: node,
-                target: ty,
-            },
-            ty,
-        ))
+        let bits = std::num::NonZeroU8::new(u8::try_from(bits).expect("u64 width fits u8")).expect("integer bound has a nonzero width");
+        let ty = self.nodes[usize::try_from(node.raw()).expect("checked node fits host")].ty();
+        let bounded = CheckedTemplateNodeId::new(index(self.nodes.len()));
+        self.nodes.push(CheckedTemplateNode::new(CheckedTemplateOperation::Convert { value: node, target: ty }, ty)
+            .with_unsigned_integer_bits(Some(bits)));
+        Ok(bounded)
     }
 
     pub(super) fn operation(
@@ -433,6 +431,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                 Ok(CheckedTemplateOperation::Convert { value, target: ty })
             }
             BoundExpression::Match(matched) => self.match_value(expression_id, matched, ty),
+            BoundExpression::Assignment(assignment) => self.assignment(expression_id, assignment, ty),
             BoundExpression::Call(_) => self.call(expression_id),
             BoundExpression::Conversion(conversion) => {
                 let value = self.expression(conversion.operand())?;
@@ -719,10 +718,13 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             return Err(incomplete("invalid_unary_operand_count"));
         };
 
-        Ok(CheckedTemplateOperation::Unary {
-            operation: unary_operator(operator)
-                .ok_or_else(|| incomplete("unsupported_unary_operator"))?,
-            operand: self.expression(*operand)?,
+        let operation = unary_operator(operator)
+            .ok_or_else(|| incomplete("unsupported_unary_operator"))?;
+        let operand = self.expression(*operand)?;
+        Ok(if self.unit.key().kind().uses_machine_arithmetic() {
+            CheckedTemplateOperation::MachineUnary { operation, operand }
+        } else {
+            CheckedTemplateOperation::Unary { operation, operand }
         })
     }
 
@@ -745,7 +747,19 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             self.path = self.refine_path(path, left, operator == BoundOperator::LogicalAnd)?;
         }
 
+        let checkpoint = self.binding_changes.len();
+        let evaluation = self.evaluation;
         let right = self.expression(*right)?;
+        if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            self.evaluation = evaluation;
+            let updates = self.take_binding_updates(checkpoint);
+            let (when_true, when_false) = if operator == BoundOperator::LogicalAnd {
+                (updates, Default::default())
+            } else {
+                (Default::default(), updates)
+            };
+            self.merge_bindings(left, when_true, when_false);
+        }
 
         if matches!(
             operator,
@@ -767,12 +781,15 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                 left,
                 right,
             }),
-            _ => Ok(CheckedTemplateOperation::Binary {
-                operation: binary_operator(operator)
-                    .ok_or_else(|| incomplete("unsupported_binary_operator"))?,
-                left,
-                right,
-            }),
+            _ => {
+                let operation = binary_operator(operator)
+                    .ok_or_else(|| incomplete("unsupported_binary_operator"))?;
+                Ok(if self.unit.key().kind().uses_machine_arithmetic() {
+                    CheckedTemplateOperation::MachineBinary { operation, left, right }
+                } else {
+                    CheckedTemplateOperation::Binary { operation, left, right }
+                })
+            },
         }
     }
 
@@ -798,7 +815,7 @@ fn unary_operator(operator: BoundOperator) -> Option<ConstantUnaryOperation> {
     }
 }
 
-fn binary_operator(operator: BoundOperator) -> Option<ConstantBinaryOperation> {
+pub(super) fn binary_operator(operator: BoundOperator) -> Option<ConstantBinaryOperation> {
     match operator {
         BoundOperator::LogicalOr => Some(ConstantBinaryOperation::LogicalOr),
         BoundOperator::LogicalAnd => Some(ConstantBinaryOperation::LogicalAnd),

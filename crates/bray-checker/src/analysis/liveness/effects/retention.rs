@@ -119,6 +119,7 @@ impl OperationEffects {
                     continue;
                 };
 
+                if phase == AnalysisCallPhase::Input { continue; }
                 if phase == AnalysisCallPhase::Attempt {
                     if let Some(contract) = call.report(CallReportOutput::Abnormal) {
                         self.owner_dependencies
@@ -187,17 +188,18 @@ impl OperationEffects {
             .iter()
             .filter_map(|plan| {
                 reaches_borrowed_storage(request.semantic_values(), storage, plan.access())
-                    .then_some(plan.expression())
+                    .then_some(plan.occurrence())
             })
             .collect::<BTreeSet<_>>();
 
-        let mut initializations = value_transfer_bindings(request, storage)
-            .into_iter()
-            .map(|(expression, bindings)| (expression.into(), bindings))
-            .collect::<BTreeMap<bray_bound_tree::BoundExecutionSite, _>>();
+        let mut initializations = value_transfer_bindings(request, storage);
 
         for (identity, provenance) in storage.identity_entries() {
             let occurrence = match provenance {
+                bray_bound_tree::StorageIdentity::InvocationResult(occurrence) => occurrence,
+                bray_bound_tree::StorageIdentity::InvocationInput { expression, ordinal } => {
+                    bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal }
+                }
                 bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
                     bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
                 }
@@ -297,7 +299,7 @@ impl OperationEffects {
 
                         // Dereferencing needs the pointer's loans during evaluation even when
                         // its copied result carries none. An unrelated owned field does not.
-                        if expression.is_some_and(|expression| borrowed_reads.contains(&expression))
+                        if borrowed_reads.contains(occurrence)
                             || matches!(
                                 occurrence,
                                 bray_bound_tree::BoundExecutionSite::ScopedExit(_)
@@ -410,7 +412,13 @@ fn index_value_sources_by_root(
             continue;
         };
 
-        if matches!(storage.identity(root), Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) if expression == plan.expression())
+        if matches!(storage.identity(root),
+            Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }
+                | bray_bound_tree::StorageIdentity::InvocationInput { expression, .. })
+                if expression == plan.expression())
+            || matches!(storage.identity(root),
+                Some(bray_bound_tree::StorageIdentity::InvocationResult(site))
+                    if site.expression() == Some(plan.expression()))
         {
             continue;
         }

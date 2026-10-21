@@ -160,13 +160,6 @@ fn terminator_callable_instances(
     terminator: &MirTerminatorKind,
 ) -> Vec<DemandedCallableInstance> {
     match terminator {
-        MirTerminatorKind::Iterate { next, witness, .. } => vec![DemandedCallableInstance {
-            site: CodegenCallSite::Terminator(block),
-            reference: *next,
-            trait_dispatch: None,
-            intrinsic: None,
-            witnesses: Arc::from([*witness]),
-        }],
         MirTerminatorKind::InlineAssembly(assembly) => assembly
             .symbols()
             .iter()

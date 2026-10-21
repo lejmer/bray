@@ -13,20 +13,18 @@ pub(super) fn collect_preservation_dependencies(
     occurrences: impl Iterator<Item = bray_bound_tree::BoundExecutionSite>,
     selections: &CheckedSemanticSelections,
     memory: &CheckedMemoryOperations,
-    values: &bray_symbols::SemanticValueStore,
+    contracts: Option<&crate::TrustedContractInputs>,
     dependencies: &mut Vec<ExecutionDependency>,
 ) {
     // Retaining entry facts across a pure call depends on that call's proof, even when
     // the enclosing obligation is only a completion predicate or termination promise.
     for occurrence in occurrences {
         let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence else {
-            if scoped_invocation_preserves_inputs(selections, values, occurrence) {
-                collect_scoped_dependency(
-                    selections,
-                    occurrence,
-                    ExecutionProperty::Pure,
-                    dependencies,
-                );
+            if contracts.and_then(|inputs| inputs.calls.get(&occurrence))
+                .is_some_and(|contract| contract.preserves_inputs)
+                && selections.invoked_callable(occurrence).is_some()
+            {
+                collect_invocation_dependency(selections, occurrence, ExecutionProperty::Pure, dependencies);
             }
 
             continue;
@@ -63,32 +61,6 @@ pub(super) fn collect_preservation_dependencies(
     }
 }
 
-pub(super) fn scoped_invocation_preserves_inputs(
-    selections: &CheckedSemanticSelections,
-    values: &bray_symbols::SemanticValueStore,
-    occurrence: bray_bound_tree::BoundExecutionSite,
-) -> bool {
-    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(
-        occurrence
-            .expression()
-            .expect("scoped invocation has an expression"),
-    ) else {
-        panic!("scoped invocation retains its selected lifecycle declarations");
-    };
-
-    let data = values.type_data(scoped.invocation(occurrence).1.callable_type());
-
-    let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-        panic!("scoped invocation signature retains its callable type");
-    };
-
-    callable
-        .phase_behaviors()
-        .invocation()
-        .execution_properties()
-        .contains(&ExecutionProperty::Pure)
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum ExecutionGoal {
     Property(ExecutionProperty),
@@ -101,6 +73,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     goal: ExecutionGoal,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
+    flow: Option<&bray_bound_tree::StorageFlow>,
     memory: &CheckedMemoryOperations,
     operation_domain_proven: bool,
     dependencies: &mut Vec<ExecutionDependency>,
@@ -120,31 +93,6 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
     if !check_storage_accesses(request, expression.into(), storage, property, dependencies) {
         return false;
-    }
-
-    if let Some(SemanticSelection::Call(call)) = selections.expression(expression) {
-        // Defaults and argument conversions execute before both source and intrinsic calls.
-        dependencies.extend(call.arguments().iter().filter_map(|argument| {
-            let SelectedArgument::Default { provider, .. } = argument else {
-                return None;
-            };
-
-            Some(ExecutionDependency {
-                target: crate::ExecutionDependencyTarget::Default(
-                    bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
-                ),
-                property,
-                occurrence: expression.into(),
-            })
-        }));
-
-        for argument in call.arguments() {
-            if let SelectedArgument::Explicit { conversion, .. } = argument
-                && !collect_conversion_dependencies(conversion, property, expression, dependencies)
-            {
-                return false;
-            }
-        }
     }
 
     if let Some(operation) = memory.operation(expression) {
@@ -211,6 +159,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 property,
                 expression,
                 operation_domain_proven,
+                flow.is_some_and(|flow| flow.confined_assignment(storage, expression).is_some()),
                 dependencies,
             ) {
                 return false;
@@ -218,7 +167,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         }
         Some(SemanticSelection::Propagation(propagation)) => {
             if let Some(conversion) = propagation.error_conversion()
-                && !collect_conversion_dependencies(conversion, property, expression, dependencies)
+                && !collect_conversion_dependencies(conversion, property, expression.into(), dependencies)
             {
                 return false;
             }
@@ -238,7 +187,8 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         | BoundExpression::Await(_)
         | BoundExpression::Generator(_)
         | BoundExpression::For(_) => false,
-        BoundExpression::Assignment(_) => property != ExecutionProperty::Pure,
+        BoundExpression::Assignment(_) => property != ExecutionProperty::Pure
+            || flow.is_some_and(|flow| flow.confined_assignment(storage, expression).is_some()),
         BoundExpression::Name(name) => !matches!(
             name.target(),
             BoundReferenceTarget::Surface(AnySymbolId::Static(_))
@@ -341,6 +291,7 @@ fn check_operation(
     property: ExecutionProperty,
     expression: BoundExpressionId,
     operation_domain_proven: bool,
+    confined_mutation: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let mut calls = Vec::new();
@@ -353,11 +304,16 @@ fn check_operation(
         return false;
     }
 
-    dependencies.extend(defaults.into_iter().map(|provider| ExecutionDependency {
+    if !matches!(operation, SelectedOperation::Construction(construction)
+        if construction.inputs().iter().any(|input|
+            matches!(input, bray_bound_tree::SelectedConstructionInput::Default { .. })))
+    {
+        dependencies.extend(defaults.into_iter().map(|provider| ExecutionDependency {
         target: crate::ExecutionDependencyTarget::Default(provider),
         property,
         occurrence: expression.into(),
     }));
+    }
 
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
         target: (call.target()).into(),
@@ -377,9 +333,10 @@ fn check_operation(
         // Field providers contribute their own selected execution dependencies.
         SelectedOperation::Construction(_) => true,
         SelectedOperation::CompoundAssignment(selection) => {
-            property != ExecutionProperty::Pure
+            (property != ExecutionProperty::Pure || confined_mutation)
                 && match selection.target() {
-                    OperatorTarget::BuiltIn(operator) => !operator.builtin_may_panic(),
+                    OperatorTarget::BuiltIn(operator) => property == ExecutionProperty::Pure
+                        || !operator.builtin_may_panic() || operation_domain_proven,
                     OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
                         !calls.is_empty()
                     }
@@ -401,7 +358,7 @@ fn check_operation(
 fn collect_conversion_dependencies(
     conversion: &SelectedConversion,
     property: ExecutionProperty,
-    expression: BoundExpressionId,
+    occurrence: bray_bound_tree::BoundExecutionSite,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let mut calls = Vec::new();
@@ -410,27 +367,20 @@ fn collect_conversion_dependencies(
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
         target: (call.target()).into(),
         property,
-        occurrence: expression.into(),
+        occurrence,
     }));
 
     resolved
 }
 
-pub(super) fn collect_scoped_dependency(
+pub(super) fn collect_invocation_dependency(
     selections: &CheckedSemanticSelections,
     invocation: bray_bound_tree::BoundExecutionSite,
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
 ) {
-    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(
-        invocation
-            .expression()
-            .expect("scoped invocation retains its with occurrence"),
-    ) else {
-        panic!("implicit scoped invocation retains its checked selection");
-    };
-
-    let callable = scoped.invocation(invocation).0;
+    let callable = selections.invoked_callable(invocation)
+        .expect("implicit invocation retains its selected callable");
 
     dependencies.push(ExecutionDependency {
         target: (bray_bound_tree::BoundCallableTarget::Declaration(callable)).into(),
@@ -485,4 +435,33 @@ pub(super) fn check_construction_admission<C: CheckerRequestContext + ?Sized>(
     diagnostics.add_range(admission_diagnostics);
 
     Ok(valid)
+}
+
+
+pub(super) fn check_input<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    invocation: bray_bound_tree::BoundExecutionSite,
+    selections: &CheckedSemanticSelections,
+    storage: &StoragePlan,
+    property: ExecutionProperty,
+    dependencies: &mut Vec<ExecutionDependency>,
+) -> bool {
+    let bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } = invocation else {
+        panic!("input execution checking has its exact occurrence");
+    };
+    let selection = selections.expression(expression).expect("input execution retains its selected invocation");
+    let input = selection.input(ordinal).expect("input execution retains its exact input");
+    let valid = if let Some(provider) = input.default_provider() {
+        dependencies.push(ExecutionDependency {
+            target: crate::ExecutionDependencyTarget::Default(provider),
+            property,
+            occurrence: invocation,
+        });
+        true
+    } else if let Some(conversion) = input.conversion() {
+        collect_conversion_dependencies(conversion, property, invocation, dependencies)
+    } else {
+        true
+    };
+    valid && check_storage_accesses(request, invocation, storage, property, dependencies)
 }

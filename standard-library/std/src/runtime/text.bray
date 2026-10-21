@@ -6,9 +6,9 @@ using std.numeric;
 
 internal struct OwnedText
 {
-    data: RawPointer<u8>;
+    data: DataPointer<u8>;
     length: usize;
-    owner: RawPointer<u8>;
+    owner: DataPointer<u8>;
 }
 
 internal struct ValidatedText
@@ -17,7 +17,7 @@ internal struct ValidatedText
     text: OwnedText;
 }
 
-trusted internal func scalar_count(pos data: RawPointer<u8>, pos length: usize) -> usize
+trusted internal func scalar_count(pos data: DataPointer<u8>, pos length: usize) -> usize
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -44,9 +44,9 @@ trusted internal func scalar_count(pos data: RawPointer<u8>, pos length: usize) 
 }
 
 trusted internal func equals(
-    pos left_data: RawPointer<u8>,
+    pos left_data: DataPointer<u8>,
     pos left_length: usize,
-    pos right_data: RawPointer<u8>,
+    pos right_data: DataPointer<u8>,
     pos right_length: usize,
 ) -> bool
     requires(
@@ -84,7 +84,7 @@ trusted internal func equals(
     return true;
 }
 
-trusted internal func scalar_at(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u32?
+trusted internal func scalar_at(pos data: DataPointer<u8>, pos length: usize, pos index: usize) -> u32?
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -121,7 +121,7 @@ trusted internal func scalar_at(pos data: RawPointer<u8>, pos length: usize, pos
 }
 
 trusted internal func scalar_slice(
-    pos data: RawPointer<u8>,
+    pos data: DataPointer<u8>,
     pos length: usize,
     pos start: usize,
     pos end: usize,
@@ -150,11 +150,11 @@ trusted internal func scalar_slice(
 }
 
 trusted internal func scalar_slice_data(
-    pos data: RawPointer<u8>,
+    pos data: DataPointer<u8>,
     length: usize,
     start: usize,
     end: usize,
-) -> RawPointer<u8>
+) -> DataPointer<u8>
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -172,7 +172,7 @@ trusted internal func scalar_slice_data(
     return std.memory.offset<u8>(data, elements = std.numeric.truncate_to<isize>(start));
 }
 
-trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> ValidatedText
+trusted internal func from_utf8(pos data: DataPointer<u8>, pos length: usize) -> ValidatedText
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -194,7 +194,7 @@ trusted internal func from_utf8(pos data: RawPointer<u8>, pos length: usize) -> 
     };
 }
 
-trusted internal func valid_utf8(pos data: RawPointer<u8>, pos length: usize) -> bool
+trusted internal func valid_utf8(pos data: DataPointer<u8>, pos length: usize) -> bool
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -221,7 +221,7 @@ trusted internal func valid_utf8(pos data: RawPointer<u8>, pos length: usize) ->
     return true;
 }
 
-trusted internal func scalar_offset(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> usize?
+trusted internal func scalar_offset(pos data: DataPointer<u8>, pos length: usize, pos index: usize) -> usize?
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -256,7 +256,7 @@ trusted internal func scalar_offset(pos data: RawPointer<u8>, pos length: usize,
     return none;
 }
 
-trusted internal func scalar_width(pos data: RawPointer<u8>, pos length: usize, pos offset: usize) -> usize
+trusted internal func scalar_width(pos data: DataPointer<u8>, pos length: usize, pos offset: usize) -> usize
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -337,7 +337,7 @@ trusted internal func scalar_width(pos data: RawPointer<u8>, pos length: usize, 
 }
 
 trusted internal func decode_scalar(
-    pos data: RawPointer<u8>,
+    pos data: DataPointer<u8>,
     pos length: usize,
     pos offset: usize,
     pos width: usize,
@@ -375,7 +375,7 @@ trusted internal func decode_scalar(
     }
 }
 
-trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> OwnedText
+trusted internal func copy_text(pos data: DataPointer<u8>, pos length: usize) -> OwnedText
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -389,7 +389,7 @@ trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> 
 
     let allocation_bytes: usize = header_bytes + length;
 
-    let owner: RawPointer<u8> = trusted core.memory.allocate(
+    let owner: DataPointer<u8> = trusted core.memory.allocate(
         bytes = allocation_bytes,
         align = std.memory.align_of<usize>(),
     );
@@ -403,26 +403,26 @@ trusted internal func copy_text(pos data: RawPointer<u8>, pos length: usize) -> 
 
     if length != 0
     {
-        let destination: RawPointer<u8> = trusted text_destination(&text);
+        let destination: DataPointer<u8> = trusted text_destination(&text);
 
         trusted std.memory.copy_overlapping<u8>(data, destination = destination, count = length);
     }
 
-    let reference_count: RawPointer<usize> = trusted text_reference_count(&text);
+    let reference_count: DataPointer<usize> = trusted text_reference_count(&text);
 
     trusted std.memory.write<usize>(reference_count, value = 1);
 
     return text;
 }
 
-trusted internal func text_destination(pos text: &OwnedText) -> RawPointer<u8>
+trusted internal func text_destination(pos text: &OwnedText) -> DataPointer<u8>
     ensures(trusted core.memory.valid_write<u8>(pointer = result, count = text.length))
     executes(pure)
 {
     return text.data;
 }
 
-trusted internal func text_reference_count(pos text: &OwnedText) -> RawPointer<usize>
+trusted internal func text_reference_count(pos text: &OwnedText) -> DataPointer<usize>
     ensures(
         trusted core.memory.valid_write<usize>(pointer = result, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = result),
@@ -436,7 +436,7 @@ trusted internal func text_reference_count(pos text: &OwnedText) -> RawPointer<u
 
 trusted internal func empty_text() -> OwnedText
 {
-    let empty: RawPointer<u8> = std.memory.null<u8>();
+    let empty: DataPointer<u8> = std.memory.null<u8>();
 
     return
     {
@@ -446,7 +446,7 @@ trusted internal func empty_text() -> OwnedText
     };
 }
 
-trusted internal func byte(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> u8
+trusted internal func byte(pos data: DataPointer<u8>, pos length: usize, pos index: usize) -> u8
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
@@ -465,7 +465,7 @@ trusted internal func byte(pos data: RawPointer<u8>, pos length: usize, pos inde
     return trusted internal std.memory.byte_buffer_read(data, index = index);
 }
 
-trusted internal func continuation(pos data: RawPointer<u8>, pos length: usize, pos index: usize) -> bool
+trusted internal func continuation(pos data: DataPointer<u8>, pos length: usize, pos index: usize) -> bool
     requires(
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),

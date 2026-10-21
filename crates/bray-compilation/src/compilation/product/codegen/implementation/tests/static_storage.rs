@@ -143,7 +143,7 @@ fn repeated_static_references_emit_one_native_instance() {
 
 using core.memory;
 static ANSWER: i32 = 42;
-func answer_address() -> RawPointer<i32>
+func answer_address() -> DataPointer<i32>
 {
     return core.memory.address_of<i32>(&ANSWER);
 }

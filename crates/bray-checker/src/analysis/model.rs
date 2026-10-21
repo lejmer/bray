@@ -83,6 +83,7 @@ pub(crate) enum AnalysisResultPhase {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisCallPhase {
+    Input,
     Attempt,
     Completion,
 }
@@ -255,6 +256,8 @@ pub(crate) enum AnalysisRefinement {
     PreconditionFailure(bray_bound_tree::BoundExecutionSite),
     InvocationFailure(bray_bound_tree::BoundExecutionSite),
     InvocationCompletion(bray_bound_tree::BoundExecutionSite),
+    InvocationPresence(bray_bound_tree::BoundExecutionSite, bool),
+    InvocationBoolean(bray_bound_tree::BoundExecutionSite, bool),
     CleanupRequired {
         scope: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
@@ -672,7 +675,9 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::InvocationFailure(invocation)
                 | AnalysisRefinement::PreconditionFailure(invocation)
-                | AnalysisRefinement::InvocationCompletion(invocation),
+                | AnalysisRefinement::InvocationCompletion(invocation)
+                | AnalysisRefinement::InvocationPresence(invocation, _)
+                | AnalysisRefinement::InvocationBoolean(invocation, _),
             ) => invocation.node().unit() == self.unit,
             Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {
                 scope.unit() == self.unit && exit.unit() == self.unit

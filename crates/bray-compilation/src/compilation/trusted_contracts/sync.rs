@@ -166,7 +166,11 @@ fn production_sync_compilation_for_target(
 ) -> Compilation {
     let sources = [
         include_str!("../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/pointer.bray"),
+include_str!("../../../../../standard-library/std/src/memory/storage.bray"),
+include_str!("../../../../../standard-library/std/src/memory/allocation.bray"),
+include_str!("../../../../../standard-library/std/src/memory/buffer.bray"),
+include_str!("../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
@@ -2206,7 +2210,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
             func observe_marker(pos value: &Marker) requires(trusted held(value)) executes(pure, total) {{}}
             func observe_word(pos value: &core.atomic.Atomic<u32>) requires(trusted ready(value)) executes(pure, total) {{}}
             func observe_scalar(pos value: &u32) requires(trusted unchanged(value)) executes(pure, total) {{}}
-            trusted func production_probe(pos pointer: RawPointer<core.atomic.Atomic<u32>>, pos marker: &Marker,
+            trusted func production_probe(pos pointer: DataPointer<core.atomic.Atomic<u32>>, pos marker: &Marker,
                 pos word: &core.atomic.Atomic<u32>, pos scalar: &u32)
                 requires(trusted held(marker), trusted ready(word), trusted unchanged(scalar),
                     trusted core.memory.valid_read<core.atomic.Atomic<u32>>(pointer = pointer, count = 1),
@@ -2264,10 +2268,10 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
                 uses(raw_memory, unchecked_alias) {{
                 return trusted std.memory.borrow_from<u32, Anchor>(owner, std.memory.address_of<u32>(payload));
             }}
-            trusted func address_view(pos owner: &u32) -> RawPointer<u32>
+            trusted func address_view(pos owner: &u32) -> DataPointer<u32>
                 ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
                 executes(pure, total) {{ return std.memory.address_of<u32>(owner); }}
-            func observe(pos pointer: RawPointer<u32>)
+            func observe(pos pointer: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 executes(pure, total) {{}}
             func production_probe(pos payload: &u32) {{
@@ -2852,7 +2856,7 @@ fn static_initializers_preserve_only_established_owner_authority() {
             static OWNER: Owner = {initializer};
             func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {{}}
             extern func change();
-            extern func publish(pos pointer: RawPointer<Owner>);
+            extern func publish(pos pointer: DataPointer<Owner>);
             trusted func caller() uses(raw_memory) {{ {mutation} observe(&OWNER); }}
         "#
         );
@@ -2888,7 +2892,7 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
         using core.memory;
         using std.memory;
         @abi(c)
-        trusted func sink(destination: RawPointer<u8>, length: u64, transferred: RawPointer<u64>)
+        trusted func sink(destination: DataPointer<u8>, length: u64, transferred: DataPointer<u64>)
             requires(
                 length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
                 trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
@@ -3016,7 +3020,7 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
             sender.close();
             return Ok(unit);
         }
-        func fabricated(pos pointer: RawPointer<std.channel.ChannelCore<u32>>) {
+        func fabricated(pos pointer: DataPointer<std.channel.ChannelCore<u32>>) {
             let sender: std.channel.Sender<u32> = {
                 owner = { instance = std.channel.owner.Marker {}, core = pointer },
             };
@@ -3135,7 +3139,7 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             extern trusted func opaque();
             extern trusted func replace(pos owner: &mut &Owner);
             extern trusted func replace_owner(pos owner: &mut Owner);
-            extern trusted func publish(pos pointer: RawPointer<Owner>);
+            extern trusted func publish(pos pointer: DataPointer<Owner>);
             struct Holder {{ owner: &mut Owner; }}
             extern trusted func replace_holder(pos holder: Holder);
             trusted func caller() uses(raw_memory) {{ {body} }}
@@ -3463,7 +3467,7 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
             func signal() {{ core.atomic.store<u32, 2>(&WORD, 1); }}
             extern trusted func replace(pos value: &mut u32);
-            extern trusted func publish(pos pointer: RawPointer<u32>);
+            extern trusted func publish(pos pointer: DataPointer<u32>);
             trusted func caller(pos initial: u32) -> u32 ensures(result == initial) uses(raw_memory) {{
                 let mut value = initial;
                 {effect}
@@ -3530,7 +3534,7 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
         trusted module app;
 
         using std.memory;
-        struct Owner { mut first: u32; mut second: u32; mut third: usize; mut fourth: usize; mut pointer: RawPointer<u8>; }
+        struct Owner { mut first: u32; mut second: u32; mut third: usize; mut fourth: usize; mut pointer: DataPointer<u8>; }
         trusted predicate live(owner: &Owner);
         trusted func make() -> (u32, Owner) ensures(trusted live(&result.1)) {
             return (1, Owner { first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>() });

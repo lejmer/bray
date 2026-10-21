@@ -13,7 +13,7 @@ using internal std.platform;
 trusted internal func prepare_dynamic_library_open_path(
     pos path: std.fs.PlatformPath,
     pos policy: u32,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> Result<u64, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
@@ -57,7 +57,7 @@ trusted internal func prepare_dynamic_library_open_path(
 trusted internal func prepare_dynamic_library_open_system(
     pos identity: u32,
     pos policy: u32,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> Result<u64, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
@@ -88,13 +88,13 @@ trusted internal func prepare_dynamic_library_open_system(
 }
 
 trusted internal func load_windows_library(
-    pos name: RawPointer<u16>,
+    pos name: DataPointer<u16>,
     flags: u32,
 ) -> Result<u64, std.platform.PlatformStatus>
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let library: RawPointer<u8> = trusted std.os.windows.load_library_ex_w(
+    let library: DataPointer<u8> = trusted std.os.windows.load_library_ex_w(
         name,
         file = std.memory.null<u8>(),
         flags = flags,
@@ -110,21 +110,21 @@ trusted internal func load_windows_library(
 
 trusted internal func prepare_dynamic_library_symbol(
     pos handle: u64,
-    pos name: RawPointer<u8>,
+    pos name: DataPointer<u8>,
     pos length: u64,
-    pos address: RawPointer<RawPointer<u8>>,
-) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    pos address: DataPointer<DataPointer<u8>>,
+) -> Result<DataPointer<u8>, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = name, count = length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = name, count = length as usize),
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = address),
         blocking_execution(),
     )
     uses(foreign_call)
     ensures(
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = address),
     )
 {
     let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
@@ -134,9 +134,9 @@ trusted internal func prepare_dynamic_library_symbol(
     {
         case Ok(terminated_name)
         {
-            let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+            let library: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
-            let resolved_address: RawPointer<u8> = trusted std.os.windows.get_proc_address(
+            let resolved_address: DataPointer<u8> = trusted std.os.windows.get_proc_address(
                 library,
                 name = terminated_name.pointer,
             );
@@ -157,7 +157,7 @@ trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.pla
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let library: RawPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let library: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
     if trusted std.os.windows.free_library(library) == 0
     {

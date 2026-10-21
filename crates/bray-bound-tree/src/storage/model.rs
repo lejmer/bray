@@ -71,12 +71,17 @@ pub enum StorageIdentity {
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
+    /// A value staged for one call, owned until callee admission transfers it.
+    InvocationInput {
+        /// The call whose evaluation owns this slot.
+        expression: BoundExpressionId,
+        /// The receiver-first input ordinal.
+        ordinal: SymbolOrdinal,
+    },
     /// The borrow returned by a custom indexing operation.
     CustomIndexBorrow(BoundExpressionId),
-    /// Cursor owned by an iteration expression.
-    IterationCursor(BoundExpressionId),
-    /// Current element produced by an iteration expression.
-    IterationElement(BoundExpressionId),
+    /// The owned result of one selected implicit invocation.
+    InvocationResult(crate::BoundExecutionSite),
     /// Capability retained from successful entry until its matching scoped exit.
     ScopedCapability {
         /// The actual with occurrence selecting this capability.
@@ -112,8 +117,8 @@ impl StorageIdentity {
                 | StorageIdentity::PostconditionResult(_)
                 | StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
-                | StorageIdentity::IterationCursor(_)
-                | StorageIdentity::IterationElement(_)
+                | StorageIdentity::InvocationInput { .. }
+                | StorageIdentity::InvocationResult(_)
                 | StorageIdentity::ScopedCapability { .. }
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_)
@@ -172,9 +177,9 @@ impl StorageIdentity {
             Self::PostconditionResult(_) => "postcondition_result",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
+            Self::InvocationInput { .. } => "invocation_input",
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
-            Self::IterationCursor(_) => "iteration_cursor",
-            Self::IterationElement(_) => "iteration_element",
+            Self::InvocationResult(_) => "invocation_result",
             Self::ScopedCapability { .. } => "scoped_capability",
             Self::Allocation(_) => "allocation",
             Self::CompilerCreated(_) => "compiler_created",
@@ -197,19 +202,27 @@ impl StorageIdentity {
         )
     }
 
-    /// Whether this storage is an iteration cursor or its current element.
-    pub const fn is_iteration_storage(self) -> bool {
-        matches!(self, Self::IterationCursor(_) | Self::IterationElement(_))
+    /// Returns the operation that creates this value, independently of its source owner.
+    pub const fn definition_occurrence(self) -> Option<crate::BoundExecutionSite> {
+        match self {
+            Self::InvocationResult(occurrence) => Some(occurrence),
+            Self::InvocationInput { expression, ordinal } => Some(crate::BoundExecutionSite::CallInput { expression, ordinal }),
+            Self::ScopedCapability { expression, .. } => Some(crate::BoundExecutionSite::ScopedEnter(expression)),
+            _ => match self.definition_node() {
+                Some(node) => Some(crate::BoundExecutionSite::Node(node)),
+                None => None,
+            },
+        }
     }
 
     /// Returns the bound node that introduces this storage, when one exists.
     pub const fn definition_node(self) -> Option<AnyBoundNodeId> {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => Some(node),
+            Self::InvocationResult(occurrence) => Some(occurrence.node()),
             Self::Temporary(expression)
+            | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
-            | Self::IterationCursor(expression)
-            | Self::IterationElement(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
             Self::Alternative { pattern, .. } | Self::ScopedCapability { pattern, .. } => {
                 Some(AnyBoundNodeId::Pattern(pattern))
@@ -229,10 +242,10 @@ impl StorageIdentity {
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
+            Self::InvocationResult(occurrence) => occurrence.node().unit() == unit,
             Self::Temporary(expression)
+            | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
-            | Self::IterationCursor(expression)
-            | Self::IterationElement(expression)
             | Self::Allocation(expression) => expression.unit() == unit,
             Self::Alternative {
                 pattern,

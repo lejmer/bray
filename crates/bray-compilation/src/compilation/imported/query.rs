@@ -1151,6 +1151,13 @@ fn checked_template_problem(
             expected_type: expected.slot(),
             actual_type: actual.slot(),
         },
+        Error::SequenceTypeMismatch { node, expected, actual } => {
+            DiagnosticCheckedTemplateProblem::SequenceTypeMismatch {
+                node: node.raw(),
+                expected_type: expected.slot(),
+                actual_type: actual.slot(),
+            }
+        }
         Error::ConditionalBranchTypeMismatch {
             node,
             when_true,

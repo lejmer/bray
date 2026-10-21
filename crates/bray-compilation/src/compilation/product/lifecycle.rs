@@ -383,7 +383,7 @@ impl Compilation {
                     RepresentationRole::Atomic
                         | RepresentationRole::Unit
                         | RepresentationRole::Never
-                        | RepresentationRole::RawPointer
+                        | RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Uninit
                 ) =>

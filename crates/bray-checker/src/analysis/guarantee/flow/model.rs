@@ -152,8 +152,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .request
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&invocation))
-            && self
-                .call_entry(state, invocation)
+            && state.entries.get(&invocation)
                 .is_some_and(|entry| entry.proves(&contract.preconditions))
         {
             return false;

@@ -204,12 +204,12 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
             @symbol(name = "native_value")
             extern trusted static NATIVE: i32;
 
-            trusted func repeated_native_pointer() -> RawPointer<i32>
+            trusted func repeated_native_pointer() -> DataPointer<i32>
             {
                 return NATIVE;
             }
 
-            trusted func native_pointer() -> RawPointer<i32>
+            trusted func native_pointer() -> DataPointer<i32>
             {
                 return NATIVE;
             }

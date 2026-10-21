@@ -1,4 +1,5 @@
 mod arithmetic;
+mod array;
 mod builtins;
 mod control;
 mod core;

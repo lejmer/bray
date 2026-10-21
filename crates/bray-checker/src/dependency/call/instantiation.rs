@@ -144,6 +144,7 @@ where
 
         match root {
             DependencySubjectRoot::Result => Some(expression),
+            _ if call.evaluates_defaults() => None,
             _ => crate::dependency::result_argument(call.arguments(), call.receiver(), root),
         }
     }
@@ -160,6 +161,8 @@ where
                         .flatten()
                 });
             }
+            CallInstantiationInput::Selected { call, .. }
+                if call.evaluates_defaults() => return None,
             CallInstantiationInput::Selected { call, .. } => match root {
                 DependencySubjectRoot::Receiver => {
                     let receiver = call.receiver()?;
@@ -191,7 +194,7 @@ where
         };
 
         self.storage
-            .expression_plans(expression)
+            .node_plans((expression).into())
             .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
             .and_then(|plan| self.storage.borrow_for_plan(plan))
     }
@@ -214,7 +217,7 @@ where
         };
 
         self.storage
-            .expression_plans(receiver.expression())
+            .node_plans(receiver.expression().into())
             .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
             .map(bray_bound_tree::StorageAccessPlan::access)
     }
@@ -238,6 +241,14 @@ where
                         .iter()
                         .find_map(|(actual, access, _)| (*actual == root).then_some(*access))
                 }
+            }
+            CallInstantiationInput::Selected { expression, call }
+                if call.evaluates_defaults() =>
+            {
+                call.input_ordinal(root).map(|ordinal| {
+                    self.storage.invocation_input(*expression, ordinal)
+                        .expect("selected formal input has its staged storage")
+                })
             }
             CallInstantiationInput::Selected { .. } => None,
         }
@@ -300,7 +311,7 @@ where
             .find(|(_, capability)| {
                 capability.kind() == kind
                     && expression
-                        .is_some_and(|expression| capability.expression() == Some(expression))
+                        .is_some_and(|expression| capability.occurrence() == Some(expression.into()))
             })
         {
             return Some(id);
@@ -325,7 +336,7 @@ where
                     && (self.storage.relationship(capability.access(), access)
                         == bray_bound_tree::StorageRelationship::Identical
                         || expression
-                            .is_some_and(|expression| capability.expression() == Some(expression))))
+                            .is_some_and(|expression| capability.occurrence() == Some(expression.into()))))
                 .then_some(id)
             })
     }
@@ -387,15 +398,35 @@ where
                     .borrow_capability_entries()
                     .find(|(_, capability)| {
                         expression
-                            .is_some_and(|expression| capability.expression() == Some(expression))
+                            .is_some_and(|expression| capability.occurrence() == Some(expression.into()))
                     })
         {
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
 
+        let staged = match &self.input {
+            CallInstantiationInput::Selected { call, .. }
+                if call.evaluates_defaults() =>
+            {
+                self.hidden_access(root)
+            }
+            CallInstantiationInput::Inputs { .. } => self.hidden_access(root).filter(|access|
+                matches!(self.storage.root_identity(*access).and_then(|identity| self.storage.identity(identity)),
+                    Some(StorageIdentity::InvocationInput { .. }))),
+            _ => None,
+        };
+
+        // A staged borrow is a checked value, not the original source loan.
+        // Retaining its dependencies follows the loans of its current contents.
+        if staged.is_some() && matches!(requirement,
+            DependencyRequirementKind::BorrowCapabilityActive(_))
+        {
+            return Ok(BoundDependencySubject::StorageAccess(staged.expect("staged input exists")));
+        }
+
         let frame_access = self.deferred_frame_access(root);
 
-        let base = frame_access
+        let base = frame_access.or(staged)
             .or_else(|| (requirement != DependencyRequirementKind::ValueDependencies)
                 .then(|| self.receiver_access(root).or_else(|| self.hidden_access(root))).flatten())
             .or_else(|| {
@@ -446,8 +477,9 @@ pub(super) fn expression_access(
     expression: BoundExpressionId,
 ) -> Option<StorageAccessId> {
     storage
-        .expression_plans(expression)
-        .next()
+        .node_plans((expression).into())
+        .find(|plan| !matches!(storage.root_identity(plan.access()).and_then(|root| storage.identity(root)),
+            Some(StorageIdentity::InvocationInput { .. })))
         .map(bray_bound_tree::StorageAccessPlan::access)
         .or_else(|| identity_access(storage, StorageIdentity::Temporary(expression)))
 }

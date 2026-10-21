@@ -116,6 +116,13 @@ pub enum CheckedTemplateOperation<
 > {
     /// A path with no normal value, established by checked control flow or entry requirements.
     Unreachable,
+    /// Evaluates a preceding operation before producing the following value.
+    Sequence {
+        /// The operation whose result is discarded.
+        before: CheckedTemplateNodeId,
+        /// The result evaluated after the preceding operation completes.
+        value: CheckedTemplateNodeId,
+    },
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
@@ -139,6 +146,22 @@ pub enum CheckedTemplateOperation<
         /// Left operand evaluated first.
         left: CheckedTemplateNodeId,
         /// Right operand evaluated second unless the operation short-circuits.
+        right: CheckedTemplateNodeId,
+    },
+    /// Applies the source callable's typed unary machine operation.
+    MachineUnary {
+        /// Exact checked operation.
+        operation: ConstantUnaryOperation,
+        /// Operand evaluated before the operation.
+        operand: CheckedTemplateNodeId,
+    },
+    /// Applies the source callable's typed binary machine operation.
+    MachineBinary {
+        /// Exact checked operation.
+        operation: ConstantBinaryOperation,
+        /// Left operand evaluated first.
+        left: CheckedTemplateNodeId,
+        /// Right operand evaluated second.
         right: CheckedTemplateNodeId,
     },
     /// Borrows one evaluated place with its checked capability.
@@ -179,6 +202,20 @@ pub enum CheckedTemplateOperation<
     Tuple(Arc<[CheckedTemplateNodeId]>),
     /// Constructs an array from values in element order.
     Array(Arc<[CheckedTemplateNodeId]>),
+    /// The element snapshot bound only while an array transform evaluates its body.
+    ArrayElement {
+        /// The array supplying successive element values.
+        subject: CheckedTemplateNodeId,
+    },
+    /// Evaluates one checked element computation for each element, in array order.
+    ArrayTransform {
+        /// The array evaluated once before the first conversion.
+        subject: CheckedTemplateNodeId,
+        /// The element node bound separately for each body evaluation.
+        element: CheckedTemplateNodeId,
+        /// The converted element, whose computation is retained once.
+        value: CheckedTemplateNodeId,
+    },
     /// Constructs a nominal aggregate while evaluating fields in source order.
     Construct {
         /// The selected active variant for a union. Struct construction has no variant.
@@ -331,6 +368,14 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         mut implementation: impl FnMut(&Implementation) -> Result<I, E>,
     ) -> Result<CheckedTemplateOperation<T, Y, D, S, I>, E> {
         Ok(match self {
+            Self::ArrayElement { subject } => CheckedTemplateOperation::ArrayElement { subject: *subject },
+            Self::ArrayTransform { subject, element, value } => CheckedTemplateOperation::ArrayTransform {
+                subject: *subject, element: *element, value: *value,
+            },
+            Self::Sequence { before, value } => CheckedTemplateOperation::Sequence {
+                before: *before,
+                value: *value,
+            },
             Self::Input(input) => CheckedTemplateOperation::Input(*input),
             Self::Constant { term: value, usage } => CheckedTemplateOperation::Constant {
                 term: term(value)?,
@@ -348,6 +393,12 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 operation: *operation,
                 left: *left,
                 right: *right,
+            },
+            Self::MachineUnary { operation, operand } => CheckedTemplateOperation::MachineUnary {
+                operation: *operation, operand: *operand,
+            },
+            Self::MachineBinary { operation, left, right } => CheckedTemplateOperation::MachineBinary {
+                operation: *operation, left: *left, right: *right,
             },
             Self::Borrow { kind, operand } => CheckedTemplateOperation::Borrow {
                 kind: *kind,
@@ -496,9 +547,19 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                     *field = ConstantField::new(field.field().clone(), map(*field.value()));
                 }
             }
+            Self::ArrayTransform { subject, element, value } => {
+                *subject = map(*subject);
+                *element = map(*element);
+                *value = map(*value);
+            }
+            Self::ArrayElement { subject } => *subject = map(*subject),
+            Self::Sequence { before, value } => {
+                *before = map(*before);
+                *value = map(*value);
+            }
             Self::Convert { value, .. } => *value = map(*value),
-            Self::Unary { operand, .. } | Self::Borrow { operand, .. } => *operand = map(*operand),
-            Self::Binary { left, right, .. } | Self::ShortCircuit { left, right, .. } => {
+            Self::Unary { operand, .. } | Self::MachineUnary { operand, .. } | Self::Borrow { operand, .. } => *operand = map(*operand),
+            Self::Binary { left, right, .. } | Self::MachineBinary { left, right, .. } | Self::ShortCircuit { left, right, .. } => {
                 *left = map(*left);
                 *right = map(*right);
             }
@@ -555,9 +616,19 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                     visit(*field.value())?;
                 }
             }
+            Self::ArrayTransform { subject, element, value } => {
+                visit(*subject)?;
+                visit(*element)?;
+                visit(*value)?;
+            }
+            Self::ArrayElement { subject } => visit(*subject)?,
+            Self::Sequence { before, value } => {
+                visit(*before)?;
+                visit(*value)?;
+            }
             Self::Convert { value, .. } => visit(*value)?,
-            Self::Unary { operand, .. } | Self::Borrow { operand, .. } => visit(*operand)?,
-            Self::Binary { left, right, .. } => {
+            Self::Unary { operand, .. } | Self::MachineUnary { operand, .. } | Self::Borrow { operand, .. } => visit(*operand)?,
+            Self::Binary { left, right, .. } | Self::MachineBinary { left, right, .. } => {
                 visit(*left)?;
                 visit(*right)?;
             }

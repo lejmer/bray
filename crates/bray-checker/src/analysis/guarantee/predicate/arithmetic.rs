@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundOperator;
 use num_bigint::BigInt;
 
-pub(super) fn arithmetic_range(
+pub(in crate::analysis::guarantee) fn arithmetic_range(
     operator: BoundOperator,
     (left_min, left_max): (BigInt, BigInt),
     (right_min, right_max): (BigInt, BigInt),

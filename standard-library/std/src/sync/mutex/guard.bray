@@ -18,7 +18,7 @@ struct MutexGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -39,7 +39,7 @@ struct MutexGuard<T>
         core.atomic.notify_all<u32>(&state.tickets);
     }
 
-    internal trusted func pointer() -> RawPointer<T>
+    internal trusted func pointer() -> DataPointer<T>
         requires(trusted std.sync.mutex.acquired(&self.acquisition))
         ensures(
             trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -56,7 +56,7 @@ struct MutexGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),

@@ -232,6 +232,7 @@ pub type InterfaceCheckedTemplateIndexCall = bray_bound_tree::CheckedTemplateInd
 /// One typed normalized operation in deterministic dependency order.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCheckedTemplateNode {
+    unsigned_integer_bits: Option<std::num::NonZeroU8>,
     operation: InterfaceCheckedTemplateOperation,
     ty: InterfaceTypeId,
 }
@@ -239,7 +240,19 @@ pub struct InterfaceCheckedTemplateNode {
 impl InterfaceCheckedTemplateNode {
     /// Creates one typed interface-template operation.
     pub const fn new(operation: InterfaceCheckedTemplateOperation, ty: InterfaceTypeId) -> Self {
-        Self { operation, ty }
+        Self { operation, ty, unsigned_integer_bits: None }
+    }
+
+    /// Retains the owning analysis's unsigned value-width proof without changing the declared type.
+    pub const fn with_unsigned_integer_bits(mut self, bits: Option<std::num::NonZeroU8>) -> Self {
+        if let Some(bits) = bits { assert!(bits.get() <= 64, "u64 value bounds require at most 64 unsigned bits"); }
+        self.unsigned_integer_bits = bits;
+        self
+    }
+
+    /// Returns the established unsigned value width used by native exact arithmetic.
+    pub const fn unsigned_integer_bits(&self) -> Option<std::num::NonZeroU8> {
+        self.unsigned_integer_bits
     }
 
     /// Returns the normalized operation.

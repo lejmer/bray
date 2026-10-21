@@ -187,7 +187,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
+        origins: &BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StoragePath>>,
         retain_carriers: bool,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
@@ -207,36 +207,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for argument in call.arguments() {
-            let bray_bound_tree::SelectedArgument::Explicit {
-                expression: operand,
-                ordinal,
-                parameter,
-                conversion,
-                ..
-            } = argument
-            else {
-                continue;
+            let (parameter, ordinal, ty) = match argument {
+                bray_bound_tree::SelectedArgument::Explicit { parameter, ordinal, conversion, .. } => (*parameter, *ordinal, conversion.target_type()),
+                bray_bound_tree::SelectedArgument::Default { parameter, ordinal, ty, .. } => (Some(*parameter), *ordinal, *ty),
             };
-
+            let operand = call.input_site(expression, bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(ordinal))).expect("selected argument has its evaluated input");
             let reference =
-                crate::representation::reference_kind(self.request, conversion.target_type());
+                crate::representation::reference_kind(self.request, ty);
 
             if reference.is_none() {
                 continue;
             }
 
-            let Some(place) = crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                *operand,
-            ) else {
+            let Some(place) = self.input_place(operand) else {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
                 for access in self
                     .storage
-                    .expression_plans(*operand)
-                    .filter(|_| returned(*operand))
+                    .occurrence_plans(operand)
+                    .filter(|_| returned(operand))
                 {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
@@ -266,7 +256,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // A reassigned or exposed pointer slot cannot establish this identity.
                     if let Some(parameter) = parameter {
                         arguments.insert(
-                            bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into())
+                            bray_bound_tree::BoundReferenceTarget::Surface(parameter.into())
                                 .into(),
                             current.clone(),
                         );
@@ -278,12 +268,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let input = self.borrowed_value(state, *operand);
+            let input = self.current_input(state, operand);
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            if returned(*operand) {
-                self.retain_trusted_borrow_owners(&mut owners, *operand, &place, origins);
+            if returned(operand) {
+                self.retain_trusted_borrow_owners(&mut owners, operand, &place, origins);
             }
 
             let value = input;
@@ -294,7 +284,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if let Some(parameter) = parameter {
                 arguments.insert(
-                    bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into()).into(),
+                    bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
                     value.clone(),
                 );
             }
@@ -314,28 +304,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 receiver.mode(),
                 bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
             )
-            && let Some(place) = crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                receiver.expression(),
-            )
+            && let Some(input) = call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
+            && let Some(place) = self.input_place(input)
         {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            let input = self.borrowed_value(state, receiver.expression());
+            let value = self.current_input(state, input);
 
-            if returned(receiver.expression()) {
+            if returned(input) {
                 self.retain_trusted_borrow_owners(
                     &mut owners,
-                    receiver.expression(),
+                    input,
                     &place,
                     origins,
                 );
             }
-
-            let value = input;
 
             if retain_carriers {
                 carriers.push(value.clone());
@@ -355,9 +339,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn retain_trusted_borrow_owners(
         &self,
         owners: &mut BTreeSet<crate::ExecutionPlace>,
-        expression: BoundExpressionId,
+        expression: bray_bound_tree::BoundExecutionSite,
         place: &crate::ExecutionPlace,
-        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
+        origins: &BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
         if let Some(paths) = origins.get(&expression) {
             owners.extend(
@@ -377,7 +361,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
         observations: &BTreeMap<
-            bray_bound_tree::BoundExpressionId,
+            bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
@@ -605,7 +589,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(true, &mut state.assumptions);
         }
 
-        if let Some(expression) = result_expression {
+        if matches!(invocation, bray_bound_tree::BoundExecutionSite::CallInput { .. }
+            | bray_bound_tree::BoundExecutionSite::Iterate(_) | bray_bound_tree::BoundExecutionSite::Next(_)) {
+            let place = self.input_place(invocation).expect("completed input has its place");
+            state.assign(place, result);
+        } else if let Some(expression) = result_expression {
             state.expressions.insert(expression, result);
         }
     }

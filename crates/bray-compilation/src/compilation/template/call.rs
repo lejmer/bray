@@ -346,7 +346,23 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     .transpose()?
                     .unwrap_or(node.ty());
 
-                self.push_node(operation, ty)
+                let result = CheckedTemplateNodeId::new(index(self.nodes.len()));
+                self.nodes.push(CheckedTemplateNode::new(operation, ty)
+                    .with_unsigned_integer_bits(node.unsigned_integer_bits()));
+                result
+            };
+
+            let result = if matches!(node.operation(), CheckedTemplateOperation::Input(_))
+                && let Some(bits) = node.unsigned_integer_bits()
+            {
+                let ty = self.nodes[usize::try_from(result.raw()).expect("checked input fits host")].ty();
+                let bounded = CheckedTemplateNodeId::new(index(self.nodes.len()));
+                self.nodes.push(CheckedTemplateNode::new(
+                    CheckedTemplateOperation::Convert { value: result, target: ty }, ty,
+                ).with_unsigned_integer_bits(Some(bits)));
+                bounded
+            } else {
+                result
             };
 
             nodes.push(result);

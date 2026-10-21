@@ -98,7 +98,7 @@ impl DiagnosticMemoryOperation {
             Self::PointerByteOffset => "pointer_byte_offset",
             Self::PointerReinterpretation => "pointer_reinterpretation",
             Self::CallableFromPointer => "callable_from_pointer",
-            Self::PointerFromCallable => "pointer_from_callable",
+            Self::PointerFromCallable => "function_address",
             Self::CallbackState => "callback_state",
             Self::PointerRead => "pointer_read",
             Self::PointerWrite => "pointer_write",
