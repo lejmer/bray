@@ -241,7 +241,9 @@ impl BoundUnitKeyData {
             Self::EmbeddedConstant(_) => BoundUnitKind::EmbeddedConstant,
             Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
             Self::Constraint(_) => BoundUnitKind::Constraint,
-            Self::ContractClause(_) | Self::CallableTypeClause { .. } => BoundUnitKind::ContractClause,
+            Self::ContractClause(_) | Self::CallableTypeClause { .. } => {
+                BoundUnitKind::ContractClause
+            }
             Self::TargetGate(_) => BoundUnitKind::TargetGate,
         }
     }
@@ -360,7 +362,11 @@ impl BoundUnitKey {
     }
 
     /// Creates a contract unit whose inputs come from an independently bound callable header.
-    pub fn callable_type_clause(owner: SymbolKey, callable: BoundSourceAnchor, source: BoundSourceAnchor) -> Self {
+    pub fn callable_type_clause(
+        owner: SymbolKey,
+        callable: BoundSourceAnchor,
+        source: BoundSourceAnchor,
+    ) -> Self {
         Self(Arc::new(BoundUnitKeyData::CallableTypeClause {
             declaration: DeclaredBoundUnitKey::new(owner, source),
             callable,

@@ -315,7 +315,10 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         variant: Option<Declaration>,
         fields: impl IntoIterator<Item = ConstantField<Declaration, CheckedTemplateNodeId>>,
     ) -> Self {
-        Self::Construct { variant, fields: shared_slice(fields) }
+        Self::Construct {
+            variant,
+            fields: shared_slice(fields),
+        }
     }
 
     /// Maps semantic references while preserving node identities and sharing operand storage.
@@ -406,7 +409,9 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 subject: *subject,
                 variant: declaration(variant)?,
             },
-            Self::NullableValue { subject } => CheckedTemplateOperation::NullableValue { subject: *subject },
+            Self::NullableValue { subject } => {
+                CheckedTemplateOperation::NullableValue { subject: *subject }
+            }
             Self::TupleElement { subject, index } => CheckedTemplateOperation::TupleElement {
                 subject: *subject,
                 index: *index,
@@ -473,12 +478,17 @@ impl<Term, Type, Declaration, Substitution, Implementation>
     }
 
     /// Rebinds operand identities when applying a checked graph to existing inputs.
-    pub fn map_node_references(&mut self, mut map: impl FnMut(CheckedTemplateNodeId) -> CheckedTemplateNodeId)
-    where Declaration: Clone,
+    pub fn map_node_references(
+        &mut self,
+        mut map: impl FnMut(CheckedTemplateNodeId) -> CheckedTemplateNodeId,
+    ) where
+        Declaration: Clone,
     {
         match self {
             Self::Call { arguments, .. } | Self::Tuple(arguments) | Self::Array(arguments) => {
-                for argument in Arc::make_mut(arguments) { *argument = map(*argument); }
+                for argument in Arc::make_mut(arguments) {
+                    *argument = map(*argument);
+                }
             }
             Self::Construct { fields, .. } => {
                 for field in Arc::make_mut(fields) {
@@ -489,19 +499,43 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             Self::Convert { value, .. } => *value = map(*value),
             Self::Unary { operand, .. } | Self::Borrow { operand, .. } => *operand = map(*operand),
             Self::Binary { left, right, .. } | Self::ShortCircuit { left, right, .. } => {
-                *left = map(*left); *right = map(*right);
+                *left = map(*left);
+                *right = map(*right);
             }
-            Self::VariantTest { subject, .. } | Self::Project { subject, .. }
-            | Self::TupleElement { subject, .. } | Self::NullableValue { subject } => *subject = map(*subject),
-            Self::Index { subject, index, .. } => { *subject = map(*subject); *index = map(*index); }
-            Self::Slice { subject, lower, upper, .. } => {
+            Self::VariantTest { subject, .. }
+            | Self::Project { subject, .. }
+            | Self::TupleElement { subject, .. }
+            | Self::NullableValue { subject } => *subject = map(*subject),
+            Self::Index { subject, index, .. } => {
                 *subject = map(*subject);
-                for bound in [lower, upper].into_iter().flatten() { *bound = map(*bound); }
+                *index = map(*index);
             }
-            Self::Conditional { condition, when_true, when_false } => {
-                *condition = map(*condition); *when_true = map(*when_true); *when_false = map(*when_false);
+            Self::Slice {
+                subject,
+                lower,
+                upper,
+                ..
+            } => {
+                *subject = map(*subject);
+
+                for bound in [lower, upper].into_iter().flatten() {
+                    *bound = map(*bound);
+                }
             }
-            Self::Unreachable | Self::Input(_) | Self::Constant { .. } | Self::Declaration { .. } | Self::Temporary(_) => {}
+            Self::Conditional {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                *condition = map(*condition);
+                *when_true = map(*when_true);
+                *when_false = map(*when_false);
+            }
+            Self::Unreachable
+            | Self::Input(_)
+            | Self::Constant { .. }
+            | Self::Declaration { .. }
+            | Self::Temporary(_) => {}
         }
     }
 
@@ -560,7 +594,8 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Unreachable | Self::Input(_)
+            Self::Unreachable
+            | Self::Input(_)
             | Self::Constant { .. }
             | Self::Declaration { .. }
             | Self::Temporary(_) => {}

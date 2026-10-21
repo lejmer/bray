@@ -14,11 +14,11 @@ use bray_runtime_interface::{
 };
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, CallableTypeDirectiveKey, ConstantInstanceKey,
-    ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
-    ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, ImportedInterfaceId, ImportedSemanticAddress, InterfaceSymbolId,
-    NamedTypeSymbolId, ProductIdentity, SymbolQueryKind, TypeId,
+    AnySymbolId, CallableTypeDirectiveKey, ConstantInstanceKey, ConstantValueId, FunctionSymbolId,
+    GenericConstraintObligationKey, ImplementationCoherenceDomainKey, ImplementationInstanceId,
+    ImplementationRequirementKey, ImplementationSymbolId, ImportedInterfaceId,
+    ImportedSemanticAddress, InterfaceSymbolId, NamedTypeSymbolId, ProductIdentity,
+    SymbolQueryKind, TypeId,
 };
 use bray_target::TargetProfile;
 

@@ -90,6 +90,13 @@ impl Compilation {
 
         let behavior = body.result().value();
 
+        let dependency = crate::compilation::binder::extend_dependency_contract_with_statics(
+            &context,
+            dependency,
+            behavior.static_dependencies(),
+        )
+        .map_err(crate::compilation::binder::binding_query_error)?;
+
         let key_for = |symbol| -> Result<bray_symbols::SymbolKey, FactQueryError> {
             Ok(context
                 .symbol_key(symbol)
@@ -100,18 +107,46 @@ impl Compilation {
 
         let mut properties = Vec::new();
         let mut constant_eligible = false;
+
         if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
-            constant_eligible = !self.check_predicate_eligibility(&key, cancellation)?.has_errors();
-            for property in [bray_checker::ExecutionProperty::Pure, bray_checker::ExecutionProperty::Total] {
-                if constant_eligible || self.certify_execution_obligation(&key,
-                    bray_checker::ExecutionObligation::Property(property, None), &mut DiagnosticBag::new(), false, cancellation)?.0.is_none() {
+            constant_eligible = !self
+                .check_predicate_eligibility(&key, cancellation)?
+                .has_errors();
+
+            for property in [
+                bray_checker::ExecutionProperty::Pure,
+                bray_checker::ExecutionProperty::Total,
+            ] {
+                if constant_eligible
+                    || self
+                        .certify_execution_obligation(
+                            &key,
+                            bray_checker::ExecutionObligation::Property(property, None),
+                            &mut DiagnosticBag::new(),
+                            false,
+                            cancellation,
+                        )?
+                        .0
+                        .is_none()
+                {
                     properties.push(property);
                 }
             }
         }
 
-        let may_unwind = !properties.contains(&bray_checker::ExecutionProperty::Total)
-            && *self.unwind_behavior(key.clone(), cancellation)?.result().value();
+        let total = properties.contains(&bray_checker::ExecutionProperty::Total);
+
+        let may_unwind = !total
+            && *self
+                .unwind_behavior(key.clone(), cancellation)?
+                .result()
+                .value();
+
+        let cancellation_behavior = if total {
+            bray_symbols::CurrentRunCancellation::NotEntered
+        } else {
+            behavior.current_run_cancellation()
+        };
 
         let native_behavior = bray_bound_tree::CheckedTemplateBehavior::new(
             behavior
@@ -147,23 +182,42 @@ impl Compilation {
                             .map(bray_bound_tree::CheckedTemplateExecutionRequirement::new)
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-                behavior.current_run_cancellation(),
-            ).with_certification(properties, constant_eligible, may_unwind),
+                cancellation_behavior,
+            )
+            .with_certification(properties, constant_eligible, may_unwind),
             behavior.lifecycle_obligations().iter().copied(),
             dependency,
             *result_dependencies.value(),
             [],
         );
 
-        let execution = if matches!(key.kind(), bray_bound_tree::BoundUnitKind::RuntimeDefault | bray_bound_tree::BoundUnitKind::PredicateDefinition
-            | bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::Constraint)
-            || (matches!(key.kind(), bray_bound_tree::BoundUnitKind::CallableBody | bray_bound_tree::BoundUnitKind::AnonymousCallable)
-                && self.unit_requires_constant_evaluation(&key, cancellation)?)
+        let execution = if matches!(
+            key.kind(),
+            bray_bound_tree::BoundUnitKind::RuntimeDefault
+                | bray_bound_tree::BoundUnitKind::PredicateDefinition
+                | bray_bound_tree::BoundUnitKind::ContractClause
+                | bray_bound_tree::BoundUnitKind::Constraint
+        ) || (matches!(
+            key.kind(),
+            bray_bound_tree::BoundUnitKind::CallableBody
+                | bray_bound_tree::BoundUnitKind::AnonymousCallable
+        ) && self.unit_requires_constant_evaluation(&key, cancellation)?)
         {
             Some(self.execution_candidates_with_cancellation(key, cancellation)?)
-        } else { None };
-        let execution = execution.as_ref().and_then(|execution| execution.result().value()
-            .get(&bray_checker::ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None)));
+        } else {
+            None
+        };
+
+        let execution = execution.as_ref().and_then(|execution| {
+            execution
+                .result()
+                .value()
+                .get(&bray_checker::ExecutionObligation::Property(
+                    bray_checker::ExecutionProperty::Total,
+                    None,
+                ))
+        });
+
         let semantics = semantics.result().value();
 
         let template = build_source_template(

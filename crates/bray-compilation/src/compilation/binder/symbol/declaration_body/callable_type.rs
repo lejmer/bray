@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_binder::{BindingQueryContext, BindingQueryError, bind_callable_type_clause};
-use bray_bound_tree::{
-    BoundSourceAnchor, BoundUnitId, BoundUnitKey,
-};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallablePhaseBehaviors, PredicateSemanticSummary, TypeData, TypeExpressionTemplate,
@@ -69,25 +67,47 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
 
         let source = BoundSourceAnchor::new(clause, syntax.source().version());
 
-        let key = BoundUnitKey::callable_type_clause(owner_key.clone(),
-            BoundSourceAnchor::new(bray_declarations::SyntaxAnchor::from_node(&syntax), syntax.source().version()), source);
+        let key = BoundUnitKey::callable_type_clause(
+            owner_key.clone(),
+            BoundSourceAnchor::new(
+                bray_declarations::SyntaxAnchor::from_node(&syntax),
+                syntax.source().version(),
+            ),
+            source,
+        );
+
         let guard_count = guards.len();
-        let computation = compilation.bound_unit_with_cancellation(key.clone(), context.cancellation)
+
+        let computation = compilation
+            .bound_unit_with_cancellation(key.clone(), context.cancellation)
             .map_err(super::super::binding::binder_error)?;
+
         let bound = computation.result().value();
-        let references = compilation.execution_unit_inputs(&key, context.cancellation)
+
+        let references = compilation
+            .execution_unit_inputs(&key, context.cancellation)
             .map_err(super::super::binding::binder_error)?;
+
         let guard_expressions = callable_type_guard_expressions(bound, guard_count);
-        let checked = compilation.expression_semantics_with_cancellation(key.clone(), context.cancellation)
+
+        let checked = compilation
+            .expression_semantics_with_cancellation(key.clone(), context.cancellation)
             .map_err(super::super::binding::binder_error)?;
-        let patterns = compilation.patterns_with_cancellation(key.clone(), context.cancellation)
+
+        let patterns = compilation
+            .patterns_with_cancellation(key.clone(), context.cancellation)
             .map_err(super::super::binding::binder_error)?;
+
         let semantics = checked.result().value();
         let patterns = patterns.result().value();
-        let eligibility = compilation.check_predicate_eligibility(&key, context.cancellation)
+
+        let eligibility = compilation
+            .check_predicate_eligibility(&key, context.cancellation)
             .map_err(super::super::binding::binder_error)?;
+
         diagnostics.add_range(eligibility);
         diagnostics.add_range(checked.result().diagnostics().iter().cloned());
+
         let mut inputs = compilation
             .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
             .map_err(super::super::binding::binder_error)?;
@@ -150,10 +170,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
                 domain = domain.max(*guard_domain);
             }
 
-            let predicate = PredicateSemanticSummary::new(dependency).with_condition(
-                term,
-                domain,
-            );
+            let predicate = PredicateSemanticSummary::new(dependency).with_condition(term, domain);
 
             if postcondition {
                 guarantees.push(predicate);
@@ -266,52 +283,146 @@ fn callable_type_guard_expressions(
 
 /// Reconstructs only the outer callable header, before its predicate contract is established.
 pub(in crate::compilation) fn callable_clause_header(
-    context: &CompilationBindingContext<'_>, key: &BoundUnitKey,
+    context: &CompilationBindingContext<'_>,
+    key: &BoundUnitKey,
 ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableTypeData>> {
-    let anchor = key.callable_type_header().expect("type clause retains its callable header");
-    let syntax = context.compilation().execution_declaration_node(anchor.syntax())
+    let anchor = key
+        .callable_type_header()
+        .expect("type clause retains its callable header");
+
+    let syntax = context
+        .compilation()
+        .execution_declaration_node(anchor.syntax())
         .map_err(super::super::binding::binder_error)?;
-    let owner = context.symbols().symbol_for_key(key.declared_owner()).expect("type clause retains its lexical declaration");
-    let template = super::super::environment::type_binder(context, owner)?.bind_callable_header(syntax)?;
-    let constants = context.compilation().checked_constant_terms_for_templates_with_cancellation(
-        [template.value()], context.cancellation).map_err(super::super::binding::binder_error)?;
-    let ty = bray_checker::resolve_type_expression_template(context.semantic_values(), template.value(), constants.value())
-        .expect("bound callable header retains its checked type constants");
+
+    let owner = context
+        .symbols()
+        .symbol_for_key(key.declared_owner())
+        .expect("type clause retains its lexical declaration");
+
+    let template =
+        super::super::environment::type_binder(context, owner)?.bind_callable_header(syntax)?;
+
+    let constants = context
+        .compilation()
+        .checked_constant_terms_for_templates_with_cancellation(
+            [template.value()],
+            context.cancellation,
+        )
+        .map_err(super::super::binding::binder_error)?;
+
+    let ty = bray_checker::resolve_type_expression_template(
+        context.semantic_values(),
+        template.value(),
+        constants.value(),
+    )
+    .expect("bound callable header retains its checked type constants");
+
     let data = context.semantic_values().type_data(ty);
-    let TypeData::Callable(callable) = data.as_ref() else { panic!("callable clause header retains a callable type"); };
-    Ok(DiagnosticResult::new(callable.clone(), DiagnosticBag::merged_all([template.diagnostics(), constants.diagnostics()])))
+
+    let TypeData::Callable(callable) = data.as_ref() else {
+        panic!("callable clause header retains a callable type");
+    };
+
+    Ok(DiagnosticResult::new(
+        callable.clone(),
+        DiagnosticBag::merged_all([template.diagnostics(), constants.diagnostics()]),
+    ))
 }
 
 /// Binds a callable-type clause as an ordinary independently analyzed semantic unit.
 pub(in crate::compilation) fn bind_callable_clause_unit(
-    context: &CompilationBindingContext<'_>, unit: BoundUnitId, key: BoundUnitKey,
-) -> Result<bray_binder::BoundUnitComputation, bray_binder::BoundUnitBindingError<crate::fact::FactQueryError>> {
-    let header = callable_clause_header(context, &key).map_err(crate::compilation::binder::binding_query_error).map_err(bray_binder::BoundUnitBindingError::Upstream)?;
-    let syntax = context.compilation().execution_declaration_node(key.callable_type_header().expect("clause retains its header").syntax())
+    context: &CompilationBindingContext<'_>,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+) -> Result<
+    bray_binder::BoundUnitComputation,
+    bray_binder::BoundUnitBindingError<crate::fact::FactQueryError>,
+> {
+    let header = callable_clause_header(context, &key)
+        .map_err(crate::compilation::binder::binding_query_error)
         .map_err(bray_binder::BoundUnitBindingError::Upstream)?;
+
+    let syntax = context
+        .compilation()
+        .execution_declaration_node(
+            key.callable_type_header()
+                .expect("clause retains its header")
+                .syntax(),
+        )
+        .map_err(bray_binder::BoundUnitBindingError::Upstream)?;
+
     let (parameters, clauses) = callable_type_clauses(syntax);
-    let inputs = header.value().parameters().iter().zip(parameters.parameters()).map(|(parameter, syntax)| {
-        (parameter.name().clone(), parameter.ty(), bray_declarations::SyntaxAnchor::from_node(&syntax))
-    }).collect::<Vec<_>>();
+
+    let inputs = header
+        .value()
+        .parameters()
+        .iter()
+        .zip(parameters.parameters())
+        .map(|(parameter, syntax)| {
+            (
+                parameter.name().clone(),
+                parameter.ty(),
+                bray_declarations::SyntaxAnchor::from_node(&syntax),
+            )
+        })
+        .collect::<Vec<_>>();
+
     let anchor = key.source().syntax();
+
     let expressions = if anchor.syntax_kind() == bray_syntax::SyntaxKind::WhenClause {
-        let guard = anchor.find_descendant::<bray_syntax::WhenClauseSyntax>(context.syntax()).expect("guard retains its syntax");
+        let guard = anchor
+            .find_descendant::<bray_syntax::WhenClauseSyntax>(context.syntax())
+            .expect("guard retains its syntax");
+
         vec![guard.condition()]
     } else {
-        let (_, expressions, _, guards) = clauses.into_iter().find(|(clause, ..)| *clause == anchor).expect("header owns its selected clause");
+        let (_, expressions, _, guards) = clauses
+            .into_iter()
+            .find(|(clause, ..)| *clause == anchor)
+            .expect("header owns its selected clause");
+
         guards.into_iter().chain(expressions).collect()
     };
-    let (bound, _) = bind_callable_type_clause(context, unit, key, &inputs, header.value().result(), expressions)?;
+
+    let (bound, _) = bind_callable_type_clause(
+        context,
+        unit,
+        key,
+        &inputs,
+        header.value().result(),
+        expressions,
+    )?;
+
     let (result, dependencies) = bound.into_parts();
+
     let (bound, diagnostics) = result.into_parts();
-    Ok(bray_binder::BoundUnitComputation::new(DiagnosticResult::new(bound, diagnostics.merged(header.diagnostics())), dependencies))
+
+    Ok(bray_binder::BoundUnitComputation::new(
+        DiagnosticResult::new(bound, diagnostics.merged(header.diagnostics())),
+        dependencies,
+    ))
 }
 
-
-pub(in crate::compilation) fn callable_requirement_source(syntax: SyntaxNodeView<'_>, index: usize)
-    -> (bray_declarations::SyntaxAnchor, bray_declarations::SyntaxAnchor) {
-    callable_type_clauses(syntax).1.into_iter()
+pub(in crate::compilation) fn callable_requirement_source(
+    syntax: SyntaxNodeView<'_>,
+    index: usize,
+) -> (
+    bray_declarations::SyntaxAnchor,
+    bray_declarations::SyntaxAnchor,
+) {
+    callable_type_clauses(syntax)
+        .1
+        .into_iter()
         .filter(|(_, _, postcondition, _)| !postcondition)
-        .flat_map(|(clause, expressions, _, _)| expressions.into_iter().map(move |expression| (clause, bray_declarations::SyntaxAnchor::from_node(&expression))))
-        .nth(index).expect("selected callable requirement retains its source expression")
+        .flat_map(|(clause, expressions, _, _)| {
+            expressions.into_iter().map(move |expression| {
+                (
+                    clause,
+                    bray_declarations::SyntaxAnchor::from_node(&expression),
+                )
+            })
+        })
+        .nth(index)
+        .expect("selected callable requirement retains its source expression")
 }

@@ -28,8 +28,14 @@ pub fn predicate_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
-) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bray_symbols::PredicateDomain)>, bray_symbols::SemanticValueStoreError>
-{
+) -> Result<
+    Vec<(
+        BoundExpressionId,
+        ExecutionCondition,
+        bray_symbols::PredicateDomain,
+    )>,
+    bray_symbols::SemanticValueStoreError,
+> {
     predicate_conditions_with_inputs(
         unit,
         semantics,
@@ -52,8 +58,14 @@ pub fn predicate_conditions_with_inputs(
     predicates: Option<
         &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
-) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bray_symbols::PredicateDomain)>, bray_symbols::SemanticValueStoreError>
-{
+) -> Result<
+    Vec<(
+        BoundExpressionId,
+        ExecutionCondition,
+        bray_symbols::PredicateDomain,
+    )>,
+    bray_symbols::SemanticValueStoreError,
+> {
     let roots = match unit.root() {
         BoundUnitRoot::Expression(expression) => vec![expression],
         BoundUnitRoot::ExpressionSequence(block) => unit
@@ -121,7 +133,11 @@ pub fn predicate_conditions_with_inputs(
             predicates,
         );
 
-        let domain = predicate_domain(unit, semantics, root, predicates).max(if trusted { bray_symbols::PredicateDomain::Trusted } else { bray_symbols::PredicateDomain::Value });
+        let domain = predicate_domain(unit, semantics, root, predicates).max(if trusted {
+            bray_symbols::PredicateDomain::Trusted
+        } else {
+            bray_symbols::PredicateDomain::Value
+        });
 
         if trusted {
             condition = condition.requiring_trusted_predicates();
@@ -134,39 +150,76 @@ pub fn predicate_conditions_with_inputs(
 }
 
 fn predicate_domain(
-    unit: &BoundUnit, semantics: &CheckedExpressionSemantics, root: BoundExpressionId,
-    predicates: Option<&BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>>,
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    root: BoundExpressionId,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+    >,
 ) -> bray_symbols::PredicateDomain {
     use bray_bound_tree::{AnyBoundNodeId, BoundWalkControl, BoundWalkEvent, SemanticSelection};
     use bray_symbols::PredicateDomain;
+
     let mut domain = PredicateDomain::Value;
+
     let outcome = bray_bound_tree::walk_bound_unit_view(unit.view(), root, |event| {
-        let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else { return BoundWalkControl::Continue; };
+        let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+            return BoundWalkControl::Continue;
+        };
+
         if matches!(unit.view().expression(expression), Some(BoundExpression::Structured(operation))
-            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary) {
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary)
+        {
             domain = domain.max(PredicateDomain::Trusted);
         }
+
         let predicate = match semantics.selections().expression(expression) {
             Some(SemanticSelection::Call(call)) => {
-                if call.implementation_hook().is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement) {
+                if call
+                    .implementation_hook()
+                    .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement)
+                {
                     domain = PredicateDomain::Execution;
+
                     return BoundWalkControl::Stop;
                 }
+
                 match call.target() {
                     bray_bound_tree::BoundCallableTarget::Predicate(predicate) => Some(predicate),
                     _ => None,
                 }
             }
-            Some(SemanticSelection::Predicate(predicate)) => Some(bray_symbols::PredicateInstanceData::new(predicate.predicate(), predicate.substitution())),
+            Some(SemanticSelection::Predicate(predicate)) => {
+                Some(bray_symbols::PredicateInstanceData::new(
+                    predicate.predicate(),
+                    predicate.substitution(),
+                ))
+            }
             _ => None,
         };
-        if let Some(semantic) = predicate.and_then(|predicate| predicates.and_then(|predicates| predicates.get(&predicate))) {
+
+        if let Some(semantic) = predicate
+            .and_then(|predicate| predicates.and_then(|predicates| predicates.get(&predicate)))
+        {
             domain = domain.max(semantic.domain());
         }
-        if domain == PredicateDomain::Execution { BoundWalkControl::Stop } else { BoundWalkControl::Continue }
+
+        if domain == PredicateDomain::Execution {
+            BoundWalkControl::Stop
+        } else {
+            BoundWalkControl::Continue
+        }
     });
-    assert!(matches!(outcome, bray_bound_tree::BoundWalkOutcome::Completed | bray_bound_tree::BoundWalkOutcome::Stopped),
-        "checked predicate domain retains its complete source graph: {outcome:?}");
+
+    assert!(
+        matches!(
+            outcome,
+            bray_bound_tree::BoundWalkOutcome::Completed
+                | bray_bound_tree::BoundWalkOutcome::Stopped
+        ),
+        "checked predicate domain retains its complete source graph: {outcome:?}"
+    );
+
     domain
 }
 

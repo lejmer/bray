@@ -50,13 +50,28 @@ impl Compilation {
 
             diagnostics.add_range(definition.diagnostics().iter().cloned());
 
-            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value() {
+            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value()
+            {
                 let values = self.semantic_value_store()?;
                 let semantic = definition.semantic();
-                let condition = semantic.condition().map(|condition| values.substitute_constant_term(condition, predicate.substitution())).transpose()?;
-                let dependency = values.substitute_dependency_contract(semantic.dependency_contract(), predicate.substitution())?;
-                meanings.insert(predicate, bray_symbols::PredicateSemanticSummary::new(dependency)
-                    .with_condition(condition, semantic.domain()));
+
+                let condition = semantic
+                    .condition()
+                    .map(|condition| {
+                        values.substitute_constant_term(condition, predicate.substitution())
+                    })
+                    .transpose()?;
+
+                let dependency = values.substitute_dependency_contract(
+                    semantic.dependency_contract(),
+                    predicate.substitution(),
+                )?;
+
+                meanings.insert(
+                    predicate,
+                    bray_symbols::PredicateSemanticSummary::new(dependency)
+                        .with_condition(condition, semantic.domain()),
+                );
             }
         }
 
@@ -152,13 +167,20 @@ impl Compilation {
             .execution_condition_inputs(owner, anchors, cancellation)?
             .into_parts();
 
-        let Some(callable) = callable else { return Ok(DiagnosticResult::new(conditions, diagnostics)); };
+        let Some(callable) = callable else {
+            return Ok(DiagnosticResult::new(conditions, diagnostics));
+        };
+
         let values = self.semantic_value_store()?;
 
         let conditions = conditions
             .into_iter()
             .map(|(condition, source)| {
-                let condition = bray_checker::substitute_execution_condition(values, &condition, callable.substitution())?;
+                let condition = bray_checker::substitute_execution_condition(
+                    values,
+                    &condition,
+                    callable.substitution(),
+                )?;
 
                 Ok((condition, source))
             })
@@ -240,11 +262,13 @@ impl Compilation {
             if clause_diagnostics.has_errors() {
                 conditions.push((ExecutionCondition::Unknown, true, span));
             } else {
-                conditions.extend(
-                    normalized
-                        .into_iter()
-                        .map(|(_, condition, domain)| (condition, domain == bray_symbols::PredicateDomain::Trusted, span)),
-                );
+                conditions.extend(normalized.into_iter().map(|(_, condition, domain)| {
+                    (
+                        condition,
+                        domain == bray_symbols::PredicateDomain::Trusted,
+                        span,
+                    )
+                }));
             }
 
             diagnostics.add_range(clause_diagnostics);
@@ -1388,9 +1412,18 @@ impl Compilation {
             return Ok(None);
         }
 
-        let inputs = if callable.is_none() { self.execution_unit_inputs(body, cancellation)? } else { Vec::new() };
-        let proves = |conditions: &[ExecutionCondition]| evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-            .proves_trusted_with_inputs(conditions, &inputs);
+        let inputs = if callable.is_none() {
+            self.execution_unit_inputs(body, cancellation)?
+        } else {
+            Vec::new()
+        };
+
+        let proves = |conditions: &[ExecutionCondition]| {
+            evidence
+                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
+                .proves_trusted_with_inputs(conditions, &inputs)
+        };
+
         let requirements = requirements
             .into_parts()
             .0
@@ -1435,8 +1468,7 @@ impl Compilation {
                     .map(|(condition, _)| condition),
             );
 
-            if proves(&conditions)
-            {
+            if proves(&conditions) {
                 return Ok(Some(
                     (!domain.guards.is_empty()).then_some(obligation.source),
                 ));
@@ -1550,7 +1582,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(completion, diagnostics));
         };
 
-        let declaration = self.execution_declaration(body.source().syntax())?;
+        let declaration = self.execution_unit_declaration(&body)?;
         let mut contracts = Vec::new();
 
         for domain in declaration
@@ -1567,8 +1599,12 @@ impl Compilation {
                 .copied()
                 .collect::<Vec<_>>();
 
-            let entry =
-                self.instance_execution_condition_inputs(&body, Some(callable), &anchors, cancellation)?;
+            let entry = self.instance_execution_condition_inputs(
+                &body,
+                Some(callable),
+                &anchors,
+                cancellation,
+            )?;
 
             let posts = self.instance_execution_condition_inputs(
                 &body,

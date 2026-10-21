@@ -304,7 +304,9 @@ impl OrderEncoder<'_, '_> {
         let data = values.constant_value_data(id);
 
         let value = match data.kind() {
-                ConstantValueKind::Borrowed(_) => panic!("constant observation reached materialized output"),
+            ConstantValueKind::Borrowed(_) => {
+                panic!("constant observation reached materialized output")
+            }
             ConstantValueKind::Boolean(value) => term("boolean", [vec![u8::from(*value)].into()]),
             ConstantValueKind::Character(value) => term(
                 "character",

@@ -58,7 +58,9 @@ impl Compilation {
             hook.is_available()
                 && matches!(
                     hook.hook(),
-                    bray_compiler_known::ImplementationHook::SequenceLength
+                    bray_compiler_known::ImplementationHook::NullableIsPresent
+                        | bray_compiler_known::ImplementationHook::NullableIsAbsent
+                        | bray_compiler_known::ImplementationHook::SequenceLength
                         | bray_compiler_known::ImplementationHook::ByteBufferRead
                         | bray_compiler_known::ImplementationHook::SequenceIsEmpty
                         | bray_compiler_known::ImplementationHook::AddressOf

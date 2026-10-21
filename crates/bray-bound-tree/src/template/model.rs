@@ -174,21 +174,33 @@ impl CheckedTemplateExecution {
     }
 
     /// Retains universal execution proofs established by the owning analysis.
-    pub fn with_certification(mut self, properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>, constant_eligible: bool, may_unwind: bool) -> Self {
+    pub fn with_certification(
+        mut self,
+        properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
+        constant_eligible: bool,
+        may_unwind: bool,
+    ) -> Self {
         self.properties = sorted_unique_shared_slice(properties);
         self.constant_eligible = constant_eligible;
         self.may_unwind = may_unwind;
+
         self
     }
 
     /// Returns certified ordinary execution properties in semantic-set order.
-    pub fn properties(&self) -> &[bray_symbols::ExecutionProperty] { &self.properties }
+    pub fn properties(&self) -> &[bray_symbols::ExecutionProperty] {
+        &self.properties
+    }
 
     /// Whether the owning analysis established the stricter constant-evaluation restrictions.
-    pub const fn constant_eligible(&self) -> bool { self.constant_eligible }
+    pub const fn constant_eligible(&self) -> bool {
+        self.constant_eligible
+    }
 
     /// Whether evaluation can propagate panic or cancellation.
-    pub const fn may_unwind(&self) -> bool { self.may_unwind }
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
+    }
 
     /// Returns execution-lane requirements in canonical semantic-set order.
     pub fn requirements(&self) -> &[CheckedTemplateExecutionRequirement] {
@@ -243,7 +255,9 @@ impl CheckedTemplateBehavior {
     }
 
     /// Returns the complete checked execution behavior of this template.
-    pub const fn execution(&self) -> &CheckedTemplateExecution { &self.execution }
+    pub const fn execution(&self) -> &CheckedTemplateExecution {
+        &self.execution
+    }
 
     /// Returns checked effects in canonical semantic-set order.
     pub fn effects(&self) -> &[CheckedTemplateEffect] {

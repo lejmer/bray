@@ -301,9 +301,11 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
                 "a reachable path ends without returning a result",
             )])
         }
-        DiagnosticLabelKind::ExecutionRequirementFailure => MessageTemplate::new(&[
-            MessageTemplatePart::Text("the caller must establish this execution-context condition"),
-        ]),
+        DiagnosticLabelKind::ExecutionRequirementFailure => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "the caller must establish this execution-context condition",
+            )])
+        }
         DiagnosticLabelKind::ExecutionGuaranteeFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this operation or its cleanup cannot establish the required execution guarantee",

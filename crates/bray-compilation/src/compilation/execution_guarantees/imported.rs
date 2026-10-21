@@ -29,6 +29,31 @@ pub(super) type ExecutionProofGraph = BTreeMap<
 >;
 
 impl Compilation {
+    pub(super) fn imported_default_proves_execution(
+        &self,
+        provider: bray_bound_tree::DefaultValueProvider,
+        required: ExecutionObligation,
+        predicate: bool,
+        diagnostics: &mut DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        let imported = self.checked_default_template(provider, cancellation)?;
+
+        diagnostics.add_range(imported.diagnostics().iter().cloned());
+
+        Ok(!imported.diagnostics().has_errors()
+            && imported.value().as_ref().is_some_and(|template| {
+                (!predicate || template.behavior().execution().constant_eligible())
+                    && required.property().is_some_and(|property| {
+                        template
+                            .behavior()
+                            .execution()
+                            .properties()
+                            .contains(&property)
+                    })
+            }))
+    }
+
     pub(in crate::compilation) fn imported_execution_contract(
         &self,
         callable: CallableInstanceData,

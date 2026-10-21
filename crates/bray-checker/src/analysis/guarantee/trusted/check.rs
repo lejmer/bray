@@ -120,7 +120,10 @@ impl TrustedChecks {
 
         let invocation = operation.occurrence();
 
-        if let Some(contract) = domain.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation))
+        if let Some(contract) = domain
+            .request
+            .trusted_contracts()
+            .and_then(|contracts| contracts.calls.get(&invocation))
             && !contract.execution_requirements.is_empty()
             && let Some(entry) = state.entries.get(&invocation)
             && !entry.proves(&contract.execution_requirements)
@@ -169,7 +172,6 @@ impl TrustedChecks {
                 None => self.observed_result = Some(observed),
             }
         }
-
 
         let input = super::carriers::returned_input(domain, &result);
 
@@ -231,7 +233,9 @@ impl TrustedChecks {
 
         for expression in self.failed_execution {
             diagnostics.add(contract_diagnostic(
-                domain.request, domain.semantics, expression.into(),
+                domain.request,
+                domain.semantics,
+                expression.into(),
                 DiagnosticKind::CheckingExecutionRequirementNotProven,
             ));
         }

@@ -31,12 +31,28 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             .filter(|hook| hook.is_available())
             .map(|hook| hook.hook()))
     }
-    fn predicate_input_ordinal(&self, field: bray_bound_tree::ConstructionInputId) -> Result<u32, Self::Error> {
+    fn predicate_input_ordinal(
+        &self,
+        field: bray_bound_tree::ConstructionInputId,
+    ) -> Result<u32, Self::Error> {
         let binding = self.compilation.binding_context(self.cancellation)?;
+
         Ok(match field {
-            bray_bound_tree::ConstructionInputId::StructField(field) => binding.struct_field(field).map_err(binding_query_error)?.expect("checked constructor retains its struct field").ordinal(),
-            bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => binding.union_payload_field(field).map_err(binding_query_error)?.expect("checked constructor retains its union field").ordinal(),
-            bray_bound_tree::ConstructionInputId::CallableParameter(parameter) => binding.callable_parameter(parameter).map_err(binding_query_error)?.expect("checked constructor retains its parameter").ordinal(),
+            bray_bound_tree::ConstructionInputId::StructField(field) => binding
+                .struct_field(field)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its struct field")
+                .ordinal(),
+            bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => binding
+                .union_payload_field(field)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its union field")
+                .ordinal(),
+            bray_bound_tree::ConstructionInputId::CallableParameter(parameter) => binding
+                .callable_parameter(parameter)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its parameter")
+                .ordinal(),
         })
     }
     fn predicate_template(
@@ -156,7 +172,11 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         let symbol = self.predicate_symbol(key)?;
 
         if let Some(provider) = bray_bound_tree::DefaultValueProvider::try_from_symbol(symbol) {
-            assert!(dispatch.is_none(), "default helper has no selected trait dispatch");
+            assert!(
+                dispatch.is_none(),
+                "default helper has no selected trait dispatch"
+            );
+
             return self.predicate_default_call(provider, substitution, inputs);
         }
 
@@ -289,14 +309,29 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let (signature, parameters) = self.predicate_callable_signature(callable)?;
+
         let binding = self.compilation.binding_context(self.cancellation)?;
-        let contracts = binding.resolve_symbol_query(SymbolQueryRequest::<bray_symbols::CallableContractsQuery>::new(callable.definition().callable_symbol()))
+
+        let contracts = binding
+            .resolve_symbol_query(
+                SymbolQueryRequest::<bray_symbols::CallableContractsQuery>::new(
+                    callable.definition().callable_symbol(),
+                ),
+            )
             .map_err(binding_query_error)?;
+
         if contracts.diagnostics().has_errors() {
-            return Err(CodegenPreparationError::Diagnostics(contracts.diagnostics().clone()));
+            return Err(CodegenPreparationError::Diagnostics(
+                contracts.diagnostics().clone(),
+            ));
         }
+
         let data = self.values.type_data(signature.callable_type());
-        let bray_symbols::TypeData::Callable(ty) = data.as_ref() else { panic!("checked callable signature retains its callable type"); };
+
+        let bray_symbols::TypeData::Callable(ty) = data.as_ref() else {
+            panic!("checked callable signature retains its callable type");
+        };
+
         let result = self.predicate_type(signature.result())?;
         let target = MirCallTarget::Direct(MirCallableReference::new(callable, ty.abi()));
 

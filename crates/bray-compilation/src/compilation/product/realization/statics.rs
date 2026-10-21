@@ -825,7 +825,9 @@ impl Compilation {
             outgoing_calls.extend(local.iter().cloned());
 
             match data.kind() {
-                bray_symbols::ConstantValueKind::Borrowed(_) => panic!("constant observation reached materialized static output"),
+                bray_symbols::ConstantValueKind::Borrowed(_) => {
+                    panic!("constant observation reached materialized static output")
+                }
                 bray_symbols::ConstantValueKind::StaticAddress(reference) => {
                     if relocations.contains_key(&value) {
                         continue;

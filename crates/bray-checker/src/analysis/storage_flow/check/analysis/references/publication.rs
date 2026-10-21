@@ -32,7 +32,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     {
         let carriers = self.trusted.result_carriers(self.request);
 
-        let observed_result = (!self.has_normal_effects).then_some(self.trusted.observed_result).flatten().flatten();
+        let observed_result = (!self.has_normal_effects)
+            .then_some(self.trusted.observed_result)
+            .flatten()
+            .flatten();
 
         let returned_input = (!self.has_normal_effects)
             .then_some(self.trusted.returned_input)

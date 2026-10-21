@@ -132,13 +132,31 @@ impl StorageIdentity {
 
         match unit {
             BoundUnitKind::CallableBody | BoundUnitKind::AnonymousCallable => false,
-            BoundUnitKind::RuntimeDefault | BoundUnitKind::ConstantTemplate
-            | BoundUnitKind::EmbeddedConstant | BoundUnitKind::PredicateDefinition
-            | BoundUnitKind::Constraint | BoundUnitKind::ContractClause | BoundUnitKind::TargetGate => {
-                matches!(self, Self::ContractParameter(_) | Self::Parameter(_) | Self::Receiver(_) | Self::AnonymousParameter(_)
-                    | Self::PredicateParameter(_) | Self::PostconditionResult(_))
+            BoundUnitKind::RuntimeDefault
+            | BoundUnitKind::ConstantTemplate
+            | BoundUnitKind::EmbeddedConstant
+            | BoundUnitKind::PredicateDefinition
+            | BoundUnitKind::Constraint
+            | BoundUnitKind::ContractClause
+            | BoundUnitKind::TargetGate => {
+                matches!(
+                    self,
+                    Self::ContractParameter(_)
+                        | Self::Parameter(_)
+                        | Self::Receiver(_)
+                        | Self::AnonymousParameter(_)
+                        | Self::PredicateParameter(_)
+                        | Self::PostconditionResult(_)
+                )
             }
         }
+    }
+
+    /// Whether this identity is a compiler-owned string literal with permanent backing storage.
+    pub fn has_permanent_literal_storage(self, view: crate::BoundUnitView<'_>) -> bool {
+        matches!(self, Self::Temporary(expression)
+            if matches!(view.expression(expression), Some(crate::BoundExpression::Literal(literal))
+                if literal.kind() == crate::BoundLiteralKind::String))
     }
 
     /// Returns this storage identity's stable machine-readable category.

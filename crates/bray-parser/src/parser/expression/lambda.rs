@@ -48,7 +48,7 @@ impl Parser {
         builder.build()
     }
 
-    pub(in crate::parser::expression) fn should_parse_lambda_expression(&mut self) -> bool {
+    pub(in crate::parser) fn should_parse_lambda_expression(&mut self) -> bool {
         if !self.at_any(&LAMBDA_EXPRESSION_START_KINDS) {
             return false;
         }

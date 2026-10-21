@@ -29,12 +29,14 @@ pub(in crate::compilation) use contract::{
     bind_declared_execution_requirements, bind_declared_trusted_capabilities,
 };
 pub(in crate::compilation) use declaration_body::{
-    checked_callable_type_contracts, checked_source_expression, static_dependency_root, callable_clause_header, bind_callable_clause_unit, callable_requirement_source,
+    bind_callable_clause_unit, callable_clause_header, callable_requirement_source,
+    checked_callable_type_contracts, checked_source_expression,
+    extend_dependency_contract_with_statics, static_dependency_root,
 };
 pub(in crate::compilation) use directive::bind_module_part_directives_for_selection;
 pub(in crate::compilation) use environment::{
-    generic_parameter_ids, has_visible_generic_parameters, type_binder,
-    type_scope, visible_generic_const_parameters, visible_generic_parameters,
+    generic_parameter_ids, has_visible_generic_parameters, type_binder, type_scope,
+    visible_generic_const_parameters, visible_generic_parameters,
 };
 pub(in crate::compilation) use imported::{
     imported_declaration_template, imported_declaration_template_at, imported_implementation,

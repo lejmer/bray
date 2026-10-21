@@ -161,6 +161,26 @@ fn transfers(
                         transfer.killed.insert(expression);
                         transfer.generated.extend(node.child_expressions());
 
+                        if let bray_bound_tree::BoundExpression::Structured(index) = node
+                            && matches!(
+                                index.kind(),
+                                bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
+                                    | bray_bound_tree::BoundStructuredExpressionKind::SliceIndex
+                            )
+                        {
+                            let mut receiver = index.operands().first().copied();
+
+                            while let Some(bray_bound_tree::BoundExpression::Structured(slice)) =
+                                receiver.and_then(|receiver| unit.view().expression(receiver))
+                                && slice.kind()
+                                    == bray_bound_tree::BoundStructuredExpressionKind::SliceIndex
+                            {
+                                // Bounds proofs observe the coordinates captured by the inner slice.
+                                transfer.generated.extend(slice.operands());
+                                receiver = slice.operands().first().copied();
+                            }
+                        }
+
                         if matches!(
                             kind,
                             AnalysisOperationKind::Call {

@@ -132,6 +132,7 @@ impl ExecutionCondition {
             *operator,
             operands,
             assumptions,
+            budget,
         ) {
             return Some(value);
         }

@@ -1,9 +1,8 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, CheckedMemoryOperations, CheckedSemanticSelections,
-    OperatorTarget, SelectedArgument,
-    SelectedConversion, SelectedOperation, SemanticSelection, StorageIdentity, StoragePlan,
-    StorageProjection,
+    OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
+    StorageIdentity, StoragePlan, StorageProjection,
 };
 use bray_symbols::AnySymbolId;
 
@@ -51,7 +50,12 @@ pub(super) fn collect_preservation_dependencies(
             })
         {
             dependencies.push(ExecutionDependency {
-                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
+                target: (call
+                    .resolution()
+                    .declaration_source()
+                    .map(bray_bound_tree::BoundCallableTarget::Declaration)
+                    .unwrap_or(call.target()))
+                .into(),
                 property: ExecutionProperty::Pure,
                 occurrence: node.into(),
             });
@@ -121,9 +125,14 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     if let Some(SemanticSelection::Call(call)) = selections.expression(expression) {
         // Defaults and argument conversions execute before both source and intrinsic calls.
         dependencies.extend(call.arguments().iter().filter_map(|argument| {
-            let SelectedArgument::Default { provider, .. } = argument else { return None; };
+            let SelectedArgument::Default { provider, .. } = argument else {
+                return None;
+            };
+
             Some(ExecutionDependency {
-                target: crate::ExecutionDependencyTarget::Default(bray_bound_tree::DefaultValueProvider::CallableParameter(*provider)),
+                target: crate::ExecutionDependencyTarget::Default(
+                    bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+                ),
                 property,
                 occurrence: expression.into(),
             })
@@ -151,7 +160,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
             // Waiting need not terminate, but only its execution requirement can unwind.
             dependencies.push(ExecutionDependency {
-                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
+                target: (call
+                    .resolution()
+                    .declaration_source()
+                    .map(bray_bound_tree::BoundCallableTarget::Declaration)
+                    .unwrap_or(call.target()))
+                .into(),
                 property,
                 occurrence: expression.into(),
             });
@@ -179,7 +193,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             }
 
             dependencies.push(ExecutionDependency {
-                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
+                target: (call
+                    .resolution()
+                    .declaration_source()
+                    .map(bray_bound_tree::BoundCallableTarget::Declaration)
+                    .unwrap_or(call.target()))
+                .into(),
                 property,
                 occurrence: expression.into(),
             });
@@ -350,7 +369,11 @@ fn check_operation(
         SelectedOperation::Operator {
             target: OperatorTarget::BuiltIn(operator),
             ..
-        } => property == ExecutionProperty::Pure || !operator.builtin_may_panic() || operation_domain_proven,
+        } => {
+            property == ExecutionProperty::Pure
+                || !operator.builtin_may_panic()
+                || operation_domain_proven
+        }
         // Field providers contribute their own selected execution dependencies.
         SelectedOperation::Construction(_) => true,
         SelectedOperation::CompoundAssignment(selection) => {

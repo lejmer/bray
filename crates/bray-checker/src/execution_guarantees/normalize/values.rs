@@ -375,3 +375,138 @@ pub(super) fn borrowed_condition(
         )
     }
 }
+
+pub(super) fn structured_condition(
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
+    expression: BoundExpressionId,
+    operation: &bray_bound_tree::BoundStructuredExpression,
+    evaluate: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
+) -> ExecutionCondition {
+    match operation {
+        operation
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
+                && matches!(
+                    semantics.selections().expression(expression),
+                    Some(SemanticSelection::Operation(SelectedOperation::Index {
+                        target: bray_bound_tree::IndexTarget::ArrayElement,
+                        ..
+                    }))
+                ) =>
+        {
+            let [receiver, index] = operation.operands() else {
+                return ExecutionCondition::Unknown;
+            };
+
+            let index = evaluate(*index);
+
+            let ExecutionCondition::Literal(index) = index else {
+                return ExecutionCondition::Unknown;
+            };
+
+            let ConstantValueKind::Integer(index) = index.kind() else {
+                return ExecutionCondition::Unknown;
+            };
+
+            let Some(index) = index.to_u64().and_then(|index| u32::try_from(index).ok()) else {
+                return ExecutionCondition::Unknown;
+            };
+
+            evaluate(*receiver).project(bray_bound_tree::StorageProjection::ElementFromStart(
+                bray_symbols::SymbolOrdinal::new(index),
+            ))
+        }
+        operation
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Conditional =>
+        {
+            if operation.blocks().len() != operation.operands().len() + 1 {
+                return ExecutionCondition::Unknown;
+            }
+
+            let mut branches = Vec::new();
+
+            for block in operation.blocks() {
+                let block = unit
+                    .view()
+                    .block(*block)
+                    .expect("conditional retains its branch block");
+
+                let [bray_bound_tree::BoundBlockItem::Expression(yielded)] = block.items() else {
+                    return ExecutionCondition::Unknown;
+                };
+
+                let Some(BoundExpression::ControlTransfer(transfer)) =
+                    unit.view().expression(*yielded)
+                else {
+                    return ExecutionCondition::Unknown;
+                };
+
+                if transfer.kind() != bray_bound_tree::BoundControlTransferKind::Yield {
+                    return ExecutionCondition::Unknown;
+                }
+
+                let Some(operand) = transfer.operand() else {
+                    return ExecutionCondition::Unknown;
+                };
+
+                branches.push(evaluate(operand));
+            }
+
+            let mut value = branches
+                .pop()
+                .expect("Boolean conditional retains its else branch");
+
+            for (guard, branch) in operation.operands().iter().zip(branches).rev() {
+                let guard = evaluate(*guard);
+
+                value = ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::LogicalOr,
+                    vec![
+                        ExecutionCondition::operation(
+                            bray_bound_tree::BoundOperator::LogicalAnd,
+                            vec![guard.clone(), branch],
+                        ),
+                        ExecutionCondition::operation(
+                            bray_bound_tree::BoundOperator::LogicalAnd,
+                            vec![
+                                ExecutionCondition::operation(
+                                    bray_bound_tree::BoundOperator::LogicalNot,
+                                    vec![guard],
+                                ),
+                                value,
+                            ],
+                        ),
+                    ],
+                );
+            }
+
+            value
+        }
+        operation
+            if matches!(
+                operation.kind(),
+                bray_bound_tree::BoundStructuredExpressionKind::Condition
+                    | bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
+            ) =>
+        {
+            let Some(operand) = operation.operands().first() else {
+                return ExecutionCondition::Unknown;
+            };
+
+            let value = evaluate(*operand);
+
+            match operation.kind() {
+                bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary => {
+                    value.requiring_trusted_predicates()
+                }
+                bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
+                    borrowed_condition(unit, semantics, values, *operand, value)
+                }
+                _ => value,
+            }
+        }
+        _ => ExecutionCondition::Unknown,
+    }
+}

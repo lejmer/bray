@@ -256,20 +256,48 @@ fn call_argument_conditions(
 
     parameters.sort_by_key(|(ordinal, _)| *ordinal);
     arguments.extend(parameters.into_iter().map(|(_, value)| value));
+
     for argument in call.arguments() {
-        if let bray_bound_tree::SelectedArgument::Default { provider, ordinal, .. } = argument {
+        if let bray_bound_tree::SelectedArgument::Default {
+            provider, ordinal, ..
+        } = argument
+        {
             let place = bray_bound_tree::BoundReferenceTarget::Surface((*provider).into()).into();
+
             if let Some(meaning) = current.get(&place) {
                 let meaning = match call.resolution().declaration_source() {
-                    Some(callable) => crate::substitute_execution_condition(values, meaning, callable.substitution())
-                        .expect("checked default application belongs to this semantic store"),
+                    Some(callable) => crate::substitute_execution_condition(
+                        values,
+                        meaning,
+                        callable.substitution(),
+                    )
+                    .expect("checked default application belongs to this semantic store"),
                     None => meaning.clone(), // Lexical anonymous input paths are already selected.
                 };
-                let inputs = arguments.iter().enumerate().map(|(ordinal, value)| (
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal).expect("argument ordinal fits"))), value.clone(),
-                )).collect();
-                arguments[usize::try_from(*ordinal).expect("default ordinal fits") + usize::from(call.receiver().is_some())] = meaning.substitute(
-                    &|place| place.value_in(&inputs).unwrap_or(ExecutionCondition::Unknown), &ExecutionCondition::Unknown, budget);
+
+                let inputs = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, value)| {
+                        (
+                            crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                                u32::try_from(ordinal).expect("argument ordinal fits"),
+                            )),
+                            value.clone(),
+                        )
+                    })
+                    .collect();
+
+                arguments[usize::try_from(*ordinal).expect("default ordinal fits")
+                    + usize::from(call.receiver().is_some())] = meaning.substitute(
+                    &|place| {
+                        place
+                            .value_in(&inputs)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &ExecutionCondition::Unknown,
+                    budget,
+                );
             }
         }
     }
@@ -286,7 +314,10 @@ fn predicate_condition(
     arguments: Vec<ExecutionCondition>,
     budget: &mut usize,
 ) -> ExecutionCondition {
-    if let Some(term) = predicates.and_then(|predicates| predicates.get(&predicate)).and_then(|predicate| predicate.condition()) {
+    if let Some(term) = predicates
+        .and_then(|predicates| predicates.get(&predicate))
+        .and_then(|predicate| predicate.condition())
+    {
         return crate::execution_guarantees::portable::decode(values, term, &arguments, budget)
             .expect("checked predicate terms belong to this semantic value store");
     }

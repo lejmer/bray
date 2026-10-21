@@ -38,7 +38,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 .filter_map(|id| self.domain.graph.operation(*id))
             {
                 if !collect_cleanup {
-                    if !self.domain.operation(&mut state, operation.kind(), None) { continue 'blocks; }
+                    if !self.domain.operation(&mut state, operation.kind(), None) {
+                        continue 'blocks;
+                    }
+
                     continue;
                 }
 
@@ -134,7 +137,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .expression()
                                 .expect("selected call has an expression"),
                         ) {
-                            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target()),
+                            Some(bray_bound_tree::SemanticSelection::Call(call)) => call
+                                .resolution()
+                                .declaration_source()
+                                .map(bray_bound_tree::BoundCallableTarget::Declaration)
+                                .unwrap_or(call.target()),
                             Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) => {
                                 bray_bound_tree::BoundCallableTarget::Declaration(
                                     scoped.invocation(occurrence).0,
@@ -319,6 +326,125 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         });
     }
 
+    fn operation_call_entry(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        selection: &bray_bound_tree::SemanticSelection,
+    ) -> Option<crate::ExecutionCallEvidence> {
+        let contract = self
+            .request
+            .trusted_contracts()?
+            .calls
+            .get(&expression.into())?;
+
+        let mut arguments = contract
+            .arguments
+            .iter()
+            .map(|(input, expression)| {
+                (
+                    ExecutionPlace::from(*input),
+                    self.invocation_value(state, *expression),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        if let bray_bound_tree::SemanticSelection::Operation(
+            bray_bound_tree::SelectedOperation::Construction(construction),
+        ) = selection
+        {
+            for input in construction.inputs() {
+                if let bray_bound_tree::SelectedConstructionInput::Explicit {
+                    input,
+                    conversion,
+                    ..
+                } = input
+                {
+                    let place = BoundReferenceTarget::Surface(input.symbol()).into();
+
+                    if let Some(value) = arguments.get_mut(&place) {
+                        *value = std::mem::replace(value, ExecutionCondition::Unknown).coerce(
+                            self.request.semantic_values(),
+                            conversion.source_type(),
+                            conversion.target_type(),
+                        );
+                    }
+                }
+            }
+        }
+
+        return Some(crate::ExecutionCallEvidence {
+            returned: Default::default(),
+            anonymous_target: None,
+            trusted_boundary: !state.trust_boundaries.is_empty(),
+            pending_execution: false,
+            arguments,
+            assumptions: state.assumptions.clone(),
+            trusted_assumptions: state.call_trusted_assumptions([]),
+        });
+    }
+
+    fn observe_default_arguments(
+        &self,
+        call: &bray_bound_tree::SelectedCall,
+        arguments: &mut BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) {
+        for argument in call.arguments() {
+            let bray_bound_tree::SelectedArgument::Default {
+                provider,
+                parameter,
+                ordinal,
+                ..
+            } = argument
+            else {
+                continue;
+            };
+
+            let provider = bray_bound_tree::DefaultValueProvider::CallableParameter(*provider);
+
+            if let Some(term) = self.request.default_observed_result(provider) {
+                let values = self.request.semantic_values();
+
+                let term = match call.resolution().declaration_source() {
+                    Some(callable) => values
+                        .substitute_constant_term(term, callable.substitution())
+                        .expect("checked default application belongs to this semantic store"),
+                    None => term,
+                };
+
+                let count = ordinal
+                    .checked_add(u32::from(call.receiver().is_some()))
+                    .and_then(|count| usize::try_from(count).ok())
+                    .expect("checked default input count fits its receiver-first input order");
+
+                let meaning = crate::execution_condition_from_type_term(values, term, count)
+                    .expect("checked default observation belongs to this semantic store");
+
+                let value = meaning.substitute(
+                    &|place| {
+                        place
+                            .value_in(&arguments)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &ExecutionCondition::Unknown,
+                    &mut { ExecutionCondition::WORK_LIMIT },
+                );
+
+                arguments.insert(
+                    BoundReferenceTarget::Surface((*parameter).into()).into(),
+                    value.clone(),
+                );
+
+                arguments.insert(
+                    ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                        *ordinal + u32::from(call.receiver().is_some()),
+                    )),
+                    value,
+                );
+            }
+        }
+    }
+
     pub(super) fn call_entry(
         &self,
         state: &ExecutionState,
@@ -335,56 +461,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let bray_bound_tree::SemanticSelection::Call(call) = selection else {
-            let contract = self
-                .request
-                .trusted_contracts()?
-                .calls
-                .get(&expression.into())?;
-
-            let mut arguments = contract
-                .arguments
-                .iter()
-                .map(|(input, expression)| {
-                    (
-                        ExecutionPlace::from(*input),
-                        self.invocation_value(state, *expression),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>();
-
-            if let bray_bound_tree::SemanticSelection::Operation(
-                bray_bound_tree::SelectedOperation::Construction(construction),
-            ) = selection
-            {
-                for input in construction.inputs() {
-                    if let bray_bound_tree::SelectedConstructionInput::Explicit {
-                        input,
-                        conversion,
-                        ..
-                    } = input
-                    {
-                        let place = BoundReferenceTarget::Surface(input.symbol()).into();
-
-                        if let Some(value) = arguments.get_mut(&place) {
-                            *value = std::mem::replace(value, ExecutionCondition::Unknown).coerce(
-                                self.request.semantic_values(),
-                                conversion.source_type(),
-                                conversion.target_type(),
-                            );
-                        }
-                    }
-                }
-            }
-
-            return Some(crate::ExecutionCallEvidence {
-                returned: Default::default(),
-                anonymous_target: None,
-                trusted_boundary: !state.trust_boundaries.is_empty(),
-                pending_execution: false,
-                arguments,
-                assumptions: state.assumptions.clone(),
-                trusted_assumptions: state.call_trusted_assumptions([]),
-            });
+            return self.operation_call_entry(state, expression, selection);
         };
 
         let mut arguments = BTreeMap::new();
@@ -453,24 +530,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             arguments.insert(ordinal, value);
         }
 
-        for argument in call.arguments() {
-            let bray_bound_tree::SelectedArgument::Default { provider, parameter, ordinal, .. } = argument else { continue; };
-            let provider = bray_bound_tree::DefaultValueProvider::CallableParameter(*provider);
-            if let Some(term) = self.request.default_observed_result(provider) {
-                let values = self.request.semantic_values();
-                let term = match call.resolution().declaration_source() {
-                    Some(callable) => values.substitute_constant_term(term, callable.substitution())
-                        .expect("checked default application belongs to this semantic store"),
-                    None => term,
-                };
-                let meaning = crate::execution_condition_from_type_term(values, term, 0)
-                    .expect("checked default observation belongs to this semantic store");
-                let value = meaning.substitute(&|place| place.value_in(&arguments).unwrap_or(ExecutionCondition::Unknown),
-                    &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
-                arguments.insert(BoundReferenceTarget::Surface((*parameter).into()).into(), value.clone());
-                arguments.insert(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(*ordinal + u32::from(call.receiver().is_some()))), value);
-            }
-        }
+        self.observe_default_arguments(call, &mut arguments);
 
         // Call evidence retains the immutable entry conditions independently of subsequent mutation.
         let trusted_assumptions =

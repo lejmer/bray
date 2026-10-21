@@ -249,7 +249,12 @@ fn convert_behavior(
                 })
                 .collect::<Result<Vec<_>, _>>()?,
             behavior.current_run_cancellation(),
-        ).with_certification(behavior.execution().properties().iter().copied(), behavior.execution().constant_eligible(), behavior.execution().may_unwind()),
+        )
+        .with_certification(
+            behavior.execution().properties().iter().copied(),
+            behavior.execution().constant_eligible(),
+            behavior.execution().may_unwind(),
+        ),
         behavior.lifecycle_obligations().iter().copied(),
         dependency_contract,
         result_dependencies,

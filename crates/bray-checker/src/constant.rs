@@ -18,15 +18,17 @@ mod template_evaluation;
 
 pub use array::{ArrayLengthError, check_array_length};
 pub use call::{
-    ConstantCallContract, ConstantCallTarget, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
-    EvaluatedConstantCall,
+    ConstantCallContract, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantCallTarget, ConstantTemplateResolver, EvaluatedConstantCall,
 };
 pub(crate) use equality::constant_values_equal;
 pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
-pub(crate) use integer::{fits_integer_representation, integer_to_usize, to_big_integer, from_big_integer};
+pub(crate) use integer::{
+    fits_integer_representation, from_big_integer, integer_to_usize, to_big_integer,
+};
 pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub(crate) use literal::{

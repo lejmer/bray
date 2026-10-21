@@ -201,7 +201,9 @@ impl SelectedCall {
     }
 
     /// Returns the const contract of the selected callable surface.
-    pub const fn constness(&self) -> bray_symbols::CallableConstness { self.constness }
+    pub const fn constness(&self) -> bray_symbols::CallableConstness {
+        self.constness
+    }
 
     /// Returns the complete checked invocation and deferred-execution behavior.
     pub fn phase_behaviors(&self) -> &CallablePhaseBehaviors {

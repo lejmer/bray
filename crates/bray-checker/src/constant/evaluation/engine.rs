@@ -726,10 +726,16 @@ where
             BoundStructuredExpressionKind::Borrow
                 if structured.borrow_kind() == Some(bray_symbols::BorrowKind::Shared) =>
             {
-                let [operand] = operands else { panic!("checked shared borrow has one operand"); };
+                let [operand] = operands else {
+                    panic!("checked shared borrow has one operand");
+                };
+
                 let operand = self.evaluate(*operand)?;
+
                 match self.term_value(operand) {
-                    Some(value) => Ok(self.intern_value_term(ty, ConstantValueKind::Borrowed(value))),
+                    Some(value) => {
+                        Ok(self.intern_value_term(ty, ConstantValueKind::Borrowed(value)))
+                    }
                     None => self.intern_typed_term(ty, ConstantTermData::typed(operand, ty)),
                 }
             }
@@ -1486,11 +1492,20 @@ mod tests {
     impl ConstantCallResolver for CapturingCallResolver {
         type UpstreamError = std::convert::Infallible;
 
-        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+        fn contract(
+            &self,
+            _target: &crate::ConstantCallTarget,
+        ) -> crate::CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
+        > {
             panic!("this fixture evaluates checked nodes without semantic contract queries")
         }
 
-        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+        fn requirement_origin(
+            &self,
+            _target: &crate::ConstantCallTarget,
+            _index: usize,
+        ) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
             panic!("this fixture has no failing callable requirements")
         }
 
@@ -1523,11 +1538,20 @@ mod tests {
     impl ConstantCallResolver for CycleCallResolver {
         type UpstreamError = std::convert::Infallible;
 
-        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+        fn contract(
+            &self,
+            _target: &crate::ConstantCallTarget,
+        ) -> crate::CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
+        > {
             panic!("this fixture evaluates checked nodes without semantic contract queries")
         }
 
-        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+        fn requirement_origin(
+            &self,
+            _target: &crate::ConstantCallTarget,
+            _index: usize,
+        ) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
             panic!("this fixture has no failing callable requirements")
         }
 
@@ -1551,11 +1575,20 @@ mod tests {
     impl ConstantCallResolver for IneligibleCallResolver {
         type UpstreamError = std::convert::Infallible;
 
-        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+        fn contract(
+            &self,
+            _target: &crate::ConstantCallTarget,
+        ) -> crate::CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
+        > {
             panic!("this fixture evaluates checked nodes without semantic contract queries")
         }
 
-        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+        fn requirement_origin(
+            &self,
+            _target: &crate::ConstantCallTarget,
+            _index: usize,
+        ) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
             panic!("this fixture has no failing callable requirements")
         }
 

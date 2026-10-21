@@ -211,6 +211,23 @@ mod tests {
     use super::super::state::Parser;
 
     #[test]
+    fn const_lambdas_do_not_start_a_following_constant_declaration() {
+        for source_text in [
+            "{ let action = const lambda() {}; }",
+            "{ const action: const func() = const lambda() {}; }",
+            "{ const lambda() {}; }",
+        ] {
+            let sources = source_store([source_text]);
+            let mut parser = Parser::new(source(&sources, 0));
+
+            parser
+                .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+            assert!(parser.finish().is_empty(), "{source_text}");
+        }
+    }
+
+    #[test]
     fn internal_access_starts_a_sequenced_expression() {
         let source_text = "{ internal app.detail(); }";
         let sources = source_store([source_text]);

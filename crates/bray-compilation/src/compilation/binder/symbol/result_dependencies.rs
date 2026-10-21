@@ -430,9 +430,13 @@ fn body_result_dependencies(
     )
     .with_observed_result(if !previous.normal_completion() {
         checked.observed_result()
-    } else if !checked.normal_completion() || previous.observed_result() == checked.observed_result() {
+    } else if !checked.normal_completion()
+        || previous.observed_result() == checked.observed_result()
+    {
         previous.observed_result()
-    } else { None })
+    } else {
+        None
+    })
     .with_returned_input(if !previous.normal_completion() {
         checked.returned_input()
     } else if !checked.normal_completion() || previous.returned_input() == checked.returned_input()

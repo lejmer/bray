@@ -84,12 +84,7 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
                 &inputs,
                 boolean,
             )
-            .map(|term| {
-                PredicateSemanticSummary::new(dependency).with_condition(
-                    term,
-                    domain,
-                )
-            })
+            .map(|term| PredicateSemanticSummary::new(dependency).with_condition(term, domain))
             .map_err(BindingQueryError::SemanticValue)
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;

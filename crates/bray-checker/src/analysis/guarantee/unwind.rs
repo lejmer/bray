@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{
-    CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan,
-};
+use bray_bound_tree::{CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::ExecutionProperty;
 
@@ -32,7 +30,8 @@ impl UnwindCandidate {
     /// Locally non-unwinding call sites and all of their invocation and conversion dependencies.
     pub fn calls(
         &self,
-    ) -> &BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>> {
+    ) -> &BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>>
+    {
         &self.calls
     }
 

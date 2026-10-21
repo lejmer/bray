@@ -25,19 +25,41 @@ impl Compilation {
     ) -> Result<bool, FactQueryError> {
         match key.kind() {
             bray_bound_tree::BoundUnitKind::CallableBody => {
-                let definition = self.symbol_graph()?.symbol_for_key(key.declared_owner())
+                let definition = self
+                    .symbol_graph()?
+                    .symbol_for_key(key.declared_owner())
                     .and_then(bray_symbols::CallableDefinitionId::try_new)
                     .expect("callable body retains its declaration identity");
+
                 self.declares_constant_callable(definition, cancellation)
             }
             bray_bound_tree::BoundUnitKind::AnonymousCallable => {
                 let syntax = self.execution_declaration_node(key.source().syntax())?;
-                let lambda = syntax.cast::<bray_syntax::LambdaExpressionSyntax>()
+
+                let lambda = syntax
+                    .cast::<bray_syntax::LambdaExpressionSyntax>()
                     .expect("anonymous callable retains its lambda syntax");
+
                 Ok(lambda.callable_modifiers().const_token().is_some())
             }
             bray_bound_tree::BoundUnitKind::RuntimeDefault => Ok(false),
             _ => Ok(true),
+        }
+    }
+
+    pub(in crate::compilation) fn execution_unit_declaration(
+        &self,
+        key: &BoundUnitKey,
+    ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
+        match key.kind() {
+            bray_bound_tree::BoundUnitKind::CallableBody
+            | bray_bound_tree::BoundUnitKind::AnonymousCallable => {
+                self.execution_declaration(key.source().syntax())
+            }
+            _ => Ok(DiagnosticResult::new(
+                ExecutionDeclaration::default(),
+                DiagnosticBag::new(),
+            )),
         }
     }
 
@@ -139,8 +161,12 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                let behavior = self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
-                let defaults = self.execution_default_inputs(behavior.result().value(), cancellation)?;
+                let behavior =
+                    self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+                let defaults =
+                    self.execution_default_inputs(behavior.result().value(), cancellation)?;
+
                 let recursive = Default::default();
 
                 let unit = bray_checker::CheckerUnitView::new(
@@ -163,7 +189,7 @@ impl Compilation {
                     trusted.diagnostics(),
                 ]);
 
-                let declaration = self.execution_declaration(key.source().syntax())?;
+                let declaration = self.execution_unit_declaration(&key)?;
 
                 let requirements = self.execution_condition_inputs(
                     &key,
@@ -332,7 +358,7 @@ mod tests {
             if required != "bool" {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
 
                 continue;

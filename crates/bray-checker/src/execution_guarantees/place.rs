@@ -62,7 +62,9 @@ impl ExecutionPlace {
         matches!(
             self.reference(),
             Some(BoundReferenceTarget::Surface(
-                AnySymbolId::CallableParameter(_) | AnySymbolId::PredicateParameter(_) | AnySymbolId::ReceiverParameter(_)
+                AnySymbolId::CallableParameter(_)
+                    | AnySymbolId::PredicateParameter(_)
+                    | AnySymbolId::ReceiverParameter(_)
             )) | Some(BoundReferenceTarget::Local(
                 bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
             ))

@@ -14,7 +14,9 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         match self.selections.expression(expression) {
             Some(SemanticSelection::Call(call)) => self.callable_call(expression, call),
             Some(SemanticSelection::Predicate(predicate)) => self.predicate_call(predicate),
-            Some(SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(construction))) => self.construction(construction),
+            Some(SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(construction),
+            )) => self.construction(construction),
             _ => Err(incomplete("invalid_call_selection")),
         }
     }
@@ -24,26 +26,76 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
-        let evidence = self.execution.and_then(|execution| execution.dependency_evidence(expression.into(), call.target()));
-        let target = call.resolution().declaration_source().map(BoundCallableTarget::Declaration).unwrap_or(call.target());
-        if matches!(target, BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)) {
-            let body = call.resolution().anonymous_body().map(|(body, _)| body)
-                .or_else(|| evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target))
-                .ok_or_else(|| incomplete("checked callable value lacks its selected implementation"))?;
+        let evidence = self
+            .execution
+            .and_then(|execution| execution.dependency_evidence(expression.into(), call.target()));
+
+        let target = call
+            .resolution()
+            .declaration_source()
+            .map(BoundCallableTarget::Declaration)
+            .unwrap_or(call.target());
+
+        if matches!(
+            target,
+            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
+        ) {
+            let body = call
+                .resolution()
+                .anonymous_body()
+                .map(|(body, _)| body)
+                .or_else(|| {
+                    evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
+                })
+                .ok_or_else(|| {
+                    incomplete("checked callable value lacks its selected implementation")
+                })?;
+
             // The application and cache retain the same immutable anonymous body key.
-            let body = self.context.compilation().constant_body_template(body.clone(), self.context.cancellation())?;
-            let template = body.result().value().as_ref().expect("admitted anonymous const call retains its checked body");
+            let body = self
+                .context
+                .compilation()
+                .constant_body_template(body.clone(), self.context.cancellation())?;
+
+            let template = body
+                .result()
+                .value()
+                .as_ref()
+                .expect("admitted anonymous const call retains its checked body");
+
             let mut arguments = vec![None; call.arguments().len()];
+
             for argument in call.arguments() {
-                let SelectedArgument::Explicit { expression, ordinal, conversion, .. } = argument else {
-                    return Err(incomplete("anonymous const default lacks its checked provider"));
+                let SelectedArgument::Explicit {
+                    expression,
+                    ordinal,
+                    conversion,
+                    ..
+                } = argument
+                else {
+                    return Err(incomplete(
+                        "anonymous const default lacks its checked provider",
+                    ));
                 };
-                arguments[usize::try_from(*ordinal).expect("argument ordinal fits host")] = Some(self.converted_expression(*expression, conversion)?);
+
+                arguments[usize::try_from(*ordinal).expect("argument ordinal fits host")] =
+                    Some(self.converted_expression(*expression, conversion)?);
             }
+
             let result = self.apply_template(template, &arguments, None)?;
-            let target = self.types.expression(expression).expect("admitted call retains its result type").ty();
-            return Ok(CheckedTemplateOperation::Convert { value: result, target });
+
+            let target = self
+                .types
+                .expression(expression)
+                .expect("admitted call retains its result type")
+                .ty();
+
+            return Ok(CheckedTemplateOperation::Convert {
+                value: result,
+                target,
+            });
         }
+
         let (declaration, substitution) = match target {
             BoundCallableTarget::Declaration(callable) => {
                 (callable.definition().symbol(), callable.substitution())
@@ -92,22 +144,68 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         }
 
         for argument in call.arguments() {
-            let SelectedArgument::Explicit { expression, conversion, ordinal, .. } = argument else { continue; };
+            let SelectedArgument::Explicit {
+                expression,
+                conversion,
+                ordinal,
+                ..
+            } = argument
+            else {
+                continue;
+            };
+
             arguments.push(self.converted_expression(*expression, conversion)?);
-            ordinals.push(ordinal.checked_add(offset).expect("checked callable ordinal includes its receiver"));
+
+            ordinals.push(
+                ordinal
+                    .checked_add(offset)
+                    .expect("checked callable ordinal includes its receiver"),
+            );
         }
+
         for argument in call.arguments() {
-            let SelectedArgument::Default { provider, ordinal, ty, .. } = argument else { continue; };
-            let count = ordinal.checked_add(offset).expect("checked default ordinal includes its receiver");
-            let mut preceding = vec![None; usize::try_from(count).expect("checked default input count fits host")];
+            let SelectedArgument::Default {
+                provider,
+                ordinal,
+                ty,
+                ..
+            } = argument
+            else {
+                continue;
+            };
+
+            let count = ordinal
+                .checked_add(offset)
+                .expect("checked default ordinal includes its receiver");
+
+            let mut preceding =
+                vec![None; usize::try_from(count).expect("checked default input count fits host")];
+
             for (argument, ordinal) in arguments.iter().zip(&ordinals) {
                 if *ordinal < count {
-                    preceding[usize::try_from(*ordinal).expect("checked argument ordinal fits host")] = Some(*argument);
+                    preceding
+                        [usize::try_from(*ordinal).expect("checked argument ordinal fits host")] =
+                        Some(*argument);
                 }
             }
-            let preceding = preceding.into_iter().map(|value| value.expect("default invocation has every earlier argument"));
+
+            let preceding = preceding
+                .into_iter()
+                .map(|value| value.expect("default invocation has every earlier argument"));
+
             let provider = self.symbol_key((*provider).into())?;
-            let value = self.push_node(CheckedTemplateOperation::ordered_call(provider, substitution, preceding, 0..count, None), *ty);
+
+            let value = self.push_node(
+                CheckedTemplateOperation::ordered_call(
+                    provider,
+                    substitution,
+                    preceding,
+                    0..count,
+                    None,
+                ),
+                *ty,
+            );
+
             arguments.push(value);
             ordinals.push(count);
         }
@@ -144,55 +242,118 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         arguments: &[Option<CheckedTemplateNodeId>],
         substitution: Option<bray_symbols::GenericSubstitutionId>,
     ) -> Result<CheckedTemplateNodeId, FactQueryError> {
-        assert!(template.temporaries().is_empty(), "source const template has expression-owned materialization");
-        let resolver = crate::compilation::constant::CompilationConstantTemplateResolver::new(self.context.compilation(), self.context.cancellation(),
-            self.context.imported_symbols().map_err(crate::compilation::binder::binding_query_error)?);
+        assert!(
+            template.temporaries().is_empty(),
+            "source const template has expression-owned materialization"
+        );
+
+        let resolver = crate::compilation::constant::CompilationConstantTemplateResolver::new(
+            self.context.compilation(),
+            self.context.cancellation(),
+            self.context
+                .imported_symbols()
+                .map_err(crate::compilation::binder::binding_query_error)?,
+        );
+
         let mut nodes = Vec::with_capacity(template.nodes().len());
+
         for node in template.nodes() {
             let result = if let CheckedTemplateOperation::Input(input) = node.operation() {
-                let input = &template.inputs()[usize::try_from(input.raw()).expect("checked input index fits host")];
+                let input = &template.inputs()
+                    [usize::try_from(input.raw()).expect("checked input index fits host")];
+
                 match input.kind() {
-                    bray_bound_tree::CheckedTemplateInputKind::Parameter(ordinal) => arguments[ordinal.to_index().expect("argument ordinal fits host")
-                        + usize::from(template.inputs().iter().any(|input| input.kind() == &bray_bound_tree::CheckedTemplateInputKind::Receiver))]
-                        .expect("checked template application supplies its parameter"),
-                    bray_bound_tree::CheckedTemplateInputKind::Receiver => arguments[0]
-                        .expect("checked template application supplies its receiver"),
+                    bray_bound_tree::CheckedTemplateInputKind::Parameter(ordinal) => arguments
+                        [ordinal.to_index().expect("argument ordinal fits host")
+                            + usize::from(template.inputs().iter().any(|input| {
+                                input.kind() == &bray_bound_tree::CheckedTemplateInputKind::Receiver
+                            }))]
+                    .expect("checked template application supplies its parameter"),
+                    bray_bound_tree::CheckedTemplateInputKind::Receiver => {
+                        arguments[0].expect("checked template application supplies its receiver")
+                    }
                     bray_bound_tree::CheckedTemplateInputKind::GenericConstant(key) => {
-                        let Some(bray_symbols::AnySymbolId::GenericConstParameter(parameter)) = bray_checker::ConstantTemplateResolver::symbol(&resolver, key) else {
+                        let Some(bray_symbols::AnySymbolId::GenericConstParameter(parameter)) =
+                            bray_checker::ConstantTemplateResolver::symbol(&resolver, key)
+                        else {
                             panic!("checked generic constant input resolves to its parameter");
                         };
+
                         let values = self.context.semantic_values();
-                        let term = values.intern_constant_term(bray_symbols::ConstantTermData::Parameter(parameter))?;
-                        let term = substitution.map(|substitution| values.substitute_constant_term(term, substitution)).transpose()?.unwrap_or(term);
-                        let ty = substitution.map(|substitution| values.substitute_type(input.ty(), substitution)).transpose()?.unwrap_or(input.ty());
-                        self.push_node(CheckedTemplateOperation::Constant { term, usage: Default::default() }, ty)
+
+                        let term = values.intern_constant_term(
+                            bray_symbols::ConstantTermData::Parameter(parameter),
+                        )?;
+
+                        let term = substitution
+                            .map(|substitution| values.substitute_constant_term(term, substitution))
+                            .transpose()?
+                            .unwrap_or(term);
+
+                        let ty = substitution
+                            .map(|substitution| values.substitute_type(input.ty(), substitution))
+                            .transpose()?
+                            .unwrap_or(input.ty());
+
+                        self.push_node(
+                            CheckedTemplateOperation::Constant {
+                                term,
+                                usage: Default::default(),
+                            },
+                            ty,
+                        )
                     }
                     kind => {
-                        let ordinal = self.inputs.iter().position(|input| input.kind() == kind)
+                        let ordinal = self
+                            .inputs
+                            .iter()
+                            .position(|input| input.kind() == kind)
                             .expect("applied const template retains its enclosing generic input");
-                        self.push_node(CheckedTemplateOperation::Input(bray_bound_tree::CheckedTemplateInputId::new(index(ordinal))), input.ty())
+
+                        self.push_node(
+                            CheckedTemplateOperation::Input(
+                                bray_bound_tree::CheckedTemplateInputId::new(index(ordinal)),
+                            ),
+                            input.ty(),
+                        )
                     }
                 }
             } else {
                 let values = self.context.semantic_values();
-                let mut operation = if let Some(substitution) = substitution { node.operation().try_map_references(
-                    |term| values.substitute_constant_term(*term, substitution),
-                    |ty| values.substitute_type(*ty, substitution),
-                    // Stable keys are shared by the cached graph and its rebased application.
-                    |key| Ok(key.clone()),
-                    |application| values.substitute_generic_substitution(*application, substitution),
-                    |key| Ok(key.clone()),
-                )? } else {
+
+                let mut operation = if let Some(substitution) = substitution {
+                    node.operation().try_map_references(
+                        |term| values.substitute_constant_term(*term, substitution),
+                        |ty| values.substitute_type(*ty, substitution),
+                        // Stable keys are shared by the cached graph and its rebased application.
+                        |key| Ok(key.clone()),
+                        |application| {
+                            values.substitute_generic_substitution(*application, substitution)
+                        },
+                        |key| Ok(key.clone()),
+                    )?
+                } else {
                     // Lexical anonymous application shares all stable semantic references.
                     node.operation().clone()
                 };
-                operation.map_node_references(|node| nodes[usize::try_from(node.raw()).expect("checked node index fits host")]);
-                let ty = substitution.map(|substitution| values.substitute_type(node.ty(), substitution)).transpose()?.unwrap_or(node.ty());
+
+                operation.map_node_references(|node| {
+                    nodes[usize::try_from(node.raw()).expect("checked node index fits host")]
+                });
+
+                let ty = substitution
+                    .map(|substitution| values.substitute_type(node.ty(), substitution))
+                    .transpose()?
+                    .unwrap_or(node.ty());
+
                 self.push_node(operation, ty)
             };
+
             nodes.push(result);
         }
-        Ok(nodes[usize::try_from(template.result().raw()).expect("checked template result fits host")])
+
+        Ok(nodes
+            [usize::try_from(template.result().raw()).expect("checked template result fits host")])
     }
 
     fn predicate_call(

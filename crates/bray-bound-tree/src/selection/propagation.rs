@@ -4,7 +4,7 @@ use bray_symbols::{TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 use super::SelectedConversion;
 
 /// The exact checked boundary receiving one propagated value.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelectedPropagationBoundary {
     /// The enclosing callable result boundary.
     Callable,

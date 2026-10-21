@@ -4050,3 +4050,51 @@ fn construction_inputs_preserve_authority_without_forgery_or_repairing_pairs() {
         }
     }
 }
+
+#[test]
+fn default_mutation_retires_authority_before_the_selected_call_entry() {
+    for (default, valid) in [("0", true), ("invalidate(value)", false)] {
+        let source = r#"
+            trusted module app;
+
+            struct Owner { mut epoch: u8; }
+            trusted predicate live(value: &u8);
+
+            trusted func acquire() -> Owner
+                ensures(trusted live(&result.epoch))
+            {
+                return Owner { epoch = 0 };
+            }
+
+            func invalidate(pos value: &mut Owner) -> u8
+            {
+                value.epoch = 1;
+                return 0;
+            }
+
+            func selected(pos value: &mut Owner, marker: u8 = DEFAULT)
+                requires(trusted live(&value.epoch))
+            {
+            }
+
+            func caller()
+            {
+                let mut owner = acquire();
+                selected(&mut owner);
+            }
+        "#
+        .replace("DEFAULT", default);
+
+        let checked = compilation(&source);
+        let diagnostics = checked.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

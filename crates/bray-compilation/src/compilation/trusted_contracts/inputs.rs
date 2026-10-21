@@ -18,7 +18,6 @@ impl Compilation {
         let mut inputs = TrustedContractInputs::default();
         let mut diagnostics = DiagnosticBag::new();
 
-
         inputs.predicates =
             self.execution_predicate_inputs(semantics, cancellation, &mut diagnostics)?;
 
@@ -28,7 +27,9 @@ impl Compilation {
                 | bray_bound_tree::BoundUnitKind::AnonymousCallable
                 | bray_bound_tree::BoundUnitKind::ConstantTemplate
         );
+
         let trusted = callable_body && self.trusted_predicate_producer(key)?;
+
         if key.callable_type_header().is_some() {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
@@ -40,7 +41,6 @@ impl Compilation {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
 
             let declared = self.execution_declaration(key.source().syntax())?;
-
 
             let requirements = self.predicate_condition_inputs(
                 key,
@@ -211,7 +211,12 @@ impl Compilation {
             || !inputs.calls.is_empty();
 
         if needs_predicate_flow {
-            inputs.constants.extend(self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?);
+            inputs.constants.extend(self.execution_constant_inputs(
+                bound,
+                semantics,
+                cancellation,
+                &mut diagnostics,
+            )?);
 
             inputs
                 .statics

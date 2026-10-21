@@ -29,6 +29,17 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
             for access in plan.lifecycle_resolution() {
                 let identity = storage.root_identity(*access);
 
+                // Pure execution cannot replace this literal's permanent backing.
+                if property == ExecutionProperty::Pure
+                    && identity
+                        .and_then(|identity| storage.identity(identity))
+                        .is_some_and(|identity| {
+                            identity.has_permanent_literal_storage(request.view())
+                        })
+                {
+                    continue;
+                }
+
                 let parts = identity
                     .and_then(|identity| cleanup.storage_requirement(identity))
                     .and_then(|requirement| requirement.parts());

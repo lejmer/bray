@@ -186,11 +186,20 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             }
 
             let preserves = match operation.kind() {
-                AnalysisOperationKind::Result { expression, phase: super::super::model::AnalysisResultPhase::Begin }
-                    if predicate && property == ExecutionProperty::Pure => {
-                    if !super::predicate::expression_is_eligible(request, expression, expressions, storage, reachable.domain.yield_targets) {
+                AnalysisOperationKind::Result {
+                    expression,
+                    phase: super::super::model::AnalysisResultPhase::Begin,
+                } if predicate && property == ExecutionProperty::Pure => {
+                    if !super::predicate::expression_is_eligible(
+                        request,
+                        expression,
+                        expressions,
+                        storage,
+                        reachable.domain.yield_targets,
+                    ) {
                         record_constant_failure(request, candidate, expression.into());
                     }
+
                     true
                 }
                 AnalysisOperationKind::Result { .. } => true,
@@ -253,17 +262,31 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
 
                     if visited.insert(expression.into()) {
                         if predicate && property == ExecutionProperty::Pure {
-                            if !super::predicate::expression_is_eligible(request, expression, expressions, storage, reachable.domain.yield_targets) {
+                            if !super::predicate::expression_is_eligible(
+                                request,
+                                expression,
+                                expressions,
+                                storage,
+                                reachable.domain.yield_targets,
+                            ) {
                                 record_constant_failure(request, candidate, expression.into());
                             }
                         }
-                        let predicate_valid = !predicate || state.as_ref().is_none_or(|state| {
-                            reachable.domain.predicate_operation_is_valid(state, expression, &mut predicate_ranges, &mut candidate.integer_maxima)
-                        });
+
+                        let predicate_valid = !predicate
+                            || state.as_ref().is_none_or(|state| {
+                                reachable.domain.predicate_operation_is_valid(
+                                    state,
+                                    expression,
+                                    &mut predicate_ranges,
+                                    &mut candidate.integer_maxima,
+                                )
+                            });
 
                         if !predicate_valid {
                             record_constant_failure(request, candidate, expression.into());
                         }
+
                         valid &= check_expression_execution(
                             request,
                             expression,
@@ -302,7 +325,10 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             }
 
             if let Some(current) = &mut state {
-                if !reachable.domain.operation(current, operation.kind(), None) { break; }
+                if !reachable.domain.operation(current, operation.kind(), None) {
+                    break;
+                }
+
                 if matches!(operation.kind(), AnalysisOperationKind::Call { .. }) {
                     predicate_ranges.clear();
                 }
@@ -399,11 +425,21 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
 }
 
 fn record_constant_failure<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>, candidate: &mut ExecutionCandidate, node: AnyBoundNodeId,
+    request: CheckerUnitView<'_, C>,
+    candidate: &mut ExecutionCandidate,
+    node: AnyBoundNodeId,
 ) {
     let anchor = crate::diagnostic::bound_node_origin(request, node)
-        .map_or(request.unit().key().source().syntax(), |origin| origin.source_anchor().syntax());
-    candidate.constant_failure.get_or_insert(bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()));
+        .map_or(request.unit().key().source().syntax(), |origin| {
+            origin.source_anchor().syntax()
+        });
+
+    candidate
+        .constant_failure
+        .get_or_insert(bray_source::SourceSpan::new(
+            anchor.source_id(),
+            anchor.full_range(),
+        ));
 }
 
 fn record_failure<C: CheckerRequestContext + ?Sized>(

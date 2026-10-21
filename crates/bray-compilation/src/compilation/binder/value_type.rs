@@ -32,21 +32,36 @@ pub(in crate::compilation) fn bind_declared_value_type_templates(
     let mut binding = DeclaredValueTypeBinding::new(context, unit, owner);
 
     binding.bind_visible_generic_const_parameters()?;
+
     if unit.key().callable_type_header().is_some() {
         let header = super::symbol::callable_clause_header(context, unit.key())?;
-        binding.diagnostics.add_range(header.diagnostics().iter().cloned());
+
+        binding
+            .diagnostics
+            .add_range(header.diagnostics().iter().cloned());
+
         for local in unit.local_symbols().bindings() {
             if let Some(ordinal) = local.key().ordinal() {
-                let parameter = &header.value().parameters()[usize::try_from(ordinal.raw()).expect("clause ordinal fits host")];
-                binding.add_evidence(local_value(local.id().into()), TypeExpressionTemplate::Resolved(parameter.ty()));
+                let parameter = &header.value().parameters()
+                    [usize::try_from(ordinal.raw()).expect("clause ordinal fits host")];
+
+                binding.add_evidence(
+                    local_value(local.id().into()),
+                    TypeExpressionTemplate::Resolved(parameter.ty()),
+                );
             }
         }
+
         for result in unit.local_symbols().postcondition_results() {
-            binding.add_evidence(local_value(result.id().into()), TypeExpressionTemplate::Resolved(header.value().result()));
+            binding.add_evidence(
+                local_value(result.id().into()),
+                TypeExpressionTemplate::Resolved(header.value().result()),
+            );
         }
     } else {
         binding.bind_unit_surface()?;
     }
+
     binding.bind_bound_tree()?;
 
     Ok(binding.finish())

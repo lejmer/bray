@@ -1,4 +1,4 @@
-use crate::compilation::template::{callable_template_inputs};
+use crate::compilation::template::callable_template_inputs;
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -15,8 +15,7 @@ use bray_symbols::{
     CallableContractsQuery, CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
     CallableSignatureQuery, CallableSymbolId, CheckedConstraintKind,
     DeclarationPredicateClauseKind, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
-    GenericOwnerId, InterfaceSupportEntityId, NamedTypeSymbolId,
-    RuntimeDefaultPresence,
+    GenericOwnerId, InterfaceSupportEntityId, NamedTypeSymbolId, RuntimeDefaultPresence,
     StructFieldDefaultValue, SymbolQueryRequest, UnionPayloadDefaultValue,
 };
 
@@ -315,7 +314,12 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
+                export_runtime_default(
+                    compilation,
+                    export,
+                    checked.value().provider().into(),
+                    semantics,
+                )?;
             }
         }
         AnySymbolId::StructField(field) => {
@@ -336,7 +340,12 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
+                export_runtime_default(
+                    compilation,
+                    export,
+                    checked.value().provider().into(),
+                    semantics,
+                )?;
             }
         }
         AnySymbolId::UnionPayloadField(field) => {
@@ -357,7 +366,12 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
+                export_runtime_default(
+                    compilation,
+                    export,
+                    checked.value().provider().into(),
+                    semantics,
+                )?;
             }
         }
         _ => {}
@@ -413,16 +427,30 @@ fn export_runtime_default(
     provider: AnySymbolId,
     semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
-    let key = compilation.declared_unit_key(provider, bray_bound_tree::BoundUnitKind::RuntimeDefault)
+    let key = compilation
+        .declared_unit_key(provider, bray_bound_tree::BoundUnitKind::RuntimeDefault)
         .map_err(super::super::fact_query_export_error)?
         .expect("source default retains its declaration-owned unit");
-    let cached = compilation.constant_body_template(key, &compilation.state.cancellation)
+
+    let cached = compilation
+        .constant_body_template(key, &compilation.state.cancellation)
         .map_err(super::super::fact_query_export_error)?;
-    let template = cached.result().value().as_ref().ok_or_else(||
+
+    let template = cached.result().value().as_ref().ok_or_else(|| {
         super::super::error::source_diagnostic_export_error(cached.result().diagnostics())
-            .expect("missing checked source default retains its diagnostics"))?;
+            .expect("missing checked source default retains its diagnostics")
+    })?;
+
     let checked = super::super::template::encode_template(export, template)?;
-    push_declaration_template(export, provider, CheckedTemplateKind::RuntimeDefault,
-        bray_symbols::SymbolOrdinal::new(0), checked, &mut semantics.checked_templates,
-        &mut semantics.declaration_templates, &mut semantics.support_entities)
+
+    push_declaration_template(
+        export,
+        provider,
+        CheckedTemplateKind::RuntimeDefault,
+        bray_symbols::SymbolOrdinal::new(0),
+        checked,
+        &mut semantics.checked_templates,
+        &mut semantics.declaration_templates,
+        &mut semantics.support_entities,
+    )
 }

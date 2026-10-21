@@ -236,6 +236,7 @@ impl SemanticValueStore {
         while let ConstantValueKind::Borrowed(referent) = self.constant_value_data(value).kind() {
             value = *referent;
         }
+
         value
     }
 

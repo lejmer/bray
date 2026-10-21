@@ -86,8 +86,12 @@ pub(super) fn validate_constant_value_data(
         ConstantValueKind::Borrowed(value) => {
             let borrowed = tables.constant_values.get(store, *value);
             let ty = tables.types.get(store, data.ty());
-            assert!(matches!(ty, TypeData::Borrow { kind: crate::BorrowKind::Shared, target }
-                if *target == borrowed.ty()), "constant observation retains its shared referent type: {data:?}");
+
+            assert!(
+                matches!(ty, TypeData::Borrow { kind: crate::BorrowKind::Shared, target }
+                if *target == borrowed.ty()),
+                "constant observation retains its shared referent type: {data:?}"
+            );
         }
         ConstantValueKind::NullablePresent(value) => {
             tables.constant_values.get(store, *value);

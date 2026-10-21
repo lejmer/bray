@@ -41,9 +41,15 @@ pub enum ConstantCallTarget {
     /// A named callable with its exact generic application.
     Declaration(CallableInstanceData),
     /// A capture-free anonymous callable in its enclosing generic application.
-    Anonymous(bray_bound_tree::BoundUnitKey, Option<bray_symbols::GenericSubstitutionId>),
+    Anonymous(
+        bray_bound_tree::BoundUnitKey,
+        Option<bray_symbols::GenericSubstitutionId>,
+    ),
     /// A declaration-owned default provider in its selected generic application.
-    Default(bray_bound_tree::DefaultValueProvider, bray_symbols::GenericSubstitutionId),
+    Default(
+        bray_bound_tree::DefaultValueProvider,
+        bray_symbols::GenericSubstitutionId,
+    ),
     /// A predicate body evaluated internally while checking a constant invocation.
     Predicate(bray_symbols::PredicateInstanceData),
 }
@@ -58,19 +64,32 @@ pub struct ConstantCallContract {
 
 impl ConstantCallContract {
     /// Retains the selected signature after substitution and checked contract construction.
-    pub fn new(inputs: impl IntoIterator<Item = TypeId>, result: TypeId,
-        requirements: impl IntoIterator<Item = bray_symbols::PredicateSemanticSummary>) -> Self {
-        Self { inputs: shared_slice(inputs), result, requirements: shared_slice(requirements) }
+    pub fn new(
+        inputs: impl IntoIterator<Item = TypeId>,
+        result: TypeId,
+        requirements: impl IntoIterator<Item = bray_symbols::PredicateSemanticSummary>,
+    ) -> Self {
+        Self {
+            inputs: shared_slice(inputs),
+            result,
+            requirements: shared_slice(requirements),
+        }
     }
 
     /// Returns receiver-first logical input types.
-    pub fn inputs(&self) -> &[TypeId] { &self.inputs }
+    pub fn inputs(&self) -> &[TypeId] {
+        &self.inputs
+    }
 
     /// Returns the selected result type.
-    pub const fn result(&self) -> TypeId { self.result }
+    pub const fn result(&self) -> TypeId {
+        self.result
+    }
 
     /// Returns requirements in their declaration order, retaining their checking domain.
-    pub fn requirements(&self) -> &[bray_symbols::PredicateSemanticSummary] { &self.requirements }
+    pub fn requirements(&self) -> &[bray_symbols::PredicateSemanticSummary] {
+        &self.requirements
+    }
 }
 
 /// One selected constant call after its argument expressions have evaluated.
@@ -110,15 +129,20 @@ impl ConstantCallRequest {
     }
 
     /// Returns the exact implementation identity selected for this invocation.
-    pub const fn target(&self) -> &ConstantCallTarget { &self.target }
+    pub const fn target(&self) -> &ConstantCallTarget {
+        &self.target
+    }
 
     /// Returns the selected generic application for every invocation kind.
     pub const fn substitution(&self) -> bray_symbols::GenericSubstitutionId {
         match &self.target {
             ConstantCallTarget::Declaration(callable) => callable.substitution(),
             ConstantCallTarget::Predicate(predicate) => predicate.substitution(),
-            ConstantCallTarget::Anonymous(_, Some(substitution)) | ConstantCallTarget::Default(_, substitution) => *substitution,
-            ConstantCallTarget::Anonymous(_, None) => panic!("anonymous invocation resolves its lexical generic context before template evaluation"),
+            ConstantCallTarget::Anonymous(_, Some(substitution))
+            | ConstantCallTarget::Default(_, substitution) => *substitution,
+            ConstantCallTarget::Anonymous(_, None) => panic!(
+                "anonymous invocation resolves its lexical generic context before template evaluation"
+            ),
         }
     }
 
@@ -166,10 +190,17 @@ pub trait ConstantCallResolver: Sync {
     ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
     /// Reads the already selected logical signature without evaluating a body.
-    fn contract(&self, target: &ConstantCallTarget) -> CheckerQueryResult<DiagnosticResult<Option<ConstantCallContract>>, Self::UpstreamError>;
+    fn contract(
+        &self,
+        target: &ConstantCallTarget,
+    ) -> CheckerQueryResult<DiagnosticResult<Option<ConstantCallContract>>, Self::UpstreamError>;
 
     /// Retrieves source context only after a particular requirement has failed.
-    fn requirement_origin(&self, target: &ConstantCallTarget, index: usize) -> CheckerQueryResult<Option<bray_source::SourceSpan>, Self::UpstreamError>;
+    fn requirement_origin(
+        &self,
+        target: &ConstantCallTarget,
+        index: usize,
+    ) -> CheckerQueryResult<Option<bray_source::SourceSpan>, Self::UpstreamError>;
 
     /// Evaluates one exact call without evaluating unrelated semantic queries.
     fn resolve(
@@ -181,8 +212,14 @@ pub trait ConstantCallResolver: Sync {
 /// Resolves stable references used by an imported const-callable body template.
 pub trait ConstantTemplateResolver: ConstantCallResolver {
     /// Returns the complete checked expression graph of one ordinary caller requirement.
-    fn requirement_template(&self, target: &ConstantCallTarget, index: usize)
-        -> CheckerQueryResult<DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>, Self::UpstreamError>;
+    fn requirement_template(
+        &self,
+        target: &ConstantCallTarget,
+        index: usize,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>,
+        Self::UpstreamError,
+    >;
 
     /// Resolves one stable declaration identity into the consuming compilation.
     fn symbol(&self, key: &SymbolKey) -> Option<AnySymbolId>;

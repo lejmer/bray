@@ -110,15 +110,22 @@ impl PredicateSemanticSummary {
         symbols: &crate::AvailableCompilerKnownSymbols,
     ) -> Option<crate::CallableExecutionRequirement> {
         let mut term = self.condition?;
+
         loop {
             let data = values.constant_term_data(term);
+
             match data.as_ref() {
                 crate::ConstantTermData::Typed { term: inner, .. } => term = *inner,
                 crate::ConstantTermData::PredicateCall { predicate, .. }
-                    if symbols.symbol_implementation(predicate.definition().into_any())
-                        .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement) =>
+                    if symbols
+                        .symbol_implementation(predicate.definition().into_any())
+                        .is_some_and(
+                            bray_compiler_known::ImplementationHook::is_execution_requirement,
+                        ) =>
                 {
-                    return Some(crate::CallableExecutionRequirement::new(predicate.definition().into_any()));
+                    return Some(crate::CallableExecutionRequirement::new(
+                        predicate.definition().into_any(),
+                    ));
                 }
                 _ => return None,
             }

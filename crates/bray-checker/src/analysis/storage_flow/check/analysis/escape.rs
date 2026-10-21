@@ -303,14 +303,10 @@ where
     }
 
     fn has_permanent_literal_storage(&self, access: bray_bound_tree::StorageAccessId) -> bool {
-        matches!(
-            self.storage.root_identity(access)
-                .and_then(|root| self.storage.identity(root)),
-            Some(bray_bound_tree::StorageIdentity::Temporary(expression))
-                if matches!(self.request.view().expression(expression),
-                    Some(bray_bound_tree::BoundExpression::Literal(literal))
-                        if literal.kind() == bray_bound_tree::BoundLiteralKind::String)
-        )
+        self.storage
+            .root_identity(access)
+            .and_then(|root| self.storage.identity(root))
+            .is_some_and(|identity| identity.has_permanent_literal_storage(self.request.view()))
     }
 
     pub(super) fn borrow_reaches_external_storage(

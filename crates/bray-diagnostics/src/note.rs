@@ -247,7 +247,9 @@ impl DiagnosticNoteKind {
             Self::ResolveFinalization => "resolve_finalization",
             Self::TrustedObligationEvidenceRequired => "trusted_obligation_evidence_required",
             Self::ExecutionRequirementEvidenceRequired => "execution_requirement_evidence_required",
-            Self::ConstantCallArgumentsMustSatisfyRequirements => "constant_call_arguments_must_satisfy_requirements",
+            Self::ConstantCallArgumentsMustSatisfyRequirements => {
+                "constant_call_arguments_must_satisfy_requirements"
+            }
             Self::TrustedWitnessTransferRequired => "trusted_witness_transfer_required",
         }
     }

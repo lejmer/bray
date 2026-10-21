@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundExpressionId,
-    BoundReferenceTarget, BoundUnit, BoundUnitRoot, BoundWalkControl, BoundWalkEvent,
-    CheckedExpressionTypes, CheckedSemanticSelections, CheckedTemplateOperation,
-    ExpressionTypeEntry, ExpressionTypeResult, SelectedOperation, SemanticSelection,
-    walk_bound_unit_view,
+    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
+    BoundUnitRoot, BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes,
+    CheckedSemanticSelections, CheckedTemplateOperation, ExpressionTypeEntry, ExpressionTypeResult,
+    SelectedOperation, SemanticSelection, walk_bound_unit_view,
 };
 use bray_checker::ConstantReferenceResolution;
 use bray_symbols::{

@@ -966,14 +966,17 @@ fn trusted_predicates_are_compatible(
 
     let required = bray_checker::execution_condition_from_type_term(values, required, input_count)?;
 
-    let required =
-        bray_checker::map_execution_condition_references(&required, &|substitution| {
+    let required = bray_checker::map_execution_condition_references(
+        &required,
+        &|substitution| {
             values.substitute_contextual_self_in_substitution(
                 substitution,
                 bray_symbols::SelfTypeContext::Trait(application.definition()),
                 subject,
             )
-        }, &|place| Ok(bray_checker::ExecutionCondition::Input(place.clone())))?;
+        },
+        &|place| Ok(bray_checker::ExecutionCondition::Input(place.clone())),
+    )?;
 
     let provided = bray_checker::execution_condition_from_type_term(values, provided, input_count)?;
 

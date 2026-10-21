@@ -8,6 +8,7 @@ pub(super) fn comparison_is_implied(
     operator: bray_bound_tree::BoundOperator,
     operands: &[ExecutionCondition],
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    budget: &mut usize,
 ) -> Option<bool> {
     use bray_bound_tree::BoundOperator;
 
@@ -23,13 +24,26 @@ pub(super) fn comparison_is_implied(
         ))
     };
 
-    let unequal = known(BoundOperator::NotEqual, left, right) || known(BoundOperator::NotEqual, right, left)
-        || assumptions.contains(&(ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]), false))
-        || assumptions.contains(&(ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]), false));
+    let unequal = known(BoundOperator::NotEqual, left, right)
+        || known(BoundOperator::NotEqual, right, left)
+        || assumptions.contains(&(
+            ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]),
+            false,
+        ))
+        || assumptions.contains(&(
+            ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]),
+            false,
+        ));
+
     if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
-        let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater].into_iter()
+        let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater]
+            .into_iter()
             .any(|operator| known(operator, left, right) || known(operator, right, left));
-        return strictly_ordered.then_some(operator == BoundOperator::NotEqual);
+
+        return (strictly_ordered
+            || ordered_path(left, right, true, assumptions, budget)
+            || ordered_path(right, left, true, assumptions, budget))
+        .then_some(operator == BoundOperator::NotEqual);
     }
 
     let (strict, reversed, allows_equal) = match operator {
@@ -40,8 +54,18 @@ pub(super) fn comparison_is_implied(
         _ => return None,
     };
 
-    let weak = if strict == BoundOperator::Less { BoundOperator::LessEqual } else { BoundOperator::GreaterEqual };
-    let reversed_weak = if reversed == BoundOperator::Less { BoundOperator::LessEqual } else { BoundOperator::GreaterEqual };
+    let weak = if strict == BoundOperator::Less {
+        BoundOperator::LessEqual
+    } else {
+        BoundOperator::GreaterEqual
+    };
+
+    let reversed_weak = if reversed == BoundOperator::Less {
+        BoundOperator::LessEqual
+    } else {
+        BoundOperator::GreaterEqual
+    };
+
     if known(strict, left, right)
         || known(reversed, right, left)
         || unequal && (known(weak, left, right) || known(reversed_weak, right, left))
@@ -79,7 +103,85 @@ pub(super) fn comparison_is_implied(
         }
     }
 
-    None
+    let (lower, upper) = if strict == BoundOperator::Less {
+        (left, right)
+    } else {
+        (right, left)
+    };
+
+    if ordered_path(lower, upper, !allows_equal && !unequal, assumptions, budget) {
+        return Some(true);
+    }
+
+    ordered_path(upper, lower, allows_equal, assumptions, budget).then_some(false)
+}
+
+fn ordered_path(
+    lower: &ExecutionCondition,
+    upper: &ExecutionCondition,
+    requires_strict: bool,
+    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    budget: &mut usize,
+) -> bool {
+    use bray_bound_tree::BoundOperator;
+
+    if assumptions.len() < 2 {
+        return false;
+    }
+
+    let mut pending = vec![(lower, false)];
+    let mut visited = std::collections::BTreeSet::new();
+
+    while let Some((current, strict)) = pending.pop() {
+        if !visited.insert((current, strict)) {
+            continue;
+        }
+
+        for (condition, value) in assumptions {
+            let Some(remaining) = budget.checked_sub(1) else {
+                return false;
+            };
+
+            *budget = remaining;
+
+            let ExecutionCondition::Operation(operator, operands) = condition else {
+                continue;
+            };
+
+            let [left, right] = operands.as_ref() else {
+                continue;
+            };
+
+            // Negative comparisons cannot supply ordered edges because of NaN.
+            if !value {
+                continue;
+            }
+
+            let (from, to, edge_strict) = match operator {
+                BoundOperator::Less => (left, right, true),
+                BoundOperator::LessEqual => (left, right, false),
+                BoundOperator::Greater => (right, left, true),
+                BoundOperator::GreaterEqual => (right, left, false),
+                BoundOperator::Equal if right == current => (right, left, false),
+                BoundOperator::Equal => (left, right, false),
+                _ => continue,
+            };
+
+            if from != current {
+                continue;
+            }
+
+            let strict = strict || edge_strict;
+
+            if to == upper && (strict || !requires_strict) {
+                return true;
+            }
+
+            pending.push((to, strict));
+        }
+    }
+
+    false
 }
 
 /// Checks whether entry assumptions establish a condition after matching callable inputs.
@@ -156,7 +258,9 @@ pub fn map_execution_condition_references<E>(
             condition,
             captured,
         } => ExecutionCondition::Entry {
-            condition: std::sync::Arc::new(map_execution_condition_references(condition, map, input)?),
+            condition: std::sync::Arc::new(map_execution_condition_references(
+                condition, map, input,
+            )?),
             captured: *captured,
         },
         ExecutionCondition::Predicate(predicate, substitution, operands) => {
@@ -194,7 +298,10 @@ pub fn map_execution_condition_references<E>(
             fields
                 .iter()
                 .map(|(field, value)| {
-                    Ok((*field, map_execution_condition_references(value, map, input)?))
+                    Ok((
+                        *field,
+                        map_execution_condition_references(value, map, input)?,
+                    ))
                 })
                 .collect::<Result<Vec<_>, E>>()?
                 .into(),
@@ -205,20 +312,35 @@ pub fn map_execution_condition_references<E>(
 
 /// Applies an already checked generic application to substitutions and generic constant inputs.
 pub fn substitute_execution_condition(
-    values: &bray_symbols::SemanticValueStore, condition: &ExecutionCondition,
+    values: &bray_symbols::SemanticValueStore,
+    condition: &ExecutionCondition,
     substitution: bray_symbols::GenericSubstitutionId,
 ) -> Result<ExecutionCondition, bray_symbols::SemanticValueStoreError> {
-    map_execution_condition_references(condition, &|nested| values.substitute_generic_substitution(nested, substitution), &|place| {
-        let Some(bray_bound_tree::BoundReferenceTarget::Surface(bray_symbols::AnySymbolId::GenericConstParameter(parameter))) = place.reference() else {
-            // The instantiated condition retains the same immutable runtime input path.
-            return Ok(ExecutionCondition::Input(place.clone()));
-        };
-        let term = values.intern_constant_term(bray_symbols::ConstantTermData::Parameter(parameter))?;
-        let term = values.substitute_constant_term(term, substitution)?;
-        let mut value = crate::execution_condition_from_type_term(values, term, 0)?;
-        for projection in &*place.projections { value = value.component(*projection); }
-        Ok(value)
-    })
+    map_execution_condition_references(
+        condition,
+        &|nested| values.substitute_generic_substitution(nested, substitution),
+        &|place| {
+            let Some(bray_bound_tree::BoundReferenceTarget::Surface(
+                bray_symbols::AnySymbolId::GenericConstParameter(parameter),
+            )) = place.reference()
+            else {
+                // The instantiated condition retains the same immutable runtime input path.
+                return Ok(ExecutionCondition::Input(place.clone()));
+            };
+
+            let term = values
+                .intern_constant_term(bray_symbols::ConstantTermData::Parameter(parameter))?;
+
+            let term = values.substitute_constant_term(term, substitution)?;
+            let mut value = crate::execution_condition_from_type_term(values, term, 0)?;
+
+            for projection in &*place.projections {
+                value = value.component(*projection);
+            }
+
+            Ok(value)
+        },
+    )
 }
 
 #[cfg(test)]
@@ -303,7 +425,8 @@ mod tests {
             super::comparison_is_implied(
                 BoundOperator::LessEqual,
                 &[right.clone(), left.clone()],
-                &known
+                &known,
+                &mut 128,
             ),
             Some(true)
         );
@@ -330,6 +453,64 @@ mod tests {
 
         assert_eq!(
             comparison(BoundOperator::GreaterEqual).prove(&unordered, &mut 128),
+            None
+        );
+    }
+
+    #[test]
+    fn positive_ordering_composes_strict_and_weak_edges_with_a_shared_budget() {
+        let input = |index| {
+            ExecutionCondition::Input(
+                BoundReferenceTarget::Surface(
+                    CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
+                )
+                .into(),
+            )
+        };
+
+        let relation = |operator, left, right| {
+            ExecutionCondition::operation(operator, vec![input(left), input(right)])
+        };
+
+        for (first, second, strict) in [
+            (BoundOperator::Less, BoundOperator::LessEqual, true),
+            (BoundOperator::LessEqual, BoundOperator::Less, true),
+            (BoundOperator::LessEqual, BoundOperator::LessEqual, false),
+            (BoundOperator::Equal, BoundOperator::Less, true),
+        ] {
+            let known = std::collections::BTreeSet::from([
+                (relation(first, 1, 2), true),
+                (relation(second, 2, 3), true),
+            ]);
+
+            assert_eq!(
+                relation(BoundOperator::LessEqual, 1, 3).prove(&known, &mut 128),
+                Some(true)
+            );
+
+            assert_eq!(
+                relation(BoundOperator::Greater, 1, 3).prove(&known, &mut 128),
+                Some(false)
+            );
+
+            assert_eq!(
+                relation(BoundOperator::Less, 1, 3).prove(&known, &mut 128),
+                strict.then_some(true)
+            );
+
+            assert_eq!(
+                relation(BoundOperator::LessEqual, 1, 3).prove(&known, &mut 1),
+                None
+            );
+        }
+
+        let unordered = std::collections::BTreeSet::from([
+            (relation(BoundOperator::Greater, 1, 2), false),
+            (relation(BoundOperator::Less, 2, 3), true),
+        ]);
+
+        assert_eq!(
+            relation(BoundOperator::LessEqual, 1, 3).prove(&unordered, &mut 128),
             None
         );
     }

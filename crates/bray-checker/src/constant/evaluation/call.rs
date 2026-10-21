@@ -36,51 +36,116 @@ where
 
         let offset = usize::from(call.receiver().is_some());
         let mut supplied = vec![None; call.arguments().len() + offset];
+
         if let Some(receiver) = call.receiver() {
             let mut term = self.evaluate(receiver.expression())?;
-            let ty = receiver.input_type(self.request.semantic_values()).expect("checked receiver input belongs to this store");
+
+            let ty = receiver
+                .input_type(self.request.semantic_values())
+                .expect("checked receiver input belongs to this store");
+
             if receiver.mode() == bray_symbols::ReceiverMode::Shared {
                 let values = self.request.semantic_values();
+
                 if let Some(mut value) = self.term_value(term) {
-                    let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(ty) else { panic!("shared receiver input is a borrow"); };
+                    let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(ty)
+                    else {
+                        panic!("shared receiver input is a borrow");
+                    };
+
                     loop {
                         let data = values.constant_value_data(value);
-                        if data.ty() == ty { break; }
-                        if data.ty() == target {
-                            value = values.intern_constant_value(bray_symbols::ConstantValueData::new(ty, bray_symbols::ConstantValueKind::Borrowed(value)))
-                                .expect("checked shared receiver view retains its referent type");
+
+                        if data.ty() == ty {
                             break;
                         }
-                        let bray_symbols::ConstantValueKind::Borrowed(referent) = data.kind() else { panic!("checked receiver adjustment retains its observed target"); };
+
+                        if data.ty() == target {
+                            value = values
+                                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                                    ty,
+                                    bray_symbols::ConstantValueKind::Borrowed(value),
+                                ))
+                                .expect("checked shared receiver view retains its referent type");
+
+                            break;
+                        }
+
+                        let bray_symbols::ConstantValueKind::Borrowed(referent) = data.kind()
+                        else {
+                            panic!("checked receiver adjustment retains its observed target");
+                        };
+
                         value = *referent;
                     }
+
                     term = self.intern_term(ConstantTermData::Value(value));
                 }
             }
+
             supplied[0] = Some((term, ty));
         }
+
         for argument in call.arguments() {
-            if let SelectedArgument::Explicit { expression, ordinal, conversion, .. } = argument {
+            if let SelectedArgument::Explicit {
+                expression,
+                ordinal,
+                conversion,
+                ..
+            } = argument
+            {
                 let value = self.evaluate_selected_conversion(*expression, conversion)?;
-                supplied[usize::try_from(*ordinal).expect("selected argument ordinal fits host") + offset] = Some((value, conversion.target_type()));
+
+                supplied[usize::try_from(*ordinal).expect("selected argument ordinal fits host")
+                    + offset] = Some((value, conversion.target_type()));
             }
         }
+
         for argument in call.arguments() {
-            let SelectedArgument::Default { provider, ordinal, ty, .. } = argument else { continue; };
+            let SelectedArgument::Default {
+                provider,
+                ordinal,
+                ty,
+                ..
+            } = argument
+            else {
+                continue;
+            };
+
             let Some(callable) = call.resolution().declaration_source() else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
-            let earlier = supplied.iter().take(usize::try_from(*ordinal).expect("default ordinal fits host") + offset)
+
+            let earlier = supplied
+                .iter()
+                .take(usize::try_from(*ordinal).expect("default ordinal fits host") + offset)
                 .map(|argument| {
                     let (term, _) = argument.expect("default observes supplied earlier arguments");
+
                     self.closed_value(term, expression)
-                }).collect::<Result<Vec<_>, _>>()?;
-            let value = self.evaluate_template_call_values(expression, crate::ConstantCallTarget::Default(
-                bray_bound_tree::DefaultValueProvider::CallableParameter(*provider), callable.substitution()), earlier, *ty)?;
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let value = self.evaluate_template_call_values(
+                expression,
+                crate::ConstantCallTarget::Default(
+                    bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+                    callable.substitution(),
+                ),
+                earlier,
+                *ty,
+            )?;
+
             let term = self.intern_term(ConstantTermData::Value(value));
-            supplied[usize::try_from(*ordinal).expect("default ordinal fits host") + offset] = Some((term, *ty));
+
+            supplied[usize::try_from(*ordinal).expect("default ordinal fits host") + offset] =
+                Some((term, *ty));
         }
-        let arguments = supplied.into_iter().map(|argument| argument.expect("selected call supplies every parameter")).collect::<Vec<_>>();
+
+        let arguments = supplied
+            .into_iter()
+            .map(|argument| argument.expect("selected call supplies every parameter"))
+            .collect::<Vec<_>>();
 
         if let BoundCallableTarget::Predicate(predicate) = call.target() {
             let arguments = arguments
@@ -93,9 +158,18 @@ where
         }
 
         if let Some((body, _)) = call.resolution().anonymous_body() {
-            let values = arguments.iter().map(|(term, _)| self.closed_value(*term, expression)).collect::<Result<Vec<_>, _>>()?;
-            let value = self.evaluate_template_call_values(expression,
-                crate::ConstantCallTarget::Anonymous(body.clone(), None), values, ty)?;
+            let values = arguments
+                .iter()
+                .map(|(term, _)| self.closed_value(*term, expression))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let value = self.evaluate_template_call_values(
+                expression,
+                crate::ConstantCallTarget::Anonymous(body.clone(), None),
+                values,
+                ty,
+            )?;
+
             return Ok(self.intern_term(ConstantTermData::Value(value)));
         }
 
@@ -336,7 +410,8 @@ where
             });
         };
 
-        let request = ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(callable),
+        let request = ConstantCallRequest::new(
+            crate::ConstantCallTarget::Declaration(callable),
             selected_implementation,
             arguments,
             result_type,
@@ -347,20 +422,33 @@ where
     }
 
     fn evaluate_template_call_values(
-        &mut self, expression: BoundExpressionId, target: crate::ConstantCallTarget,
-        arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>, result_type: TypeId,
+        &mut self,
+        expression: BoundExpressionId,
+        target: crate::ConstantCallTarget,
+        arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
+        result_type: TypeId,
     ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
-        let limits = self.budget.remaining_limits(self.input.limits()).nested_call()
-            .ok_or_else(|| EvaluationFailure::Source { expression,
-                diagnostic: ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0) })?;
+        let limits = self
+            .budget
+            .remaining_limits(self.input.limits())
+            .nested_call()
+            .ok_or_else(|| EvaluationFailure::Source {
+                expression,
+                diagnostic: ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
+            })?;
+
         let request = ConstantCallRequest::new(target, None, arguments, result_type, limits);
+
         self.resolve_constant_request(expression, &request)
     }
 
     fn resolve_constant_request(
-        &mut self, expression: BoundExpressionId, request: &ConstantCallRequest,
+        &mut self,
+        expression: BoundExpressionId,
+        request: &ConstantCallRequest,
     ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
         let result_type = request.result_type();
+
         let Some(resolver) = self.input.call_resolver() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };

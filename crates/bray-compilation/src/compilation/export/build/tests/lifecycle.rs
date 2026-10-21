@@ -78,16 +78,16 @@ fn imported_callable_static_access_orders_local_cleanup() {
 }
 
 #[test]
-fn imported_static_initializer_preserves_helper_static_access() {
+fn imported_static_initializer_keeps_forwarded_static_borrows() {
     let provider = compilation(
         r#"
         module api;
         static ROOT: i32 = 1;
-        const func read_root() -> i32
+        const func forward(pos value: &i32) -> &i32
         {
-            return ROOT;
+            return value;
         }
-        static COPY: i32 = read_root();
+        static COPY: &i32 = forward(&ROOT);
     "#,
     );
 
@@ -1948,5 +1948,38 @@ fn inactive_scoped_protocols_do_not_require_whole_value_cleanup() {
         let diagnostics = compilation.check_diagnostics();
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}
+
+#[test]
+fn static_initializers_cannot_read_runtime_values_through_helpers() {
+    for (modifier, expected) in [
+        (
+            "const ",
+            bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        ),
+        (
+            "",
+            bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module api;
+
+            static ROOT: i32 = 1;
+
+            {modifier}func read() -> i32
+            {{
+                return ROOT;
+            }}
+
+            static COPY: i32 = read();
+        "#
+        );
+
+        let checked = compilation(&source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(checked.check_diagnostics(), expected);
     }
 }

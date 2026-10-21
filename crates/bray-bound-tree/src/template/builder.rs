@@ -216,7 +216,8 @@ fn validate_operation_types(
             validate_short_circuit_types(node, *left, *right, actual, nodes)?;
         }
         CheckedTemplateOperation::Array(elements) => validate_array_types(node, elements, nodes)?,
-        CheckedTemplateOperation::Unreachable | CheckedTemplateOperation::Constant { .. }
+        CheckedTemplateOperation::Unreachable
+        | CheckedTemplateOperation::Constant { .. }
         | CheckedTemplateOperation::Unary { .. }
         | CheckedTemplateOperation::Binary { .. }
         | CheckedTemplateOperation::Borrow { .. }

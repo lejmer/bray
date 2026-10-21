@@ -1001,8 +1001,7 @@ mod tests {
         ConstantValueData, ConstantValueId, ConstantValueKind, ErrorConstantDefinition,
         FunctionSymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, GenericTypeParameterSymbolId, IntegerConstant, IntegerSign,
-        NamedTypeSymbolId,
-        SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
+        NamedTypeSymbolId, SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
     use bray_target::{TargetIdentity, TargetProfile};
     use bray_testing::assert_goal_state_diagnostic_kind;
@@ -1059,30 +1058,101 @@ mod tests {
             }
         "#;
 
-        for definition in [
-            "const BAD: (Guard, i32) = (Guard { value = 1, }, 2);",
-            "const BAD: [Guard; 1] = [Guard { value = 1, }];",
-            "struct Wrapped { inner: Guard; } const BAD: Wrapped = Wrapped { inner = Guard { value = 1, }, };",
-            "const BAD: Guard? = Guard { value = 1, };",
-            "const BAD: Choice = .Owned(value = Guard { value = 1, });",
-            "const func take(pos value: Guard) -> i32 { return 1; } const BAD: i32 = take(Guard { value = 1, });",
-            "const func make() -> Guard { return Guard { value = 1, }; } const BAD: Guard = make();",
-            "const func same<T>(pos value: T) -> T { return value; } const BAD: Guard = same<Guard>(Guard { value = 1, });",
-            "struct Wrapped { inner: Guard; count: i32; } const func make() -> Wrapped { return Wrapped { inner = Guard { value = 1, }, count = 2, }; } const BAD: i32 = make().count;",
-            "const FIRST: Guard = Guard { value = 1, }; const BAD: Guard = FIRST;",
+        for (definition, expected) in [
+            (
+                "const BAD: (Guard, i32) = (Guard { value = 1, }, 2);",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: [Guard; 1] = [Guard { value = 1, }];",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    struct Wrapped
+                    {
+                        inner: Guard;
+                    }
+
+                    const BAD: Wrapped = Wrapped { inner = Guard { value = 1 } };
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: Guard? = Guard { value = 1, };",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: Choice = .Owned(value = Guard { value = 1, });",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    const func take(pos value: Guard) -> i32
+                    {
+                        return 1;
+                    }
+
+                    const BAD: i32 = take(Guard { value = 1 });
+                "#,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                r#"
+                    const func make() -> Guard
+                    {
+                        return Guard { value = 1 };
+                    }
+
+                    const BAD: Guard = make();
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    const func same<T>(pos value: T) -> T
+                    {
+                        return value;
+                    }
+
+                    const BAD: Guard = same<Guard>(Guard { value = 1 });
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    struct Wrapped
+                    {
+                        inner: Guard;
+                        count: i32;
+                    }
+
+                    const func make() -> Wrapped
+                    {
+                        return Wrapped { inner = Guard { value = 1 }, count = 2 };
+                    }
+
+                    const BAD: i32 = make().count;
+                "#,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                r#"
+                    const FIRST: Guard = Guard { value = 1 };
+                    const BAD: Guard = FIRST;
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
         ] {
             let source = format!("{COMMON}{definition}");
             let compilation = compilation(&source);
             let diagnostics = compilation.check_diagnostics();
 
-            assert_goal_state_diagnostic_kind(
-                diagnostics,
-                DiagnosticKind::CheckingNonMaterializableConstant,
-            );
+            assert_goal_state_diagnostic_kind(diagnostics, expected);
 
             assert!(
                 diagnostics
-                    .by_kind(DiagnosticKind::CheckingNonMaterializableConstant)
+                    .by_kind(expected)
                     .all(|diagnostic| diagnostic.primary_span().is_some()),
                 "{definition}: {diagnostics:?}"
             );
@@ -1230,9 +1300,15 @@ mod tests {
             .unwrap_or_else(|error| panic!("constant callable body key must resolve: {error:?}"))
             .unwrap_or_else(|| panic!("source constant callable must have a body"));
 
-        let body = compilation.constant_body_template(body_key, &compilation.state.cancellation)
+        let body = compilation
+            .constant_body_template(body_key, &compilation.state.cancellation)
             .expect("certified constant callable publishes its shared template");
-        assert!(body.result().value().is_some(), "{:#?}", body.result().diagnostics());
+
+        assert!(
+            body.result().value().is_some(),
+            "{:#?}",
+            body.result().diagnostics()
+        );
 
         let first = compilation
             .constant_call_with_cancellation(&request, &compilation.state.cancellation)
@@ -1255,7 +1331,7 @@ mod tests {
     #[test]
     fn pattern_conditions_evaluate_constant_calls_and_conditional_bindings() {
         let compilation = compilation(
-            "module app; const func choose(pos input: i32) -> i32 { if input matches 0 | 1 { return 10; } else if let value = input && value > 5 && let next = value + 1 { return next; } else { return 99; } }",
+            "module app; const func choose(pos input: i32) -> i32 requires(input < 100) { if input matches 0 | 1 { return 10; } else if let value = input && value > 5 && let next = value + 1 { return next; } else { return 99; } }",
         );
 
         let result_type = i32_type(&compilation);
@@ -1315,9 +1391,15 @@ mod tests {
             .unwrap_or_else(|error| panic!("callable body key must resolve: {error:?}"))
             .unwrap_or_else(|| panic!("source constant callable must have a body"));
 
-        let body = compilation.constant_body_template(body_key, &compilation.state.cancellation)
+        let body = compilation
+            .constant_body_template(body_key, &compilation.state.cancellation)
             .expect("certified constant callable publishes its shared template");
-        assert!(body.result().value().is_some(), "{:#?}", body.result().diagnostics());
+
+        assert!(
+            body.result().value().is_some(),
+            "{:#?}",
+            body.result().diagnostics()
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1415,8 +1497,70 @@ mod tests {
     }
 
     #[test]
+    fn nullable_propagation_respects_callable_and_local_yield_boundaries() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            const func direct(pos value: i32?) -> i32?
+            {
+                return value?;
+            }
+
+            const func local(pos value: i32?) -> i32?
+            {
+                let selected: i32? =
+                {
+                    yield value?;
+                };
+
+                if selected.is_absent()
+                {
+                    return 7;
+                }
+
+                return selected;
+            }
+
+            const direct_present: bool = direct(4).is_present();
+            const direct_absent: bool = direct(none).is_absent();
+            const local_present: bool = local(4).is_present();
+            const local_resumed: bool = local(none).is_present();
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let definitions = source_constant_definitions(&compilation);
+
+        assert_eq!(definitions.len(), 4);
+
+        for definition in definitions {
+            let result = compilation
+                .constant_instance(instance_key(&compilation, definition))
+                .expect("checked nullable propagation evaluates");
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(true)
+            );
+        }
+    }
+
+    #[test]
     fn constant_call_templates_map_shared_receivers_before_ordinary_parameters() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             module app;
 
             struct Item
@@ -1431,14 +1575,28 @@ mod tests {
 
             const same: bool = Item { value = 3 }.equals(3);
             const different: bool = Item { value = 3 }.equals(4);
-        "#);
+        "#,
+        );
+
         let definitions = source_constant_definitions(&compilation);
+
         assert_eq!(definitions.len(), 2);
+
         for (definition, expected) in definitions.into_iter().zip([true, false]) {
-            let result = compilation.constant_instance(instance_key(&compilation, definition))
+            let result = compilation
+                .constant_instance(instance_key(&compilation, definition))
                 .expect("shared receiver and argument must evaluate through the checked template");
-            assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
-            assert_eq!(constant_value(&compilation, result.value().value()).kind(), &ConstantValueKind::Boolean(expected));
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(expected)
+            );
         }
     }
 
@@ -2011,7 +2169,11 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             })
             .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
 
-        let request = ConstantCallRequest::new(bray_checker::ConstantCallTarget::Declaration(CallableInstanceData::new(definition, substitution)),
+        let request = ConstantCallRequest::new(
+            bray_checker::ConstantCallTarget::Declaration(CallableInstanceData::new(
+                definition,
+                substitution,
+            )),
             None,
             arguments,
             result_type,

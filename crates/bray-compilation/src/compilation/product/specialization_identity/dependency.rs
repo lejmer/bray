@@ -137,7 +137,8 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(input)?;
         }
 
-        self.digest.write_u8(u8::from(data.observed_result().is_some()));
+        self.digest
+            .write_u8(u8::from(data.observed_result().is_some()));
 
         if let Some(term) = data.observed_result() {
             self.constant_term(term)?;

@@ -43,12 +43,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let condition = ExecutionCondition::pattern(
-                self.storage_value(state, subject, access), operator, expected,
+                self.storage_value(state, subject, access),
+                operator,
+                expected,
             );
-            if condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value) {
+
+            if condition
+                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                .is_some_and(|known| known != value)
+            {
                 return false;
             }
+
             condition.assume(value, &mut state.assumptions);
 
             changed = true;
@@ -57,6 +63,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if changed {
             state.refine_witnesses();
         }
+
         true
     }
     pub(super) fn branch_condition(

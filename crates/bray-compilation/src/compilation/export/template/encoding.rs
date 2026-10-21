@@ -112,7 +112,12 @@ pub(in crate::compilation::export) fn encode_template(
                 .map(|requirement| export.key_reference(requirement.declaration()))
                 .collect::<Result<Vec<_>, _>>()?,
             behavior.current_run_cancellation(),
-        ).with_certification(behavior.execution().properties().iter().copied(), behavior.execution().constant_eligible(), behavior.execution().may_unwind()),
+        )
+        .with_certification(
+            behavior.execution().properties().iter().copied(),
+            behavior.execution().constant_eligible(),
+            behavior.execution().may_unwind(),
+        ),
         behavior.lifecycle_obligations().iter().copied(),
         export.dependency_contract_id(behavior.dependency_contract())?,
         export.dependency_contract_id(behavior.result_dependencies())?,

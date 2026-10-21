@@ -70,7 +70,8 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
-    pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
+    pub(in crate::analysis::guarantee) literals:
+        &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pattern_conditions: &'a BTreeMap<
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
@@ -268,19 +269,43 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         let mut state = ExecutionState::default();
 
         for place in self.observed_types.keys() {
-            if place.is_callable_input() || place.reference().is_some_and(|reference| self.request.trusted_contracts()
-                .is_some_and(|contracts| contracts.inputs.contains(&reference))) {
+            if place.is_callable_input()
+                || place.reference().is_some_and(|reference| {
+                    self.request
+                        .trusted_contracts()
+                        .is_some_and(|contracts| contracts.inputs.contains(&reference))
+                })
+            {
                 // Entry places and their immutable snapshots retain the shared field path.
                 let input = ExecutionCondition::Input(place.clone());
+
                 state.current.insert(place.clone(), input.clone());
+
                 if self.unsigned_value(&input) {
-                    let ty = self.observed_types[place].expect("typed unsigned entry retains its scalar type");
-                    let zero = self.request.semantic_values().intern_constant_value(bray_symbols::ConstantValueData::new(
-                        ty, bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(0)),
-                    )).expect("zero belongs to its checked unsigned scalar type");
-                    ExecutionCondition::operation(bray_bound_tree::BoundOperator::GreaterEqual,
-                        vec![input, ExecutionCondition::Literal(self.request.semantic_values().constant_value_data(zero))])
-                        .assume(true, &mut state.assumptions);
+                    let ty = self.observed_types[place]
+                        .expect("typed unsigned entry retains its scalar type");
+
+                    let zero = self
+                        .request
+                        .semantic_values()
+                        .intern_constant_value(bray_symbols::ConstantValueData::new(
+                            ty,
+                            bray_symbols::ConstantValueKind::Integer(
+                                bray_symbols::IntegerConstant::from_u64(0),
+                            ),
+                        ))
+                        .expect("zero belongs to its checked unsigned scalar type");
+
+                    ExecutionCondition::operation(
+                        bray_bound_tree::BoundOperator::GreaterEqual,
+                        vec![
+                            input,
+                            ExecutionCondition::Literal(
+                                self.request.semantic_values().constant_value_data(zero),
+                            ),
+                        ],
+                    )
+                    .assume(true, &mut state.assumptions);
                 }
             }
         }
@@ -414,7 +439,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             .iter()
             .filter_map(|id| self.graph.operation(*id))
         {
-            if !self.operation(&mut state, operation.kind(), None) { return None; }
+            if !self.operation(&mut state, operation.kind(), None) {
+                return None;
+            }
         }
 
         Some(state)

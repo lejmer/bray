@@ -579,7 +579,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
         if let Some(body) = self.callable_body_key(callable.definition())? {
-            let declaration = self.execution_declaration(body.source().syntax())?;
+            let declaration = self.execution_unit_declaration(&body)?;
 
             if declaration.diagnostics().has_errors() {
                 return Ok(None);

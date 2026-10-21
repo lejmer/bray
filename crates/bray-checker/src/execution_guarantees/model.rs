@@ -172,7 +172,9 @@ impl ExecutionCandidate {
     }
 
     /// Returns nonnegative integer upper bounds established at their actual expression occurrences.
-    pub fn integer_maxima(&self) -> &std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, u64> {
+    pub fn integer_maxima(
+        &self,
+    ) -> &std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, u64> {
         &self.integer_maxima
     }
 
@@ -267,12 +269,24 @@ pub struct ExecutionCallEvidence {
 
 impl ExecutionCallEvidence {
     /// Captures only constant argument values, with no trusted authority or runtime execution lane.
-    pub fn from_constants(values: &bray_symbols::SemanticValueStore, arguments: &[bray_symbols::ConstantValueId]) -> Self {
+    pub fn from_constants(
+        values: &bray_symbols::SemanticValueStore,
+        arguments: &[bray_symbols::ConstantValueId],
+    ) -> Self {
         Self {
-            arguments: arguments.iter().enumerate().map(|(index, value)| (
-                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("constant call argument index fits its signature"))),
-                super::ExecutionCondition::from_constant(values, *value),
-            )).collect(),
+            arguments: arguments
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    (
+                        super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                            u32::try_from(index)
+                                .expect("constant call argument index fits its signature"),
+                        )),
+                        super::ExecutionCondition::from_constant(values, *value),
+                    )
+                })
+                .collect(),
             ..Self::default()
         }
     }
@@ -338,7 +352,11 @@ impl ExecutionCallEvidence {
     }
 
     /// Checks an anonymous declaration's own inputs against captured receiver-first arguments.
-    pub fn proves_trusted_with_inputs(&self, conditions: &[super::ExecutionCondition], inputs: &[bray_bound_tree::BoundReferenceTarget]) -> bool {
+    pub fn proves_trusted_with_inputs(
+        &self,
+        conditions: &[super::ExecutionCondition],
+        inputs: &[bray_bound_tree::BoundReferenceTarget],
+    ) -> bool {
         self.proves_from(conditions, &self.trusted_assumptions, inputs)
     }
 
@@ -364,13 +382,25 @@ impl ExecutionCallEvidence {
         conditions.iter().all(|condition| {
             let condition = condition.substitute(
                 &|input| {
-                    input.value_in(&self.arguments).or_else(|| {
-                        let ordinal = inputs.iter().position(|reference| Some(*reference) == input.reference())?;
-                        let mut argument = super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal).expect("anonymous parameter ordinal fits")));
-                        // The captured argument retains this immutable component path.
-                        argument.projections = std::sync::Arc::clone(&input.projections);
-                        argument.value_in(&self.arguments)
-                    }).unwrap_or(super::ExecutionCondition::Unknown)
+                    input
+                        .value_in(&self.arguments)
+                        .or_else(|| {
+                            let ordinal = inputs
+                                .iter()
+                                .position(|reference| Some(*reference) == input.reference())?;
+
+                            let mut argument =
+                                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                                    u32::try_from(ordinal)
+                                        .expect("anonymous parameter ordinal fits"),
+                                ));
+
+                            // The captured argument retains this immutable component path.
+                            argument.projections = std::sync::Arc::clone(&input.projections);
+
+                            argument.value_in(&self.arguments)
+                        })
+                        .unwrap_or(super::ExecutionCondition::Unknown)
                 },
                 &super::ExecutionCondition::Unknown,
                 &mut { crate::ExecutionCondition::WORK_LIMIT },

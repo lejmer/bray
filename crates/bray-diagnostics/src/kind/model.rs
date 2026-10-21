@@ -1281,8 +1281,12 @@ impl DiagnosticKind {
                 "checking_missing_trusted_memory_guarantees"
             }
             Self::CheckingTrustedObligationNotProven => "checking_trusted_obligation_not_proven",
-            Self::CheckingExecutionRequirementNotProven => "checking_execution_requirement_not_proven",
-            Self::CheckingConstantCallRequirementNotProven => "checking_constant_call_requirement_not_proven",
+            Self::CheckingExecutionRequirementNotProven => {
+                "checking_execution_requirement_not_proven"
+            }
+            Self::CheckingConstantCallRequirementNotProven => {
+                "checking_constant_call_requirement_not_proven"
+            }
             Self::CheckingTrustedWitnessTransferNotProven => {
                 "checking_trusted_witness_transfer_not_proven"
             }

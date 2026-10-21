@@ -1,15 +1,14 @@
 use std::collections::BTreeSet;
 
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{CheckedTemplateKind};
+use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceDeclarationTemplate,
     InterfaceSupportEntity, InterfaceTargetPropertyDependency,
 };
 use bray_symbols::{
     AnySymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
-    InterfaceSupportEntityId, StaticStorageDuration,
-    SymbolQueryRequest,
+    InterfaceSupportEntityId, StaticStorageDuration, SymbolQueryRequest,
 };
 use bray_target::TargetPropertyKind;
 

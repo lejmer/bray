@@ -68,7 +68,10 @@ fn local_region_key_parts(
             LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
             vec![unit.source().syntax()],
         ),
-        BoundUnitKeyData::CallableTypeClause { declaration, callable } => (
+        BoundUnitKeyData::CallableTypeClause {
+            declaration,
+            callable,
+        } => (
             shared_symbol_key(declaration.owner()),
             LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
             vec![callable.syntax(), declaration.source().syntax()],

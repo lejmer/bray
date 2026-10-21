@@ -279,7 +279,9 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let ty = self.context.predicate_type(node.ty())?;
 
         let (continued, value) = match node.operation() {
-            CheckedTemplateOperation::Unreachable => panic!("excluded template value is lowered only as a terminating conditional alternative"),
+            CheckedTemplateOperation::Unreachable => panic!(
+                "excluded template value is lowered only as a terminating conditional alternative"
+            ),
             CheckedTemplateOperation::Input(input) => (
                 block,
                 self.inputs

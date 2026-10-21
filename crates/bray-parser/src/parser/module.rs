@@ -1178,10 +1178,7 @@ mod tests {
     #[test]
     fn parser_reports_missing_using_semicolon_before_following_declaration_start() {
         let source = r#"module main;
-
-using std.io;
-
- using std.io
+using std.io
 func main() {}"#;
 
         let sources = source_store([source]);

@@ -7,9 +7,8 @@ use bray_package_interface::{
     commit_interface_semantic_fragments,
 };
 use bray_symbols::{
-    AnySymbolId, CallableConstness, CallableDefinitionId,
-    CallableSignatureQuery, ExternalSymbolKey, SymbolQueryRequest,
-    diagnostic_external_symbol_identity,
+    AnySymbolId, CallableConstness, CallableDefinitionId, CallableSignatureQuery,
+    ExternalSymbolKey, SymbolQueryRequest, diagnostic_external_symbol_identity,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -159,15 +158,24 @@ fn constant_callable_bodies(
             continue;
         }
 
-        let checked = match compilation.constant_body_template(body, &compilation.state.cancellation) {
-            Ok(checked) => checked,
-            Err(cause) => return Err(super::super::constant_callable_evaluation_export_error(
-                exported_declaration_identity(export, symbol)?, cause)),
-        };
+        let checked =
+            match compilation.constant_body_template(body, &compilation.state.cancellation) {
+                Ok(checked) => checked,
+                Err(cause) => {
+                    return Err(super::super::constant_callable_evaluation_export_error(
+                        exported_declaration_identity(export, symbol)?,
+                        cause,
+                    ));
+                }
+            };
+
         let Some(template) = checked.result().value() else {
-            return Err(super::super::error::source_diagnostic_export_error(checked.result().diagnostics())
-                .expect("missing checked constant body retains its source diagnostics"));
+            return Err(super::super::error::source_diagnostic_export_error(
+                checked.result().diagnostics(),
+            )
+            .expect("missing checked constant body retains its source diagnostics"));
         };
+
         let template = super::super::template::encode_template(export, template)?;
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {

@@ -315,7 +315,8 @@ impl Plan {
             .identity_entries()
             .filter_map(|(identity, slot)| {
                 if !slot.is_invocation_owned(storage.kind())
-                    || bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) {
+                    || bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
+                {
                     return None;
                 }
 

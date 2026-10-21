@@ -13,7 +13,7 @@ use bray_symbols::{
 
 use crate::compilation::binder::CompilationBindingContext;
 
-pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_statics(
+pub(in crate::compilation) fn extend_dependency_contract_with_statics(
     context: &CompilationBindingContext<'_>,
     contract: DependencyContractTemplateId,
     dependencies: &[StaticSymbolId],

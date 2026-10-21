@@ -307,7 +307,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 bray_bound_tree::StorageIdentity::Parameter(_)
                     | bray_bound_tree::StorageIdentity::Receiver(_)
                     | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                        | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
+                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
             )
         ) {
             return;

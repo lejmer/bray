@@ -132,7 +132,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(BTreeSet::new(), DiagnosticBag::new()));
         }
 
-        let declared = self.execution_declaration(key.source().syntax())?;
+        let declared = self.execution_unit_declaration(&key)?;
 
         let inputs =
             self.predicate_condition_inputs(key, declared.value().requirements(), cancellation)?;
@@ -171,14 +171,25 @@ impl Compilation {
         let target = match target {
             bray_checker::ExecutionDependencyTarget::Callable(target) => target,
             bray_checker::ExecutionDependencyTarget::Default(provider) => {
-                if let Some(body) = self.declared_unit_key(provider.symbol(), bray_bound_tree::BoundUnitKind::RuntimeDefault)? {
+                if let Some(body) = self.declared_unit_key(
+                    provider.symbol(),
+                    bray_bound_tree::BoundUnitKind::RuntimeDefault,
+                )? {
                     pending.push(body);
+
                     return Ok(false);
                 }
+
                 let imported = self.checked_default_template(provider, cancellation)?;
-                return Ok(imported.diagnostics().has_errors() || imported.value().as_ref().is_none_or(|template| template.behavior().execution().may_unwind()));
+
+                return Ok(imported.diagnostics().has_errors()
+                    || imported
+                        .value()
+                        .as_ref()
+                        .is_none_or(|template| template.behavior().execution().may_unwind()));
             }
         };
+
         let BoundCallableTarget::Declaration(instance) = target else {
             return Ok(true);
         };
@@ -311,10 +322,13 @@ impl Compilation {
             .map(|(expression, _)| *expression)
             .collect();
 
-        let targets = targets.into_iter().filter_map(|target| match target {
-            bray_checker::ExecutionDependencyTarget::Callable(target) => Some(target),
-            bray_checker::ExecutionDependencyTarget::Default(_) => None,
-        }).collect();
+        let targets = targets
+            .into_iter()
+            .filter_map(|target| match target {
+                bray_checker::ExecutionDependencyTarget::Callable(target) => Some(target),
+                bray_checker::ExecutionDependencyTarget::Default(_) => None,
+            })
+            .collect();
 
         Ok(bray_bound_tree::CheckedUnwind::new(calls, targets))
     }

@@ -374,9 +374,13 @@ impl DefaultValueProvider {
     /// Resolves a declaration symbol to its exact default-provider category.
     pub const fn try_from_symbol(symbol: AnySymbolId) -> Option<Self> {
         match symbol {
-            AnySymbolId::CallableParameterDefaultProvider(provider) => Some(Self::CallableParameter(provider)),
+            AnySymbolId::CallableParameterDefaultProvider(provider) => {
+                Some(Self::CallableParameter(provider))
+            }
             AnySymbolId::StructFieldDefaultProvider(provider) => Some(Self::StructField(provider)),
-            AnySymbolId::UnionPayloadDefaultProvider(provider) => Some(Self::UnionPayload(provider)),
+            AnySymbolId::UnionPayloadDefaultProvider(provider) => {
+                Some(Self::UnionPayload(provider))
+            }
             _ => None,
         }
     }

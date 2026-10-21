@@ -67,7 +67,10 @@ impl CallableConstness {
     pub const fn execution_properties(self) -> &'static [crate::ExecutionProperty] {
         match self {
             Self::Runtime => &[],
-            Self::Constant => &[crate::ExecutionProperty::Pure, crate::ExecutionProperty::Total],
+            Self::Constant => &[
+                crate::ExecutionProperty::Pure,
+                crate::ExecutionProperty::Total,
+            ],
         }
     }
 }

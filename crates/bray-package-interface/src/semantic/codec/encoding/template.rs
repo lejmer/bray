@@ -89,7 +89,11 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     encoder.write_u32(u32::from(behavior.execution().constant_eligible()));
     encoder.write_u32(u32::from(behavior.execution().may_unwind()));
     write_count(encoder, behavior.execution().properties().len());
-    for property in behavior.execution().properties() { encoder.write_u32(property.to_wire()); }
+
+    for property in behavior.execution().properties() {
+        encoder.write_u32(property.to_wire());
+    }
+
     write_symbol_references(encoder, behavior.effects());
     write_symbol_references(encoder, behavior.capabilities());
     write_symbol_references(encoder, behavior.trusted_obligations());
@@ -208,7 +212,11 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
         InterfaceCheckedTemplateOperation::Construct { variant, fields } => {
             encoder.write_u32(17);
             encoder.write_u32(u32::from(variant.is_some()));
-            if let Some(variant) = variant { encode_template_reference(encoder, variant); }
+
+            if let Some(variant) = variant {
+                encode_template_reference(encoder, variant);
+            }
+
             write_count(encoder, fields.len());
 
             for field in fields.iter() {

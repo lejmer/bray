@@ -325,10 +325,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         })?;
 
         predicates.push(
-            bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(
-                term,
-                domain,
-            ),
+            bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(term, domain),
         );
 
         if let Some(requirement) = execution_requirement(

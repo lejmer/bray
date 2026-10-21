@@ -45,10 +45,10 @@ pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_cand
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{
-    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallContract, ConstantCallTarget, ConstantCallRequest,
-    ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
-    ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
+    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallContract,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantCallTarget,
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
+    ConstantLiteralError, ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
     evaluate_constant_callable_template, evaluate_constant_definition_template,
     evaluate_generic_constraint_template, evaluate_static_initializer_template,
@@ -64,12 +64,13 @@ pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency, ExecutionDependencyTarget,
-    ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
-    check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
-    execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
-    execution_conditions, map_execution_condition_references, substitute_execution_condition, predicate_conditions,
-    predicate_conditions_with_inputs, remap_execution_condition_inputs,
+    ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionPlace,
+    ExecutionProperty, check_execution_guarantees, declared_execution_properties,
+    execution_condition_from_term, execution_condition_from_type_term,
+    execution_condition_is_implied, execution_condition_term, execution_conditions,
+    map_execution_condition_references, predicate_conditions, predicate_conditions_with_inputs,
+    remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{

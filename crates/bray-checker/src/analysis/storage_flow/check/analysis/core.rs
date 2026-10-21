@@ -1950,7 +1950,9 @@ where
     ) -> DiagnosticStorageRoot {
         let root = match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
-            Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => DiagnosticStorageRoot::Parameter,
+            Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => {
+                DiagnosticStorageRoot::Parameter
+            }
             Some(StorageIdentity::Receiver(_)) => DiagnosticStorageRoot::Receiver,
             Some(StorageIdentity::Static(_)) => DiagnosticStorageRoot::Static,
             Some(StorageIdentity::AnonymousParameter(_)) => {

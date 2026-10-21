@@ -63,7 +63,10 @@ fn bundle_dependency(
 pub(super) fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {
     match compilation.package_interface_export_bundle() {
         Some(Ok(bundle)) => bundle,
-        Some(Err(error)) => panic!("test library interface must build: {error:?}"),
+        Some(Err(error)) => panic!(
+            "test library interface must build: {error:?}; source diagnostics: {:#?}",
+            compilation.check_diagnostics()
+        ),
         None => panic!("test compilation must configure a library interface"),
     }
 }

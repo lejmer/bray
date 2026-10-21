@@ -21,72 +21,179 @@ impl<C> TemplateEvaluator<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn evaluate_invocation(&mut self, target: crate::ConstantCallTarget,
-        implementation: Option<ImplementationInstanceId>, arguments: &[ConstantTermId], recovery_type: TypeId)
-        -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let contract = self.resolver.contract(&target).map_err(|error| self.record_query_failure(error))?;
-        self.diagnostics.add_range(contract.diagnostics().iter().cloned());
+    fn evaluate_invocation(
+        &mut self,
+        target: crate::ConstantCallTarget,
+        implementation: Option<ImplementationInstanceId>,
+        arguments: &[ConstantTermId],
+        recovery_type: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let contract = self
+            .resolver
+            .contract(&target)
+            .map_err(|error| self.record_query_failure(error))?;
+
+        self.diagnostics
+            .add_range(contract.diagnostics().iter().cloned());
+
         let Some(contract) = contract.value() else {
-            return Ok(super::support::recovery_value(self.context.semantic_values(), recovery_type));
+            return Ok(super::support::recovery_value(
+                self.context.semantic_values(),
+                recovery_type,
+            ));
         };
-        assert_eq!(arguments.len(), contract.inputs().len(), "checked constant term retains its selected argument mapping");
-        let arguments = arguments.iter().zip(contract.inputs()).map(|(argument, ty)| self.evaluate_term(*argument, *ty))
+
+        assert_eq!(
+            arguments.len(),
+            contract.inputs().len(),
+            "checked constant term retains its selected argument mapping"
+        );
+
+        let arguments = arguments
+            .iter()
+            .zip(contract.inputs())
+            .map(|(argument, ty)| self.evaluate_term(*argument, *ty))
             .collect::<Result<Vec<_>, _>>()?;
-        let limits = self.budget.remaining_limits(self.limits).nested_call().ok_or_else(||
-            TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0)))?;
+
+        let limits = self
+            .budget
+            .remaining_limits(self.limits)
+            .nested_call()
+            .ok_or_else(|| {
+                TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::limit(
+                    ConstantLimitKind::EvaluationSteps,
+                    1,
+                    0,
+                ))
+            })?;
+
         let request = match target {
-            crate::ConstantCallTarget::Declaration(callable) => ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(callable), implementation, arguments, contract.result(), limits),
+            crate::ConstantCallTarget::Declaration(callable) => ConstantCallRequest::new(
+                crate::ConstantCallTarget::Declaration(callable),
+                implementation,
+                arguments,
+                contract.result(),
+                limits,
+            ),
             target => {
-                assert!(implementation.is_none(), "predicate invocation has no selected callable implementation");
+                assert!(
+                    implementation.is_none(),
+                    "predicate invocation has no selected callable implementation"
+                );
+
                 ConstantCallRequest::new(target, None, arguments, contract.result(), limits)
             }
         };
+
         self.resolve_call(&request, contract.result())
     }
 
-    pub(super) fn evaluate_requirements(&mut self, target: &crate::ConstantCallTarget,
-        requirements: &[bray_symbols::PredicateSemanticSummary]) -> Result<bool, TemplateEvaluationFailure> {
-        if requirements.is_empty() { return Ok(true); }
+    pub(super) fn evaluate_requirements(
+        &mut self,
+        target: &crate::ConstantCallTarget,
+        requirements: &[bray_symbols::PredicateSemanticSummary],
+    ) -> Result<bool, TemplateEvaluationFailure> {
+        if requirements.is_empty() {
+            return Ok(true);
+        }
+
         let values = self.context.semantic_values();
-        let boolean = crate::representation::representation_type_for_context(self.context, bray_compiler_known::RepresentationRole::ScalarBool);
+
+        let boolean = crate::representation::representation_type_for_context(
+            self.context,
+            bray_compiler_known::RepresentationRole::ScalarBool,
+        );
+
         let evidence = crate::ExecutionCallEvidence::from_constants(values, self.arguments);
+
         for (index, requirement) in requirements.iter().enumerate() {
             let established = if requirement.domain() == bray_symbols::PredicateDomain::Value {
-                let template = self.resolver.requirement_template(target, index)
+                let template = self
+                    .resolver
+                    .requirement_template(target, index)
                     .map_err(|error| self.record_query_failure(error))?;
-                self.diagnostics.add_range(template.diagnostics().iter().cloned());
-                if self.diagnostics.has_errors() { return Ok(false); }
-                let template = template.value().as_ref().expect("admitted ordinary requirement retains its complete checked graph");
+
+                self.diagnostics
+                    .add_range(template.diagnostics().iter().cloned());
+
+                if self.diagnostics.has_errors() {
+                    return Ok(false);
+                }
+
+                let template = template
+                    .value()
+                    .as_ref()
+                    .expect("admitted ordinary requirement retains its complete checked graph");
+
                 let mut evaluator = TemplateEvaluator {
-                    context: self.context, template, substitution: self.substitution,
+                    context: self.context,
+                    template,
+                    substitution: self.substitution,
                     selected_implementation: self.selected_implementation,
-                    arguments: self.arguments, resolver: self.resolver, limits: self.limits,
-                    budget: self.budget, values: vec![None; template.nodes().len()],
-                    checked_materialization: Default::default(), diagnostics: Default::default(),
-                    upstream_failure: None, static_initializer: false,
+                    arguments: self.arguments,
+                    resolver: self.resolver,
+                    limits: self.limits,
+                    budget: self.budget,
+                    values: vec![None; template.nodes().len()],
+                    checked_materialization: Default::default(),
+                    diagnostics: Default::default(),
+                    upstream_failure: None,
+                    static_initializer: false,
                 };
-                let result = evaluator.evaluate_result(bray_bound_tree::CheckedTemplateKind::CallableContract, boolean);
+
+                let result = evaluator.evaluate_result(
+                    bray_bound_tree::CheckedTemplateKind::CallableContract,
+                    boolean,
+                );
+
                 self.diagnostics.add_range(evaluator.diagnostics);
                 self.upstream_failure = evaluator.upstream_failure;
+
                 let value = result?;
-                if self.diagnostics.has_errors() { return Ok(false); }
+
+                if self.diagnostics.has_errors() {
+                    return Ok(false);
+                }
+
                 match values.constant_value_data(value).kind() {
                     ConstantValueKind::Boolean(value) => *value,
-                    value => panic!("checked constant requirement produces a Boolean, got {value:?}"),
+                    value => {
+                        panic!("checked constant requirement produces a Boolean, got {value:?}")
+                    }
                 }
             } else if let Some(term) = requirement.condition() {
-                self.budget.try_charge_step().map_err(TemplateEvaluationFailure::Diagnostic)?;
-                let term = values.substitute_constant_term(term, self.substitution)
+                self.budget
+                    .try_charge_step()
+                    .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+                let term = values
+                    .substitute_constant_term(term, self.substitution)
                     .expect("checked constant requirement belongs to its selected generic context");
+
                 let condition = crate::execution_condition_from_type_term(values, term, 0)
                     .expect("checked compiler-only requirement has portable predicate meaning");
-                if requirement.is_trusted() { evidence.proves_trusted(&[condition]) } else { evidence.proves(&[condition]) }
-            } else { false };
+
+                if requirement.is_trusted() {
+                    evidence.proves_trusted(&[condition])
+                } else {
+                    evidence.proves(&[condition])
+                }
+            } else {
+                false
+            };
+
             if !established {
-                let origin = self.resolver.requirement_origin(target, index).map_err(|error| self.record_query_failure(error))?;
-                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Precondition { origin }));
+                let origin = self
+                    .resolver
+                    .requirement_origin(target, index)
+                    .map_err(|error| self.record_query_failure(error))?;
+
+                return Err(TemplateEvaluationFailure::Diagnostic(
+                    ConstantDiagnostic::Precondition { origin },
+                ));
             }
         }
+
         Ok(true)
     }
 
@@ -276,13 +383,32 @@ where
             *selected_implementation,
             ty,
         ),
-        ConstantTermData::Call { callable, selected_implementation, arguments } => {
-            let callable = *evaluator.context.semantic_values().callable_instance_data(*callable);
-            evaluator.evaluate_invocation(crate::ConstantCallTarget::Declaration(callable), *selected_implementation, arguments, ty)
+        ConstantTermData::Call {
+            callable,
+            selected_implementation,
+            arguments,
+        } => {
+            let callable = *evaluator
+                .context
+                .semantic_values()
+                .callable_instance_data(*callable);
+
+            evaluator.evaluate_invocation(
+                crate::ConstantCallTarget::Declaration(callable),
+                *selected_implementation,
+                arguments,
+                ty,
+            )
         }
-        ConstantTermData::PredicateCall { predicate, arguments } => {
-            evaluator.evaluate_invocation(crate::ConstantCallTarget::Predicate(*predicate), None, arguments, ty)
-        }
+        ConstantTermData::PredicateCall {
+            predicate,
+            arguments,
+        } => evaluator.evaluate_invocation(
+            crate::ConstantCallTarget::Predicate(*predicate),
+            None,
+            arguments,
+            ty,
+        ),
         ConstantTermData::Projection(projection) => evaluate_projection(evaluator, projection, ty),
         ConstantTermData::IntegerLiteral {
             ty: integer_type,
@@ -314,9 +440,7 @@ where
             .unwrap_or_else(|| {
                 panic!("constant callable argument {ordinal:?} must exist in the application")
             })),
-        ConstantTermData::Parameter(_)
-        | ConstantTermData::TargetProperty(_)
- => {
+        ConstantTermData::Parameter(_) | ConstantTermData::TargetProperty(_) => {
             panic!("constant term must be closed before evaluation, term: {term:?}, type: {ty:?}")
         }
     }

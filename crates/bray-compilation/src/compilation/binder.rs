@@ -12,11 +12,12 @@ pub(in crate::compilation) use error::{
 };
 pub(in crate::compilation) use symbol::{
     BodyAnalysis, CompilationSymbolSemantics, anonymous_result_dependencies,
-    bind_declared_execution_requirements, bind_declared_trusted_capabilities,
-    bind_module_part_directives_for_selection, checked_callable_type_contracts, checked_source_expression, bind_callable_clause_unit, callable_requirement_source,
-    default_result_dependencies, expression_result_dependencies, generic_parameter_ids,
-    has_visible_generic_parameters, imported_declaration_template,
-    imported_declaration_template_at, imported_implementation,
+    bind_callable_clause_unit, bind_declared_execution_requirements,
+    bind_declared_trusted_capabilities, bind_module_part_directives_for_selection,
+    callable_requirement_source, checked_callable_type_contracts, checked_source_expression,
+    default_result_dependencies, expression_result_dependencies,
+    extend_dependency_contract_with_statics, generic_parameter_ids, has_visible_generic_parameters,
+    imported_declaration_template, imported_declaration_template_at, imported_implementation,
     source_body_semantics, static_dependencies_from_contract, static_dependency_root,
     static_result_dependencies, type_binder, type_scope, visible_generic_parameters,
 };

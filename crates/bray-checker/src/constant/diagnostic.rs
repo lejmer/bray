@@ -13,7 +13,9 @@ use super::operation::ConstantOperationError;
 pub(super) enum ConstantDiagnostic {
     InvalidExpression(Option<bray_diagnostics::DiagnosticExpressionCategory>),
     NonMaterializable(TypeId),
-    Precondition { origin: Option<SourceSpan> },
+    Precondition {
+        origin: Option<SourceSpan>,
+    },
     Literal(ConstantLiteralError),
     Operation {
         operation: DiagnosticConstantOperation,
@@ -117,7 +119,12 @@ impl ConstantDiagnostic {
         };
 
         let mut diagnostic = Diagnostic::new(id, self.kind(), SeverityKind::Error);
-        let span = if matches!(self, Self::Precondition { .. }) { None } else { span };
+
+        let span = if matches!(self, Self::Precondition { .. }) {
+            None
+        } else {
+            span
+        };
 
         if let Some(span) = span {
             diagnostic = diagnostic
@@ -132,7 +139,10 @@ impl ConstantDiagnostic {
 
         let note = match self {
             Self::Precondition { .. } => {
-                diagnostic = diagnostic.with_arg(DiagnosticArg::expression_category(bray_diagnostics::DiagnosticExpressionCategory::Call));
+                diagnostic = diagnostic.with_arg(DiagnosticArg::expression_category(
+                    bray_diagnostics::DiagnosticExpressionCategory::Call,
+                ));
+
                 Some(DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements)
             }
             Self::InvalidExpression(Some(category)) => {
@@ -205,8 +215,11 @@ impl ConstantDiagnostic {
             } => diagnostic
                 .with_arg(DiagnosticArg::actual_count(actual))
                 .with_arg(DiagnosticArg::maximum_count(maximum)),
-            Self::Precondition { origin: Some(origin) } => diagnostic.with_related_location(DiagnosticRelatedLocation::new(
-                DiagnosticRelatedLocationKind::RequirementOrigin, origin,
+            Self::Precondition {
+                origin: Some(origin),
+            } => diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                DiagnosticRelatedLocationKind::RequirementOrigin,
+                origin,
             )),
             Self::Cycle {
                 definition: Some(definition),

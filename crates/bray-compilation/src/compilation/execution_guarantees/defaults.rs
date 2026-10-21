@@ -16,10 +16,18 @@ impl Compilation {
     ) -> Result<BTreeMap<ResultDependencyOwner, DependencyContractTemplateId>, FactQueryError> {
         let context = self.binding_context(cancellation)?;
 
-        behavior.defaults().iter().map(|provider| {
-            let summary = binder::default_result_dependencies(&context, *provider)
-                .map_err(binder::binding_query_error)?;
-            Ok((ResultDependencyOwner::Declaration(provider.symbol()), summary))
-        }).collect()
+        behavior
+            .defaults()
+            .iter()
+            .map(|provider| {
+                let summary = binder::default_result_dependencies(&context, *provider)
+                    .map_err(binder::binding_query_error)?;
+
+                Ok((
+                    ResultDependencyOwner::Declaration(provider.symbol()),
+                    summary,
+                ))
+            })
+            .collect()
     }
 }

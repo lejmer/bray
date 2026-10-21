@@ -20,7 +20,7 @@ impl Compilation {
         root: &BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ExecutionCertification>, FactQueryError> {
-        let declared = self.execution_declaration(root.source().syntax())?;
+        let declared = self.execution_unit_declaration(&root)?;
 
         // The certificate owns source diagnostics independently of the declaration query.
         let mut diagnostics = declared.diagnostics().clone();
@@ -28,6 +28,10 @@ impl Compilation {
         let candidates = self.execution_candidates_with_cancellation(root.clone(), cancellation)?;
 
         diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(certified, diagnostics));
+        }
 
         for domain in declared.value().domains() {
             let properties = domain.properties.iter().map(|property| {
@@ -87,11 +91,27 @@ impl Compilation {
             let anchor = root.source().syntax();
             let source = source_span(anchor);
 
-            for property in [bray_checker::ExecutionProperty::Pure, bray_checker::ExecutionProperty::Total] {
-                if declared.value().properties().iter().any(|declared| declared.property == property) { continue; }
+            for property in [
+                bray_checker::ExecutionProperty::Pure,
+                bray_checker::ExecutionProperty::Total,
+            ] {
+                if declared
+                    .value()
+                    .properties()
+                    .iter()
+                    .any(|declared| declared.property == property)
+                {
+                    continue;
+                }
+
                 let obligation = ExecutionObligation::Property(property, None);
+
                 let (failure, assertions, dependencies) = self.certify_execution_obligation(
-                    root, obligation, &mut diagnostics, true, cancellation,
+                    root,
+                    obligation,
+                    &mut diagnostics,
+                    true,
+                    cancellation,
                 )?;
 
                 if let Some((cause, circular)) = failure {
@@ -109,13 +129,39 @@ impl Compilation {
 
     fn select_source_execution_obligation(
         &self,
-        body: &BoundUnitKey,
+        body: Option<&BoundUnitKey>,
         callable: Option<bray_symbols::CallableInstanceData>,
         declaration: &bray_checker::ExecutionDeclaration,
         required: ExecutionObligation,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
+        diagnostics: &mut DiagnosticBag,
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
+        let Some(body) = body else {
+            let callable =
+                callable.expect("source declaration without a body retains its selected callable");
+
+            let (
+                bray_symbols::CallableSymbolId::Function(function),
+                ExecutionObligation::Property(property, None),
+            ) = (callable.definition().callable_symbol(), required)
+            else {
+                return Ok(None);
+            };
+
+            return Ok(self
+                .foreign_execution_applies(
+                    callable,
+                    function,
+                    declaration,
+                    property,
+                    evidence,
+                    diagnostics,
+                    cancellation,
+                )?
+                .then_some(required));
+        };
+
         let selected = match required {
             ExecutionObligation::Property(property, _) => {
                 let selected = self.applicable_execution_obligation(
@@ -166,6 +212,94 @@ impl Compilation {
         Ok(foreign.value().is_some() && !foreign.diagnostics().has_errors() && applicable)
     }
 
+    fn declared_execution_dependency(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        required: ExecutionObligation,
+        evidence: Option<&bray_checker::ExecutionCallEvidence>,
+        graph: &mut ExecutionProofGraph,
+        assertions: &mut BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>,
+        diagnostics: &mut DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Option<(
+            ExecutionProofOwner,
+            ExecutionObligation,
+            Option<BoundUnitKey>,
+        )>,
+        FactQueryError,
+    > {
+        let Some(anchor) = self
+            .symbol_graph()?
+            .declaration_syntax_anchor(callable.definition().symbol())
+        else {
+            let Some(selected) = self.select_imported_execution_obligation(
+                callable,
+                required,
+                evidence,
+                diagnostics,
+                cancellation,
+            )?
+            else {
+                return Ok(None);
+            };
+
+            if !self.append_imported_execution_proof(
+                callable,
+                selected,
+                graph,
+                diagnostics,
+                cancellation,
+            )? {
+                return Ok(None);
+            }
+
+            return Ok(Some((
+                ExecutionProofOwner::Imported(callable),
+                selected,
+                None,
+            )));
+        };
+
+        let declaration = self.execution_declaration(anchor)?;
+
+        diagnostics.add_range(declaration.diagnostics().iter().cloned());
+
+        if declaration.diagnostics().has_errors() {
+            return Ok(None);
+        }
+
+        let body = self.callable_body_key(callable.definition())?;
+
+        let Some(selected) = self.select_source_execution_obligation(
+            body.as_ref(),
+            Some(callable),
+            declaration.value(),
+            required,
+            evidence,
+            diagnostics,
+            cancellation,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        if body.is_none() {
+            let ExecutionObligation::Property(property, None) = selected else {
+                panic!("foreign execution proof selects an unconditional property");
+            };
+
+            graph.insert(
+                (ExecutionProofOwner::Source(anchor), selected),
+                BTreeSet::new(),
+            );
+
+            assertions.insert((anchor, property));
+        }
+
+        Ok(Some((ExecutionProofOwner::Source(anchor), selected, body)))
+    }
+
     pub(in crate::compilation) fn certify_execution_obligation(
         &self,
         root: &BoundUnitKey,
@@ -207,7 +341,9 @@ impl Compilation {
         while let Some((key, obligation, exported_owner, predicate)) = pending.pop() {
             cancellation.check()?;
 
-            let predicate = predicate || self.unit_requires_constant_evaluation(&key, cancellation)?;
+            let predicate =
+                predicate || self.unit_requires_constant_evaluation(&key, cancellation)?;
+
             let proof_key = (key.source().syntax(), obligation);
 
             if !visited.insert((proof_key, exported_owner, predicate)) {
@@ -228,7 +364,9 @@ impl Compilation {
 
             diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
 
-            let local_failure = candidate.failure().or_else(|| predicate.then(|| candidate.constant_failure()).flatten());
+            let local_failure = candidate
+                .failure()
+                .or_else(|| predicate.then(|| candidate.constant_failure()).flatten());
 
             if candidates.result().diagnostics().has_errors() || local_failure.is_some() {
                 failure.get_or_insert((
@@ -246,17 +384,26 @@ impl Compilation {
                 let target = match target {
                     bray_checker::ExecutionDependencyTarget::Callable(target) => target,
                     bray_checker::ExecutionDependencyTarget::Default(provider) => {
-                        if let Some(body) = self.declared_unit_key(provider.symbol(), bray_bound_tree::BoundUnitKind::RuntimeDefault)? {
-                            dependencies.insert((ExecutionProofOwner::Source(body.source().syntax()), required));
+                        if let Some(body) = self.declared_unit_key(
+                            provider.symbol(),
+                            bray_bound_tree::BoundUnitKind::RuntimeDefault,
+                        )? {
+                            dependencies.insert((
+                                ExecutionProofOwner::Source(body.source().syntax()),
+                                required,
+                            ));
+
                             pending.push((body, required, exported_owner, predicate));
                         } else {
-                            let imported = self.checked_default_template(provider, cancellation)?;
-                            diagnostics.add_range(imported.diagnostics().iter().cloned());
-                            valid &= !imported.diagnostics().has_errors() && imported.value().as_ref().is_some_and(|template| {
-                                (!predicate || template.behavior().execution().constant_eligible())
-                                    && required.property().is_some_and(|property| template.behavior().execution().properties().contains(&property))
-                            });
+                            valid &= self.imported_default_proves_execution(
+                                provider,
+                                required,
+                                predicate,
+                                diagnostics,
+                                cancellation,
+                            )?;
                         }
+
                         continue;
                     }
                 };
@@ -274,15 +421,33 @@ impl Compilation {
                     .dependency_evidence(node, target)
                     .and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
                 {
-                    let declared = self.execution_declaration(body.source().syntax())?;
+                    let declared = self.execution_unit_declaration(&body)?;
+
                     diagnostics.add_range(declared.diagnostics().iter().cloned());
-                    let selected = self.select_source_execution_obligation(body, None, declared.value(), required,
-                        candidate.dependency_evidence(node, target), cancellation)?;
-                    if (!predicate || self.unit_requires_constant_evaluation(body, cancellation)?) && let Some(selected) = selected {
-                        dependencies.insert((ExecutionProofOwner::Source(body.source().syntax()), selected));
+
+                    let selected = self.select_source_execution_obligation(
+                        Some(body),
+                        None,
+                        declared.value(),
+                        required,
+                        candidate.dependency_evidence(node, target),
+                        diagnostics,
+                        cancellation,
+                    )?;
+
+                    if (!predicate || self.unit_requires_constant_evaluation(body, cancellation)?)
+                        && let Some(selected) = selected
+                    {
+                        dependencies.insert((
+                            ExecutionProofOwner::Source(body.source().syntax()),
+                            selected,
+                        ));
+
                         // The local body contributes to the enclosing portable proof without local symbol IDs.
                         pending.push((body.clone(), selected, exported_owner, predicate));
-                    } else { valid = false; }
+                    } else {
+                        valid = false;
+                    }
 
                     continue;
                 }
@@ -324,108 +489,35 @@ impl Compilation {
                     continue;
                 };
 
-                let Some(anchor) = self
-                    .symbol_graph()?
-                    .declaration_syntax_anchor(callable.definition().symbol())
+                let Some((owner, selected, body)) = self.declared_execution_dependency(
+                    callable,
+                    required,
+                    candidate.dependency_evidence(node, target),
+                    &mut graph,
+                    &mut assertions,
+                    diagnostics,
+                    cancellation,
+                )?
                 else {
-                    let selected = self.select_imported_execution_obligation(
-                        callable,
-                        required,
-                        candidate.dependency_evidence(node, target),
-                        diagnostics,
-                        cancellation,
-                    )?;
-
-                    if let Some(selected) = selected {
-                        valid &= self.append_imported_execution_proof(
-                            callable,
-                            selected,
-                            &mut graph,
-                            diagnostics,
-                            cancellation,
-                        )?;
-
-                        selected_dependencies.insert((
-                            exported_owner.0,
-                            exported_owner.1,
-                            target,
-                            selected,
-                        ));
-
-                        dependencies.insert((ExecutionProofOwner::Imported(callable), selected));
-                    } else {
-                        valid = false;
-                    }
-
+                    valid = false;
                     continue;
                 };
 
-                let declaration = self.execution_declaration(anchor)?;
+                selected_dependencies.insert((
+                    exported_owner.0,
+                    exported_owner.1,
+                    target,
+                    selected,
+                ));
 
-                diagnostics.add_range(declaration.diagnostics().iter().cloned());
+                dependencies.insert((owner, selected));
 
-                if declaration.diagnostics().has_errors() {
-                    valid = false;
-                    continue;
-                }
+                if let Some(body) = body {
+                    let ExecutionProofOwner::Source(anchor) = owner else {
+                        panic!("queued source execution proof retains its source owner");
+                    };
 
-                if let Some(body) = self.callable_body_key(callable.definition())? {
-                    let selected = self.select_source_execution_obligation(
-                        &body,
-                        Some(callable),
-                        declaration.value(),
-                        required,
-                        candidate.dependency_evidence(node, target),
-                        cancellation,
-                    )?;
-
-                    if let Some(selected) = selected {
-                        selected_dependencies.insert((
-                            exported_owner.0,
-                            exported_owner.1,
-                            target,
-                            selected,
-                        ));
-
-                        dependencies.insert((ExecutionProofOwner::Source(anchor), selected));
-                        pending.push((body, selected, (anchor, selected), predicate));
-                    } else {
-                        valid = false;
-                    }
-                } else if let (
-                    bray_symbols::CallableSymbolId::Function(function),
-                    ExecutionObligation::Property(property, None),
-                ) = (callable.definition().callable_symbol(), required)
-                {
-                    if self.foreign_execution_applies(
-                        callable,
-                        function,
-                        declaration.value(),
-                        property,
-                        candidate.dependency_evidence(node, target),
-                        diagnostics,
-                        cancellation,
-                    )? {
-                        selected_dependencies.insert((
-                            exported_owner.0,
-                            exported_owner.1,
-                            target,
-                            required,
-                        ));
-
-                        dependencies.insert((ExecutionProofOwner::Source(anchor), required));
-
-                        graph.insert(
-                            (ExecutionProofOwner::Source(anchor), required),
-                            BTreeSet::new(),
-                        );
-
-                        assertions.insert((anchor, property));
-                    } else {
-                        valid = false;
-                    }
-                } else {
-                    valid = false;
+                    pending.push((body, selected, (anchor, selected), predicate));
                 }
             }
 

@@ -23,7 +23,9 @@ fn indexed_constant_templates_evaluate_after_import() {
     ] {
         let declaration = format!(
             r#"
-            const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32 {{
+            const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32
+                requires(start < end, end <= 2)
+            {{
                 return {expression};
             }}
         "#
@@ -66,7 +68,7 @@ fn indexed_constant_templates_evaluate_after_import() {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     &diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+                    bray_diagnostics::DiagnosticKind::CheckingConstantCallRequirementNotProven,
                 );
 
                 continue;
@@ -300,7 +302,7 @@ fn constrained_index_defaults_preserve_abstract_dispatch() {
 }
 
 #[test]
-fn custom_indexing_is_rejected_during_constant_evaluation() {
+fn custom_indexing_does_not_supply_a_const_contract() {
     let source = compilation(
         r#"
         module api;
@@ -316,6 +318,6 @@ fn custom_indexing_is_rejected_during_constant_evaluation() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         &source.check_diagnostics(),
-        bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
     );
 }

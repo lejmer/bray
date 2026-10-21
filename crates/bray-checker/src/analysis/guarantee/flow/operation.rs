@@ -49,6 +49,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|_| self.refinements.get(&operation.occurrence()));
 
         self.transfer_operation(state, operation, invalidation, assignment.as_ref());
+
         true
     }
 

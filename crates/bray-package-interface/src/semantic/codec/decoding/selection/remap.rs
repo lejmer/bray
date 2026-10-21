@@ -270,7 +270,10 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    contract.observed_result = contract.observed_result.map(|term| maps.constant_term_id(term)).transpose()?;
+    contract.observed_result = contract
+        .observed_result
+        .map(|term| maps.constant_term_id(term))
+        .transpose()?;
 
     contract.returned_input = contract
         .returned_input

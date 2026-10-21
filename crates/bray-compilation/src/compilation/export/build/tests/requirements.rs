@@ -630,10 +630,10 @@ fn operator_templates_preserve_selected_and_constrained_dispatch() {
     );
 }
 
-
 #[test]
 fn imported_predicate_helpers_share_const_body_defaults_and_internal_dependencies() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         module api;
 
         internal const func positive(pos value: u8) -> bool
@@ -653,8 +653,11 @@ fn imported_predicate_helpers_share_const_body_defaults_and_internal_dependencie
 
         func require_selected(pos value: u8)
             requires(selected(value)) {}
-    "#);
-    let consumer = crate::test_support::compilation_with_dependencies(r#"
+    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
         module app;
 
         using example.package.api;
@@ -668,9 +671,84 @@ fn imported_predicate_helpers_share_const_body_defaults_and_internal_dependencie
         {
             caller(3);
         }
-    "#, [implementation_dependency(export(&provider))]);
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    let helpers = consumer.codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let helpers = consumer
+        .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
         .expect("admitted imported predicate helpers must reach actual native realization");
+
     assert!(helpers > 0);
+}
+
+#[test]
+fn default_observations_substitute_preceding_inputs_before_checking_entry() {
+    let declaration = r#"
+        const func selected(pos value: u8, pos selected: u8 = value) -> u8
+            requires(selected > 0)
+        {
+            return selected;
+        }
+    "#;
+
+    let provider = compilation(&format!(
+        r#"
+        module api;
+
+        {declaration}
+    "#
+    ));
+
+    for (condition, valid) in [("value > 0", true), ("value == 0", false)] {
+        let body = format!(
+            r#"
+            func caller(pos value: u8)
+                requires({condition})
+                executes(total)
+            {{
+                selected(value);
+            }}
+        "#
+        );
+
+        let source = compilation(&format!(
+            r#"
+            module api;
+
+            {declaration}
+
+            {body}
+        "#
+        ));
+
+        let imported = super::fixtures::execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+
+            using example.package.api;
+
+            {}
+        "#,
+                body.replace("selected(value)", "example.package.api.selected(value)")
+            ),
+        );
+
+        for checked in [&source, &imported] {
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{condition}: {:#?}",
+                checked.check_diagnostics()
+            );
+        }
+    }
 }

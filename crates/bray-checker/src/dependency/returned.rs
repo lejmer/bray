@@ -34,8 +34,13 @@ pub(crate) fn parameter_root<C: CheckerRequestContext + ?Sized>(
             ))
         }
         BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(parameter))
-            if request.unit().key().callable_type_header().is_some() => {
-            request.unit().local_symbols().binding(parameter).and_then(|binding| binding.key().ordinal())
+            if request.unit().key().callable_type_header().is_some() =>
+        {
+            request
+                .unit()
+                .local_symbols()
+                .binding(parameter)
+                .and_then(|binding| binding.key().ordinal())
                 .map(DependencySubjectRoot::Parameter)
         }
         BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {

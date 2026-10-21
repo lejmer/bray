@@ -55,8 +55,14 @@ impl Compilation {
                     ));
                 }
 
-                Ok(crate::compilation::template::predicate_template_inputs(self, signature.value(), Vec::new())?
-                    .into_iter().map(|input| input.ty).collect())
+                Ok(crate::compilation::template::predicate_template_inputs(
+                    self,
+                    signature.value(),
+                    Vec::new(),
+                )?
+                .into_iter()
+                .map(|input| input.ty)
+                .collect())
             }
         }
     }
@@ -67,13 +73,23 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Arc<CheckedTemplate>, CodegenPreparationError> {
         let checked = match reference {
-            MirPredicateReference::Predicate(predicate) => self.constant_predicate_template(predicate.definition(), cancellation)?,
-            MirPredicateReference::Clause { callable, ordinal } => self.declared_predicate_template(callable.instance(), *ordinal, cancellation)?,
-            MirPredicateReference::Condition { .. } => panic!("erased conditions lower directly from their retained terms"),
+            MirPredicateReference::Predicate(predicate) => {
+                self.constant_predicate_template(predicate.definition(), cancellation)?
+            }
+            MirPredicateReference::Clause { callable, ordinal } => {
+                self.declared_predicate_template(callable.instance(), *ordinal, cancellation)?
+            }
+            MirPredicateReference::Condition { .. } => {
+                panic!("erased conditions lower directly from their retained terms")
+            }
         };
+
         if checked.diagnostics().has_errors() {
             return Err(CodegenPreparationError::Diagnostics(checked.into_parts().1));
         }
-        Ok(Arc::new(checked.into_parts().0.expect("admitted runtime predicate retains its complete checked graph")))
+
+        Ok(Arc::new(checked.into_parts().0.expect(
+            "admitted runtime predicate retains its complete checked graph",
+        )))
     }
 }

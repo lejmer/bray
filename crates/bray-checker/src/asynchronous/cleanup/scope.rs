@@ -321,7 +321,9 @@ where
             (_, None) => AsyncStorageCleanupRequirement::Recovered(
                 AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
             ),
-            (Some(_), Some(_)) if !slot.is_invocation_owned(storage.kind()) => AsyncStorageCleanupRequirement::None,
+            (Some(_), Some(_)) if !slot.is_invocation_owned(storage.kind()) => {
+                AsyncStorageCleanupRequirement::None
+            }
             (Some(_), Some(ty)) => cleanup_shapes.requirement(ty)?,
         };
 
