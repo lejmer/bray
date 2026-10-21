@@ -185,7 +185,9 @@ impl Compilation {
 
             diagnostics.add_range(declared.diagnostics().iter().cloned());
 
-            if declared.value().clauses().is_empty() {
+            if declared.value().clauses().is_empty()
+                && !self.declares_constant_callable(definition, cancellation)?
+            {
                 continue;
             }
 

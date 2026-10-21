@@ -33,6 +33,11 @@ pub(crate) fn parameter_root<C: CheckerRequestContext + ?Sized>(
                     .ordinal(),
             ))
         }
+        BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(parameter))
+            if request.unit().key().callable_type_header().is_some() => {
+            request.unit().local_symbols().binding(parameter).and_then(|binding| binding.key().ordinal())
+                .map(DependencySubjectRoot::Parameter)
+        }
         BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {
             Some(DependencySubjectRoot::Receiver)
         }
@@ -48,15 +53,6 @@ pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
             call.target(),
             BoundCallableTarget::Declaration(_) | BoundCallableTarget::Anonymous(_)
         )
-}
-
-pub(super) fn declaration_source(
-    call: &SelectedCall,
-) -> Option<bray_symbols::CallableInstanceData> {
-    match call.target() {
-        BoundCallableTarget::Declaration(instance) => Some(instance),
-        _ => call.resolution().declaration_source(),
-    }
 }
 
 /// Applies the selected implementation, generic substitution and parameter defaults once.
@@ -103,7 +99,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                 .expect("selected anonymous callable retains its body key")
                 .0,
         )?
-    } else if let Some(instance) = declaration_source(call) {
+    } else if let Some(instance) = call.resolution().declaration_source() {
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
@@ -131,7 +127,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
             .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
-    let instance = declaration_source(call);
+    let instance = call.resolution().declaration_source();
 
     let mut template = resolved_result_template(request, instance, template)?;
 
@@ -161,7 +157,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         request,
         call.arguments(),
         call.receiver(),
-        declaration_source(call),
+        call.resolution().declaration_source(),
         &template,
     )
 }

@@ -260,12 +260,6 @@ fn push_contract_violation(
 
             "semantic_query_unexpected_walk_outcome"
         }
-        Violation::TypeMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
-
-            "semantic_query_type_mismatch"
-        }
         Violation::CountMismatch {
             data,
             expected,

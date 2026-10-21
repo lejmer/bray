@@ -341,6 +341,7 @@ mod tests {
 
         let call = bray_bound_tree::SelectedCall::new(
             resolution,
+            bray_symbols::CallableConstness::Runtime,
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),
             None,

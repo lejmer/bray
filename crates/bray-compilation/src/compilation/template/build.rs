@@ -7,7 +7,7 @@ use bray_bound_tree::{
     CheckedSemanticSelections, CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateInput,
     CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
     CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
-    ConstructionInputId, ConstructionTarget, SelectedConstruction, SelectedConstructionInput,
+    ConstructionTarget, SelectedConstruction, SelectedConstructionInput,
     SelectedOperation, SemanticSelection,
 };
 use bray_declarations::SyntaxAnchor;
@@ -21,7 +21,7 @@ use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation) struct SourceTemplateInput {
-    kind: CheckedTemplateInputKind,
+    pub(super) kind: CheckedTemplateInputKind,
     pub(in crate::compilation) target: Option<BoundReferenceTarget>,
     pub(in crate::compilation) ty: TypeId,
 }
@@ -45,6 +45,7 @@ pub(in crate::compilation) struct SourceTemplateRequest<'a> {
     pub(in crate::compilation) literals: &'a CheckedLiteralValues,
     pub(in crate::compilation) expression: SyntaxAnchor,
     pub(in crate::compilation) inputs: Vec<SourceTemplateInput>,
+    pub(in crate::compilation) execution: Option<&'a bray_checker::ExecutionCandidate>,
     pub(in crate::compilation) behavior: CheckedTemplateBehavior,
 }
 
@@ -52,18 +53,22 @@ pub(in crate::compilation) fn build_source_template(
     context: &CompilationBindingContext<'_>,
     request: SourceTemplateRequest,
 ) -> Result<CheckedTemplate, FactQueryError> {
-    let root = source_expression_root(request.unit, request.expression).unwrap_or_else(|| {
-        panic!(
-            "checked source template {:?} must contain expression {:?} in {:?}",
-            request.kind,
-            request.expression,
-            request.unit.key(),
-        )
-    });
-
     let mut builder = SourceTemplateBuilder::new(context, &request)?;
 
-    let result = builder.expression(root)?;
+    let result = if let bray_bound_tree::BoundUnitRoot::CallableBody { body, .. }
+        | bray_bound_tree::BoundUnitRoot::AnonymousCallable { body, .. } = request.unit.root() {
+        let body = request.unit.view().callable_body(body).expect("checked callable retains its body");
+        let bray_bound_tree::BoundCallableBodyKind::Block(block) = body.kind() else {
+            panic!("checked const-callable body is not recovered");
+        };
+        let result = request.types.callable_result_type().expect("checked callable retains its result type");
+        builder.callable_body(block, result)?
+    } else {
+        let root = source_expression_root(request.unit, request.expression).unwrap_or_else(|| {
+            panic!("checked source template {:?} retains expression {:?}", request.kind, request.expression)
+        });
+        builder.expression(root)?
+    };
 
     Ok(CheckedTemplate::from_checked_parts(
         request.kind,
@@ -107,14 +112,20 @@ fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<Boun
 pub(in crate::compilation) struct SourceTemplateBuilder<'context, 'compilation, 'unit> {
     pub(super) context: &'context CompilationBindingContext<'compilation>,
     pub(super) unit: &'unit BoundUnit,
-    patterns: &'unit bray_bound_tree::CheckedPatterns,
-    types: &'unit CheckedExpressionTypes,
+    pub(super) patterns: &'unit bray_bound_tree::CheckedPatterns,
+    pub(super) types: &'unit CheckedExpressionTypes,
     pub(in crate::compilation) selections: &'unit CheckedSemanticSelections,
     literals: &'unit CheckedLiteralValues,
-    inputs: Vec<CheckedTemplateInput>,
+    pub(super) execution: Option<&'unit bray_checker::ExecutionCandidate>,
+    pub(super) inputs: Vec<CheckedTemplateInput>,
     input_ids: BTreeMap<BoundReferenceTarget, CheckedTemplateInputId>,
     pub(super) nodes: Vec<CheckedTemplateNode>,
     expression_nodes: BTreeMap<BoundExpressionId, CheckedTemplateNodeId>,
+    pub(super) local_values: BTreeMap<BoundReferenceTarget, CheckedTemplateNodeId>,
+    pub(super) path: super::control::TemplatePath,
+    pub(super) returns: Vec<(super::control::TemplatePath, CheckedTemplateNodeId)>,
+    pub(super) return_type: Option<TypeId>,
+    pub(super) pattern_values: BTreeMap<bray_bound_tree::BoundPatternId, CheckedTemplateNodeId>,
 }
 
 impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation, 'unit> {
@@ -144,10 +155,16 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             types: request.types,
             selections: request.selections,
             literals: request.literals,
+            execution: request.execution,
             inputs,
             input_ids,
             nodes: Vec::new(),
             expression_nodes: BTreeMap::new(),
+            local_values: BTreeMap::new(),
+            path: super::control::TemplatePath::Always,
+            returns: Vec::new(),
+            return_type: None,
+            pattern_values: BTreeMap::new(),
         })
     }
 
@@ -207,6 +224,21 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         &mut self,
         expression_id: BoundExpressionId,
     ) -> Result<CheckedTemplateNodeId, FactQueryError> {
+        if self.execution.is_some_and(|execution| !execution.is_reachable(expression_id.into())) {
+            let ty = self.types.expression(expression_id).expect("excluded checked expression retains its type").ty();
+            return Ok(self.unreachable_node(ty));
+        }
+
+        let target = match self.unit.view().expression(expression_id) {
+            Some(BoundExpression::Name(name)) => Some(name.target()),
+            Some(BoundExpression::PatternReference(reference)) => Some(BoundReferenceTarget::Local(reference.binding().into())),
+            _ => None,
+        };
+
+        if let Some(node) = target.and_then(|target| self.local_values.get(&target)).copied() {
+            return self.bounded_integer_node(expression_id, node);
+        }
+
         if let Some(node) = self.expression_nodes.get(&expression_id) {
             return Ok(*node);
         }
@@ -246,6 +278,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         self.nodes
             .push(CheckedTemplateNode::new(operation, node_ty));
 
+        let node = self.bounded_integer_node(expression_id, node)?;
         self.expression_nodes.insert(expression_id, node);
 
         Ok(node)
@@ -261,12 +294,29 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         let target = conversion.target_type();
         let node = CheckedTemplateNodeId::new(index(self.nodes.len()));
 
-        self.nodes.push(CheckedTemplateNode::new(
-            CheckedTemplateOperation::Convert { value, target },
-            target,
-        ));
+        let operation = self.conversion_operation(value, conversion)?;
+        self.nodes.push(CheckedTemplateNode::new(operation, target));
 
         Ok(node)
+    }
+
+    fn bounded_integer_node(
+        &mut self,
+        expression: BoundExpressionId,
+        node: CheckedTemplateNodeId,
+    ) -> Result<CheckedTemplateNodeId, FactQueryError> {
+        let Some(maximum) = self.execution.and_then(|execution| execution.integer_maxima().get(&expression)) else {
+            return Ok(node);
+        };
+        let bits = u16::try_from((u64::BITS - maximum.leading_zeros()).max(1))
+            .expect("u64 upper bound has at most 64 bits");
+        let ty = self.context.semantic_values().intern_type(bray_symbols::TypeData::ExactInteger {
+            bits: std::num::NonZeroU16::new(bits).expect("integer bound has a nonzero width"),
+            signed: false,
+        })?;
+
+        // This representation carries the owning analysis's bound to emission without reproving it.
+        Ok(self.push_node(CheckedTemplateOperation::Convert { value: node, target: ty }, ty))
     }
 
     pub(super) fn operation(
@@ -283,7 +333,12 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
                 self.payloadless_variant(expression_id)
             }
-            BoundExpression::StructConstruction(_) => self.product(expression_id),
+            BoundExpression::StructConstruction(_) => {
+                let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) = self.selections.expression(expression_id) else {
+                    panic!("checked aggregate construction retains its selection");
+                };
+                self.construction(construction)
+            },
             BoundExpression::PatternReference(_) => {
                 let Some(SemanticSelection::Reference(target)) =
                     self.selections.expression(expression_id)
@@ -299,6 +354,11 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             BoundExpression::Binary(binary) => {
                 self.operator(expression_id, binary.operator(), binary.operands())
             }
+            BoundExpression::Block(block) => {
+                let value = self.block_value(block.block(), ty)?;
+                Ok(CheckedTemplateOperation::Convert { value, target: ty })
+            }
+            BoundExpression::Match(matched) => self.match_value(expression_id, matched, ty),
             BoundExpression::Call(_) => self.call(expression_id),
             BoundExpression::Conversion(conversion) => {
                 let value = self.expression(conversion.operand())?;
@@ -309,10 +369,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                     return Err(incomplete("missing_conversion_selection"));
                 };
 
-                Ok(CheckedTemplateOperation::Convert {
-                    value,
-                    target: selected.target_type(),
-                })
+                self.conversion_operation(value, selected)
             }
             BoundExpression::Structured(expression) => match expression.kind() {
                 BoundStructuredExpressionKind::Conditional => self.conditional(expression, ty),
@@ -396,7 +453,7 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                     }
                     Some(SemanticSelection::Operation(SelectedOperation::Construction(
                         construction,
-                    ))) => self.payloadless_variant_construction(construction),
+                    ))) => self.construction(construction),
                     _ => Err(incomplete("invalid_member_access_selection")),
                 }
             }
@@ -429,64 +486,45 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             return Err(incomplete("invalid_payloadless_variant_selection"));
         };
 
-        self.payloadless_variant_construction(construction)
+        self.construction(construction)
     }
 
-    fn product(
-        &mut self,
-        expression: BoundExpressionId,
-    ) -> Result<CheckedTemplateOperation, FactQueryError> {
-        let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
-            self.selections.expression(expression)
-        else {
-            return Err(incomplete("invalid_product_construction_selection"));
+    pub(super) fn construction(&mut self, construction: &SelectedConstruction) -> Result<CheckedTemplateOperation, FactQueryError> {
+        let substitution = match construction.target() {
+            ConstructionTarget::TypeForm { callable, .. } => callable.substitution(),
+            ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => match self.context.semantic_values().type_data(construction.result_type()).as_ref() {
+                bray_symbols::TypeData::Named { substitution, .. } => *substitution,
+                _ => panic!("checked nominal construction retains its named application"),
+            },
         };
-
-        if !matches!(construction.target(), ConstructionTarget::Struct(_)) {
-            return Err(incomplete("invalid_product_construction_target"));
-        }
-
-        let mut fields = Vec::with_capacity(construction.inputs().len());
-
-        for input in construction.inputs() {
-            let SelectedConstructionInput::Explicit {
-                expression,
-                input,
-                conversion,
-                ..
-            } = input
-            else {
-                return Err(incomplete("default_product_construction_input"));
+        let nominal = !matches!(construction.target(), ConstructionTarget::TypeForm { .. });
+        let count = construction.inputs().len();
+        let mut fields = Vec::with_capacity(if nominal { count } else { 0 });
+        let mut arguments = Vec::with_capacity(if nominal { 0 } else { count });
+        let mut ordinals = Vec::with_capacity(if nominal { 0 } else { count });
+        for selected in construction.inputs() {
+            let (input, value, ordinal) = match selected {
+                SelectedConstructionInput::Explicit { expression, input, conversion, ordinal } =>
+                    (*input, self.converted_expression(*expression, conversion)?, *ordinal),
+                SelectedConstructionInput::Default { input, provider, ordinal, .. } => {
+                    let checked = self.context.compilation().checked_default_template(*provider, self.context.cancellation())?;
+                    let template = checked.value().as_ref().expect("checked default construction retains its template");
+                    (*input, self.apply_template(template, &[], Some(substitution))?, *ordinal)
+                }
             };
-
-            let ConstructionInputId::StructField(field) = input else {
-                return Err(incomplete("invalid_product_construction_input"));
-            };
-
-            let value = self.converted_expression(*expression, conversion)?;
-
-            fields.push(ConstantField::new(self.symbol_key((*field).into())?, value));
+            if nominal { fields.push(ConstantField::new(self.symbol_key(input.symbol())?, value)); }
+            else { arguments.push(value); ordinals.push(ordinal); }
         }
-
-        Ok(CheckedTemplateOperation::product(fields))
-    }
-
-    fn payloadless_variant_construction(
-        &mut self,
-        construction: &SelectedConstruction,
-    ) -> Result<CheckedTemplateOperation, FactQueryError> {
-        let ConstructionTarget::UnionVariant(variant) = construction.target() else {
-            return Err(incomplete("invalid_payloadless_variant_target"));
-        };
-
-        if !construction.inputs().is_empty() {
-            return Err(incomplete("payloadless_variant_has_inputs"));
+        match construction.target() {
+            ConstructionTarget::Struct(_) => Ok(CheckedTemplateOperation::construct(None, fields)),
+            ConstructionTarget::UnionVariant(variant) => Ok(CheckedTemplateOperation::construct(Some(self.symbol_key(variant.into())?), fields)),
+            ConstructionTarget::TypeForm { callable, witness, .. } => {
+                let (callable, substitution) = self.declaration_reference(callable.definition().symbol(), callable.substitution())?;
+                let (witness, witness_substitution) = self.implementation_reference(witness)?;
+                Ok(CheckedTemplateOperation::ordered_call(callable, substitution, arguments, ordinals,
+                    Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(witness, witness_substitution))))
+            }
         }
-
-        Ok(CheckedTemplateOperation::Declaration {
-            declaration: self.symbol_key(variant.into())?,
-            substitution: None,
-        })
     }
 
     fn reference(
@@ -555,7 +593,15 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         };
 
         let left = self.expression(*left)?;
+        let path = self.path;
+        if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            self.path = self.refine_path(path, left, operator == BoundOperator::LogicalAnd)?;
+        }
         let right = self.expression(*right)?;
+        if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            let skipped = self.refine_path(path, left, operator != BoundOperator::LogicalAnd)?;
+            self.path = self.merge_paths(skipped, self.path)?;
+        }
 
         match operator {
             BoundOperator::LogicalAnd => Ok(CheckedTemplateOperation::ShortCircuit {

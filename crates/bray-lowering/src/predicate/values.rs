@@ -237,43 +237,29 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     ty,
                 )?
             }
-            CheckedTemplateOperation::Product(fields) => {
-                let TypeData::Named {
-                    definition: bray_symbols::NamedTypeSymbolId::Struct(definition),
-                    ..
-                } = *self.context.semantic_values().type_data(ty)
-                else {
-                    panic!("checked product construction retains its struct type");
+            CheckedTemplateOperation::Construct { variant, fields } => {
+                let target = match variant {
+                    Some(key) => match self.context.predicate_symbol(key)? {
+                        AnySymbolId::UnionVariant(variant) => ConstructionTarget::UnionVariant(variant),
+                        _ => panic!("checked union construction retains its active variant"),
+                    },
+                    None => match self.context.semantic_values().type_data(ty).as_ref() {
+                        TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Struct(definition), .. } => ConstructionTarget::Struct(*definition),
+                        _ => panic!("checked struct construction retains its named type"),
+                    },
                 };
-
                 let mut inputs = Vec::with_capacity(fields.len());
-
                 for field in fields.iter() {
-                    let AnySymbolId::StructField(field_id) =
-                        self.context.predicate_symbol(field.field())?
-                    else {
-                        panic!("checked product field retains its declaration");
+                    let id = match self.context.predicate_symbol(field.field())? {
+                        AnySymbolId::StructField(field) => ConstructionInputId::StructField(field),
+                        AnySymbolId::UnionPayloadField(field) => ConstructionInputId::UnionPayloadField(field),
+                        _ => panic!("checked aggregate construction retains its field declarations"),
                     };
-
                     let (continued, value) = self.node(block, *field.value())?;
-
                     block = continued;
-
-                    inputs.push(MirConstructionInput::new(
-                        ConstructionInputId::StructField(field_id),
-                        self.context.predicate_field_ordinal(field_id)?,
-                        value,
-                    ));
+                    inputs.push(MirConstructionInput::new(id, self.context.predicate_input_ordinal(id)?, value));
                 }
-
-                self.value(
-                    block,
-                    MirOperationKind::Construct(MirConstruction::new(
-                        ConstructionTarget::Struct(definition),
-                        inputs,
-                    )),
-                    ty,
-                )?
+                self.value(block, MirOperationKind::Construct(MirConstruction::new(target, inputs)), ty)?
             }
             CheckedTemplateOperation::Project { subject, member } => {
                 let (continued, value) = self.node(block, *subject)?;
@@ -289,6 +275,12 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 let place = self.observed_place(block, value)?;
 
                 MirOperand::Copy(place.project(MirProjectionKind::Field(member), ty))
+            }
+            CheckedTemplateOperation::NullableValue { subject } => {
+                let (continued, value) = self.node(block, *subject)?;
+                block = continued;
+                let place = self.observed_place(block, value)?;
+                MirOperand::Copy(place.project(MirProjectionKind::NullableValue, ty))
             }
             CheckedTemplateOperation::TupleElement { subject, index } => {
                 let (continued, value) = self.node(block, *subject)?;

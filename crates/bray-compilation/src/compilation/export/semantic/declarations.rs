@@ -1,4 +1,4 @@
-use crate::compilation::template::{callable_template_inputs, generic_template_inputs};
+use crate::compilation::template::{callable_template_inputs};
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -15,8 +15,8 @@ use bray_symbols::{
     CallableContractsQuery, CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
     CallableSignatureQuery, CallableSymbolId, CheckedConstraintKind,
     DeclarationPredicateClauseKind, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
-    GenericOwnerId, InterfaceSupportEntityId, NamedTypeSymbolId, RuntimeDefaultGenericContext,
-    RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
+    GenericOwnerId, InterfaceSupportEntityId, NamedTypeSymbolId,
+    RuntimeDefaultPresence,
     StructFieldDefaultValue, SymbolQueryRequest, UnionPayloadDefaultValue,
 };
 
@@ -26,7 +26,7 @@ use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 
 use super::context::SemanticExporter;
-use super::defaults::{generic_parameters, push_declaration_template, runtime_default_inputs};
+use super::defaults::{generic_parameters, push_declaration_template};
 
 use super::templates::{checked_constraint_expression, incomplete, index};
 
@@ -311,18 +311,11 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 }
 
-                let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
+                let CallableParameterDefaultValue::Valid(_) = checked.value().value() else {
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default_surface(
-                    compilation,
-                    graph,
-                    export,
-                    checked.value().provider().into(),
-                    surface,
-                    semantics,
-                )?;
+                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
             }
         }
         AnySymbolId::StructField(field) => {
@@ -339,18 +332,11 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 }
 
-                let StructFieldDefaultValue::Valid(surface) = checked.value().value() else {
+                let StructFieldDefaultValue::Valid(_) = checked.value().value() else {
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default_surface(
-                    compilation,
-                    graph,
-                    export,
-                    checked.value().provider().into(),
-                    surface,
-                    semantics,
-                )?;
+                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
             }
         }
         AnySymbolId::UnionPayloadField(field) => {
@@ -367,18 +353,11 @@ pub(super) fn export_default_semantics(
                     return Err(incomplete(symbol));
                 }
 
-                let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {
+                let UnionPayloadDefaultValue::Valid(_) = checked.value().value() else {
                     return Err(incomplete(symbol));
                 };
 
-                export_runtime_default_surface(
-                    compilation,
-                    graph,
-                    export,
-                    checked.value().provider().into(),
-                    surface,
-                    semantics,
-                )?;
+                export_runtime_default(compilation, export, checked.value().provider().into(), semantics)?;
             }
         }
         _ => {}
@@ -386,66 +365,6 @@ pub(super) fn export_default_semantics(
 
     Ok(())
 }
-
-fn export_runtime_default_surface(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    export: &mut SemanticExporter<'_>,
-    provider: AnySymbolId,
-    surface: &impl RuntimeDefaultSurface,
-    semantics: &mut ExportedDeclarations,
-) -> Result<(), PackageInterfaceExportError> {
-    export_runtime_default(
-        compilation,
-        graph,
-        export,
-        provider,
-        surface.inputs(),
-        surface.generic_context(),
-        surface.template_reference(),
-        surface.dependency_contract(),
-        &mut semantics.checked_templates,
-        &mut semantics.declaration_templates,
-        &mut semantics.support_entities,
-    )
-}
-
-trait RuntimeDefaultSurface {
-    fn inputs(&self) -> &[RuntimeDefaultProviderInput];
-    fn generic_context(&self) -> &RuntimeDefaultGenericContext;
-    fn template_reference(&self) -> &RuntimeDefaultTemplateReference;
-    fn dependency_contract(&self) -> bray_symbols::DependencyContractTemplateId;
-}
-
-macro_rules! impl_runtime_default_surface {
-    ($($surface:ty),+ $(,)?) => {
-        $(
-            impl RuntimeDefaultSurface for $surface {
-                fn inputs(&self) -> &[RuntimeDefaultProviderInput] {
-                    self.inputs()
-                }
-
-                fn generic_context(&self) -> &RuntimeDefaultGenericContext {
-                    self.generic_context()
-                }
-
-                fn template_reference(&self) -> &RuntimeDefaultTemplateReference {
-                    self.template_reference()
-                }
-
-                fn dependency_contract(&self) -> bray_symbols::DependencyContractTemplateId {
-                    self.behavior().dependency_contract()
-                }
-            }
-        )+
-    };
-}
-
-impl_runtime_default_surface!(
-    bray_symbols::CallableParameterDefaultSurface,
-    bray_symbols::StructFieldDefaultSurface,
-    bray_symbols::UnionPayloadDefaultSurface,
-);
 
 pub(super) fn export_type_semantics(
     compilation: &Compilation,
@@ -488,52 +407,22 @@ pub(super) fn export_type_semantics(
     Ok(())
 }
 
-pub(super) fn export_runtime_default(
+fn export_runtime_default(
     compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
     export: &mut SemanticExporter<'_>,
     provider: AnySymbolId,
-    contextual_inputs: &[RuntimeDefaultProviderInput],
-    generic_context: &RuntimeDefaultGenericContext,
-    template: &RuntimeDefaultTemplateReference,
-    dependency: bray_symbols::DependencyContractTemplateId,
-    checked_templates: &mut Vec<InterfaceCheckedTemplate>,
-    declaration_templates: &mut Vec<InterfaceDeclarationTemplate>,
-    support_entities: &mut Vec<InterfaceSupportEntity>,
+    semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
-    let RuntimeDefaultTemplateReference::Source(expression) = template else {
-        return Err(incomplete(provider));
-    };
-
-    let key = compilation
-        .source_runtime_default_key(provider, *expression)
+    let key = compilation.declared_unit_key(provider, bray_bound_tree::BoundUnitKind::RuntimeDefault)
+        .map_err(super::super::fact_query_export_error)?
+        .expect("source default retains its declaration-owned unit");
+    let cached = compilation.constant_body_template(key, &compilation.state.cancellation)
         .map_err(super::super::fact_query_export_error)?;
-
-    let mut inputs = runtime_default_inputs(compilation, graph, export, contextual_inputs)?;
-
-    inputs.extend(
-        generic_template_inputs(compilation, generic_context.parameters().iter().copied())
-            .map_err(super::super::fact_query_export_error)?,
-    );
-
-    let checked = export_checked_source_template(
-        compilation,
-        export,
-        key,
-        CheckedTemplateKind::RuntimeDefault,
-        *expression,
-        inputs,
-        dependency,
-    )?;
-
-    push_declaration_template(
-        export,
-        provider,
-        CheckedTemplateKind::RuntimeDefault,
-        bray_symbols::SymbolOrdinal::new(0),
-        checked,
-        checked_templates,
-        declaration_templates,
-        support_entities,
-    )
+    let template = cached.result().value().as_ref().ok_or_else(||
+        super::super::error::source_diagnostic_export_error(cached.result().diagnostics())
+            .expect("missing checked source default retains its diagnostics"))?;
+    let checked = super::super::template::encode_template(export, template)?;
+    push_declaration_template(export, provider, CheckedTemplateKind::RuntimeDefault,
+        bray_symbols::SymbolOrdinal::new(0), checked, &mut semantics.checked_templates,
+        &mut semantics.declaration_templates, &mut semantics.support_entities)
 }

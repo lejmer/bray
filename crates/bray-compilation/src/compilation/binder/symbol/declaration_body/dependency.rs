@@ -276,6 +276,7 @@ fn portable_storage_identity(
         }
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Alternative { .. }
+        | StorageIdentity::ContractParameter(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
         | StorageIdentity::CustomIndexBorrow(_)

@@ -207,8 +207,13 @@ where
                 .insert_refinement(&mut incoming.refinements, refinement);
 
             if let Some(execution) = incoming.execution.as_mut() {
-                self.execution
-                    .assume_patterns(execution, self.refinements.edge_facts(refinement));
+                if !self.execution.assume_patterns(execution, self.refinements.edge_facts(refinement)) {
+                    if single_predecessor && target.reachable {
+                        *target = Self::State::default();
+                        return true;
+                    }
+                    return false;
+                }
             }
         }
 

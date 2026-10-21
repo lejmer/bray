@@ -7,6 +7,7 @@ pub(crate) use cleanup::{Cleanup, Plan as CleanupPlan};
 mod completion;
 mod operation;
 mod postcondition;
+mod predicate;
 mod state;
 mod termination;
 mod trusted;

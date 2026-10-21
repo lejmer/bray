@@ -18,6 +18,29 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
+    pub(in crate::compilation) fn unit_requires_constant_evaluation(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        match key.kind() {
+            bray_bound_tree::BoundUnitKind::CallableBody => {
+                let definition = self.symbol_graph()?.symbol_for_key(key.declared_owner())
+                    .and_then(bray_symbols::CallableDefinitionId::try_new)
+                    .expect("callable body retains its declaration identity");
+                self.declares_constant_callable(definition, cancellation)
+            }
+            bray_bound_tree::BoundUnitKind::AnonymousCallable => {
+                let syntax = self.execution_declaration_node(key.source().syntax())?;
+                let lambda = syntax.cast::<bray_syntax::LambdaExpressionSyntax>()
+                    .expect("anonymous callable retains its lambda syntax");
+                Ok(lambda.callable_modifiers().const_token().is_some())
+            }
+            bray_bound_tree::BoundUnitKind::RuntimeDefault => Ok(false),
+            _ => Ok(true),
+        }
+    }
+
     pub(in crate::compilation) fn execution_declaration(
         &self,
         anchor: SyntaxAnchor,
@@ -77,12 +100,14 @@ impl Compilation {
         )
     }
 
-    pub(super) fn execution_candidates_with_cancellation(
+    pub(in crate::compilation) fn execution_candidates_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitResult<bray_checker::ExecutionCandidates>>, FactQueryError> {
-        // Fact keys and their immutable publications retain shared unit identities independently.
+        let predicate = key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+            || self.unit_requires_constant_evaluation(&key, cancellation)?;
+
         self.unit_query(
             &self.state.execution_candidates,
             CompilationFactKey::ExecutionCandidates(key.clone()),
@@ -114,12 +139,17 @@ impl Compilation {
                     cancellation,
                 )?;
 
+                let behavior = self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+                let defaults = self.execution_default_inputs(behavior.result().value(), cancellation)?;
+                let recursive = Default::default();
+
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
                     &semantic_context,
                     &context,
                 )
                 .with_trusted_contracts(trusted.value())
+                .with_result_dependencies(&defaults, &recursive)
                 .with_unwind(body.result().value().unwind());
 
                 let mut diagnostics = DiagnosticBag::merged_all([
@@ -168,6 +198,7 @@ impl Compilation {
                         unit,
                         prepared.result().value(),
                         property,
+                        predicate,
                         assumptions,
                         postconditions,
                         contracts.value(),

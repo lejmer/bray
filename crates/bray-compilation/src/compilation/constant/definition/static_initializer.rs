@@ -164,7 +164,7 @@ impl Compilation {
 
         let context = self.checker_context(cancellation)?;
 
-        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, symbols);
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, Some(symbols));
 
         let diagnostic_span = self
             .dependency_interface_input(address.interface())

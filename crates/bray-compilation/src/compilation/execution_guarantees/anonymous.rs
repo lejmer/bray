@@ -9,6 +9,33 @@ use crate::compilation::{Compilation, binder};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(in crate::compilation) fn execution_unit_inputs(
+        &self, owner: &BoundUnitKey, cancellation: &CancellationToken,
+    ) -> Result<Vec<BoundReferenceTarget>, FactQueryError> {
+        if owner.callable_type_header().is_some() {
+            let bound = self.bound_unit_with_cancellation(owner.clone(), cancellation)?;
+            let mut parameters = bound.result().value().local_symbols().bindings().iter()
+                .filter_map(|binding| binding.key().ordinal().map(|ordinal| (ordinal, BoundReferenceTarget::Local(binding.id().into())))).collect::<Vec<_>>();
+            parameters.sort_by_key(|(ordinal, _)| *ordinal);
+            return Ok(parameters.into_iter().map(|(_, reference)| reference).collect());
+        }
+        if owner.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            return Ok(self.default_template_inputs(owner, cancellation)?.into_iter().filter_map(|input| input.target).collect());
+        }
+
+        if owner.kind() != bray_bound_tree::BoundUnitKind::AnonymousCallable {
+            let symbol = self.symbol_graph()?.symbol_for_key(owner.declared_owner()).expect("checked unit retains its declaration owner");
+            return self.execution_callable_inputs(symbol, cancellation);
+        }
+        let bound = self.bound_unit_with_cancellation(owner.clone(), cancellation)?;
+        let BoundUnitRoot::AnonymousCallable { callable, .. } = bound.result().value().root() else {
+            panic!("anonymous contract owner retains its own callable root");
+        };
+        Ok(bound.result().value().local_symbols().anonymous_callable(callable)
+            .expect("anonymous body owns its parameter identities").parameters().iter()
+            .map(|parameter| BoundReferenceTarget::Local((*parameter).into())).collect())
+    }
+
     pub(super) fn anonymous_predicate_condition_inputs(
         &self,
         owner: &BoundUnitKey,
@@ -26,21 +53,7 @@ impl Compilation {
             .callable_type()
             .expect("anonymous unit owns its callable type");
 
-        let BoundUnitRoot::AnonymousCallable { callable, .. } = bound.result().value().root()
-        else {
-            panic!("anonymous contract owner must be an anonymous callable");
-        };
-
-        let references = bound
-            .result()
-            .value()
-            .local_symbols()
-            .anonymous_callable(callable)
-            .expect("anonymous body owns its parameter identities")
-            .parameters()
-            .iter()
-            .map(|parameter| BoundReferenceTarget::Local((*parameter).into()))
-            .collect::<Vec<_>>();
+        let references = self.execution_unit_inputs(owner, cancellation)?;
 
         let context = self.binding_context(cancellation)?;
 

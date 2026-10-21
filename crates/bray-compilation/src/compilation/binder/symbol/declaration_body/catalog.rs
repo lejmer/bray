@@ -77,7 +77,7 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
 
     let predicates = normalized
         .into_iter()
-        .map(|(_, condition, trusted)| {
+        .map(|(_, condition, domain)| {
             bray_checker::execution_condition_term(
                 context.semantic_values(),
                 &condition,
@@ -87,12 +87,7 @@ pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
             .map(|term| {
                 PredicateSemanticSummary::new(dependency).with_condition(
                     term,
-                    bray_symbols::PredicateDomain::checked_condition(
-                        term,
-                        trusted,
-                        context.semantic_values(),
-                        compilation.available_compiler_known_symbols(),
-                    ),
+                    domain,
                 )
             })
             .map_err(BindingQueryError::SemanticValue)

@@ -1,4 +1,3 @@
-use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundCallableTarget, BoundUnit, BoundUnitKey, CheckedExpressionSemantics, SemanticSelection,
 };
@@ -19,33 +18,29 @@ impl Compilation {
         let mut inputs = TrustedContractInputs::default();
         let mut diagnostics = DiagnosticBag::new();
 
+
         inputs.predicates =
             self.execution_predicate_inputs(semantics, cancellation, &mut diagnostics)?;
 
-        if !matches!(
+        let callable_body = matches!(
             key.kind(),
             bray_bound_tree::BoundUnitKind::CallableBody
                 | bray_bound_tree::BoundUnitKind::AnonymousCallable
                 | bray_bound_tree::BoundUnitKind::ConstantTemplate
-        ) {
-            return Ok(DiagnosticResult::new(inputs, diagnostics));
+        );
+        let trusted = callable_body && self.trusted_predicate_producer(key)?;
+        if key.callable_type_header().is_some() {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
 
-        let trusted = self.trusted_predicate_producer(key)?;
+        // Predicate units check obligations, without inferring returned witness authority.
+        inputs.infer_result_witnesses = callable_body && !trusted;
 
-        inputs.infer_result_witnesses = !trusted;
-
-        if key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
-            let context = self.binding_context(cancellation)?;
-
-            let owner = context
-                .symbols()
-                .symbol_for_key(key.declared_owner())
-                .expect("checked callable body retains its owner");
-
-            inputs.inputs = self.execution_callable_inputs(owner, cancellation)?;
+        if callable_body && key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
 
             let declared = self.execution_declaration(key.source().syntax())?;
+
 
             let requirements = self.predicate_condition_inputs(
                 key,
@@ -105,6 +100,10 @@ impl Compilation {
                         ));
                 }
             }
+        }
+
+        if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
 
         for (expression, node) in bound.tree().expressions() {
@@ -196,6 +195,7 @@ impl Compilation {
             }
 
             if !contract.requirements.is_empty()
+                || !contract.execution_requirements.is_empty()
                 || !contract.preconditions.is_empty()
                 || !contract.guarantees.is_empty()
                 || !contract.postconditions.is_empty()
@@ -211,8 +211,7 @@ impl Compilation {
             || !inputs.calls.is_empty();
 
         if needs_predicate_flow {
-            inputs.constants =
-                self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
+            inputs.constants.extend(self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?);
 
             inputs
                 .statics

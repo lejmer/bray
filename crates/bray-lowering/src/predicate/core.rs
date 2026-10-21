@@ -48,9 +48,9 @@ pub trait PredicateLoweringContext: SyntheticLoweringContext {
         callable: bray_symbols::CallableInstanceData,
     ) -> Result<Option<bray_compiler_known::ImplementationHook>, Self::Error>;
     /// Returns a selected field's established declaration ordinal.
-    fn predicate_field_ordinal(
+    fn predicate_input_ordinal(
         &self,
-        field: bray_symbols::StructFieldSymbolId,
+        field: bray_bound_tree::ConstructionInputId,
     ) -> Result<u32, Self::Error>;
     /// Reuses a term's selected callable and implementation.
     fn predicate_instance_call(
@@ -279,6 +279,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let ty = self.context.predicate_type(node.ty())?;
 
         let (continued, value) = match node.operation() {
+            CheckedTemplateOperation::Unreachable => panic!("excluded template value is lowered only as a terminating conditional alternative"),
             CheckedTemplateOperation::Input(input) => (
                 block,
                 self.inputs

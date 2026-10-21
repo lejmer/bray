@@ -30,12 +30,12 @@ The body of a const function is checked in constant-evaluation context.
 Every reachable result-producing path must use only expressions, operations, and calls valid in constant-evaluation
 context.
 
-Public use in predicates, contract expressions, static constraints, and constant expressions requires the declaration
-surface to expose `const`.
+Callable declarations and lambda expressions invoked in constant expressions, predicate expressions, contract
+expressions, or static constraints must expose an explicit `const` contract. This applies to direct calls and calls
+through callable values, aliases, selected implementations, and compiled interfaces.
 
-Private or local helper callables can be inferred as const-eligible inside the checking unit.
-
-Inferred const eligibility for a private or local helper does not become part of the exported declaration surface.
+Ordinary runtime functions can call const functions with runtime arguments without being declared `const`.
+A callable's body availability, visibility, or `pure` and `total` guarantees do not supply a const contract.
 
 When a declaration is exported or otherwise used through compiled interface metadata, const-context callers can depend
 on that declaration only when its interface exposes `const`.

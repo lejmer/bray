@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundCallableBodyKind, BoundExpression, BoundExpressionId,
+    AnyBoundNodeId, BoundExpression, BoundExpressionId,
     BoundReferenceTarget, BoundUnit, BoundUnitRoot, BoundWalkControl, BoundWalkEvent,
     CheckedExpressionTypes, CheckedSemanticSelections, CheckedTemplateOperation,
     ExpressionTypeEntry, ExpressionTypeResult, SelectedOperation, SemanticSelection,
@@ -72,78 +72,11 @@ pub(super) fn imported_constant_definition(
     )))
 }
 
-pub(in crate::compilation::constant) fn call_parameter_values(
-    values: &bray_symbols::SemanticValueStore,
-    signature: &bray_symbols::CallableSignature,
-    arguments: &[ConstantValueId],
-    context: SemanticQueryContext,
-) -> Result<BTreeMap<AnySymbolId, ConstantValueId>, FactQueryError> {
-    let parameters = signature
-        .receiver()
-        .map(|receiver| (AnySymbolId::from(receiver.parameter()), receiver.ty()))
-        .into_iter()
-        .chain(
-            signature
-                .parameters()
-                .iter()
-                .map(|parameter| (AnySymbolId::from(parameter.parameter()), parameter.ty())),
-        )
-        .collect::<Vec<_>>();
-
-    if parameters.len() != arguments.len() {
-        return Err(SemanticQueryFailure::contract(
-            context,
-            SemanticQueryViolation::CountMismatch {
-                data: SemanticDataKind::ConstantTerm,
-                expected: parameters.len(),
-                actual: arguments.len(),
-            },
-        )
-        .into());
-    }
-
-    let mut resolved = BTreeMap::new();
-
-    for ((parameter, expected), value) in parameters.into_iter().zip(arguments.iter().copied()) {
-        let actual = values.constant_value_data(value);
-
-        if actual.ty() != expected {
-            return Err(SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(parameter),
-                SemanticQueryViolation::TypeMismatch {
-                    expected,
-                    actual: actual.ty(),
-                },
-            )
-            .into());
-        }
-
-        resolved.insert(parameter, value);
-    }
-
-    Ok(resolved)
-}
-
 pub(super) struct ConcreteReferenceContext<'parameters> {
     pub(super) substitution: Option<GenericSubstitutionId>,
     pub(super) selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
     pub(super) parameters: &'parameters BTreeMap<AnySymbolId, ConstantValueId>,
     pub(super) current_constant: Option<ConstantInstanceKey>,
-}
-
-pub(in crate::compilation::constant) fn constant_callable_root(
-    bound: &BoundUnit,
-) -> Option<bray_bound_tree::BoundBlockId> {
-    let BoundUnitRoot::CallableBody { body, .. } = bound.root() else {
-        return None;
-    };
-
-    let body = bound.view().callable_body(body)?;
-
-    match body.kind() {
-        BoundCallableBodyKind::Block(block) => Some(block),
-        BoundCallableBodyKind::Error(_) => None,
-    }
 }
 
 pub(in crate::compilation) fn collect_constant_references(

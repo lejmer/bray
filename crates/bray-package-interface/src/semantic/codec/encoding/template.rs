@@ -86,6 +86,10 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
 
     let behavior = template.behavior();
 
+    encoder.write_u32(u32::from(behavior.execution().constant_eligible()));
+    encoder.write_u32(u32::from(behavior.execution().may_unwind()));
+    write_count(encoder, behavior.execution().properties().len());
+    for property in behavior.execution().properties() { encoder.write_u32(property.to_wire()); }
     write_symbol_references(encoder, behavior.effects());
     write_symbol_references(encoder, behavior.capabilities());
     write_symbol_references(encoder, behavior.trusted_obligations());
@@ -128,6 +132,7 @@ fn encode_input_kind(encoder: &mut WireEncoder, kind: &InterfaceCheckedTemplateI
 
 fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTemplateOperation) {
     match operation {
+        InterfaceCheckedTemplateOperation::Unreachable => encoder.write_u32(21),
         InterfaceCheckedTemplateOperation::Input(input) => {
             write_tagged_template_id(encoder, 1, input.raw());
         }
@@ -200,8 +205,10 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(7);
             write_node_ids(encoder, elements);
         }
-        InterfaceCheckedTemplateOperation::Product(fields) => {
+        InterfaceCheckedTemplateOperation::Construct { variant, fields } => {
             encoder.write_u32(17);
+            encoder.write_u32(u32::from(variant.is_some()));
+            if let Some(variant) = variant { encode_template_reference(encoder, variant); }
             write_count(encoder, fields.len());
 
             for field in fields.iter() {
@@ -213,6 +220,10 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(19);
             encoder.write_u32(subject.raw());
             encode_template_reference(encoder, variant);
+        }
+        InterfaceCheckedTemplateOperation::NullableValue { subject } => {
+            encoder.write_u32(20);
+            encoder.write_u32(subject.raw());
         }
         InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
             encoder.write_u32(18);

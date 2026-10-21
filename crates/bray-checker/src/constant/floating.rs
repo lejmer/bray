@@ -226,7 +226,7 @@ pub(super) fn convert_real(
     }
 }
 
-pub(super) fn integer_to_real(
+pub(crate) fn integer_to_real(
     value: &IntegerConstant,
     target: RepresentationRole,
 ) -> Result<RealConstantBits, ConstantOperationError> {

@@ -589,7 +589,7 @@ impl Compilation {
                 ExecutionObligation::Property(property, _) => self
                     .applicable_execution_obligation(
                         &body,
-                        callable,
+                        Some(callable),
                         declaration.value(),
                         required,
                         evidence,

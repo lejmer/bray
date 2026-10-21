@@ -629,3 +629,48 @@ fn operator_templates_preserve_selected_and_constrained_dispatch() {
             > 0
     );
 }
+
+
+#[test]
+fn imported_predicate_helpers_share_const_body_defaults_and_internal_dependencies() {
+    let provider = compilation(r#"
+        module api;
+
+        internal const func positive(pos value: u8) -> bool
+        {
+            return value > 0;
+        }
+
+        const func selected(pos value: u8, limit: u8 = 1) -> bool
+        {
+            if value >= limit
+            {
+                return positive(value);
+            }
+
+            return false;
+        }
+
+        func require_selected(pos value: u8)
+            requires(selected(value)) {}
+    "#);
+    let consumer = crate::test_support::compilation_with_dependencies(r#"
+        module app;
+
+        using example.package.api;
+
+        func caller(pos value: u8)
+        {
+            example.package.api.require_selected(value);
+        }
+
+        func main()
+        {
+            caller(3);
+        }
+    "#, [implementation_dependency(export(&provider))]);
+    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
+    let helpers = consumer.codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+        .expect("admitted imported predicate helpers must reach actual native realization");
+    assert!(helpers > 0);
+}

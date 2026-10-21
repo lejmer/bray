@@ -50,11 +50,26 @@ impl ExecutionDeclaration {
     }
 }
 
+/// An execution dependency retains the callable or declaration-owned default it invokes.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionDependencyTarget {
+    /// A selected callable implementation.
+    Callable(BoundCallableTarget),
+    /// An omitted argument or construction field's provider.
+    Default(bray_bound_tree::DefaultValueProvider),
+}
+
+impl From<BoundCallableTarget> for ExecutionDependencyTarget {
+    fn from(target: BoundCallableTarget) -> Self {
+        Self::Callable(target)
+    }
+}
+
 /// A selected implementation and the exact property required from it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutionDependency {
-    /// The statically or dynamically selected callable.
-    pub target: BoundCallableTarget,
+    /// The selected callable or default provider.
+    pub target: ExecutionDependencyTarget,
     /// The independently required execution property.
     pub property: ExecutionProperty,
     /// The exact source operation or implicit invocation that selected this dependency.
@@ -86,6 +101,9 @@ pub struct ExecutionCandidate {
     pub(crate) calls:
         std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
     pub(crate) failure: Option<SourceSpan>,
+    pub(crate) constant_failure: Option<SourceSpan>,
+    pub(crate) integer_maxima: std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, u64>,
+    pub(crate) reachable_nodes: std::collections::BTreeSet<AnyBoundNodeId>,
     pub(crate) dependencies: Vec<ExecutionDependency>,
 }
 
@@ -146,6 +164,21 @@ impl ExecutionCandidate {
     /// Returns the first operation preventing a local proof, if any.
     pub const fn failure(&self) -> Option<SourceSpan> {
         self.failure
+    }
+
+    /// Returns the first reachable operation forbidden in constant evaluation.
+    pub const fn constant_failure(&self) -> Option<SourceSpan> {
+        self.constant_failure
+    }
+
+    /// Returns nonnegative integer upper bounds established at their actual expression occurrences.
+    pub fn integer_maxima(&self) -> &std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, u64> {
+        &self.integer_maxima
+    }
+
+    /// Whether this node executes in the checked constant-evaluation entry domain.
+    pub fn is_reachable(&self, node: AnyBoundNodeId) -> bool {
+        self.reachable_nodes.contains(&node)
     }
 
     /// Returns selected dependencies and the operations that require them.
@@ -233,6 +266,17 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    /// Captures only constant argument values, with no trusted authority or runtime execution lane.
+    pub fn from_constants(values: &bray_symbols::SemanticValueStore, arguments: &[bray_symbols::ConstantValueId]) -> Self {
+        Self {
+            arguments: arguments.iter().enumerate().map(|(index, value)| (
+                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("constant call argument index fits its signature"))),
+                super::ExecutionCondition::from_constant(values, *value),
+            )).collect(),
+            ..Self::default()
+        }
+    }
+
     /// Exact local callable body established by the entry value flow, if known.
     pub fn anonymous_target(&self) -> Option<&bray_bound_tree::BoundUnitKey> {
         self.anonymous_target.as_ref()
@@ -285,18 +329,24 @@ impl ExecutionCallEvidence {
 
     /// Whether every callee-entry condition follows from the captured argument values.
     pub fn proves(&self, conditions: &[super::ExecutionCondition]) -> bool {
-        self.proves_from(conditions, &self.assumptions)
+        self.proves_from(conditions, &self.assumptions, &[])
     }
 
     /// Whether live trusted evidence supplies every selected caller obligation.
     pub fn proves_trusted(&self, conditions: &[super::ExecutionCondition]) -> bool {
-        self.proves_from(conditions, &self.trusted_assumptions)
+        self.proves_from(conditions, &self.trusted_assumptions, &[])
+    }
+
+    /// Checks an anonymous declaration's own inputs against captured receiver-first arguments.
+    pub fn proves_trusted_with_inputs(&self, conditions: &[super::ExecutionCondition], inputs: &[bray_bound_tree::BoundReferenceTarget]) -> bool {
+        self.proves_from(conditions, &self.trusted_assumptions, inputs)
     }
 
     fn proves_from(
         &self,
         conditions: &[super::ExecutionCondition],
         assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+        inputs: &[bray_bound_tree::BoundReferenceTarget],
     ) -> bool {
         if conditions.is_empty() {
             return true;
@@ -314,9 +364,13 @@ impl ExecutionCallEvidence {
         conditions.iter().all(|condition| {
             let condition = condition.substitute(
                 &|input| {
-                    input
-                        .value_in(&self.arguments)
-                        .unwrap_or(super::ExecutionCondition::Unknown)
+                    input.value_in(&self.arguments).or_else(|| {
+                        let ordinal = inputs.iter().position(|reference| Some(*reference) == input.reference())?;
+                        let mut argument = super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal).expect("anonymous parameter ordinal fits")));
+                        // The captured argument retains this immutable component path.
+                        argument.projections = std::sync::Arc::clone(&input.projections);
+                        argument.value_in(&self.arguments)
+                    }).unwrap_or(super::ExecutionCondition::Unknown)
                 },
                 &super::ExecutionCondition::Unknown,
                 &mut { crate::ExecutionCondition::WORK_LIMIT },

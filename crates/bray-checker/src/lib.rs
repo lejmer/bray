@@ -19,6 +19,7 @@ mod memory_diagnostics;
 mod outcome;
 mod pattern;
 mod representation;
+pub use representation::{representation_type_for_context, type_representation_for_values};
 mod selection;
 mod semantic_context;
 mod service;
@@ -44,7 +45,7 @@ pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_cand
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{
-    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
+    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallContract, ConstantCallTarget, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
     ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
@@ -63,11 +64,11 @@ pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
+    ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency, ExecutionDependencyTarget,
     ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
     check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
     execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
-    execution_conditions, map_execution_condition_substitutions, predicate_conditions,
+    execution_conditions, map_execution_condition_references, substitute_execution_condition, predicate_conditions,
     predicate_conditions_with_inputs, remap_execution_condition_inputs,
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};

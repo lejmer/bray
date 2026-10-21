@@ -1,18 +1,15 @@
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
-use bray_binder::semantic_unit_context;
 use bray_checker::{
     CheckerRequestContext, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
-    ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
-    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantChecker,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
-    resolve_callable_signature_template,
+    ConstantEvaluationUsage, ConstantReferenceResolution, ConstantTemplateResolver,
+    EvaluatedConstantCall, evaluate_constant_callable_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureQuery, ConstantTermId, ConstantValueData,
+    CallableConstness, CallableSignatureQuery, ConstantValueData,
     ConstantValueKind, ImportedSymbolSkeleton, SymbolKey, SymbolKeyData, SymbolQueryRequest,
     TypeData,
 };
@@ -21,12 +18,6 @@ use super::super::Compilation;
 use super::super::binder::binding_query_error;
 use super::super::checker::{checker_query_error, checker_result};
 
-use super::definition::{
-    call_parameter_values, constant_callable_root, substitute_expression_types,
-};
-use crate::compilation::{
-    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-};
 use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallQueryKey, FactQueryError};
 
 type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
@@ -71,55 +62,53 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
             .map_err(checker_call_query_error)
     }
 
+    fn contract(&self, target: &bray_checker::ConstantCallTarget) -> CheckerQueryResult<DiagnosticResult<Option<bray_checker::ConstantCallContract>>> {
+        self.compilation.constant_call_contract(target, self.cancellation).map_err(checker_call_query_error)
+    }
+
+    fn requirement_origin(&self, target: &bray_checker::ConstantCallTarget, index: usize) -> CheckerQueryResult<Option<bray_source::SourceSpan>> {
+        self.compilation.constant_requirement_origin(target, index, self.cancellation).map_err(checker_call_query_error)
+    }
+
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
-        let substituted;
-
-        let request = if let Some(substitution) = self.substitution {
-            let values = self
-                .compilation
-                .semantic_value_store()
-                .map_err(checker_call_query_error)?;
-
-            let callable = values
-                .intern_callable_instance(request.callable())
-                .and_then(|callable| values.substitute_callable_instance(callable, substitution))
-                .map_err(|error| {
-                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
-                })?;
-
-            let witness = request
-                .selected_implementation()
-                .map(|witness| values.substitute_implementation_instance(witness, substitution))
-                .transpose()
-                .map_err(|error| {
-                    checker_call_query_error(FactQueryError::SemanticValueStore(error))
-                })?;
-
-            substituted = ConstantCallRequest::new(
-                *values.callable_instance_data(callable),
-                witness,
-                request.arguments().iter().copied(),
-                request.result_type(),
-                request.limits(),
-            );
-
-            &substituted
-        } else {
-            request
+        let values = self.compilation.semantic_value_store().map_err(checker_call_query_error)?;
+        let selected = match request.target() {
+            bray_checker::ConstantCallTarget::Anonymous(key, None) => {
+                let symbols = self.compilation.symbol_graph().map_err(checker_call_query_error)?;
+                let owner = symbols.symbol_for_key(key.declared_owner()).expect("anonymous body retains its enclosing declaration");
+                let parameters = crate::compilation::binder::visible_generic_parameters(symbols, owner);
+                crate::compilation::substitution::identity_substitution(values,
+                    bray_symbols::GenericOwnerId::try_new(owner).expect("anonymous lexical owner has a generic context"), &parameters).map_err(checker_call_query_error)?
+            }
+            _ => request.substitution(),
         };
-
-        match self
-            .compilation
-            .constant_call_with_cancellation(request, self.cancellation)
-        {
+        let selected = self.substitution.map(|parent| values.substitute_generic_substitution(selected, parent)).transpose()
+            .map_err(|error| checker_call_query_error(error.into()))?.unwrap_or(selected);
+        let target = match request.target() {
+            bray_checker::ConstantCallTarget::Declaration(callable) => {
+                let callable = bray_symbols::CallableInstanceData::new(callable.definition(), selected);
+                if !self.is_constant_callable(callable)? { return Ok(ConstantCallResolution::Ineligible(DiagnosticBag::new())); }
+                bray_checker::ConstantCallTarget::Declaration(callable)
+            }
+            bray_checker::ConstantCallTarget::Anonymous(key, _) => {
+                if !self.compilation.unit_requires_constant_evaluation(key, self.cancellation).map_err(checker_call_query_error)? {
+                    return Ok(ConstantCallResolution::Ineligible(DiagnosticBag::new()));
+                }
+                bray_checker::ConstantCallTarget::Anonymous(key.clone(), Some(selected))
+            }
+            bray_checker::ConstantCallTarget::Default(provider, _) => bray_checker::ConstantCallTarget::Default(*provider, selected),
+            bray_checker::ConstantCallTarget::Predicate(predicate) => bray_checker::ConstantCallTarget::Predicate(bray_symbols::PredicateInstanceData::new(predicate.definition(), selected)),
+        };
+        let witness = match self.substitution {
+            Some(parent) => request.selected_implementation().map(|witness| values.substitute_implementation_instance(witness, parent)).transpose()
+                .map_err(|error| checker_call_query_error(error.into()))?,
+            None => request.selected_implementation(),
+        };
+        let request = ConstantCallRequest::new(target, witness, request.arguments().iter().copied(), request.result_type(), request.limits());
+        match self.compilation.constant_call_with_cancellation(&request, self.cancellation) {
             Ok(result) => match result.value() {
-                Some(value) => Ok(ConstantCallResolution::Evaluated(DiagnosticResult::new(
-                    *value,
-                    result.diagnostics().clone(),
-                ))),
-                None => Ok(ConstantCallResolution::Ineligible(
-                    result.diagnostics().clone(),
-                )),
+                Some(value) => Ok(ConstantCallResolution::Evaluated(DiagnosticResult::new(*value, result.diagnostics().clone()))),
+                None => Ok(ConstantCallResolution::Ineligible(result.diagnostics().clone())),
             },
             Err(FactQueryError::Cycle(_)) => Ok(ConstantCallResolution::Cycle),
             Err(error) => Err(checker_call_query_error(error)),
@@ -129,14 +118,14 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
 
 pub(in crate::compilation) struct CompilationConstantTemplateResolver<'compilation> {
     calls: CompilationConstantCallResolver<'compilation>,
-    symbols: &'compilation ImportedSymbolSkeleton,
+    symbols: Option<&'compilation ImportedSymbolSkeleton>,
 }
 
 impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
     pub(in crate::compilation) const fn new(
         compilation: &'compilation Compilation,
         cancellation: &'compilation CancellationToken,
-        symbols: &'compilation ImportedSymbolSkeleton,
+        symbols: Option<&'compilation ImportedSymbolSkeleton>,
     ) -> Self {
         Self {
             calls: CompilationConstantCallResolver::new(compilation, cancellation),
@@ -155,15 +144,29 @@ impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
         self.calls.is_constant_callable(callable)
     }
 
+    fn contract(&self, target: &bray_checker::ConstantCallTarget) -> CheckerQueryResult<DiagnosticResult<Option<bray_checker::ConstantCallContract>>> {
+        self.calls.contract(target)
+    }
+
+    fn requirement_origin(&self, target: &bray_checker::ConstantCallTarget, index: usize) -> CheckerQueryResult<Option<bray_source::SourceSpan>> {
+        self.calls.requirement_origin(target, index)
+    }
+
     fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
         self.calls.resolve(request)
     }
 }
 
 impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
+    fn requirement_template(&self, target: &bray_checker::ConstantCallTarget, index: usize)
+        -> CheckerQueryResult<DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>> {
+        self.calls.compilation.constant_requirement_template(target, index, self.calls.cancellation)
+            .map_err(checker_call_query_error)
+    }
+
     fn symbol(&self, key: &SymbolKey) -> Option<bray_symbols::AnySymbolId> {
         match key.data() {
-            SymbolKeyData::External(key) => self.symbols.symbol_by_external_key(key),
+            SymbolKeyData::External(key) => self.symbols?.symbol_by_external_key(key),
             _ => self
                 .calls
                 .compilation
@@ -244,75 +247,17 @@ fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
 }
 
 impl Compilation {
-    pub(in crate::compilation) fn symbolic_constant_callable_body(
-        &self,
-        callable: bray_symbols::CallableInstanceData,
-        result_type: bray_symbols::TypeId,
-        arguments: &std::collections::BTreeMap<
-            bray_symbols::AnySymbolId,
-            bray_symbols::SymbolOrdinal,
-        >,
-        cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<ConstantTermId>, FactQueryError> {
-        let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            return Err(FactQueryError::ConstantCallableBodyUnavailable);
-        };
-
-        let bound = self.bound_unit_with_cancellation(body_key.clone(), cancellation)?;
-
-        let Some(root) = constant_callable_root(bound.result().value()) else {
-            return Err(FactQueryError::ConstantCallableRootUnavailable);
-        };
-
-        let semantics =
-            self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
-
-        let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
-        let context = self.checker_context_for(&body_key, cancellation)?;
-
-        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
-
-        let types = substitute_expression_types(
-            self.semantic_value_store()?,
-            semantics.result().value().types(),
-            callable.substitution(),
-        )?;
-
-        let references = self.symbolic_references_with_arguments(
-            bound.result().value(),
-            semantics.result().value().selections(),
-            arguments,
-        )?;
-
-        let resolver = CompilationConstantCallResolver::new(self, cancellation)
-            .with_substitution(callable.substitution());
-
-        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
-            .with_block_root(root, result_type)
-            .with_patterns(patterns.result().value())
-            .with_references(references)
-            .with_call_resolver(&resolver)
-            .with_nested_term_types();
-
-        let unit =
-            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
-
-        let checked = checker_result(DefaultConstantChecker.check_constant_term(unit, &input))?;
-
-        Ok(DiagnosticResult::new(
-            *checked.value(),
-            DiagnosticBag::merged_all([
-                bound.result().diagnostics(),
-                semantics.result().diagnostics(),
-                patterns.result().diagnostics(),
-                checked.diagnostics(),
-            ]),
-        ))
-    }
-
     pub(in crate::compilation) fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        self.declares_constant_callable(callable.definition(), cancellation)
+    }
+
+    pub(in crate::compilation) fn declares_constant_callable(
+        &self,
+        definition: bray_symbols::CallableDefinitionId,
         cancellation: &CancellationToken,
     ) -> Result<bool, FactQueryError> {
         let values = self.semantic_value_store()?;
@@ -320,7 +265,7 @@ impl Compilation {
 
         let signature = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
+                definition.callable_symbol(),
             ))
             .map_err(binding_query_error)?;
 
@@ -336,14 +281,8 @@ impl Compilation {
         request: &ConstantCallRequest,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<EvaluatedConstantCall>>>, FactQueryError> {
-        let values = self.semantic_value_store()?;
-
-        let callable = values
-            .intern_callable_instance(request.callable())
-            .map_err(FactQueryError::SemanticValueStore)?;
-
         let key = ConstantCallQueryKey::new(
-            callable,
+            request.target().clone(),
             request.selected_implementation(),
             Arc::from(request.arguments()),
             request.result_type(),
@@ -369,237 +308,53 @@ impl Compilation {
         key: &ConstantCallQueryKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<EvaluatedConstantCall>>, FactQueryError> {
-        let values = self.semantic_value_store()?;
-
-        let callable = values.callable_instance_data(key.callable());
-
-        let binding_context = self.binding_context(cancellation)?;
-
-        let signature_result = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(binding_query_error)?;
-
-        let checked_terms = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                signature_result.value().callable_type(),
-                signature_result.value().result(),
-            ],
-            cancellation,
-        )?;
-
-        let signature = resolve_callable_signature_template(
-            values,
-            signature_result.value(),
-            callable.substitution(),
-            checked_terms.value(),
-        )
-        .ok_or_else(|| {
-            SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(callable.definition().callable_symbol().into_any()),
-                SemanticQueryViolation::Missing(SemanticDataKind::CallableSignature),
-            )
-        })?;
-
-        if signature.result() != key.result_type() {
-            return Err(SemanticQueryFailure::contract(
-                SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(Arc::new(key.clone()))),
-                SemanticQueryViolation::TypeMismatch {
-                    expected: key.result_type(),
-                    actual: signature.result(),
-                },
-            )
-            .into());
-        }
-
-        let callable_type = values.type_data(signature.callable_type());
-
-        let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(SemanticQueryFailure::contract(
-                SemanticQueryContext::Type(signature.callable_type()),
-                SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
-            )
-            .into());
+        let target = key.invocation();
+        let checked_contract = self.constant_call_contract(target, cancellation)?;
+        let Some(contract) = checked_contract.value() else {
+            return Ok(DiagnosticResult::new(None, checked_contract.diagnostics().clone()));
         };
-
-        if callable_type.constness() != CallableConstness::Constant {
-            return Ok(DiagnosticResult::without_diagnostics(None));
+        assert_eq!(contract.result(), key.result_type(), "checked constant invocation retains its selected result type for {target:?}");
+        if let bray_checker::ConstantCallTarget::Declaration(callable) = target {
+            if let Some(evaluated) = self.compiler_known_constant_call(*callable, key.arguments(), key.result_type(), cancellation)? {
+                assert!(contract.requirements().is_empty(), "compiler-known constant fast path has a requirement-free catalog contract: {callable:?}");
+                return Ok(DiagnosticResult::new(Some(evaluated), checked_contract.diagnostics().clone()));
+            }
         }
-
-        if let Some(evaluated) = self.compiler_known_constant_call(
-            *callable,
-            key.arguments(),
-            key.result_type(),
-            cancellation,
-        )? {
-            return Ok(DiagnosticResult::new(
-                Some(evaluated),
-                DiagnosticBag::merged_all([
-                    signature_result.diagnostics(),
-                    checked_terms.diagnostics(),
-                ]),
-            ));
+        let (template, span) = self.constant_invocation_template(target, cancellation)?;
+        let Some(body) = template.value() else { return Ok(DiagnosticResult::new(None, template.into_parts().1)); };
+        if matches!(target, bray_checker::ConstantCallTarget::Default(_, _)) && !body.behavior().execution().constant_eligible() {
+            return Ok(DiagnosticResult::new(None, template.into_parts().1));
         }
+        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+        let context = self.checker_context(cancellation)?;
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, imported.value().as_deref());
+        let request = ConstantCallRequest::new(target.clone(), key.selected_implementation(), key.arguments().iter().copied(), key.result_type(), key.limits());
+        let evaluated = checker_result(evaluate_constant_callable_template(&context, body, &request, &resolver, span, contract.requirements()))?;
+        Ok(DiagnosticResult::new(Some(*evaluated.value()), DiagnosticBag::merged_all([
+            checked_contract.diagnostics(), template.diagnostics(), imported.diagnostics(), evaluated.diagnostics(),
+        ])))
+    }
 
-        let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            let address = binding_context
-                .imported_semantic_address(callable.definition().callable_symbol().into_any())
-                .map_err(binding_query_error)?;
-
-            let Some(address) = address else {
-                return Ok(DiagnosticResult::without_diagnostics(None));
-            };
-
-            let body =
-                self.imported_constant_callable_body_with_cancellation(address, cancellation)?;
-
-            let Some(template) = body.value() else {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    DiagnosticBag::merged_all([
-                        signature_result.diagnostics(),
-                        checked_terms.diagnostics(),
-                        body.diagnostics(),
-                    ]),
-                ));
-            };
-
-            let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-            let Some(imported_symbols) = imported.value().as_deref() else {
-                if imported.diagnostics().has_errors() {
-                    return Ok(DiagnosticResult::new(
-                        None,
-                        DiagnosticBag::merged_all([
-                            signature_result.diagnostics(),
-                            checked_terms.diagnostics(),
-                            body.diagnostics(),
-                            imported.diagnostics(),
-                        ]),
-                    ));
+    fn constant_invocation_template(&self, target: &bray_checker::ConstantCallTarget, cancellation: &CancellationToken)
+        -> Result<(DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>, Option<bray_source::SourceSpan>), FactQueryError> {
+        let binding = self.binding_context(cancellation)?;
+        let template = match target {
+            bray_checker::ConstantCallTarget::Declaration(callable) => {
+                if let Some(key) = self.callable_body_key(callable.definition())? {
+                    let body = self.constant_body_template(key.clone(), cancellation)?;
+                    return Ok((body.result().as_ref().clone(), Some(bray_source::SourceSpan::new(key.source().syntax().source_id(), key.source().syntax().full_range()))));
                 }
-
-                return Err(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Fact(CompilationFactKey::ImportedConstantCallableBody(
-                        address,
-                    )),
-                    SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
-                )
-                .into());
-            };
-
-            let context = self.checker_context(cancellation)?;
-
-            let resolver =
-                CompilationConstantTemplateResolver::new(self, cancellation, imported_symbols);
-
-            let diagnostic_span = self
-                .dependency_interface_input(address.interface())
-                .and_then(crate::request::DependencyInterfaceInput::dependency_span);
-
-            let request = ConstantCallRequest::new(
-                *callable,
-                key.selected_implementation(),
-                key.arguments().iter().copied(),
-                key.result_type(),
-                key.limits(),
-            );
-
-            let evaluated = checker_result(evaluate_constant_callable_template(
-                &context,
-                template,
-                &request,
-                &resolver,
-                diagnostic_span,
-            ))?;
-
-            return Ok(DiagnosticResult::new(
-                Some(*evaluated.value()),
-                DiagnosticBag::merged_all([
-                    signature_result.diagnostics(),
-                    checked_terms.diagnostics(),
-                    body.diagnostics(),
-                    imported.diagnostics(),
-                    evaluated.diagnostics(),
-                ]),
-            ));
+                let address = binding.imported_semantic_address(callable.definition().symbol()).map_err(binding_query_error)?;
+                let Some(address) = address else { return Ok((DiagnosticResult::without_diagnostics(None), None)); };
+                let body = self.imported_constant_callable_body_with_cancellation(address, cancellation)?;
+                let span = self.dependency_interface_input(address.interface()).and_then(crate::request::DependencyInterfaceInput::dependency_span);
+                return Ok((body.as_ref().clone().map(|body| body.map(|body| body.as_ref().clone())), span));
+            }
+            bray_checker::ConstantCallTarget::Anonymous(key, _) => self.constant_body_template(key.clone(), cancellation)?.result().as_ref().clone(),
+            bray_checker::ConstantCallTarget::Default(provider, _) => self.checked_default_template(*provider, cancellation)?,
+            bray_checker::ConstantCallTarget::Predicate(predicate) => self.constant_predicate_template(predicate.definition(), cancellation)?,
         };
-
-        let bound = self.bound_unit_with_cancellation(body_key.clone(), cancellation)?;
-
-        let Some(root) = constant_callable_root(bound.result().value()) else {
-            return Ok(DiagnosticResult::new(
-                None,
-                DiagnosticBag::merged_all([
-                    signature_result.diagnostics(),
-                    checked_terms.diagnostics(),
-                    bound.result().diagnostics(),
-                ]),
-            ));
-        };
-
-        // Independently cached body binding_context each retain the Arc-backed unit key.
-        let semantics =
-            self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
-
-        let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
-
-        let context = self.checker_context_for(&body_key, cancellation)?;
-
-        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
-
-        let types = substitute_expression_types(
-            values,
-            semantics.result().value().types(),
-            callable.substitution(),
-        )?;
-
-        let parameters = call_parameter_values(
-            values,
-            &signature,
-            key.arguments(),
-            SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(Arc::new(key.clone()))),
-        )?;
-
-        let (references, dependency_diagnostics) = self.concrete_call_references(
-            bound.result().value(),
-            semantics.result().value().selections(),
-            callable.substitution(),
-            key.selected_implementation(),
-            &parameters,
-            key.limits(),
-            cancellation,
-        )?;
-
-        let resolver = CompilationConstantCallResolver::new(self, cancellation)
-            .with_substitution(callable.substitution());
-
-        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
-            .with_block_root(root, key.result_type())
-            .with_patterns(patterns.result().value())
-            .with_references(references)
-            .with_call_resolver(&resolver)
-            .with_limits(key.limits());
-
-        let unit =
-            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
-
-        let evaluated = checker_result(
-            DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
-        )?;
-
-        let diagnostics = DiagnosticBag::merged_all([
-            signature_result.diagnostics(),
-            checked_terms.diagnostics(),
-            bound.result().diagnostics(),
-            semantics.result().diagnostics(),
-            patterns.result().diagnostics(),
-            &dependency_diagnostics,
-            evaluated.diagnostics(),
-        ]);
-
-        Ok(evaluated_call_result(evaluated.value(), diagnostics))
+        Ok((template, None))
     }
 
     fn compiler_known_constant_call(
@@ -626,7 +381,7 @@ impl Compilation {
                 ImplementationHook::NullableIsPresent | ImplementationHook::NullableIsAbsent,
                 [receiver],
             ) => {
-                let receiver = values.constant_value_data(*receiver);
+                let receiver = values.constant_value_data(values.observed_constant_value(*receiver));
 
                 let receiver_type = values.type_data(receiver.ty());
 
@@ -652,6 +407,26 @@ impl Compilation {
                         ConstantValueKind::Boolean(value),
                     ))
                     .map_err(FactQueryError::SemanticValueStore)?
+            }
+            (ImplementationHook::SequenceLength | ImplementationHook::SequenceIsEmpty, [receiver]) => {
+                let receiver = values.constant_value_data(values.observed_constant_value(*receiver));
+                let count = match receiver.kind() {
+                    ConstantValueKind::Array(elements) => u64::try_from(elements.len()).expect("bounded constant sequence length fits u64"),
+                    ConstantValueKind::String(text) => u64::try_from(text.len()).expect("bounded UTF-8 byte length fits u64"),
+                    ConstantValueKind::StaticAddress(_) => {
+                        let ty = values.type_data(values.unborrowed_type(receiver.ty()));
+                        let TypeData::Array { length, .. } = ty.as_ref() else { return Ok(None); };
+                        let length = values.substitute_constant_term(*length, callable.substitution())?;
+                        let bray_symbols::ConstantTermData::Value(length) = *values.constant_term_data(length) else { return Ok(None); };
+                        let length = values.constant_value_data(length);
+                        let ConstantValueKind::Integer(length) = length.kind() else { panic!("checked array extent is an integer"); };
+                        length.to_u64().expect("checked target array extent fits u64")
+                    }
+                    _ => return Ok(None),
+                };
+                let kind = if hook.hook() == ImplementationHook::SequenceIsEmpty { ConstantValueKind::Boolean(count == 0) }
+                    else { ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(count)) };
+                values.intern_constant_value(ConstantValueData::new(result_type, kind))?
             }
             (ImplementationHook::AtomicInitialize, [argument]) => {
                 let argument = values.constant_value_data(*argument);
@@ -705,15 +480,3 @@ fn checker_constant_query_error(error: CheckerQueryError) -> FactQueryError {
     error.into()
 }
 
-fn evaluated_call_result(
-    evaluated: &bray_checker::EvaluatedConstant,
-    diagnostics: DiagnosticBag,
-) -> DiagnosticResult<Option<EvaluatedConstantCall>> {
-    DiagnosticResult::new(
-        Some(EvaluatedConstantCall::new(
-            evaluated.value(),
-            evaluated.usage(),
-        )),
-        diagnostics,
-    )
-}

@@ -200,7 +200,17 @@ fn validate_template(
     symbol_count: usize,
     dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
-    if template.nodes().is_empty()
+    if template.behavior().execution().may_unwind() && template.behavior().execution().properties().contains(&bray_symbols::ExecutionProperty::Total) {
+        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+    }
+    if template.behavior().execution().constant_eligible() && (!template.behavior().effects().is_empty()
+        || !template.behavior().capabilities().is_empty() || !template.behavior().trusted_obligations().is_empty()
+        || !template.behavior().execution_requirements().is_empty()
+        || template.behavior().current_run_cancellation() != bray_symbols::CurrentRunCancellation::NotEntered
+        || template.behavior().execution().properties() != [bray_symbols::ExecutionProperty::Pure, bray_symbols::ExecutionProperty::Total]) {
+        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+    }
+    if template.nodes().is_empty() || !is_strictly_sorted(template.behavior().execution().properties())
         || !is_strictly_sorted(template.behavior().effects())
         || !is_strictly_sorted(template.behavior().capabilities())
         || !is_strictly_sorted(template.behavior().trusted_obligations())
@@ -314,6 +324,10 @@ fn validate_template(
         .to_index()
         .expect("validated template result dependency index")];
 
+    if let Some(term) = result_dependencies.observed_result {
+        semantics.validate_execution_term(term, template.inputs().len(), false, surface)?;
+    }
+
     if let Some(input) = result_dependencies.returned_input {
         semantics.validate_returned_input(input, template.inputs().len(), surface)?;
     }
@@ -366,6 +380,7 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Input(input) => {
             checked_index(compact_index(input.raw()), context.template.inputs().len())?;
         }
+        InterfaceCheckedTemplateOperation::Unreachable => {},
         InterfaceCheckedTemplateOperation::Constant { term, .. } => {
             validate_index(term.to_index(), context.semantics.constant_terms.len())?;
         }
@@ -418,13 +433,67 @@ fn validate_operation_references(
             validate_index(target.to_index(), context.semantics.types.len())?;
         }
         InterfaceCheckedTemplateOperation::VariantTest { subject, variant } => {
+            validate_variant_owner(context, variant, node_type(context.template, *subject).expect("prior checked subject retains its type"))?;
+        }
+        InterfaceCheckedTemplateOperation::Project { member, .. } => {
+            validate_template_reference(context, member)?;
+        }
+        InterfaceCheckedTemplateOperation::Construct { variant, fields } => {
+            let ty = context.template.nodes()[node_index].ty();
+            let (owner, kind) = if let Some(variant) = variant {
+                validate_variant_owner(context, variant, ty)?;
+                (template_reference_key(context, variant)?, SymbolKind::UnionPayloadField)
+            } else {
+                let Some(InterfaceType::Named { definition, .. }) = type_at(context.semantics, ty) else {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+                };
+                if validate_symbol_kind(definition, context.surface)? != SymbolKind::Struct {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+                }
+                (reference_key(definition, context.surface)?, SymbolKind::StructField)
+            };
+            let mut seen = std::collections::BTreeSet::new();
+            for field in fields.iter() {
+                if validate_template_reference(context, field.field())? != kind
+                    || template_reference_key(context, field.field())?.owner() != Some(owner)
+                    || !seen.insert(field.field()) {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
+                }
+            }
+        }
+        InterfaceCheckedTemplateOperation::Unary { .. }
+        | InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::Borrow { .. }
+        | InterfaceCheckedTemplateOperation::Tuple(_)
+        | InterfaceCheckedTemplateOperation::Array(_)
+        | InterfaceCheckedTemplateOperation::TupleElement { .. }
+        | InterfaceCheckedTemplateOperation::NullableValue { .. }
+        | InterfaceCheckedTemplateOperation::Conditional { .. }
+        | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
+        InterfaceCheckedTemplateOperation::Temporary(temporary) => {
+            let temporary_index = checked_index(
+                compact_index(temporary.raw()),
+                context.template.temporaries().len(),
+            )?;
+
+            let temporary = context.template.temporaries()[temporary_index];
+
+            validate_prior_node(temporary.initializer(), node_index)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_variant_owner(context: TemplateValidationContext<'_>, variant: &InterfaceTemplateReference,
+    subject_type: crate::InterfaceTypeId) -> Result<(), InterfaceValidationError> {
             if validate_template_reference(context, variant)? != SymbolKind::UnionVariant {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Template,
                 ));
             }
 
-            let mut subject_type = node_type(context.template, *subject);
+            let mut subject_type = Some(subject_type);
             let mut owner = None;
 
             for _ in 0..=context.semantics.types.len() {
@@ -456,53 +525,6 @@ fn validate_operation_references(
                     crate::InterfaceValidationField::Template,
                 ));
             }
-        }
-        InterfaceCheckedTemplateOperation::Project { member, .. } => {
-            validate_template_reference(context, member)?;
-        }
-        InterfaceCheckedTemplateOperation::Product(fields) => {
-            let Some(InterfaceType::Named { definition, .. }) =
-                type_at(context.semantics, context.template.nodes()[node_index].ty())
-            else {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            };
-
-            let owner = reference_key(definition, context.surface)?;
-            let mut seen = std::collections::BTreeSet::new();
-
-            for field in fields.iter() {
-                if validate_template_reference(context, field.field())? != SymbolKind::StructField
-                    || template_reference_key(context, field.field())?.owner() != Some(owner)
-                    || !seen.insert(field.field())
-                {
-                    return Err(crate::semantic::codec::invalid_value(
-                        crate::InterfaceValidationField::Template,
-                    ));
-                }
-            }
-        }
-        InterfaceCheckedTemplateOperation::Unary { .. }
-        | InterfaceCheckedTemplateOperation::Binary { .. }
-        | InterfaceCheckedTemplateOperation::Borrow { .. }
-        | InterfaceCheckedTemplateOperation::Tuple(_)
-        | InterfaceCheckedTemplateOperation::Array(_)
-        | InterfaceCheckedTemplateOperation::TupleElement { .. }
-        | InterfaceCheckedTemplateOperation::Conditional { .. }
-        | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
-        InterfaceCheckedTemplateOperation::Temporary(temporary) => {
-            let temporary_index = checked_index(
-                compact_index(temporary.raw()),
-                context.template.temporaries().len(),
-            )?;
-
-            let temporary = context.template.temporaries()[temporary_index];
-
-            validate_prior_node(temporary.initializer(), node_index)?;
-        }
-    }
-
     Ok(())
 }
 
@@ -512,6 +534,7 @@ fn validate_operation_type(
     node: &InterfaceCheckedTemplateNode,
 ) -> Result<(), InterfaceValidationError> {
     let valid = match node.operation() {
+        InterfaceCheckedTemplateOperation::Unreachable => true,
         InterfaceCheckedTemplateOperation::Input(input) => {
             let input_index = checked_index(compact_index(input.raw()), template.inputs().len())?;
 
@@ -582,7 +605,7 @@ fn validate_operation_type(
                 .iter()
                 .all(|node| node_type(template, *node) == Some(*element))
         }
-        InterfaceCheckedTemplateOperation::Product(_) => {
+        InterfaceCheckedTemplateOperation::Construct { .. } => {
             matches!(
                 type_at(semantics, node.ty()),
                 Some(InterfaceType::Named { .. })
@@ -612,6 +635,10 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::ShortCircuit { left, right, .. } => {
             node_type(template, *left) == Some(node.ty())
                 && node_type(template, *right) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::NullableValue { subject } => {
+            matches!(node_type(template, *subject).and_then(|ty| type_at(semantics, ty)),
+                Some(InterfaceType::Nullable(value)) if *value == node.ty())
         }
         InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
             let mut subject_type = node_type(template, *subject);
@@ -721,11 +748,16 @@ fn validate_call_references(
             SymbolKind::Predicate
                 | SymbolKind::TraitPredicateMember
                 | SymbolKind::TraitPredicateFulfillment
+                | SymbolKind::CallableParameterDefaultProvider
         )
     {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Template,
         ));
+    }
+
+    if declaration_kind == SymbolKind::CallableParameterDefaultProvider && dispatch.is_some() {
+        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template));
     }
 
     validate_index(

@@ -409,6 +409,7 @@ pub struct DependencyContractTemplateData {
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
     returned_input: Option<ConstantTermId>,
+    observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
     normal_completion: bool,
@@ -416,6 +417,19 @@ pub struct DependencyContractTemplateData {
 }
 
 impl DependencyContractTemplateData {
+    /// Records a value observation shared by every mutation-free normal completion.
+    /// This carries no ownership, storage identity or trusted authority.
+    pub fn with_observed_result(mut self, result: Option<ConstantTermId>) -> Self {
+        self.observed_result = result;
+
+        self
+    }
+
+    /// Returns the checked value observation in receiver-first formal argument order.
+    pub const fn observed_result(&self) -> Option<ConstantTermId> {
+        self.observed_result
+    }
+
     /// Records an unchanged owned input returned as the complete result on every normal exit.
     /// Normal completion must have no observable storage mutation or cleanup effects.
     /// The term contains only a formal input and owned projections, never an equality or dereference.
@@ -538,6 +552,7 @@ impl DependencyContractTemplateData {
             abnormal_reports: None,
             borrows: Arc::new([]),
             returned_input: None,
+            observed_result: None,
             carriers: Arc::new([]),
             effects: Arc::new([
                 super::DependencyStorageEffect::Unknown,
@@ -561,6 +576,7 @@ impl DependencyContractTemplateData {
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
             returned_input: self.returned_input,
+            observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
             normal_completion: self.normal_completion,

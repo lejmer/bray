@@ -100,6 +100,7 @@ pub(super) fn nonmaterializable_value_tree<C: CheckerRequestContext + ?Sized>(
         let data = context.semantic_values().constant_value_data(value);
 
         match data.kind() {
+            ConstantValueKind::Borrowed(_) => return Ok(Some(data.ty())),
             ConstantValueKind::NullablePresent(value) => pending.push(*value),
             ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => {
                 pending.extend(values.iter().copied());

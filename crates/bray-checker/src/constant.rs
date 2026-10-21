@@ -4,7 +4,7 @@ mod conversion;
 mod diagnostic;
 mod equality;
 mod evaluation;
-mod floating;
+pub(crate) mod floating;
 mod input;
 mod integer;
 mod limits;
@@ -18,7 +18,7 @@ mod template_evaluation;
 
 pub use array::{ArrayLengthError, check_array_length};
 pub use call::{
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
+    ConstantCallContract, ConstantCallTarget, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
     EvaluatedConstantCall,
 };
 pub(crate) use equality::constant_values_equal;
@@ -26,7 +26,7 @@ pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
-pub(crate) use integer::{fits_integer_representation, integer_to_usize};
+pub(crate) use integer::{fits_integer_representation, integer_to_usize, to_big_integer, from_big_integer};
 pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub(crate) use literal::{

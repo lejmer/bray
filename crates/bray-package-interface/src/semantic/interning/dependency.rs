@@ -112,12 +112,18 @@ impl InternState {
                 None
             };
 
+            let observed_result = if let Some(term) = input.observed_result {
+                let Some(term) = self.constant_term_id(term) else { continue; };
+                Some(term)
+            } else { None };
+
             self.dependency_contracts[index] = Some(
                 store.intern_dependency_contract_template(
                     contract
                         .with_borrows(borrows)
                         .with_carriers(carriers)
                         .with_returned_input(returned_input)
+                        .with_observed_result(observed_result)
                         .with_effects(effects)
                         .with_normal_completion(input.normal_completion)
                         .with_normal_storage_preservation(input.normal_storage_preserved),

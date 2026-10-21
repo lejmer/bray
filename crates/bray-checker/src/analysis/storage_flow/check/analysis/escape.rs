@@ -131,7 +131,7 @@ where
                 .identity(path.root)
                 .expect("reference target has planned storage");
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind()) {
+            if identity.borrows_input_storage(self.request.unit().key().kind()) {
                 continue;
             }
 
@@ -225,7 +225,7 @@ where
                 continue;
             };
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind())
+            if identity.borrows_input_storage(self.request.unit().key().kind())
                 || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
             {
                 continue;
@@ -281,7 +281,7 @@ where
                 .and_then(|root| self.storage.identity(root))
                 .expect("retained storage access has its planned identity");
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind()) {
+            if identity.borrows_input_storage(self.request.unit().key().kind()) {
                 continue;
             }
 

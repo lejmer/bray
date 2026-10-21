@@ -54,7 +54,7 @@ impl super::check::TrustedChecks {
     }
 }
 
-fn portable<C: crate::CheckerRequestContext + ?Sized>(
+pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     condition: &ExecutionCondition,
 ) -> Option<bray_symbols::ConstantTermId> {

@@ -1527,7 +1527,7 @@ impl Lowerer<'_> {
 
                 let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
 
-                if (identity.is_borrowed_provider_input(self.input.unit().key().kind())
+                if (identity.borrows_input_storage(self.input.unit().key().kind())
                     || self
                         .receiver_cleanup
                         .as_ref()
@@ -1589,7 +1589,8 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_) => {
+        | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::ContractParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
         }
         StorageIdentity::Static(symbol) => {

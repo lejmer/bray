@@ -32,6 +32,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     {
         let carriers = self.trusted.result_carriers(self.request);
 
+        let observed_result = (!self.has_normal_effects).then_some(self.trusted.observed_result).flatten().flatten();
+
         let returned_input = (!self.has_normal_effects)
             .then_some(self.trusted.returned_input)
             .flatten()
@@ -90,6 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_normal_completion(self.references.is_some())
             .with_carriers(carriers)
             .with_returned_input(returned_input)
+            .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
     }
 
@@ -141,6 +144,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let reference = match self.storage.identity(identity)? {
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
                 bray_bound_tree::BoundReferenceTarget::Surface(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::ContractParameter(parameter) => {
+                bray_bound_tree::BoundReferenceTarget::Local(parameter.into())
             }
             bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
                 bray_bound_tree::BoundReferenceTarget::Local(parameter.into())

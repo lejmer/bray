@@ -168,7 +168,7 @@ where
             .root_identity(access)
             .and_then(|root| self.storage.identity(root))
             .is_some_and(|identity| {
-                identity.is_borrowed_provider_input(self.request.unit().key().kind())
+                identity.borrows_input_storage(self.request.unit().key().kind())
             })
             || record.root().borrow_capability().is_some()
             || self.projected_storage_borrow_kind(access).is_some()
@@ -324,6 +324,7 @@ where
                 StorageIdentity::Static(_)
                 | StorageIdentity::LocalOwned(_)
                 | StorageIdentity::PredicateParameter(_)
+                | StorageIdentity::ContractParameter(_)
                 | StorageIdentity::PostconditionResult(_)
                 | StorageIdentity::Error(_),
             )

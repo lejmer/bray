@@ -265,6 +265,7 @@ impl Compilation {
                 unwind_candidates: UnitQueryCache::new(),
                 unwind_behavior: UnitQueryCache::new(),
                 execution_candidates: UnitQueryCache::new(),
+                constant_body_templates: UnitQueryCache::new(),
                 certified_execution: UnitQueryCache::new(),
                 cleanup_completion: UnitQueryCache::new(),
                 selected_body_behavior: UnitQueryCache::new(),

@@ -24,7 +24,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             .map(|exit| exit.block())
             .collect::<BTreeSet<_>>();
 
-        for block in self.domain.graph.blocks() {
+        'blocks: for block in self.domain.graph.blocks() {
             let Some(Some(state)) = self.states.state(block.id()) else {
                 continue;
             };
@@ -38,11 +38,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 .filter_map(|id| self.domain.graph.operation(*id))
             {
                 if !collect_cleanup {
-                    self.domain.operation(&mut state, operation.kind(), None);
+                    if !self.domain.operation(&mut state, operation.kind(), None) { continue 'blocks; }
                     continue;
                 }
 
-                self.domain.operation(
+                if !self.domain.operation(
                     &mut state,
                     operation.kind(),
                     Some(&mut |access, part, slot, lifecycle, whole, evidence, _| {
@@ -97,7 +97,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             })
                             .or_insert_with(|| evidence.clone());
                     }),
-                );
+                ) { continue 'blocks; }
             }
 
             for operation in block
@@ -134,7 +134,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .expression()
                                 .expect("selected call has an expression"),
                         ) {
-                            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.target(),
+                            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target()),
                             Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) => {
                                 bray_bound_tree::BoundCallableTarget::Declaration(
                                     scoped.invocation(occurrence).0,
@@ -145,7 +145,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
                         candidate.dependencies.push(
                             crate::execution_guarantees::ExecutionDependency {
-                                target,
+                                target: target.into(),
                                 property: crate::execution_guarantees::ExecutionProperty::Pure,
                                 occurrence,
                             },
@@ -451,6 +451,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             arguments.insert(reference, value.clone());
             arguments.insert(ordinal, value);
+        }
+
+        for argument in call.arguments() {
+            let bray_bound_tree::SelectedArgument::Default { provider, parameter, ordinal, .. } = argument else { continue; };
+            let provider = bray_bound_tree::DefaultValueProvider::CallableParameter(*provider);
+            if let Some(term) = self.request.default_observed_result(provider) {
+                let values = self.request.semantic_values();
+                let term = match call.resolution().declaration_source() {
+                    Some(callable) => values.substitute_constant_term(term, callable.substitution())
+                        .expect("checked default application belongs to this semantic store"),
+                    None => term,
+                };
+                let meaning = crate::execution_condition_from_type_term(values, term, 0)
+                    .expect("checked default observation belongs to this semantic store");
+                let value = meaning.substitute(&|place| place.value_in(&arguments).unwrap_or(ExecutionCondition::Unknown),
+                    &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+                arguments.insert(BoundReferenceTarget::Surface((*parameter).into()).into(), value.clone());
+                arguments.insert(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(*ordinal + u32::from(call.receiver().is_some()))), value);
+            }
         }
 
         // Call evidence retains the immutable entry conditions independently of subsequent mutation.

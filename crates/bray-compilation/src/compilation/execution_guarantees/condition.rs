@@ -19,7 +19,7 @@ impl Compilation {
     ) -> Result<
         std::collections::BTreeMap<
             bray_symbols::PredicateInstanceData,
-            bray_symbols::ConstantTermId,
+            bray_symbols::PredicateSemanticSummary,
         >,
         FactQueryError,
     > {
@@ -50,14 +50,13 @@ impl Compilation {
 
             diagnostics.add_range(definition.diagnostics().iter().cloned());
 
-            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value()
-                && let Some(condition) = definition.semantic().condition()
-            {
-                let condition = self
-                    .semantic_value_store()?
-                    .substitute_constant_term(condition, predicate.substitution())?;
-
-                meanings.insert(predicate, condition);
+            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value() {
+                let values = self.semantic_value_store()?;
+                let semantic = definition.semantic();
+                let condition = semantic.condition().map(|condition| values.substitute_constant_term(condition, predicate.substitution())).transpose()?;
+                let dependency = values.substitute_dependency_contract(semantic.dependency_contract(), predicate.substitution())?;
+                meanings.insert(predicate, bray_symbols::PredicateSemanticSummary::new(dependency)
+                    .with_condition(condition, semantic.domain()));
             }
         }
 
@@ -112,14 +111,7 @@ impl Compilation {
                 _ => continue,
             };
 
-            let value = self.semantic_value_store()?.constant_value_data(value);
-
-            let condition = match value.kind() {
-                bray_symbols::ConstantValueKind::Boolean(value) => {
-                    ExecutionCondition::Boolean(*value)
-                }
-                _ => ExecutionCondition::Literal(value),
-            };
+            let condition = ExecutionCondition::from_constant(self.semantic_value_store()?, value);
 
             constants.insert(
                 bray_bound_tree::BoundReferenceTarget::Surface(symbol).into(),
@@ -152,7 +144,7 @@ impl Compilation {
     fn instance_execution_condition_inputs(
         &self,
         owner: &BoundUnitKey,
-        callable: bray_symbols::CallableInstanceData,
+        callable: Option<bray_symbols::CallableInstanceData>,
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, SourceSpan)>>, FactQueryError> {
@@ -160,18 +152,13 @@ impl Compilation {
             .execution_condition_inputs(owner, anchors, cancellation)?
             .into_parts();
 
+        let Some(callable) = callable else { return Ok(DiagnosticResult::new(conditions, diagnostics)); };
         let values = self.semantic_value_store()?;
 
         let conditions = conditions
             .into_iter()
             .map(|(condition, source)| {
-                let condition = bray_checker::map_execution_condition_substitutions(
-                    &condition,
-                    &|substitution| {
-                        values
-                            .substitute_generic_substitution(substitution, callable.substitution())
-                    },
-                )?;
+                let condition = bray_checker::substitute_execution_condition(values, &condition, callable.substitution())?;
 
                 Ok((condition, source))
             })
@@ -256,7 +243,7 @@ impl Compilation {
                 conditions.extend(
                     normalized
                         .into_iter()
-                        .map(|(_, condition, trusted)| (condition, trusted, span)),
+                        .map(|(_, condition, domain)| (condition, domain == bray_symbols::PredicateDomain::Trusted, span)),
                 );
             }
 
@@ -1380,7 +1367,7 @@ impl Compilation {
     pub(super) fn applicable_execution_obligation(
         &self,
         body: &BoundUnitKey,
-        callable: bray_symbols::CallableInstanceData,
+        callable: Option<bray_symbols::CallableInstanceData>,
         declaration: &bray_checker::ExecutionDeclaration,
         required: bray_checker::ExecutionObligation,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
@@ -1401,6 +1388,9 @@ impl Compilation {
             return Ok(None);
         }
 
+        let inputs = if callable.is_none() { self.execution_unit_inputs(body, cancellation)? } else { Vec::new() };
+        let proves = |conditions: &[ExecutionCondition]| evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default())
+            .proves_trusted_with_inputs(conditions, &inputs);
         let requirements = requirements
             .into_parts()
             .0
@@ -1445,14 +1435,22 @@ impl Compilation {
                     .map(|(condition, _)| condition),
             );
 
-            if evidence
-                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-                .proves_trusted(&conditions)
+            if proves(&conditions)
             {
                 return Ok(Some(
                     (!domain.guards.is_empty()).then_some(obligation.source),
                 ));
             }
+        }
+
+        if selected.is_none()
+            && match callable {
+                Some(callable) => self.is_constant_callable(callable, cancellation)?,
+                None => self.unit_requires_constant_evaluation(body, cancellation)?,
+            }
+            && proves(&requirements)
+        {
+            return Ok(Some(None));
         }
 
         Ok(None)
@@ -1570,11 +1568,11 @@ impl Compilation {
                 .collect::<Vec<_>>();
 
             let entry =
-                self.instance_execution_condition_inputs(&body, callable, &anchors, cancellation)?;
+                self.instance_execution_condition_inputs(&body, Some(callable), &anchors, cancellation)?;
 
             let posts = self.instance_execution_condition_inputs(
                 &body,
-                callable,
+                Some(callable),
                 &domain.postconditions,
                 cancellation,
             )?;

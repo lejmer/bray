@@ -4,7 +4,7 @@ use bray_compiler_known::IntegerRepresentation;
 use bray_symbols::{IntegerConstant, IntegerSign};
 use num_bigint::{BigInt, Sign};
 
-pub(super) fn to_big_integer(value: &IntegerConstant) -> BigInt {
+pub(crate) fn to_big_integer(value: &IntegerConstant) -> BigInt {
     let sign = match value.sign() {
         IntegerSign::NonNegative => Sign::Plus,
         IntegerSign::Negative => Sign::Minus,
@@ -13,7 +13,7 @@ pub(super) fn to_big_integer(value: &IntegerConstant) -> BigInt {
     BigInt::from_bytes_be(sign, value.magnitude())
 }
 
-pub(super) fn from_big_integer(value: BigInt) -> IntegerConstant {
+pub(crate) fn from_big_integer(value: BigInt) -> IntegerConstant {
     let (sign, magnitude) = value.to_bytes_be();
 
     let sign = match sign {

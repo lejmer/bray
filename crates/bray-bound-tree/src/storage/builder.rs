@@ -393,6 +393,10 @@ impl StoragePlanBuilder {
                 Some(StorageIdentity::LocalOwned(actual)),
             ) => actual == expected.into(),
             (
+                StorageBindingTarget::Local(expected),
+                Some(StorageIdentity::ContractParameter(actual)),
+            ) => expected == actual,
+            (
                 StorageBindingTarget::Local(_),
                 Some(
                     StorageIdentity::LocalOwned(_)

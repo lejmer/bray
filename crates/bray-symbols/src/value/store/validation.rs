@@ -83,6 +83,12 @@ pub(super) fn validate_constant_value_data(
     tables.types.get(store, data.ty());
 
     match data.kind() {
+        ConstantValueKind::Borrowed(value) => {
+            let borrowed = tables.constant_values.get(store, *value);
+            let ty = tables.types.get(store, data.ty());
+            assert!(matches!(ty, TypeData::Borrow { kind: crate::BorrowKind::Shared, target }
+                if *target == borrowed.ty()), "constant observation retains its shared referent type: {data:?}");
+        }
         ConstantValueKind::NullablePresent(value) => {
             tables.constant_values.get(store, *value);
         }
@@ -294,6 +300,10 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    if let Some(result) = data.observed_result() {
+        tables.constant_terms.get(store, result);
+    }
+
     if let Some(input) = data.returned_input() {
         tables.constant_terms.get(store, input);
     }

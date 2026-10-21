@@ -172,7 +172,8 @@ where
     )
 }
 
-pub(crate) fn type_representation_for_values(
+/// Returns the compiler-known representation of an already checked semantic type.
+pub fn type_representation_for_values(
     values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     ty: TypeId,
@@ -201,7 +202,7 @@ where
     representation_type_for_context(request.context(), role)
 }
 
-pub(crate) fn representation_type_for_context<C>(request: &C, role: RepresentationRole) -> TypeId
+pub fn representation_type_for_context<C>(request: &C, role: RepresentationRole) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {

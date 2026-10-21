@@ -19,6 +19,18 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         ty: TypeId,
     ) -> Result<(MirBlockId, MirOperand), C::Error> {
         let (block, condition) = self.node(block, condition)?;
+        let excluded = |node: CheckedTemplateNodeId| matches!(self.template.nodes()[usize::try_from(node.raw()).expect("checked node fits host")].operation(), bray_bound_tree::CheckedTemplateOperation::Unreachable);
+        let (true_excluded, false_excluded) = (excluded(when_true), excluded(when_false));
+        if true_excluded || false_excluded {
+            assert!(!(true_excluded && false_excluded), "admitted predicate conditional retains a normal result path");
+            let success = self.builder.push_block(self.source.clone(), MirBlockKind::Ordinary).map_err(capacity)?;
+            let failure = self.builder.push_block(self.source.clone(), MirBlockKind::Ordinary).map_err(capacity)?;
+            self.terminate(block, MirTerminatorKind::Branch { condition,
+                then_edge: MirEdge::new(success, []), else_edge: MirEdge::new(failure, []) })?;
+            let (excluded, continued, value) = if true_excluded { (success, failure, when_false) } else { (failure, success, when_true) };
+            self.terminate(excluded, MirTerminatorKind::Unreachable)?;
+            return self.node(continued, value);
+        }
 
         self.branch_values(
             block,

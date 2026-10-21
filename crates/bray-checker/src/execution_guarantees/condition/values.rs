@@ -3,6 +3,17 @@ use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
 
 impl ExecutionCondition {
+    /// Observes a checked constant value without introducing storage identity or authority.
+    pub fn from_constant(values: &bray_symbols::SemanticValueStore, value: bray_symbols::ConstantValueId) -> Self {
+        let borrowed = matches!(values.constant_value_data(value).kind(), bray_symbols::ConstantValueKind::Borrowed(_));
+        let value = values.constant_value_data(values.observed_constant_value(value));
+        let observed = match value.kind() {
+            bray_symbols::ConstantValueKind::Boolean(value) => Self::Boolean(*value),
+            _ => Self::Literal(value),
+        };
+        if borrowed { observed.borrowed() } else { observed }
+    }
+
     /// Identifies the complete nominal carrier within tuple, array and nullable wrappers.
     /// The supplied type is the checked type of the root input or completion result.
     pub fn witness_carrier(

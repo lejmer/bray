@@ -14,14 +14,14 @@ pub use condition::ExecutionCondition;
 pub(crate) use condition::ObservationSet;
 pub use declaration::declared_execution_properties;
 pub use implication::{
-    execution_condition_is_implied, map_execution_condition_substitutions,
+    execution_condition_is_implied, map_execution_condition_references, substitute_execution_condition,
     remap_execution_condition_inputs,
 };
 pub(crate) use model::ExecutionValueEvidence;
 pub use model::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency, ExecutionDomain,
+    ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency, ExecutionDependencyTarget, ExecutionDomain,
     ExecutionObligation,
 };
 pub(crate) use normalize::{

@@ -309,16 +309,13 @@ impl Plan {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        if request.unit().key().kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            return Ok(DiagnosticResult::new(prepared, diagnostics));
-        }
-
         prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
         let mut accesses = storage
             .identity_entries()
-            .filter_map(|(identity, _)| {
-                if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) {
+            .filter_map(|(identity, slot)| {
+                if !slot.is_invocation_owned(storage.kind())
+                    || bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) {
                     return None;
                 }
 

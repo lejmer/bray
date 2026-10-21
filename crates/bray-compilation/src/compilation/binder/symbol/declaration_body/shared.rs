@@ -106,12 +106,12 @@ pub(super) fn checked_bound_contract(
     }
 }
 
-pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
-    pub(in crate::compilation::binder::symbol) result: TypeId,
-    pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,
-    pub(in crate::compilation::binder::symbol) result_dependencies: DependencyContractTemplateId,
-    pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
-    pub(in crate::compilation::binder::symbol) is_recovered: bool,
+pub(in crate::compilation) struct CheckedSourceExpression {
+    pub(in crate::compilation) result: TypeId,
+    pub(in crate::compilation) dependency_contract: DependencyContractTemplateId,
+    pub(in crate::compilation) result_dependencies: DependencyContractTemplateId,
+    pub(in crate::compilation) diagnostics: DiagnosticBag,
+    pub(in crate::compilation) is_recovered: bool,
 }
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
@@ -122,7 +122,7 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
 }
 
-pub(in crate::compilation::binder::symbol) fn checked_source_expression(
+pub(in crate::compilation) fn checked_source_expression(
     context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
 ) -> BindingQueryResult<CheckedSourceExpression> {
@@ -257,6 +257,14 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
     let mut diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
+    if !diagnostics.has_errors() {
+        let eligibility = compilation
+            .check_predicate_eligibility(&key, context.cancellation)
+            .map_err(super::super::binding::binder_error)?;
+
+        diagnostics.add_range(eligibility);
+    }
+
     let constants = compilation
         .execution_constant_inputs(
             bound.result().value(),
@@ -295,7 +303,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     let mut predicates = Vec::new();
     let mut execution_requirements = Vec::new();
 
-    for (expression, condition, is_trusted) in normalized {
+    for (expression, condition, domain) in normalized {
         let contract = dependencies
             .expression(expression)
             .and_then(|contract| dependencies.contract(contract));
@@ -319,12 +327,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         predicates.push(
             bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(
                 term,
-                bray_symbols::PredicateDomain::checked_condition(
-                    term,
-                    is_trusted,
-                    context.semantic_values(),
-                    compilation.available_compiler_known_symbols(),
-                ),
+                domain,
             ),
         );
 

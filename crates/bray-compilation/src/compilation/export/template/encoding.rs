@@ -11,7 +11,7 @@ use bray_package_interface::{
 use super::super::PackageInterfaceExportError;
 use super::super::semantic::SemanticExporter;
 
-pub(super) fn encode_template(
+pub(in crate::compilation::export) fn encode_template(
     export: &mut SemanticExporter<'_>,
     template: &CheckedTemplate,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
@@ -112,7 +112,7 @@ pub(super) fn encode_template(
                 .map(|requirement| export.key_reference(requirement.declaration()))
                 .collect::<Result<Vec<_>, _>>()?,
             behavior.current_run_cancellation(),
-        ),
+        ).with_certification(behavior.execution().properties().iter().copied(), behavior.execution().constant_eligible(), behavior.execution().may_unwind()),
         behavior.lifecycle_obligations().iter().copied(),
         export.dependency_contract_id(behavior.dependency_contract())?,
         export.dependency_contract_id(behavior.result_dependencies())?,

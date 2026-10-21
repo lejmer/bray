@@ -84,8 +84,8 @@ Callable values can carry already-verified guarantees for ordinary indirect call
 ## Relationship to `const`
 
 [`const`](../callables/const-functions.md) makes a callable eligible for constant evaluation. Its body, operations,
-arguments, and result must satisfy the rules of the constant or predicate context in which it is used. Public use
-in those contexts requires an exposed `const` declaration.
+arguments, and result must satisfy the rules of the constant or predicate context in which it is used.
+Calls in those contexts require an explicit `const` contract on the selected callable.
 
 `pure` describes the effects of ordinary execution on the promised input domain. That execution can observe
 permitted runtime inputs and transfer owners under the ordinary ownership rules. A guarded `pure` promise can

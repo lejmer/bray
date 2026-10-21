@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
     InterfaceSemantics, InterfaceSymbolReference, PackageInterfaceSurface,
     commit_interface_semantic_fragments,
 };
 use bray_symbols::{
-    AnySymbolId, CallableConstness, CallableDefinitionId, CallableInstanceData,
-    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId, SymbolQueryRequest,
+    AnySymbolId, CallableConstness, CallableDefinitionId,
+    CallableSignatureQuery, ExternalSymbolKey, SymbolQueryRequest,
     diagnostic_external_symbol_identity,
 };
 
@@ -17,7 +16,7 @@ use super::super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
 use crate::fact::{BatchCompletionError, BatchWork, FactQueryError};
 
-use super::context::{CheckedConstantExpression, SemanticExporter};
+use super::context::SemanticExporter;
 use super::defaults::target_dependencies;
 use super::executable::{executable_templates, prepare_executable_outputs};
 use super::fragment::SemanticFragment;
@@ -137,13 +136,12 @@ fn constant_callable_bodies(
             continue;
         };
 
-        if compilation
+        let Some(body) = compilation
             .callable_body_key(definition)
             .map_err(super::super::invalid_compilation_fact_error)?
-            .is_none()
-        {
+        else {
             continue;
-        }
+        };
 
         let signature = binder
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
@@ -161,76 +159,16 @@ fn constant_callable_bodies(
             continue;
         }
 
-        let arguments = callable_argument_ordinals(signature.value())?;
-
-        let parameters =
-            crate::compilation::binder::visible_generic_parameters(export.graph, symbol);
-
-        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-            super::super::export_contract_error(
-                super::super::PackageInterfaceExportContract::MissingGenericOwner,
-            )
-        })?;
-
-        let substitution =
-            crate::compilation::substitution::identity_substitution(values, owner, &parameters)
-                .map_err(super::super::invalid_compilation_fact_error)?;
-
-        let result_type = export.resolve_type_template(symbol, signature.value().result())?;
-
-        let result_type = if let Some(context @ bray_symbols::SelfTypeContext::NamedType(_)) =
-            crate::compilation::binder::self_type_context(export.graph, symbol)
-        {
-            let replacement =
-                crate::compilation::substitution::contextual_self_type(binder, context)
-                    .map_err(super::super::invalid_compilation_fact_error)?;
-
-            values
-                .substitute_contextual_self(result_type, context, replacement)
-                .unwrap_or_else(|error| {
-                    panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
-                })
-        } else {
-            result_type
+        let checked = match compilation.constant_body_template(body, &compilation.state.cancellation) {
+            Ok(checked) => checked,
+            Err(cause) => return Err(super::super::constant_callable_evaluation_export_error(
+                exported_declaration_identity(export, symbol)?, cause)),
         };
-
-        let result_type = values
-            .substitute_type(result_type, substitution)
-            .unwrap_or_else(|error| {
-                panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
-            });
-
-        let declaration = exported_declaration_identity(export, symbol)?;
-
-        let evaluated = compilation
-            .symbolic_constant_callable_body(
-                CallableInstanceData::new(definition, substitution),
-                result_type,
-                &arguments,
-                &compilation.state.cancellation,
-            )
-            .map_err(|cause| {
-                super::super::constant_callable_evaluation_export_error(declaration.clone(), cause)
-            })?;
-
-        if evaluated.diagnostics().has_errors() {
-            continue;
-        }
-
-        let dependency = values
-            .empty_dependency_contract_template()
-            .unwrap_or_else(|error| {
-                panic!("semantic_value_export_error in constant_callable_bodies: {error:?}")
-            });
-
-        let template = export.checked_constant_template(
-            CheckedTemplateKind::ConstantCallableBody,
-            CheckedConstantExpression {
-                term: *evaluated.value(),
-                ty: result_type,
-            },
-            dependency,
-        )?;
+        let Some(template) = checked.result().value() else {
+            return Err(super::super::error::source_diagnostic_export_error(checked.result().diagnostics())
+                .expect("missing checked constant body retains its source diagnostics"));
+        };
+        let template = super::super::template::encode_template(export, template)?;
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
             return Err(super::super::export_contract_error(
@@ -242,39 +180,6 @@ fn constant_callable_bodies(
     }
 
     Ok(bodies)
-}
-
-fn callable_argument_ordinals(
-    signature: &bray_symbols::CallableSignatureTemplate,
-) -> Result<BTreeMap<AnySymbolId, bray_symbols::SymbolOrdinal>, PackageInterfaceExportError> {
-    let parameters = signature
-        .receiver()
-        .map(|receiver| AnySymbolId::from(receiver.parameter()))
-        .into_iter()
-        .chain(
-            signature
-                .parameters()
-                .iter()
-                .map(|parameter| AnySymbolId::from(*parameter)),
-        );
-
-    parameters
-        .enumerate()
-        .map(|(index, parameter)| {
-            let ordinal = u32::try_from(index)
-                .map(bray_symbols::SymbolOrdinal::new)
-                .map_err(|_| {
-                    PackageInterfaceExportError::InvalidCompilationCause(
-                        super::super::PackageInterfaceInvalidCompilationCause::Capacity {
-                            field: "callable_parameter_ordinal",
-                            actual: index.to_string(),
-                        },
-                    )
-                })?;
-
-            Ok((parameter, ordinal))
-        })
-        .collect()
 }
 
 pub(super) fn exported_declaration_identity(

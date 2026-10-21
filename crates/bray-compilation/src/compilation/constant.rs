@@ -1,4 +1,5 @@
 mod call;
+mod contract;
 mod definition;
 mod embedded;
 

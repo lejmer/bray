@@ -25,7 +25,7 @@ pub(crate) fn expression_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {
@@ -91,6 +91,10 @@ pub(crate) fn expression_condition(
         )
     }) {
         return condition;
+    }
+
+    if matches!(semantics.selections().expression(expression), Some(SemanticSelection::CallableReference(_))) {
+        return ExecutionCondition::Expression(expression);
     }
 
     match bound {
@@ -224,6 +228,32 @@ pub(crate) fn expression_condition(
             .project(bray_bound_tree::StorageProjection::ElementFromStart(
                 bray_symbols::SymbolOrdinal::new(index),
             ))
+        }
+        BoundExpression::Structured(operation)
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Conditional => {
+            if operation.blocks().len() != operation.operands().len() + 1 { return ExecutionCondition::Unknown; }
+            let mut branches = Vec::new();
+            for block in operation.blocks() {
+                let block = unit.view().block(*block).expect("conditional retains its branch block");
+                let [bray_bound_tree::BoundBlockItem::Expression(yielded)] = block.items() else { return ExecutionCondition::Unknown; };
+                let Some(BoundExpression::ControlTransfer(transfer)) = unit.view().expression(*yielded) else { return ExecutionCondition::Unknown; };
+                if transfer.kind() != bray_bound_tree::BoundControlTransferKind::Yield { return ExecutionCondition::Unknown; }
+                let Some(operand) = transfer.operand() else { return ExecutionCondition::Unknown; };
+                branches.push(expression_condition(unit, semantics, values, literals, patterns, current, evaluated,
+                    operand, budget, predicates));
+            }
+            let mut value = branches.pop().expect("Boolean conditional retains its else branch");
+            for (guard, branch) in operation.operands().iter().zip(branches).rev() {
+                let guard = expression_condition(unit, semantics, values, literals, patterns, current, evaluated,
+                    *guard, budget, predicates);
+                value = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
+                    ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![guard.clone(), branch]),
+                    ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![
+                        ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![guard]), value,
+                    ]),
+                ]);
+            }
+            value
         }
         BoundExpression::Structured(operation)
             if matches!(

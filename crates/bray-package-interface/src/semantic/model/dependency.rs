@@ -245,6 +245,7 @@ pub enum InterfaceDependencyRequirementKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
     pub(crate) returned_input: Option<super::InterfaceConstantTermId>,
+    pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
     pub(crate) carriers: Arc<
         [bray_symbols::DependencyWitnessCarrier<
             InterfaceDependencyProjection,
@@ -272,6 +273,13 @@ pub struct InterfaceDependencyContract {
 }
 
 impl InterfaceDependencyContract {
+    /// Records the value observation without introducing storage identity or authority.
+    pub fn with_observed_result(mut self, result: Option<super::InterfaceConstantTermId>) -> Self {
+        self.observed_result = result;
+
+        self
+    }
+
     /// Records an unchanged owned input returned as the complete result on every normal exit.
     /// The term contains only a formal input and owned projections, never an equality or dereference.
     pub fn with_returned_input(mut self, input: Option<super::InterfaceConstantTermId>) -> Self {
@@ -289,6 +297,7 @@ impl InterfaceDependencyContract {
             normal_completion: true,
             normal_storage_preserved: false,
             returned_input: None,
+            observed_result: None,
             carriers: Arc::new([]),
             borrows: Arc::new([]),
             effects: Arc::new([

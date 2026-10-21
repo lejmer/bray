@@ -15,6 +15,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     prepared: &crate::PreparedBodyAnalysis,
     property: Option<ExecutionProperty>,
+    predicate: bool,
     assumptions: &[crate::ExecutionCondition],
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     contracts: &std::collections::BTreeMap<
@@ -89,6 +90,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         match check_operations(
             &reachable,
             property,
+            predicate,
             body,
             memory,
             &mut candidate,
@@ -136,6 +138,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 fn check_operations<C: CheckerRequestContext + ?Sized>(
     reachable: &super::flow::ExecutionFlow<'_, '_, C>,
     property: ExecutionProperty,
+    predicate: bool,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
     candidate: &mut ExecutionCandidate,
@@ -158,7 +161,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
         }
 
         let mut state = (property == ExecutionProperty::Total
-            && !reachable.domain.sequence_lengths.is_empty())
+            && (predicate || !reachable.domain.sequence_lengths.is_empty()))
         .then(|| {
             // Replay operations on a copy without changing the solved block entry.
             reachable
@@ -169,6 +172,8 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                 .clone()
         });
 
+        let mut predicate_ranges = super::predicate::IntegerRanges::new();
+
         for operation in block
             .operations()
             .iter()
@@ -176,7 +181,18 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
         {
             let node = operation.kind().node();
 
+            if predicate && property == ExecutionProperty::Total {
+                candidate.reachable_nodes.insert(node);
+            }
+
             let preserves = match operation.kind() {
+                AnalysisOperationKind::Result { expression, phase: super::super::model::AnalysisResultPhase::Begin }
+                    if predicate && property == ExecutionProperty::Pure => {
+                    if !super::predicate::expression_is_eligible(request, expression, expressions, storage, reachable.domain.yield_targets) {
+                        record_constant_failure(request, candidate, expression.into());
+                    }
+                    true
+                }
                 AnalysisOperationKind::Result { .. } => true,
                 AnalysisOperationKind::ScopeExit {
                     block, exit, phase, ..
@@ -236,6 +252,18 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     let mut valid = true;
 
                     if visited.insert(expression.into()) {
+                        if predicate && property == ExecutionProperty::Pure {
+                            if !super::predicate::expression_is_eligible(request, expression, expressions, storage, reachable.domain.yield_targets) {
+                                record_constant_failure(request, candidate, expression.into());
+                            }
+                        }
+                        let predicate_valid = !predicate || state.as_ref().is_none_or(|state| {
+                            reachable.domain.predicate_operation_is_valid(state, expression, &mut predicate_ranges, &mut candidate.integer_maxima)
+                        });
+
+                        if !predicate_valid {
+                            record_constant_failure(request, candidate, expression.into());
+                        }
                         valid &= check_expression_execution(
                             request,
                             expression,
@@ -246,6 +274,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                             memory,
                             state.as_ref().is_some_and(|state| {
                                 reachable.domain.index_in_bounds(state, expression)
+                                    || predicate && predicate_valid
                             }),
                             &mut candidate.dependencies,
                             diagnostics,
@@ -272,8 +301,11 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                 record_failure(request, candidate, node);
             }
 
-            if let Some(state) = &mut state {
-                reachable.domain.operation(state, operation.kind(), None);
+            if let Some(current) = &mut state {
+                if !reachable.domain.operation(current, operation.kind(), None) { break; }
+                if matches!(operation.kind(), AnalysisOperationKind::Call { .. }) {
+                    predicate_ranges.clear();
+                }
             }
         }
     }
@@ -289,7 +321,7 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
-    index_in_bounds: bool,
+    operation_domain_proven: bool,
     dependencies: &mut Vec<crate::execution_guarantees::ExecutionDependency>,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
 ) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>> {
@@ -300,7 +332,7 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
         expressions.selections(),
         storage,
         memory,
-        index_in_bounds,
+        operation_domain_proven,
         dependencies,
     );
 
@@ -364,6 +396,14 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
             record_failure(request, candidate, request.unit().root().into());
         }
     }
+}
+
+fn record_constant_failure<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>, candidate: &mut ExecutionCandidate, node: AnyBoundNodeId,
+) {
+    let anchor = crate::diagnostic::bound_node_origin(request, node)
+        .map_or(request.unit().key().source().syntax(), |origin| origin.source_anchor().syntax());
+    candidate.constant_failure.get_or_insert(bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()));
 }
 
 fn record_failure<C: CheckerRequestContext + ?Sized>(

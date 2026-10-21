@@ -66,7 +66,7 @@ impl Compilation {
 
         let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
-        let body = self.body_behavior_with_cancellation(key, cancellation)?;
+        let body = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         for bag in [
             bound.result().diagnostics(),
@@ -97,6 +97,21 @@ impl Compilation {
                 .expect("checked source template declaration has stable identity")
                 .clone())
         };
+
+        let mut properties = Vec::new();
+        let mut constant_eligible = false;
+        if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            constant_eligible = !self.check_predicate_eligibility(&key, cancellation)?.has_errors();
+            for property in [bray_checker::ExecutionProperty::Pure, bray_checker::ExecutionProperty::Total] {
+                if constant_eligible || self.certify_execution_obligation(&key,
+                    bray_checker::ExecutionObligation::Property(property, None), &mut DiagnosticBag::new(), false, cancellation)?.0.is_none() {
+                    properties.push(property);
+                }
+            }
+        }
+
+        let may_unwind = !properties.contains(&bray_checker::ExecutionProperty::Total)
+            && *self.unwind_behavior(key.clone(), cancellation)?.result().value();
 
         let native_behavior = bray_bound_tree::CheckedTemplateBehavior::new(
             behavior
@@ -133,13 +148,22 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?,
                 behavior.current_run_cancellation(),
-            ),
+            ).with_certification(properties, constant_eligible, may_unwind),
             behavior.lifecycle_obligations().iter().copied(),
             dependency,
             *result_dependencies.value(),
             [],
         );
 
+        let execution = if matches!(key.kind(), bray_bound_tree::BoundUnitKind::RuntimeDefault | bray_bound_tree::BoundUnitKind::PredicateDefinition
+            | bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::Constraint)
+            || (matches!(key.kind(), bray_bound_tree::BoundUnitKind::CallableBody | bray_bound_tree::BoundUnitKind::AnonymousCallable)
+                && self.unit_requires_constant_evaluation(&key, cancellation)?)
+        {
+            Some(self.execution_candidates_with_cancellation(key, cancellation)?)
+        } else { None };
+        let execution = execution.as_ref().and_then(|execution| execution.result().value()
+            .get(&bray_checker::ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None)));
         let semantics = semantics.result().value();
 
         let template = build_source_template(
@@ -153,6 +177,7 @@ impl Compilation {
                 literals: semantics.literals(),
                 expression,
                 inputs,
+                execution,
                 behavior: native_behavior,
             },
         )?;

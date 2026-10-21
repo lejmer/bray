@@ -9,13 +9,13 @@ scope Ambient at ambient {
         owner SequenceSurface;
         implementation SequenceLength;
 
-        surface { func length() -> usize {} }
+        surface { const func length() -> usize executes(pure, total) {} }
     }
 
     declaration SequenceIsEmpty {
         owner SequenceSurface;
         implementation SequenceIsEmpty;
 
-        surface { func is_empty() -> bool {} }
+        surface { const func is_empty() -> bool executes(pure, total) {} }
     }
 }

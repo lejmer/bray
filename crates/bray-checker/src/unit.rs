@@ -211,6 +211,18 @@ where
             .map_or_else(|| self.context.static_result_dependencies(declaration), Ok)
     }
 
+    pub(crate) fn default_observed_result(
+        self,
+        provider: bray_bound_tree::DefaultValueProvider,
+    ) -> Option<bray_symbols::ConstantTermId> {
+        let summary = self.result_dependencies
+            .expect("default value observation has prepared body summaries")
+            .get(&ResultDependencyOwner::Declaration(provider.symbol()))
+            .expect("selected default has its prepared body summary");
+
+        self.semantic_values().dependency_contract_template_data(*summary).observed_result()
+    }
+
     pub(crate) fn default_result_dependencies(
         self,
         provider: bray_bound_tree::DefaultValueProvider,

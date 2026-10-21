@@ -159,6 +159,7 @@ impl SemanticValueStore {
             substituted
                 .with_borrows(borrows)
                 .with_carriers(carriers)
+                .with_observed_result(template.observed_result().map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?)
                 .with_returned_input(
                     template
                         .returned_input()

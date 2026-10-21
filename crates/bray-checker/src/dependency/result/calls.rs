@@ -48,7 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         crate::dependency::defaults::CallResultDependencies,
         CheckerQueryError<C::UpstreamError>,
     > {
-        let recursive = super::super::returned::declaration_source(call).is_some_and(|instance| {
+        let recursive = call.resolution().declaration_source().is_some_and(|instance| {
             self.request
                 .is_recursive_result(instance.definition().callable_symbol())
                 && call.resolution().trait_dispatch().is_none()
@@ -61,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 self.request,
                 call.arguments(),
                 call.receiver(),
-                super::super::returned::declaration_source(call),
+                call.resolution().declaration_source(),
                 &template,
             )
         } else {

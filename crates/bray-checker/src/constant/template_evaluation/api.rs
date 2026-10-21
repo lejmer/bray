@@ -17,14 +17,16 @@ pub fn evaluate_constant_callable_template<C>(
     request: &ConstantCallRequest,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
+    requirements: &[bray_symbols::PredicateSemanticSummary],
 ) -> CheckerOutcome<EvaluatedConstantCall, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let substitution = request.callable().substitution();
+    let substitution = request.substitution();
 
     let limits = request.limits();
 
+    let mut budget = EvaluationBudget::from_limits(limits);
     let mut evaluator = TemplateEvaluator {
         context,
         template,
@@ -33,7 +35,7 @@ where
         arguments: request.arguments(),
         resolver,
         limits,
-        budget: EvaluationBudget::from_limits(limits),
+        budget: &mut budget,
         values: vec![None; template.nodes().len()],
         checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
@@ -41,10 +43,16 @@ where
         static_initializer: false,
     };
 
-    let evaluated = evaluator.evaluate_result(
-        CheckedTemplateKind::ConstantCallableBody,
+    let evaluated = evaluator.evaluate_requirements(request.target(), requirements).and_then(|valid| {
+        if !valid { return Ok(recovery_value(context.semantic_values(), request.result_type())); }
+        evaluator.evaluate_result(
+        match request.target() {
+            crate::ConstantCallTarget::Default(_, _) => CheckedTemplateKind::RuntimeDefault,
+            crate::ConstantCallTarget::Predicate(_) => CheckedTemplateKind::PredicateDefinition,
+            crate::ConstantCallTarget::Declaration(_) | crate::ConstantCallTarget::Anonymous(_, _) => CheckedTemplateKind::ConstantCallableBody,
+        },
         request.result_type(),
-    );
+    )});
 
     match evaluated {
         Ok(value) => CheckerOutcome::complete(
@@ -189,6 +197,7 @@ fn evaluate_closed_template<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let mut budget = EvaluationBudget::from_limits(limits);
     let mut evaluator = TemplateEvaluator {
         context,
         template,
@@ -197,7 +206,7 @@ where
         arguments: &[],
         resolver,
         limits,
-        budget: EvaluationBudget::from_limits(limits),
+        budget: &mut budget,
         values: vec![None; template.nodes().len()],
         checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
@@ -348,7 +357,7 @@ mod tests {
         .unwrap_or_else(|| panic!("test function must be callable"));
 
         let callable = CallableInstanceData::new(callable, substitution);
-        let request = |limits| ConstantCallRequest::new(callable, None, [], ty, limits);
+        let request = |limits| ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(callable), None, [], ty, limits);
 
         let diagnostic_span = SourceSpan::new(
             SourceId::new(0),
@@ -360,8 +369,7 @@ mod tests {
             &template,
             &request(ConstantEvaluationLimits::default()),
             &UnusedTemplateResolver,
-            None,
-        )
+            None, &[])
         .into_result()
         .unwrap_or_else(|| panic!("constant body template must evaluate"));
 
@@ -377,8 +385,7 @@ mod tests {
             &template,
             &request(ConstantEvaluationLimits::new(16, 1, 16)),
             &UnusedTemplateResolver,
-            Some(diagnostic_span),
-        )
+            Some(diagnostic_span), &[])
         .into_result()
         .unwrap_or_else(|| panic!("constant aggregate limit failure must recover"));
 
@@ -392,8 +399,7 @@ mod tests {
             &template,
             &request(ConstantEvaluationLimits::new(16, 16, 2)),
             &UnusedTemplateResolver,
-            Some(diagnostic_span),
-        )
+            Some(diagnostic_span), &[])
         .into_result()
         .unwrap_or_else(|| panic!("constant literal limit failure must recover"));
 
@@ -407,8 +413,7 @@ mod tests {
             &template,
             &request(ConstantEvaluationLimits::new(16, 16, 16).with_expansions(3)),
             &UnusedTemplateResolver,
-            Some(diagnostic_span),
-        )
+            Some(diagnostic_span), &[])
         .into_result()
         .unwrap_or_else(|| panic!("constant expansion limit failure must recover"));
 
@@ -488,16 +493,14 @@ mod tests {
         let outcome = evaluate_constant_callable_template(
             &TestCheckerContext::new(false),
             &template,
-            &ConstantCallRequest::new(
-                CallableInstanceData::new(callable, substitution),
+            &ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(CallableInstanceData::new(callable, substitution)),
                 None,
                 [value],
                 ty,
                 ConstantEvaluationLimits::default(),
             ),
             &UnusedTemplateResolver,
-            None,
-        )
+            None, &[])
         .into_result()
         .unwrap_or_else(|| panic!("callable argument template must evaluate"));
 
@@ -593,8 +596,7 @@ mod tests {
         let outcome = evaluate_constant_callable_template(
             &TestCheckerContext::new(false),
             &template,
-            &ConstantCallRequest::new(
-                callable,
+            &ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(callable),
                 None,
                 [],
                 outer_type,
@@ -604,8 +606,7 @@ mod tests {
                 result: inner_value,
                 expected_result_type: inner_type,
             },
-            None,
-        )
+            None, &[])
         .into_result()
         .unwrap_or_else(|| panic!("typed constant body template must evaluate"));
 
@@ -773,7 +774,7 @@ mod tests {
 
         let result = builder
             .push_node(CheckedTemplateNode::new(
-                CheckedTemplateOperation::product([
+                CheckedTemplateOperation::construct(None, [
                     ConstantField::new(second.clone(), second_value),
                     ConstantField::new(first.clone(), first_value),
                 ]),
@@ -983,6 +984,14 @@ mod tests {
     impl ConstantCallResolver for TypedCallResolver {
         type UpstreamError = std::convert::Infallible;
 
+        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+            Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(Some(crate::ConstantCallContract::new([], self.expected_result_type, []))))
+        }
+
+        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+            panic!("this fixture has no failing callable requirements")
+        }
+
         fn is_constant_callable(
             &self,
             _callable: CallableInstanceData,
@@ -1005,6 +1014,11 @@ mod tests {
     }
 
     impl ConstantTemplateResolver for TypedCallResolver {
+        fn requirement_template(&self, _target: &crate::ConstantCallTarget, _index: usize)
+            -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>> {
+            panic!("this fixture does not invoke a contracted callable");
+        }
+
         fn symbol(&self, _key: &bray_symbols::SymbolKey) -> Option<bray_symbols::AnySymbolId> {
             None
         }
@@ -1032,6 +1046,14 @@ mod tests {
     impl ConstantCallResolver for ProductResolver {
         type UpstreamError = std::convert::Infallible;
 
+        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+            panic!("this fixture evaluates checked nodes without semantic contract queries")
+        }
+
+        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+            panic!("this fixture has no failing callable requirements")
+        }
+
         fn is_constant_callable(
             &self,
             _callable: CallableInstanceData,
@@ -1048,6 +1070,11 @@ mod tests {
     }
 
     impl ConstantTemplateResolver for ProductResolver {
+        fn requirement_template(&self, _target: &crate::ConstantCallTarget, _index: usize)
+            -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>> {
+            panic!("this fixture does not invoke a contracted callable");
+        }
+
         fn symbol(&self, key: &SymbolKey) -> Option<bray_symbols::AnySymbolId> {
             if key == &self.first {
                 Some(self.first_id().into())
@@ -1081,6 +1108,14 @@ mod tests {
     impl ConstantCallResolver for UnusedTemplateResolver {
         type UpstreamError = std::convert::Infallible;
 
+        fn contract(&self, _target: &crate::ConstantCallTarget) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>> {
+            panic!("this fixture evaluates checked nodes without semantic contract queries")
+        }
+
+        fn requirement_origin(&self, _target: &crate::ConstantCallTarget, _index: usize) -> crate::CheckerQueryResult<Option<bray_source::SourceSpan>> {
+            panic!("this fixture has no failing callable requirements")
+        }
+
         fn is_constant_callable(
             &self,
             _callable: CallableInstanceData,
@@ -1097,6 +1132,11 @@ mod tests {
     }
 
     impl ConstantTemplateResolver for UnusedTemplateResolver {
+        fn requirement_template(&self, _target: &crate::ConstantCallTarget, _index: usize)
+            -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>> {
+            panic!("this fixture does not invoke a contracted callable");
+        }
+
         fn symbol(&self, _key: &bray_symbols::SymbolKey) -> Option<bray_symbols::AnySymbolId> {
             None
         }

@@ -136,6 +136,19 @@ fn decode_template(
 
     let result = CheckedTemplateNodeId::new(read_u32(reader)?);
 
+    let constant_eligible = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        _ => return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference)),
+    };
+    let may_unwind = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        _ => return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference)),
+    };
+    let property_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut properties = context.allocate_items(reader, property_count)?;
+    for _ in 0..property_count { properties.push(decode_tag(read_u32(reader)?)?); }
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
     let trusted_obligations = read_symbol_references(reader, limits, context)?;
@@ -163,7 +176,7 @@ fn decode_template(
         effects,
         capabilities,
         trusted_obligations,
-        InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation),
+        InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation).with_certification(properties, constant_eligible, may_unwind),
         lifecycle_obligations,
         dependency_contract,
         result_dependencies,
@@ -345,11 +358,20 @@ fn decode_operation(
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             variant: decode_template_reference(reader, context)?,
         }),
+        21 => Ok(InterfaceCheckedTemplateOperation::Unreachable),
+        20 => Ok(InterfaceCheckedTemplateOperation::NullableValue {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         18 => Ok(InterfaceCheckedTemplateOperation::TupleElement {
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             index: bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
         }),
         17 => {
+            let variant = match read_u32(reader)? {
+                0 => None,
+                1 => Some(decode_template_reference(reader, context)?),
+                _ => return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Template)),
+            };
             let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
             let mut fields = context.allocate_items(reader, count)?;
 
@@ -360,7 +382,7 @@ fn decode_operation(
                 ));
             }
 
-            Ok(InterfaceCheckedTemplateOperation::product(fields))
+            Ok(InterfaceCheckedTemplateOperation::construct(variant, fields))
         }
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
@@ -710,7 +732,7 @@ mod tests {
             [
                 original.nodes()[0].clone(),
                 InterfaceCheckedTemplateNode::new(
-                    InterfaceCheckedTemplateOperation::product([
+                    InterfaceCheckedTemplateOperation::construct(None, [
                         ConstantField::new(
                             InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0)),
                             CheckedTemplateNodeId::new(0),

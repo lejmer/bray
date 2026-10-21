@@ -361,6 +361,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         self.ty(data.ty())?;
 
         match data.kind() {
+                ConstantValueKind::Borrowed(_) => panic!("constant observation reached materialized output"),
             ConstantValueKind::Error => self.tag(0),
             ConstantValueKind::StaticAddress(reference) => {
                 if !self.allow_static_address {

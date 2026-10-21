@@ -111,6 +111,7 @@ pub(super) fn decode_dependency_contract(
     }
 
     let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+    let observed_result = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut carriers = context.allocate_items(reader, count)?;
@@ -167,6 +168,7 @@ pub(super) fn decode_dependency_contract(
         .with_borrows(borrows)
         .with_carriers(carriers)
         .with_returned_input(returned_input)
+        .with_observed_result(observed_result)
         .with_effects(effects)
         .with_normal_completion(normal_completion)
         .with_normal_storage_preservation(normal_storage_preserved))
@@ -695,7 +697,7 @@ mod tests {
     #[test]
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
-            &[1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 2, 0, 5],
+            &[1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
             InterfaceValidationLimits::default(),
         )
         .unwrap();
@@ -725,8 +727,8 @@ mod tests {
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
             0, 0, // No normal or abnormal report output.
-            0, 0, 0, 2, 0,
-            5, // No reference relations, returned input or carriers. Unknown effects and escapes.
+            0, 0, 0, 0, 2, 0,
+            5, // No reference relations, returned input, result observation or carriers. Unknown effects and escapes.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
@@ -798,7 +800,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
+            1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));

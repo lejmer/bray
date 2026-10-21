@@ -38,7 +38,7 @@ where
     pub(super) resolver:
         &'evaluation dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     pub(super) limits: ConstantEvaluationLimits,
-    pub(super) budget: EvaluationBudget,
+    pub(super) budget: &'evaluation mut EvaluationBudget,
     pub(super) values: Vec<Option<ConstantValueId>>,
     pub(super) checked_materialization: BTreeSet<ConstantValueId>,
     pub(super) diagnostics: DiagnosticBag,
@@ -67,6 +67,10 @@ where
 
         let value = self.evaluate_node(self.template.result())?;
         let data = self.context.semantic_values().constant_value_data(value);
+
+        if !matches!(kind, CheckedTemplateKind::ConstantCallableBody | CheckedTemplateKind::RuntimeDefault) {
+            check_definition_materialization(self, value)?;
+        }
 
         if data.ty() != result_type {
             panic!("constant template result must have type {result_type:?}, actual: {data:?}");
@@ -105,8 +109,6 @@ where
 
         let value = self.evaluate_operation(node.operation(), ty)?;
 
-        check_definition_materialization(self, value)?;
-
         let slot = self
             .values
             .get_mut(index).unwrap_or_else(|| panic!("evaluate_node requires constant template value slot, node: {node:?}, index: {index:?}"));
@@ -122,6 +124,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         match operation {
+            CheckedTemplateOperation::Unreachable => panic!("constant evaluation reached a path excluded by checked control flow and invocation requirements"),
             CheckedTemplateOperation::Input(input) => self.evaluate_input(*input),
             CheckedTemplateOperation::Constant { term, usage } => {
                 let usage = crate::ConstantEvaluationUsage::new(
@@ -156,7 +159,13 @@ where
                 right,
             } => self.evaluate_binary(*operation, *left, *right, ty),
             CheckedTemplateOperation::Borrow { kind, operand } => {
-                self.evaluate_static_address(*kind, *operand, ty)
+                if self.static_initializer && matches!(self.template.nodes()[template_index(operand.raw())].operation(), CheckedTemplateOperation::Declaration { .. }) {
+                    self.evaluate_static_address(*kind, *operand, ty)
+                } else {
+                    assert_eq!(*kind, bray_symbols::BorrowKind::Shared, "const observation has shared capability");
+                    let value = self.evaluate_node(*operand)?;
+                    self.evaluate_conversion(value, ty)
+                }
             }
             CheckedTemplateOperation::Declaration { declaration, .. } => {
                 self.evaluate_declaration(declaration, ty)
@@ -206,33 +215,20 @@ where
 
                 Ok(self.intern_value(ty, ConstantValueKind::Array(values.into())))
             }
-            CheckedTemplateOperation::Product(fields) => {
-                let mut values = Vec::with_capacity(fields.len());
-
-                for field in fields.iter() {
-                    let Some(AnySymbolId::StructField(field_id)) =
-                        self.resolver.symbol(field.field())
-                    else {
-                        panic!(
-                            "constant product field must resolve to a struct field, actual: {field:?}"
-                        );
-                    };
-
-                    values.push(ConstantField::new(
-                        field_id,
-                        self.evaluate_node(*field.value())?,
-                    ));
-                }
-
-                self.budget
-                    .try_charge_elements(values.len())
-                    .map_err(TemplateEvaluationFailure::Diagnostic)?;
-
-                Ok(self.intern_value(ty, ConstantValueKind::product(values)))
+            CheckedTemplateOperation::Construct { variant, fields } => {
+                let kind = match variant {
+                    Some(key) => {
+                        let Some(AnySymbolId::UnionVariant(variant)) = self.resolver.symbol(key) else { panic!("checked union constructor retains its active variant"); };
+                        let fields = self.evaluate_fields(fields, |symbol| match symbol { AnySymbolId::UnionPayloadField(field) => Some(field), _ => None })?;
+                        ConstantValueKind::union(variant, fields)
+                    }
+                    None => ConstantValueKind::product(self.evaluate_fields(fields, |symbol| match symbol { AnySymbolId::StructField(field) => Some(field), _ => None })?),
+                };
+                Ok(self.intern_value(ty, kind))
             }
             CheckedTemplateOperation::VariantTest { subject, variant } => {
                 let subject = self.evaluate_node(*subject)?;
-                let subject = self.context.semantic_values().constant_value_data(subject);
+                let subject = self.observed_value(subject)?;
 
                 let variant = self
                     .resolver
@@ -252,9 +248,17 @@ where
 
                 Ok(self.intern_value(ty, ConstantValueKind::Boolean(*active == variant)))
             }
+            CheckedTemplateOperation::NullableValue { subject } => {
+                let subject = self.evaluate_node(*subject)?;
+                let subject = self.observed_value(subject)?;
+                let ConstantValueKind::NullablePresent(value) = subject.kind() else {
+                    panic!("checked nullable projection observes a present value");
+                };
+                Ok(*value)
+            }
             CheckedTemplateOperation::TupleElement { subject, index } => {
                 let subject = self.evaluate_node(*subject)?;
-                let subject = self.context.semantic_values().constant_value_data(subject);
+                let subject = self.observed_value(subject)?;
 
                 let ConstantValueKind::Tuple(elements) = subject.kind() else {
                     panic!("constant tuple projection must receive a tuple, actual: {subject:?}");
@@ -287,7 +291,7 @@ where
             } => {
                 let subject = self.evaluate_node(*subject)?;
                 let index = self.evaluate_index_bound(*index)?;
-                let subject = self.context.semantic_values().constant_value_data(subject);
+                let subject = self.observed_value(subject)?;
 
                 let ConstantValueKind::Array(elements) = subject.kind() else {
                     panic!("constant index operation must receive an array, actual: {subject:?}");
@@ -359,7 +363,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let subject = self.evaluate_node(subject)?;
-        let subject = self.context.semantic_values().constant_value_data(subject);
+        let subject = self.observed_value(subject)?;
 
         let ConstantValueKind::Array(elements) = subject.kind() else {
             panic!("constant slice must receive an array, actual: {subject:?}");
@@ -437,6 +441,16 @@ where
         Ok(self.intern_value(ty, ConstantValueKind::StaticAddress(selection)))
     }
 
+    fn evaluate_fields<F>(&mut self, fields: &[ConstantField<bray_symbols::SymbolKey, CheckedTemplateNodeId>], field_id: impl Fn(AnySymbolId) -> Option<F>) -> Result<Vec<ConstantField<F, ConstantValueId>>, TemplateEvaluationFailure> {
+        let mut values = Vec::with_capacity(fields.len());
+        for field in fields {
+            let id = self.resolver.symbol(field.field()).and_then(&field_id).expect("checked constructor retains its field category");
+            values.push(ConstantField::new(id, self.evaluate_node(*field.value())?));
+        }
+        self.budget.try_charge_elements(values.len()).map_err(TemplateEvaluationFailure::Diagnostic)?;
+        Ok(values)
+    }
+
     fn evaluate_input(
         &mut self,
         input: bray_bound_tree::CheckedTemplateInputId,
@@ -451,7 +465,8 @@ where
         match input.kind() {
             CheckedTemplateInputKind::Parameter(ordinal) => Ok(ordinal
                 .to_index()
-                .and_then(|index| self.arguments.get(index))
+                .and_then(|index| self.arguments.get(index + usize::from(self.template.inputs().iter()
+                    .any(|input| input.kind() == &CheckedTemplateInputKind::Receiver))))
                 .copied().unwrap_or_else(|| panic!("checked constant parameter ordinal {ordinal:?} must exist in the application"))),
             CheckedTemplateInputKind::GenericConstant(parameter) => {
                 let Some(AnySymbolId::GenericConstParameter(parameter)) =
@@ -478,8 +493,9 @@ where
 
                 self.evaluate_term(term, ty)
             }
-            CheckedTemplateInputKind::Receiver
-            | CheckedTemplateInputKind::GenericType(_)
+            CheckedTemplateInputKind::Receiver => Ok(*self.arguments.first()
+                .expect("checked constant method application supplies its receiver")),
+            CheckedTemplateInputKind::GenericType(_)
             | CheckedTemplateInputKind::PostconditionResult => {
                 panic!("constant template input kind must be evaluable at compile time, actual: {input:?}")
             }
@@ -492,6 +508,9 @@ where
         operand: ConstantValueId,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        if operation == ConstantUnaryOperation::BorrowObservation {
+            return Ok(self.context.semantic_values().observed_constant_value(operand));
+        }
         if matches!(
             operation,
             ConstantUnaryOperation::PredicateTrust
@@ -501,7 +520,7 @@ where
             return Ok(operand);
         }
 
-        let operand = self.context.semantic_values().constant_value_data(operand);
+        let operand = self.context.semantic_values().constant_value_data(self.context.semantic_values().observed_constant_value(operand));
 
         let representation = type_representation_for_context(self.context, ty);
 
@@ -526,7 +545,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let left = self.evaluate_node(left)?;
-        let left_data = self.context.semantic_values().constant_value_data(left);
+        let left_data = self.context.semantic_values().constant_value_data(self.context.semantic_values().observed_constant_value(left));
 
         match (operation, left_data.kind()) {
             (ConstantBinaryOperation::LogicalAnd, ConstantValueKind::Boolean(false))
@@ -537,7 +556,7 @@ where
         }
 
         let right = self.evaluate_node(right)?;
-        let right_data = self.context.semantic_values().constant_value_data(right);
+        let right_data = self.context.semantic_values().constant_value_data(self.context.semantic_values().observed_constant_value(right));
 
         let kind = fold_binary(
             binary_operator(operation),
@@ -633,13 +652,8 @@ where
             .map(|(_, value)| value)
             .collect::<Vec<_>>();
 
-        let Some(callable) = self
-            .resolver
-            .symbol(callable)
-            .and_then(CallableDefinitionId::try_new)
-        else {
-            panic!("constant call must resolve to a callable definition: {callable:?}");
-        };
+        let symbol = self.resolver.symbol(callable)
+            .unwrap_or_else(|| panic!("constant invocation retains its declaration: {callable:?}"));
 
         let values = self.context.semantic_values();
 
@@ -693,8 +707,15 @@ where
             ));
         };
 
-        let request = ConstantCallRequest::new(
-            CallableInstanceData::new(callable, substitution),
+        if let Some(provider) = bray_bound_tree::DefaultValueProvider::try_from_symbol(symbol) {
+            assert!(implementation.is_none(), "default invocation has no selected trait dispatch");
+            let request = ConstantCallRequest::new(crate::ConstantCallTarget::Default(provider, substitution), None, arguments, result_type, limits);
+            return self.resolve_call(&request, result_type);
+        }
+
+        let callable = CallableDefinitionId::try_new(symbol)
+            .expect("checked non-default constant invocation retains its callable");
+        let request = ConstantCallRequest::new(crate::ConstantCallTarget::Declaration(CallableInstanceData::new(callable, substitution)),
             implementation,
             arguments,
             result_type,
@@ -734,15 +755,15 @@ where
                     return Ok(recovery_value(self.context.semantic_values(), result_type));
                 }
 
-                panic!(
-                    "checked constant call must have a valid reference resolution, request: {request:?}"
-                )
+                // A valid const callable can receive a static address whose contents are
+                // unavailable during evaluation. The declaration alone does not supply that data.
+                Err(TemplateEvaluationFailure::invalid_expression(bray_diagnostics::DiagnosticExpressionCategory::Call))
             }
         }
     }
 
     pub(super) fn evaluate_conversion(
-        &self,
+        &mut self,
         value: ConstantValueId,
         target: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
@@ -752,10 +773,46 @@ where
             return Ok(value);
         }
 
+        if let bray_symbols::TypeData::Borrow { kind: bray_symbols::BorrowKind::Shared, target: referent } = self.context.semantic_values().type_data(target).as_ref() {
+            let observed = if data.ty() == *referent { value }
+                else { self.context.semantic_values().observed_constant_value(value) };
+            return Ok(self.intern_value(target, ConstantValueKind::Borrowed(observed)));
+        }
+        if let ConstantValueKind::Borrowed(_) = data.kind() {
+            return self.evaluate_conversion(self.context.semantic_values().observed_constant_value(value), target);
+        }
+        if let bray_symbols::TypeData::ExactInteger { .. } = self.context.semantic_values().type_data(target).as_ref() {
+            let ConstantValueKind::Integer(integer) = data.kind() else {
+                panic!("checked exact-integer conversion has an integer operand");
+            };
+            return Ok(self.intern_value(target, ConstantValueKind::Integer(integer.clone())));
+        }
+
         if matches!(self.context.semantic_values().type_data(target).as_ref(),
             bray_symbols::TypeData::Nullable(contained) if *contained == data.ty())
         {
             return Ok(self.intern_value(target, ConstantValueKind::NullablePresent(value)));
+        }
+
+        let target_data = self.context.semantic_values().type_data(target);
+        let composite = match (data.kind(), target_data.as_ref()) {
+            (ConstantValueKind::Tuple(elements), bray_symbols::TypeData::Tuple(types)) => {
+                assert_eq!(elements.len(), types.len(), "checked tuple conversion preserves arity");
+                Some(ConstantValueKind::tuple(elements.iter().zip(types.iter())
+                    .map(|(value, target)| self.evaluate_conversion(*value, *target)).collect::<Result<Vec<_>, _>>()?))
+            }
+            (ConstantValueKind::Array(elements), bray_symbols::TypeData::Array { element, .. }) => {
+                Some(ConstantValueKind::array(elements.iter().map(|value| self.evaluate_conversion(*value, *element))
+                    .collect::<Result<Vec<_>, _>>()?))
+            }
+            (ConstantValueKind::NullableAbsent, bray_symbols::TypeData::Nullable(_)) => Some(ConstantValueKind::NullableAbsent),
+            (ConstantValueKind::NullablePresent(value), bray_symbols::TypeData::Nullable(contained)) => {
+                Some(ConstantValueKind::NullablePresent(self.evaluate_conversion(*value, *contained)?))
+            }
+            _ => None,
+        };
+        if let Some(kind) = composite {
+            return Ok(self.intern_value(target, kind));
         }
 
         let Some(representation) = type_representation_for_context(self.context, target) else {
@@ -786,7 +843,7 @@ where
         member: &bray_symbols::SymbolKey,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let subject = self.context.semantic_values().constant_value_data(subject);
+        let subject = self.observed_value(subject)?;
 
         let member = self
             .resolver
@@ -813,6 +870,15 @@ where
         }
 
         Ok(value)
+    }
+
+    fn observed_value(&self, value: ConstantValueId) -> Result<std::sync::Arc<bray_symbols::ConstantValueData>, TemplateEvaluationFailure> {
+        let values = self.context.semantic_values();
+        let data = values.constant_value_data(values.observed_constant_value(value));
+        if matches!(data.kind(), ConstantValueKind::StaticAddress(_)) {
+            return Err(TemplateEvaluationFailure::invalid_expression(bray_diagnostics::DiagnosticExpressionCategory::MemberAccess));
+        }
+        Ok(data)
     }
 
     fn evaluate_nodes(

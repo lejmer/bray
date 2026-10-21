@@ -17,7 +17,7 @@ pub struct TrustedContractInputs {
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     /// Checked ordinary predicate bodies in positional argument form.
-    pub predicates: BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    pub predicates: BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.
@@ -45,6 +45,8 @@ pub struct TrustedCallContract {
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
+    /// Compiler-only compound execution conditions that require ordinary caller evidence.
+    pub execution_requirements: Vec<ExecutionCondition>,
     /// Ordinary entry conditions that guard the trusted guarantees.
     pub preconditions: Vec<ExecutionCondition>,
     /// Conditions established on normal completion.

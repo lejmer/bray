@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableTarget, CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan,
+    CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::ExecutionProperty;
@@ -14,8 +14,8 @@ use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUni
 pub struct UnwindCandidate {
     may_unwind: bool,
     entry_conditions: BTreeSet<crate::ExecutionCondition>,
-    dependencies: BTreeSet<BoundCallableTarget>,
-    calls: BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<BoundCallableTarget>>,
+    dependencies: BTreeSet<crate::ExecutionDependencyTarget>,
+    calls: BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>>,
 }
 
 impl UnwindCandidate {
@@ -32,12 +32,12 @@ impl UnwindCandidate {
     /// Locally non-unwinding call sites and all of their invocation and conversion dependencies.
     pub fn calls(
         &self,
-    ) -> &BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<BoundCallableTarget>> {
+    ) -> &BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>> {
         &self.calls
     }
 
     /// Call targets whose unwind behavior contributes to this body.
-    pub fn dependencies(&self) -> &BTreeSet<BoundCallableTarget> {
+    pub fn dependencies(&self) -> &BTreeSet<crate::ExecutionDependencyTarget> {
         &self.dependencies
     }
 }

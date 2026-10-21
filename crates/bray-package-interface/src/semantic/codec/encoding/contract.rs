@@ -55,6 +55,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             }
 
             write_optional_u32(encoder, contract.returned_input.map(|input| input.raw()));
+            write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
             write_count(encoder, contract.carriers.len());
 
             for carrier in &*contract.carriers {

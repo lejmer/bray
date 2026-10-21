@@ -242,6 +242,10 @@ impl InspectionStorageProvenance {
             StorageIdentity::PredicateParameter(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
             }),
+            StorageIdentity::ContractParameter(symbol) => Ok(Self::LocalSymbol {
+                symbol_kind: "local_binding",
+                id: symbol.ordinal(),
+            }),
             StorageIdentity::AnonymousParameter(symbol) => Ok(Self::LocalSymbol {
                 symbol_kind: "anonymous_callable_parameter",
                 id: symbol.ordinal(),

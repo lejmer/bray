@@ -62,7 +62,7 @@ impl ExecutionPlace {
         matches!(
             self.reference(),
             Some(BoundReferenceTarget::Surface(
-                AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_)
+                AnySymbolId::CallableParameter(_) | AnySymbolId::PredicateParameter(_) | AnySymbolId::ReceiverParameter(_)
             )) | Some(BoundReferenceTarget::Local(
                 bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
             ))
@@ -121,6 +121,9 @@ impl ExecutionPlace {
             }
             bray_bound_tree::StorageIdentity::Receiver(receiver) => {
                 BoundReferenceTarget::Surface(receiver.into())
+            }
+            bray_bound_tree::StorageIdentity::ContractParameter(parameter) => {
+                BoundReferenceTarget::Local(parameter.into())
             }
             bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
                 BoundReferenceTarget::Local(parameter.into())

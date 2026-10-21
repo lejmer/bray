@@ -73,7 +73,7 @@ fn remap_checked_behavior(
     let execution = InterfaceCheckedTemplateExecution::new(
         behavior.execution_requirements().iter().cloned(),
         behavior.current_run_cancellation(),
-    );
+    ).with_certification(behavior.execution().properties().iter().copied(), behavior.execution().constant_eligible(), behavior.execution().may_unwind());
 
     let witnesses = behavior
         .witnesses()

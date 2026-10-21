@@ -304,7 +304,8 @@ impl PreparedBodyAnalysis {
                     Some(
                         bray_bound_tree::StorageIdentity::Parameter(_)
                             | bray_bound_tree::StorageIdentity::Receiver(_)
-                            | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
+                            | bray_bound_tree::StorageIdentity::ContractParameter(_)
+                        | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
                     )
                 ) && storage.identity_type(identity).is_some_and(|ty| {
                     matches!(

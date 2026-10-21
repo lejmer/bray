@@ -578,6 +578,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
             StorageIdentity::Static(_)
+            | StorageIdentity::ContractParameter(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::Error(_)
             | StorageIdentity::CustomIndexBorrow(_)

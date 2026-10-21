@@ -200,15 +200,23 @@ impl Compilation {
     ) -> Result<TrustedCallContract, FactQueryError> {
         let mut requirements = Vec::new();
         let mut preconditions = Vec::new();
+        let mut execution_requirements = Vec::new();
 
         for predicate in behavior.predicate_requirements() {
+            let condition = decode(predicate)?;
+            if predicate.domain() == bray_symbols::PredicateDomain::Execution
+                && predicate.execution_requirement(self.semantic_value_store()?, self.available_compiler_known_symbols()).is_none()
+            {
+                // Compound lane conditions are not a runtime Boolean or an unconditional lane requirement.
+                execution_requirements.push(condition.clone());
+            }
             let conditions = if predicate.is_trusted() {
                 &mut requirements
             } else {
                 &mut preconditions
             };
 
-            conditions.push(decode(predicate)?);
+            conditions.push(condition);
         }
 
         let mut guarantees = Vec::new();
@@ -236,6 +244,7 @@ impl Compilation {
                 diagnostics,
             )?,
             requirements,
+            execution_requirements,
             preconditions,
             guarantees,
             postconditions,

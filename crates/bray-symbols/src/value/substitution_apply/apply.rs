@@ -488,6 +488,9 @@ impl SemanticValueStore {
             ConstantValueKind::StaticAddress(selection) => ConstantValueKind::StaticAddress(
                 self.substitute_static_reference(selection, substitution)?,
             ),
+            ConstantValueKind::Borrowed(value) => ConstantValueKind::Borrowed(
+                self.substitute_constant_value_data(*value, substitution, substituted)?,
+            ),
             ConstantValueKind::Unit => ConstantValueKind::Unit,
             ConstantValueKind::NullableAbsent => ConstantValueKind::NullableAbsent,
             ConstantValueKind::NullablePresent(value) => ConstantValueKind::NullablePresent(

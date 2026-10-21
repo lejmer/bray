@@ -12,7 +12,7 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
-    let Some(instance) = super::returned::declaration_source(call) else {
+    let Some(instance) = call.resolution().declaration_source() else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in deferred_result"
         );

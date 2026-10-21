@@ -384,7 +384,7 @@ impl Compilation {
         let resolver = super::super::constant::CompilationConstantTemplateResolver::new(
             self,
             cancellation,
-            imported_symbols,
+            Some(imported_symbols),
         );
 
         let result_index = usize::try_from(template.template().result().raw()).map_err(|_| {

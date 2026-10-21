@@ -23,7 +23,7 @@ pub(super) fn selected_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> Option<ExecutionCondition> {
     let bound = unit.view().expression(expression)?;
@@ -63,7 +63,7 @@ pub(super) fn selected_condition(
                 matches!(values.type_data(ty.ty()).as_ref(), bray_symbols::TypeData::Callable(callable)
                     if callable.constness() == bray_symbols::CallableConstness::Constant)));
 
-        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+        if let Some(callable) = call.resolution().declaration_source()
             && (observed_intrinsic || constant)
         {
             let arguments = call_argument_conditions(
@@ -176,7 +176,7 @@ fn call_argument_conditions(
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> Vec<ExecutionCondition> {
     let mut arguments = Vec::new();
@@ -256,6 +256,23 @@ fn call_argument_conditions(
 
     parameters.sort_by_key(|(ordinal, _)| *ordinal);
     arguments.extend(parameters.into_iter().map(|(_, value)| value));
+    for argument in call.arguments() {
+        if let bray_bound_tree::SelectedArgument::Default { provider, ordinal, .. } = argument {
+            let place = bray_bound_tree::BoundReferenceTarget::Surface((*provider).into()).into();
+            if let Some(meaning) = current.get(&place) {
+                let meaning = match call.resolution().declaration_source() {
+                    Some(callable) => crate::substitute_execution_condition(values, meaning, callable.substitution())
+                        .expect("checked default application belongs to this semantic store"),
+                    None => meaning.clone(), // Lexical anonymous input paths are already selected.
+                };
+                let inputs = arguments.iter().enumerate().map(|(ordinal, value)| (
+                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal).expect("argument ordinal fits"))), value.clone(),
+                )).collect();
+                arguments[usize::try_from(*ordinal).expect("default ordinal fits") + usize::from(call.receiver().is_some())] = meaning.substitute(
+                    &|place| place.value_in(&inputs).unwrap_or(ExecutionCondition::Unknown), &ExecutionCondition::Unknown, budget);
+            }
+        }
+    }
 
     arguments
 }
@@ -263,14 +280,14 @@ fn call_argument_conditions(
 fn predicate_condition(
     values: &SemanticValueStore,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
     predicate: bray_symbols::PredicateInstanceData,
     arguments: Vec<ExecutionCondition>,
     budget: &mut usize,
 ) -> ExecutionCondition {
-    if let Some(term) = predicates.and_then(|predicates| predicates.get(&predicate)) {
-        return crate::execution_guarantees::portable::decode(values, *term, &arguments, budget)
+    if let Some(term) = predicates.and_then(|predicates| predicates.get(&predicate)).and_then(|predicate| predicate.condition()) {
+        return crate::execution_guarantees::portable::decode(values, term, &arguments, budget)
             .expect("checked predicate terms belong to this semantic value store");
     }
 

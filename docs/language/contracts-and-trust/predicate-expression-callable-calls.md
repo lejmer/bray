@@ -29,12 +29,11 @@ A callable contract is valid in predicate-expression context only when the calla
 - free of trusted capability use,
 - checked only through predicate-valid operations.
 
-Public predicate-expression use of an ordinary function or method requires the selected declaration surface to expose
-`const`.
+Predicate-expression invocation requires the selected callable declaration or lambda expression to expose `const`.
+The same rule applies through callable values, aliases, selected implementations, and compiled interfaces.
+Body availability and `pure` or `total` guarantees do not supply this contract.
 
-Private or local helper callables can be inferred as const-eligible within the same checking unit.
-
-Inferred const eligibility does not become part of an exported declaration surface.
+Ordinary runtime callers of const functions do not themselves need a const contract.
 
 The selected callable contract is the full callable contract of the resolved function or method after overload selection
 and generic substitution.

@@ -219,6 +219,13 @@ pub enum BoundUnitKeyData {
     Constraint(DeclaredBoundUnitKey),
     /// A callable contract clause.
     ContractClause(DeclaredBoundUnitKey),
+    /// A clause whose inputs belong to a callable type or anonymous callable header.
+    CallableTypeClause {
+        /// The lexical declaration and exact clause source.
+        declaration: DeclaredBoundUnitKey,
+        /// The callable header supplying parameter and result types.
+        callable: BoundSourceAnchor,
+    },
     /// A module contribution target-selection expression.
     TargetGate(DeclaredBoundUnitKey),
 }
@@ -234,7 +241,7 @@ impl BoundUnitKeyData {
             Self::EmbeddedConstant(_) => BoundUnitKind::EmbeddedConstant,
             Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
             Self::Constraint(_) => BoundUnitKind::Constraint,
-            Self::ContractClause(_) => BoundUnitKind::ContractClause,
+            Self::ContractClause(_) | Self::CallableTypeClause { .. } => BoundUnitKind::ContractClause,
             Self::TargetGate(_) => BoundUnitKind::TargetGate,
         }
     }
@@ -251,6 +258,7 @@ impl BoundUnitKeyData {
             | Self::ContractClause(key)
             | Self::TargetGate(key) => key.source(),
             Self::AnonymousCallable(key) => key.source(),
+            Self::CallableTypeClause { declaration, .. } => declaration.source(),
         }
     }
 }
@@ -351,6 +359,22 @@ impl BoundUnitKey {
         )
     }
 
+    /// Creates a contract unit whose inputs come from an independently bound callable header.
+    pub fn callable_type_clause(owner: SymbolKey, callable: BoundSourceAnchor, source: BoundSourceAnchor) -> Self {
+        Self(Arc::new(BoundUnitKeyData::CallableTypeClause {
+            declaration: DeclaredBoundUnitKey::new(owner, source),
+            callable,
+        }))
+    }
+
+    /// Returns the callable header supplying this clause's local inputs.
+    pub fn callable_type_header(&self) -> Option<BoundSourceAnchor> {
+        match self.data() {
+            BoundUnitKeyData::CallableTypeClause { callable, .. } => Some(*callable),
+            _ => None,
+        }
+    }
+
     /// Creates a key for a module contribution target-selection expression.
     ///
     /// Returns `None` unless the owner is a logical module.
@@ -390,6 +414,7 @@ impl BoundUnitKey {
             | BoundUnitKeyData::ContractClause(key)
             | BoundUnitKeyData::TargetGate(key) => key.owner(),
             BoundUnitKeyData::AnonymousCallable(key) => key.enclosing().declared_owner(),
+            BoundUnitKeyData::CallableTypeClause { declaration, .. } => declaration.owner(),
         }
     }
 

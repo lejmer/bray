@@ -955,6 +955,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_projections(relation.target_projections());
         }
 
+        if let Some(term) = contract.observed_result {
+            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+        }
+
         if let Some(input) = contract.returned_input {
             self.enqueue(PendingRecord::ConstantTerm(input.raw()));
         }

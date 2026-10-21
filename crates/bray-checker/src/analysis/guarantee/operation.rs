@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, CheckedMemoryOperations, CheckedSemanticSelections,
-    ConstructionTarget, OperatorTarget, SelectedArgument, SelectedConstructionInput,
+    OperatorTarget, SelectedArgument,
     SelectedConversion, SelectedOperation, SemanticSelection, StorageIdentity, StoragePlan,
     StorageProjection,
 };
@@ -51,7 +51,7 @@ pub(super) fn collect_preservation_dependencies(
             })
         {
             dependencies.push(ExecutionDependency {
-                target: call.target(),
+                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
                 property: ExecutionProperty::Pure,
                 occurrence: node.into(),
             });
@@ -98,7 +98,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
-    index_in_bounds: bool,
+    operation_domain_proven: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let property = match goal {
@@ -120,9 +120,14 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
     if let Some(SemanticSelection::Call(call)) = selections.expression(expression) {
         // Defaults and argument conversions execute before both source and intrinsic calls.
-        if call.evaluates_defaults() {
-            return false;
-        }
+        dependencies.extend(call.arguments().iter().filter_map(|argument| {
+            let SelectedArgument::Default { provider, .. } = argument else { return None; };
+            Some(ExecutionDependency {
+                target: crate::ExecutionDependencyTarget::Default(bray_bound_tree::DefaultValueProvider::CallableParameter(*provider)),
+                property,
+                occurrence: expression.into(),
+            })
+        }));
 
         for argument in call.arguments() {
             if let SelectedArgument::Explicit { conversion, .. } = argument
@@ -146,7 +151,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
             // Waiting need not terminate, but only its execution requirement can unwind.
             dependencies.push(ExecutionDependency {
-                target: call.target(),
+                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
                 property,
                 occurrence: expression.into(),
             });
@@ -174,7 +179,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             }
 
             dependencies.push(ExecutionDependency {
-                target: call.target(),
+                target: (call.resolution().declaration_source().map(bray_bound_tree::BoundCallableTarget::Declaration).unwrap_or(call.target())).into(),
                 property,
                 occurrence: expression.into(),
             });
@@ -186,7 +191,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 operation,
                 property,
                 expression,
-                index_in_bounds,
+                operation_domain_proven,
                 dependencies,
             ) {
                 return false;
@@ -283,7 +288,7 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
             };
 
             dependencies.push(ExecutionDependency {
-                target: bray_bound_tree::BoundCallableTarget::Declaration(call.callable()),
+                target: (bray_bound_tree::BoundCallableTarget::Declaration(call.callable())).into(),
                 property,
                 occurrence,
             });
@@ -316,7 +321,7 @@ fn check_operation(
     operation: &SelectedOperation,
     property: ExecutionProperty,
     expression: BoundExpressionId,
-    index_in_bounds: bool,
+    operation_domain_proven: bool,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
     let mut calls = Vec::new();
@@ -325,12 +330,18 @@ fn check_operation(
     let resolved =
         crate::behavior::collect_operation_behavior(operation, None, &mut calls, &mut defaults);
 
-    if !resolved || !defaults.is_empty() {
+    if !resolved {
         return false;
     }
 
+    dependencies.extend(defaults.into_iter().map(|provider| ExecutionDependency {
+        target: crate::ExecutionDependencyTarget::Default(provider),
+        property,
+        occurrence: expression.into(),
+    }));
+
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
-        target: call.target(),
+        target: (call.target()).into(),
         property,
         occurrence: expression.into(),
     }));
@@ -339,14 +350,9 @@ fn check_operation(
         SelectedOperation::Operator {
             target: OperatorTarget::BuiltIn(operator),
             ..
-        } => property == ExecutionProperty::Pure || !operator.builtin_may_panic(),
-        SelectedOperation::Construction(construction) => {
-            matches!(construction.target(), ConstructionTarget::TypeForm { .. })
-                || construction
-                    .inputs()
-                    .iter()
-                    .all(|input| matches!(input, SelectedConstructionInput::Explicit { .. }))
-        }
+        } => property == ExecutionProperty::Pure || !operator.builtin_may_panic() || operation_domain_proven,
+        // Field providers contribute their own selected execution dependencies.
+        SelectedOperation::Construction(_) => true,
         SelectedOperation::CompoundAssignment(selection) => {
             property != ExecutionProperty::Pure
                 && match selection.target() {
@@ -363,7 +369,7 @@ fn check_operation(
                 | bray_bound_tree::IndexTarget::ArraySlice
                 | bray_bound_tree::IndexTarget::Slice,
             ..
-        } => property == ExecutionProperty::Pure || index_in_bounds,
+        } => property == ExecutionProperty::Pure || operation_domain_proven,
         SelectedOperation::Index { .. } => !calls.is_empty(),
         _ => true,
     }
@@ -379,7 +385,7 @@ fn collect_conversion_dependencies(
     let resolved = crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
 
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
-        target: call.target(),
+        target: (call.target()).into(),
         property,
         occurrence: expression.into(),
     }));
@@ -404,7 +410,7 @@ pub(super) fn collect_scoped_dependency(
     let callable = scoped.invocation(invocation).0;
 
     dependencies.push(ExecutionDependency {
-        target: bray_bound_tree::BoundCallableTarget::Declaration(callable),
+        target: (bray_bound_tree::BoundCallableTarget::Declaration(callable)).into(),
         property,
         occurrence: invocation,
     });

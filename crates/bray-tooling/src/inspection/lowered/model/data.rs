@@ -2399,6 +2399,7 @@ fn constant_text(
         ConstantValueKind::String(value) => format!("\"{}\"", value.escape_debug()),
         ConstantValueKind::Unit => String::from("()"),
         ConstantValueKind::StaticAddress(_) => String::from("<static-address>"),
+        ConstantValueKind::Borrowed(_) => String::from("<constant-observation>"),
         ConstantValueKind::NullableAbsent => String::from("none"),
         ConstantValueKind::NullablePresent(_) => String::from("some(<constant>)"),
         ConstantValueKind::Tuple(values) => format!("<tuple:{}>", values.len()),

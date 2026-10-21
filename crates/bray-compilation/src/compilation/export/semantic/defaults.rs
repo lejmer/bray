@@ -1,20 +1,19 @@
 use std::collections::BTreeSet;
 
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateInputKind, CheckedTemplateKind};
+use bray_bound_tree::{CheckedTemplateKind};
 use bray_package_interface::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceDeclarationTemplate,
     InterfaceSupportEntity, InterfaceTargetPropertyDependency,
 };
 use bray_symbols::{
     AnySymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
-    InterfaceSupportEntityId, RuntimeDefaultProviderInput, StaticStorageDuration,
-    SymbolQueryRequest, TypeId,
+    InterfaceSupportEntityId, StaticStorageDuration,
+    SymbolQueryRequest,
 };
 use bray_target::TargetPropertyKind;
 
 use super::super::PackageInterfaceExportError;
-use super::super::template::SourceTemplateInput;
 use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::source_graph::{
@@ -91,100 +90,6 @@ pub(super) fn target_dependencies(
     dependencies.dedup();
 
     Ok(dependencies)
-}
-
-pub(super) fn runtime_default_inputs(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    export: &mut SemanticExporter<'_>,
-    inputs: &[RuntimeDefaultProviderInput],
-) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
-    inputs
-        .iter()
-        .copied()
-        .map(|input| {
-            let (kind, symbol) = match input {
-                RuntimeDefaultProviderInput::Receiver(receiver) => (
-                    CheckedTemplateInputKind::Receiver,
-                    AnySymbolId::ReceiverParameter(receiver),
-                ),
-                RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
-                    let ordinal = graph
-                        .callable_parameters()
-                        .iter()
-                        .find(|candidate| candidate.id() == parameter)
-                        .map(|parameter| parameter.ordinal())
-                        .ok_or_else(|| incomplete(parameter.into()))?;
-
-                    (
-                        CheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
-                            ordinal,
-                        )),
-                        AnySymbolId::CallableParameter(parameter),
-                    )
-                }
-            };
-
-            Ok(SourceTemplateInput::new(
-                kind,
-                Some(BoundReferenceTarget::Surface(symbol)),
-                runtime_default_input_type(compilation, graph, export, symbol)?,
-            ))
-        })
-        .collect()
-}
-
-pub(super) fn runtime_default_input_type(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    export: &mut SemanticExporter<'_>,
-    symbol: AnySymbolId,
-) -> Result<TypeId, PackageInterfaceExportError> {
-    let (owner, parameter) = match symbol {
-        AnySymbolId::ReceiverParameter(receiver) => {
-            let receiver = graph
-                .receiver_parameter(receiver)
-                .ok_or_else(|| incomplete(symbol))?;
-
-            (receiver.owner(), None)
-        }
-        AnySymbolId::CallableParameter(parameter) => {
-            let parameter = graph
-                .callable_parameter(parameter)
-                .ok_or_else(|| incomplete(symbol))?;
-
-            (
-                parameter.owner(),
-                Some((parameter.id(), parameter.ordinal())),
-            )
-        }
-        _ => return Err(incomplete(symbol)),
-    };
-
-    let signature = compilation
-        .callable_signature_template(owner.into_any())
-        .map_err(super::super::fact_query_export_error)?
-        .ok_or_else(|| incomplete(symbol))?;
-
-    if signature.diagnostics().has_errors() {
-        return Err(incomplete(symbol));
-    }
-
-    match parameter {
-        Some((parameter, ordinal)) => {
-            let ty = signature
-                .value()
-                .parameter_type_template(parameter, ordinal, export.values)
-                .map_err(|error| super::super::callable_signature_export_error(error))?;
-
-            export.resolve_type_template(symbol, &ty)
-        }
-        None => signature
-            .value()
-            .receiver()
-            .map(|receiver| receiver.ty())
-            .ok_or_else(|| incomplete(symbol)),
-    }
 }
 
 pub(super) fn generic_parameters(

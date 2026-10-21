@@ -231,6 +231,14 @@ impl SemanticValueStore {
         self.intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
     }
 
+    /// Returns the immutable referent of a constant observation without reading runtime storage.
+    pub fn observed_constant_value(&self, mut value: ConstantValueId) -> ConstantValueId {
+        while let ConstantValueKind::Borrowed(referent) = self.constant_value_data(value).kind() {
+            value = *referent;
+        }
+        value
+    }
+
     /// Returns immutable data for a constant value issued by this store.
     pub fn constant_value_data(&self, id: ConstantValueId) -> Arc<ConstantValueData> {
         self.tables().constant_values.get_shared(self.id, id)

@@ -216,7 +216,7 @@ fn validate_operation_types(
             validate_short_circuit_types(node, *left, *right, actual, nodes)?;
         }
         CheckedTemplateOperation::Array(elements) => validate_array_types(node, elements, nodes)?,
-        CheckedTemplateOperation::Constant { .. }
+        CheckedTemplateOperation::Unreachable | CheckedTemplateOperation::Constant { .. }
         | CheckedTemplateOperation::Unary { .. }
         | CheckedTemplateOperation::Binary { .. }
         | CheckedTemplateOperation::Borrow { .. }
@@ -224,12 +224,13 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Call { .. }
         | CheckedTemplateOperation::Convert { .. }
         | CheckedTemplateOperation::Tuple(_)
-        | CheckedTemplateOperation::Product(_)
+        | CheckedTemplateOperation::Construct { .. }
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
         | CheckedTemplateOperation::Project { .. }
         | CheckedTemplateOperation::VariantTest { .. }
-        | CheckedTemplateOperation::TupleElement { .. } => {}
+        | CheckedTemplateOperation::TupleElement { .. }
+        | CheckedTemplateOperation::NullableValue { .. } => {}
     }
 
     Ok(())

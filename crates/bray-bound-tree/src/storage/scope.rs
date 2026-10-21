@@ -59,6 +59,7 @@ pub fn storage_identity_transfers_at_unit_exit(
             | StorageIdentity::LocalOwned(_)
             | StorageIdentity::Static(_)
             | StorageIdentity::Parameter(_)
+            | StorageIdentity::ContractParameter(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)
             | StorageIdentity::PostconditionResult(_)
@@ -252,7 +253,7 @@ impl StorageScopeOwners {
             Some(StorageIdentity::ScopedCapability { expression, .. }) => {
                 self.scoped_capabilities.get(&expression).copied()
             }
-            Some(identity) if identity.is_borrowed_provider_input(self.unit) => None,
+            Some(identity) if identity.borrows_input_storage(self.unit) => None,
             Some(identity) => identity
                 .definition_node()
                 .and_then(|node| self.nodes.get(&node).copied())

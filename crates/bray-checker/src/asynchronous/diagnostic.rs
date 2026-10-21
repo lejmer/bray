@@ -170,6 +170,7 @@ where
         StorageIdentity::Error(source) => Some(source),
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Parameter(_)
+        | StorageIdentity::ContractParameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::Static(_)
         | StorageIdentity::AnonymousParameter(_)

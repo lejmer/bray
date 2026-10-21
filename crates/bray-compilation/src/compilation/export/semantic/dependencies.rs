@@ -128,6 +128,7 @@ impl<'a> SemanticExporter<'a> {
             .with_borrows(borrows)
             .with_carriers(carriers)
             .with_returned_input(returned_input)
+            .with_observed_result(data.observed_result().map(|term| self.constant_term_id(term)).transpose()?)
             .with_effects(effects)
             .with_normal_completion(data.normal_completion())
             .with_normal_storage_preservation(data.preserves_storage_on_normal_return());

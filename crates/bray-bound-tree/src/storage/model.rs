@@ -55,6 +55,8 @@ pub enum StorageIdentity {
     LocalOwned(AnyBoundNodeId),
     /// Storage supplied through an owned or borrowed callable parameter.
     Parameter(CallableParameterSymbolId),
+    /// Storage observed through a callable-type clause's local parameter placeholder.
+    ContractParameter(bray_symbols::LocalBindingSymbolId),
     /// Storage supplied through a callable receiver.
     Receiver(ReceiverParameterSymbolId),
     /// Storage owned by one demanded static declaration instance.
@@ -103,6 +105,7 @@ impl StorageIdentity {
             self,
             StorageIdentity::LocalOwned(_)
                 | StorageIdentity::Parameter(_)
+                | StorageIdentity::ContractParameter(_)
                 | StorageIdentity::Receiver(_)
                 | StorageIdentity::AnonymousParameter(_)
                 | StorageIdentity::PredicateParameter(_)
@@ -118,15 +121,24 @@ impl StorageIdentity {
     }
 
     /// Whether this identity denotes a distinct value slot owned by the current invocation.
-    /// Borrowed runtime-default inputs retain their caller's storage instead.
+    /// Default and contract inputs retain the storage of their originating context.
     pub fn is_invocation_owned(self, unit: crate::BoundUnitKind) -> bool {
-        self.owns_slot() && !self.is_borrowed_provider_input(unit)
+        self.owns_slot() && !self.borrows_input_storage(unit)
     }
 
-    /// Returns whether a runtime-default provider borrows this input from its caller.
-    pub fn is_borrowed_provider_input(self, unit: crate::BoundUnitKind) -> bool {
-        unit == crate::BoundUnitKind::RuntimeDefault
-            && matches!(self, Self::Parameter(_) | Self::Receiver(_))
+    /// Whether this unit observes an input slot owned by its enclosing context.
+    pub fn borrows_input_storage(self, unit: crate::BoundUnitKind) -> bool {
+        use crate::BoundUnitKind;
+
+        match unit {
+            BoundUnitKind::CallableBody | BoundUnitKind::AnonymousCallable => false,
+            BoundUnitKind::RuntimeDefault | BoundUnitKind::ConstantTemplate
+            | BoundUnitKind::EmbeddedConstant | BoundUnitKind::PredicateDefinition
+            | BoundUnitKind::Constraint | BoundUnitKind::ContractClause | BoundUnitKind::TargetGate => {
+                matches!(self, Self::ContractParameter(_) | Self::Parameter(_) | Self::Receiver(_) | Self::AnonymousParameter(_)
+                    | Self::PredicateParameter(_) | Self::PostconditionResult(_))
+            }
+        }
     }
 
     /// Returns this storage identity's stable machine-readable category.
@@ -134,6 +146,7 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(_) => "local_owned",
             Self::Parameter(_) => "parameter",
+            Self::ContractParameter(_) => "contract_parameter",
             Self::Receiver(_) => "receiver",
             Self::Static(_) => "static",
             Self::AnonymousParameter(_) => "anonymous_parameter",
@@ -157,6 +170,7 @@ impl StorageIdentity {
         matches!(
             self,
             Self::Parameter(_)
+                | Self::ContractParameter(_)
                 | Self::Receiver(_)
                 | Self::Static(_)
                 | Self::AnonymousParameter(_)
@@ -183,6 +197,7 @@ impl StorageIdentity {
                 Some(AnyBoundNodeId::Pattern(pattern))
             }
             Self::Parameter(_)
+            | Self::ContractParameter(_)
             | Self::Receiver(_)
             | Self::Static(_)
             | Self::AnonymousParameter(_)
@@ -210,6 +225,7 @@ impl StorageIdentity {
                 pattern,
             } => expression.unit() == unit && pattern.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
+            Self::ContractParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::Static(_)
             | Self::PredicateParameter(_)

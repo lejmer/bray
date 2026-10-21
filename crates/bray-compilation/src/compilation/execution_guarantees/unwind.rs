@@ -163,11 +163,22 @@ impl Compilation {
 
     fn queue_unwind_dependency(
         &self,
-        target: BoundCallableTarget,
+        target: bray_checker::ExecutionDependencyTarget,
         entry: &BTreeSet<bray_checker::ExecutionCondition>,
         pending: &mut Vec<BoundUnitKey>,
         cancellation: &CancellationToken,
     ) -> Result<bool, FactQueryError> {
+        let target = match target {
+            bray_checker::ExecutionDependencyTarget::Callable(target) => target,
+            bray_checker::ExecutionDependencyTarget::Default(provider) => {
+                if let Some(body) = self.declared_unit_key(provider.symbol(), bray_bound_tree::BoundUnitKind::RuntimeDefault)? {
+                    pending.push(body);
+                    return Ok(false);
+                }
+                let imported = self.checked_default_template(provider, cancellation)?;
+                return Ok(imported.diagnostics().has_errors() || imported.value().as_ref().is_none_or(|template| template.behavior().execution().may_unwind()));
+            }
+        };
         let BoundCallableTarget::Declaration(instance) = target else {
             return Ok(true);
         };
@@ -299,6 +310,11 @@ impl Compilation {
             .filter(|(_, dependencies)| dependencies.iter().all(|target| targets.contains(target)))
             .map(|(expression, _)| *expression)
             .collect();
+
+        let targets = targets.into_iter().filter_map(|target| match target {
+            bray_checker::ExecutionDependencyTarget::Callable(target) => Some(target),
+            bray_checker::ExecutionDependencyTarget::Default(_) => None,
+        }).collect();
 
         Ok(bray_bound_tree::CheckedUnwind::new(calls, targets))
     }

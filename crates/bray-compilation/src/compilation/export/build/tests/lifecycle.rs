@@ -852,7 +852,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             .flat_map(|template| template.nodes())
             .any(|node| matches!(
                 node.operation(),
-                InterfaceCheckedTemplateOperation::Product(_)
+                InterfaceCheckedTemplateOperation::Construct { .. }
             ))
     );
 

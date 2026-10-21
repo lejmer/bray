@@ -68,11 +68,18 @@ impl Compilation {
 
                 pending.extend(nested.into_iter().rev());
 
+                if !matches!(key.kind(), bray_bound_tree::BoundUnitKind::CallableBody
+                    | bray_bound_tree::BoundUnitKind::AnonymousCallable) {
+                    continue;
+                }
+
                 let declaration = self.execution_declaration(key.source().syntax())?;
 
                 checked_clauses.extend(declaration.value().clauses().iter().copied());
 
-                if !declaration.value().clauses().is_empty() {
+                let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
+
+                if !declaration.value().clauses().is_empty() || declared_const {
                     // Aggregate diagnostics and retain the immutable key beyond this bound-unit borrow.
                     diagnostics.add_range(self.execution_properties(key)?.diagnostics().clone());
                 }

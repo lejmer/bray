@@ -1,8 +1,12 @@
 mod build;
 mod call;
+mod callable;
 mod control;
+mod contract;
+mod conversion;
 mod index;
 mod inputs;
+mod pattern;
 mod query;
 
 pub(in crate::compilation) use build::{
@@ -10,5 +14,5 @@ pub(in crate::compilation) use build::{
 };
 
 pub(in crate::compilation) use inputs::{
-    callable_template_inputs, generic_template_inputs, resolved_input_type,
+    callable_template_inputs, generic_template_inputs, predicate_template_inputs, resolved_input_type,
 };

@@ -134,6 +134,7 @@ pub enum SelectedArgument {
 /// One exact callable, ABI, implementation witnesses, and normalized argument mapping.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCall {
+    constness: bray_symbols::CallableConstness,
     invocation: bray_symbols::CallableInvocation,
     resolution: BoundResolvedCall,
     abi: CallableAbi,
@@ -161,6 +162,7 @@ impl SelectedCall {
     /// Creates a complete callable selection.
     pub fn new(
         resolution: BoundResolvedCall,
+        constness: bray_symbols::CallableConstness,
         abi: CallableAbi,
         phase_behaviors: CallablePhaseBehaviors,
         receiver: Option<SelectedReceiver>,
@@ -168,6 +170,7 @@ impl SelectedCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            constness,
             invocation: bray_symbols::CallableInvocation::for_abi(abi),
             resolution,
             abi,
@@ -196,6 +199,9 @@ impl SelectedCall {
     pub const fn abi(&self) -> CallableAbi {
         self.abi
     }
+
+    /// Returns the const contract of the selected callable surface.
+    pub const fn constness(&self) -> bray_symbols::CallableConstness { self.constness }
 
     /// Returns the complete checked invocation and deferred-execution behavior.
     pub fn phase_behaviors(&self) -> &CallablePhaseBehaviors {

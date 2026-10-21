@@ -114,6 +114,8 @@ pub enum CheckedTemplateOperation<
     Substitution = GenericSubstitutionId,
     Implementation = SymbolKey,
 > {
+    /// A path with no normal value, established by checked control flow or entry requirements.
+    Unreachable,
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
     /// Materializes an already checked open or closed constant term.
@@ -177,8 +179,13 @@ pub enum CheckedTemplateOperation<
     Tuple(Arc<[CheckedTemplateNodeId]>),
     /// Constructs an array from values in element order.
     Array(Arc<[CheckedTemplateNodeId]>),
-    /// Constructs a product while evaluating fields in source order.
-    Product(Arc<[ConstantField<Declaration, CheckedTemplateNodeId>]>),
+    /// Constructs a nominal aggregate while evaluating fields in source order.
+    Construct {
+        /// The selected active variant for a union. Struct construction has no variant.
+        variant: Option<Declaration>,
+        /// Checked declaration-owned fields and their evaluated inputs.
+        fields: Arc<[ConstantField<Declaration, CheckedTemplateNodeId>]>,
+    },
     /// Projects a selected declaration-owned member from a value.
     Project {
         /// The projected subject.
@@ -192,6 +199,11 @@ pub enum CheckedTemplateOperation<
         subject: CheckedTemplateNodeId,
         /// Exact checked variant declaration.
         variant: Declaration,
+    },
+    /// Observes the payload of a nullable value already established to be present.
+    NullableValue {
+        /// Evaluated nullable subject.
+        subject: CheckedTemplateNodeId,
     },
     /// Projects a tuple component using its checked ordinal.
     TupleElement {
@@ -299,10 +311,11 @@ impl<Term, Type, Declaration, Substitution, Implementation>
     }
 
     /// Creates a field-identified product construction in evaluation order.
-    pub fn product(
+    pub fn construct(
+        variant: Option<Declaration>,
         fields: impl IntoIterator<Item = ConstantField<Declaration, CheckedTemplateNodeId>>,
     ) -> Self {
-        Self::Product(shared_slice(fields))
+        Self::Construct { variant, fields: shared_slice(fields) }
     }
 
     /// Maps semantic references while preserving node identities and sharing operand storage.
@@ -373,7 +386,8 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             },
             Self::Tuple(elements) => CheckedTemplateOperation::Tuple(Arc::clone(elements)),
             Self::Array(elements) => CheckedTemplateOperation::Array(Arc::clone(elements)),
-            Self::Product(fields) => CheckedTemplateOperation::product(
+            Self::Construct { variant, fields } => CheckedTemplateOperation::construct(
+                variant.as_ref().map(&mut declaration).transpose()?,
                 fields
                     .iter()
                     .map(|field| {
@@ -392,6 +406,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 subject: *subject,
                 variant: declaration(variant)?,
             },
+            Self::NullableValue { subject } => CheckedTemplateOperation::NullableValue { subject: *subject },
             Self::TupleElement { subject, index } => CheckedTemplateOperation::TupleElement {
                 subject: *subject,
                 index: *index,
@@ -453,7 +468,41 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 right: *right,
             },
             Self::Temporary(temporary) => CheckedTemplateOperation::Temporary(*temporary),
+            Self::Unreachable => CheckedTemplateOperation::Unreachable,
         })
+    }
+
+    /// Rebinds operand identities when applying a checked graph to existing inputs.
+    pub fn map_node_references(&mut self, mut map: impl FnMut(CheckedTemplateNodeId) -> CheckedTemplateNodeId)
+    where Declaration: Clone,
+    {
+        match self {
+            Self::Call { arguments, .. } | Self::Tuple(arguments) | Self::Array(arguments) => {
+                for argument in Arc::make_mut(arguments) { *argument = map(*argument); }
+            }
+            Self::Construct { fields, .. } => {
+                for field in Arc::make_mut(fields) {
+                    // The applied graph owns new operand identities while sharing stable declarations.
+                    *field = ConstantField::new(field.field().clone(), map(*field.value()));
+                }
+            }
+            Self::Convert { value, .. } => *value = map(*value),
+            Self::Unary { operand, .. } | Self::Borrow { operand, .. } => *operand = map(*operand),
+            Self::Binary { left, right, .. } | Self::ShortCircuit { left, right, .. } => {
+                *left = map(*left); *right = map(*right);
+            }
+            Self::VariantTest { subject, .. } | Self::Project { subject, .. }
+            | Self::TupleElement { subject, .. } | Self::NullableValue { subject } => *subject = map(*subject),
+            Self::Index { subject, index, .. } => { *subject = map(*subject); *index = map(*index); }
+            Self::Slice { subject, lower, upper, .. } => {
+                *subject = map(*subject);
+                for bound in [lower, upper].into_iter().flatten() { *bound = map(*bound); }
+            }
+            Self::Conditional { condition, when_true, when_false } => {
+                *condition = map(*condition); *when_true = map(*when_true); *when_false = map(*when_false);
+            }
+            Self::Unreachable | Self::Input(_) | Self::Constant { .. } | Self::Declaration { .. } | Self::Temporary(_) => {}
+        }
     }
 
     /// Visits direct node dependencies in evaluation order, including conditional branches.
@@ -467,7 +516,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                     visit(*argument)?;
                 }
             }
-            Self::Product(fields) => {
+            Self::Construct { fields, .. } => {
                 for field in fields.iter() {
                     visit(*field.value())?;
                 }
@@ -480,7 +529,8 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             }
             Self::VariantTest { subject, .. }
             | Self::Project { subject, .. }
-            | Self::TupleElement { subject, .. } => visit(*subject)?,
+            | Self::TupleElement { subject, .. }
+            | Self::NullableValue { subject } => visit(*subject)?,
             Self::Index { subject, index, .. } => {
                 visit(*subject)?;
                 visit(*index)?;
@@ -510,7 +560,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 visit(*left)?;
                 visit(*right)?;
             }
-            Self::Input(_)
+            Self::Unreachable | Self::Input(_)
             | Self::Constant { .. }
             | Self::Declaration { .. }
             | Self::Temporary(_) => {}

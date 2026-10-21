@@ -15,14 +15,6 @@ pub(super) fn comparison_is_implied(
         return None;
     };
 
-    let (strict, reversed, allows_equal) = match operator {
-        BoundOperator::Less => (BoundOperator::Less, BoundOperator::Greater, false),
-        BoundOperator::LessEqual => (BoundOperator::Less, BoundOperator::Greater, true),
-        BoundOperator::Greater => (BoundOperator::Greater, BoundOperator::Less, false),
-        BoundOperator::GreaterEqual => (BoundOperator::Greater, BoundOperator::Less, true),
-        _ => return None,
-    };
-
     let known = |operator, left: &ExecutionCondition, right: &ExecutionCondition| {
         // Lookup keys retain the immutable operand terms without scanning assumptions.
         assumptions.contains(&(
@@ -31,8 +23,28 @@ pub(super) fn comparison_is_implied(
         ))
     };
 
+    let unequal = known(BoundOperator::NotEqual, left, right) || known(BoundOperator::NotEqual, right, left)
+        || assumptions.contains(&(ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]), false))
+        || assumptions.contains(&(ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]), false));
+    if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
+        let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater].into_iter()
+            .any(|operator| known(operator, left, right) || known(operator, right, left));
+        return strictly_ordered.then_some(operator == BoundOperator::NotEqual);
+    }
+
+    let (strict, reversed, allows_equal) = match operator {
+        BoundOperator::Less => (BoundOperator::Less, BoundOperator::Greater, false),
+        BoundOperator::LessEqual => (BoundOperator::Less, BoundOperator::Greater, true),
+        BoundOperator::Greater => (BoundOperator::Greater, BoundOperator::Less, false),
+        BoundOperator::GreaterEqual => (BoundOperator::Greater, BoundOperator::Less, true),
+        _ => return None,
+    };
+
+    let weak = if strict == BoundOperator::Less { BoundOperator::LessEqual } else { BoundOperator::GreaterEqual };
+    let reversed_weak = if reversed == BoundOperator::Less { BoundOperator::LessEqual } else { BoundOperator::GreaterEqual };
     if known(strict, left, right)
         || known(reversed, right, left)
+        || unequal && (known(weak, left, right) || known(reversed_weak, right, left))
         || allows_equal
             && (known(BoundOperator::Equal, left, right)
                 || known(BoundOperator::Equal, right, left))
@@ -117,32 +129,34 @@ pub fn remap_execution_condition_inputs(
 }
 
 /// Substitutes the exact generic identities carried by normalized predicate applications.
-pub fn map_execution_condition_substitutions<E>(
+pub fn map_execution_condition_references<E>(
     condition: &ExecutionCondition,
     map: &impl Fn(bray_symbols::GenericSubstitutionId) -> Result<bray_symbols::GenericSubstitutionId, E>,
+    input: &impl Fn(&super::ExecutionPlace) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
+        ExecutionCondition::Input(place) => input(place)?,
         ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
-            map_execution_condition_substitutions(value, map)?,
+            map_execution_condition_references(value, map, input)?,
         )),
         ExecutionCondition::VariantTest(variant, value) => {
-            map_execution_condition_substitutions(value, map)?.matches_variant(*variant)
+            map_execution_condition_references(value, map, input)?.matches_variant(*variant)
         }
         ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
             *variant,
-            std::sync::Arc::new(map_execution_condition_substitutions(value, map)?),
+            std::sync::Arc::new(map_execution_condition_references(value, map, input)?),
         ),
         ExecutionCondition::Present(value) => {
-            map_execution_condition_substitutions(value, map)?.present()
+            map_execution_condition_references(value, map, input)?.present()
         }
         ExecutionCondition::Borrowed(value) => {
-            map_execution_condition_substitutions(value, map)?.borrowed()
+            map_execution_condition_references(value, map, input)?.borrowed()
         }
         ExecutionCondition::Entry {
             condition,
             captured,
         } => ExecutionCondition::Entry {
-            condition: std::sync::Arc::new(map_execution_condition_substitutions(condition, map)?),
+            condition: std::sync::Arc::new(map_execution_condition_references(condition, map, input)?),
             captured: *captured,
         },
         ExecutionCondition::Predicate(predicate, substitution, operands) => {
@@ -151,7 +165,7 @@ pub fn map_execution_condition_substitutions<E>(
                 map(*substitution)?,
                 operands
                     .iter()
-                    .map(|operand| map_execution_condition_substitutions(operand, map))
+                    .map(|operand| map_execution_condition_references(operand, map, input))
                     .collect::<Result<_, _>>()?,
             )
         }
@@ -159,7 +173,7 @@ pub fn map_execution_condition_substitutions<E>(
             *operator,
             operands
                 .iter()
-                .map(|operand| map_execution_condition_substitutions(operand, map))
+                .map(|operand| map_execution_condition_references(operand, map, input))
                 .collect::<Result<_, _>>()?,
         ),
         ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(
@@ -169,23 +183,41 @@ pub fn map_execution_condition_substitutions<E>(
             ),
             operands
                 .iter()
-                .map(|operand| map_execution_condition_substitutions(operand, map))
+                .map(|operand| map_execution_condition_references(operand, map, input))
                 .collect::<Result<_, _>>()?,
         ),
         ExecutionCondition::Projection(field, value) => {
-            map_execution_condition_substitutions(value, map)?.component(*field)
+            map_execution_condition_references(value, map, input)?.component(*field)
         }
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(map_execution_condition_substitutions(base, map)?),
+            std::sync::Arc::new(map_execution_condition_references(base, map, input)?),
             fields
                 .iter()
                 .map(|(field, value)| {
-                    Ok((*field, map_execution_condition_substitutions(value, map)?))
+                    Ok((*field, map_execution_condition_references(value, map, input)?))
                 })
                 .collect::<Result<Vec<_>, E>>()?
                 .into(),
         ),
         _ => condition.clone(),
+    })
+}
+
+/// Applies an already checked generic application to substitutions and generic constant inputs.
+pub fn substitute_execution_condition(
+    values: &bray_symbols::SemanticValueStore, condition: &ExecutionCondition,
+    substitution: bray_symbols::GenericSubstitutionId,
+) -> Result<ExecutionCondition, bray_symbols::SemanticValueStoreError> {
+    map_execution_condition_references(condition, &|nested| values.substitute_generic_substitution(nested, substitution), &|place| {
+        let Some(bray_bound_tree::BoundReferenceTarget::Surface(bray_symbols::AnySymbolId::GenericConstParameter(parameter))) = place.reference() else {
+            // The instantiated condition retains the same immutable runtime input path.
+            return Ok(ExecutionCondition::Input(place.clone()));
+        };
+        let term = values.intern_constant_term(bray_symbols::ConstantTermData::Parameter(parameter))?;
+        let term = values.substitute_constant_term(term, substitution)?;
+        let mut value = crate::execution_condition_from_type_term(values, term, 0)?;
+        for projection in &*place.projections { value = value.component(*projection); }
+        Ok(value)
     })
 }
 

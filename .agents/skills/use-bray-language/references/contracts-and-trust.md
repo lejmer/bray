@@ -106,7 +106,7 @@ Predicate parameters have names and types without callable ownership modifiers o
 
 Predicate expressions are pure, deterministic, total, terminating, and observational. They can use literals, parameters, constants, observable fields and structural values, exact arithmetic, Boolean operators, comparisons, conditional expressions, predicate calls, predicate-valid callable calls, and finite bounded `all(...)` or `any(...)` folds. `result` is additionally available in a postcondition predicate context.
 
-A public function or method called from a predicate expression exposes `const` in its declaration surface. Its selected contract, arguments, requirements, body operations, and result must all be valid in predicate-expression context. Private helpers can have const eligibility inferred within one checking unit, but that inference does not become exported API.
+A callable declaration or lambda invoked from a predicate expression must expose `const`, including calls through values, aliases, selected implementations and compiled interfaces. Its selected contract, arguments, requirements, body operations and result must all be valid in predicate-expression context. Ordinary runtime callers of const functions do not themselves need `const`.
 
 Keep predicate bodies to one predicate expression. Stateful operations, ownership transfer, allocation, I/O, async execution, trusted capability use, and other effects belong in ordinary execution rather than contract evaluation.
 

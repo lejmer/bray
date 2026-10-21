@@ -106,6 +106,10 @@ impl InterfaceSemantics {
             .to_index()
             .expect("validated dependency index")];
 
+        if let Some(term) = result_dependencies.observed_result {
+            self.validate_execution_term(term, signature.parameters.len() + usize::from(signature.receiver.is_some()), false, surface)?;
+        }
+
         if let Some(input) = result_dependencies.returned_input {
             self.validate_returned_input(
                 input,
