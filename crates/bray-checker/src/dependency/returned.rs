@@ -92,7 +92,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
             .empty_dependency_contract_template()
             .expect("predicate outputs have no retained ownership")
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
-        let requirement = request.context().result_dispatch_requirement(dispatch)?;
+        let requirement = request.context().dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
 
         store
@@ -175,7 +175,9 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
     let bray_bound_tree::SemanticSelection::Call(call) = selection else {
         panic!("call static expansion retains its selected callable");
     };
+
     let template = callee_result_template(request, call, declaration)?;
+
     super::defaults::expand_result_defaults(request, selection, &template)
 }
 
@@ -423,9 +425,7 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
-        .filter_map(|relation| {
-            call.input_site(expression, relation.entry().subject_root())
-        })
+        .filter_map(|relation| call.input_site(expression, relation.entry().subject_root()))
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut pending = template.requirements().iter().collect::<Vec<_>>();
@@ -515,7 +515,13 @@ impl super::ValueInputs {
                 continue;
             };
 
-            let template = call_result_template(request, selections.expression(expression).expect("selected call has its owning selection"), &mut declaration)?;
+            let template = call_result_template(
+                request,
+                selections
+                    .expression(expression)
+                    .expect("selected call has its owning selection"),
+                &mut declaration,
+            )?;
 
             let sources = template
                 .template

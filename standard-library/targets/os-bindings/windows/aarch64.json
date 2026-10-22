@@ -1040,9 +1040,7 @@
           "type": "TickCountRoutine",
           "ownership": "the returned owner retains Kernel32",
           "dependencies": [
-            "blocking_execution",
-            "foreign_call",
-            "layout_reinterpret"
+            "blocking_execution"
           ]
         }
       ],

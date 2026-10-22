@@ -51,7 +51,6 @@ func c_scalar_wrappers_preserve_values_and_layouts()
 
 @test
 trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.memory.MemoryLayoutError>
-    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
 
@@ -67,7 +66,7 @@ trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.me
 
 @test
 trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryLayoutError>
-    uses(manual_alloc, raw_memory, unchecked_init)
+    uses(foreign_call)
 {
     let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
 
@@ -81,14 +80,13 @@ trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryL
 
     assert(trusted entry(callback.context(), 41));
 
-    let _: &std.ffi.CallbackContext<i32> = callback.owner;
+    let _: &std.ffi.CallbackContext<i32> = internal callback.owner;
 
     return Ok(unit);
 }
 
 @test
 trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.StringError>
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let input: bytes = b"ABC";
     let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);

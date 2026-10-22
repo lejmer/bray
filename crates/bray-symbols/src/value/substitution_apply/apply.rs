@@ -934,6 +934,7 @@ mod tests {
                 crate::DependencyReferenceKind::Borrow,
             )
             .with_target_projections([DependencyProjection::Element(index)])
+            .with_exactness(false)
         };
 
         let invocation = store

@@ -1,6 +1,7 @@
 trusted internal module bray.runtime.bootstrap.heap;
 
 using core.memory;
+using std.numeric;
 using std.memory;
 using internal std.runtime.memory;
 
@@ -29,7 +30,7 @@ trusted internal func deallocate_bytes(pos pointer: DataPointer<u8>, pos bytes: 
 trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer<T>?
 {
     let stride: usize = std.memory.stride_of<T>();
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
 
     if stride != 0 && capacity > maximum / stride
     {
@@ -61,6 +62,7 @@ trusted internal func try_buffer<T>(pos capacity: usize) -> std.memory.RawBuffer
 
 trusted internal func allocation_pointer<T>(pos pointer: DataPointer<u8>, pos capacity: usize) -> DataPointer<T>
     requires(
+        std.memory.stride_of<T>() * capacity <= std.numeric.USIZE_MAX,
         trusted core.memory.owned_allocation(
             pointer = pointer,
             bytes = std.memory.stride_of<T>() * capacity,
@@ -123,7 +125,7 @@ trusted internal func grow<T>(
         return Ok(true);
     }
 
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
 
     if buffer.capacity > maximum - buffer.capacity
     {

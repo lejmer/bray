@@ -10,7 +10,8 @@ use crate::{
 };
 
 pub(crate) struct Cleanup<'a> {
-    pub(in crate::analysis::guarantee) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
+    pub(in crate::analysis::guarantee) selected:
+        Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
     pub(in crate::analysis) plan: &'a Plan,
     pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }
@@ -20,6 +21,7 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
+    pub(in crate::analysis::guarantee) inert_futures: BTreeSet<bray_bound_tree::BoundExpressionId>,
     pub(crate) scoped_error_quiescence:
         BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
@@ -280,7 +282,8 @@ impl Plan {
                         .borrows()
                         .iter()
                         .filter_map(move |relation| {
-                            (relation.dereferences() == 0
+                            (relation.is_exact()
+                                && relation.dereferences() == 0
                                 && relation.target_projections().is_empty()
                                 && relation.entry() == relation.exit()
                                 && relation.exit().subject_root()
@@ -443,6 +446,7 @@ impl Plan {
 
         prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
         prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
+        prepared.select_inert_futures(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
     }
@@ -564,14 +568,12 @@ fn lifecycle(
                 Err(error) => return Err(error),
             };
 
-            let destination = match (completion, predicate.is_trusted()) {
-                (false, true) => &mut contract.requirements,
-                (false, false) => &mut contract.preconditions,
-                (true, true) => &mut contract.guarantees,
-                (true, false) => &mut contract.postconditions,
-            };
-
-            destination.push(condition);
+            match (completion, predicate.is_trusted()) {
+                (false, true) => contract.requirements.push(condition),
+                (false, false) => contract.preconditions.push((condition, predicate.domain())),
+                (true, true) => contract.guarantees.push(condition),
+                (true, false) => contract.postconditions.push(condition),
+            }
         }
     }
 

@@ -55,7 +55,7 @@ trusted internal func compose(
         trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
     )
     ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
-    uses(intrinsic, layout_reinterpret)
+    uses(intrinsic, layout_reinterpret, foreign_call)
 {
     let admit = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
 

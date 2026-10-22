@@ -265,6 +265,7 @@ fn remap_dependency_contract(
             Ok(
                 bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
                     .with_dereferences(relation.dereferences())
+                    .with_exactness(relation.is_exact())
                     .with_target_projections(projections),
             )
         })

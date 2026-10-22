@@ -270,7 +270,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&invocation)
             .expect("invocation attempt retains its entry evidence");
 
-        Some(evidence.proves(&contract.preconditions))
+        Some(
+            evidence.proves(
+                contract
+                    .preconditions
+                    .iter()
+                    .map(|(condition, _)| condition),
+            ),
+        )
     }
 
     pub(in crate::analysis) fn trusted_memory_evidence(

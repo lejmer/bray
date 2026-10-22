@@ -227,6 +227,7 @@ pub(crate) struct ConstantCallQueryKey {
     result_type: TypeId,
     target: TargetProfile,
     limits: bray_checker::ConstantEvaluationLimits,
+    observation: bool,
 }
 
 /// The exact compilation-local identity of one iteration source selection.
@@ -360,6 +361,7 @@ pub(crate) struct ConstantCallDependencyKey {
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
+    observation: bool,
 }
 
 impl ConstantCallQueryKey {
@@ -378,7 +380,18 @@ impl ConstantCallQueryKey {
             result_type,
             target,
             limits,
+            observation: false,
         }
+    }
+
+    pub(crate) fn with_observation(mut self, observation: bool) -> Self {
+        self.observation = observation;
+
+        self
+    }
+
+    pub(crate) const fn is_observation(&self) -> bool {
+        self.observation
     }
 
     pub(crate) const fn invocation(&self) -> &bray_checker::ConstantCallTarget {
@@ -408,6 +421,7 @@ impl ConstantCallQueryKey {
     pub(crate) fn dependency_key(&self) -> ConstantCallDependencyKey {
         ConstantCallDependencyKey {
             invocation: self.invocation.clone(),
+            observation: self.observation,
             selected_implementation: self.selected_implementation,
             arguments: Arc::clone(&self.arguments),
             result_type: self.result_type,

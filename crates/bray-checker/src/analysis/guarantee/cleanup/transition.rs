@@ -72,6 +72,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             }
                         }
                         AnalysisScopeExitPhase::LifecycleResolution => {
+                            if plan.storage().iter().any(|decision| matches!(decision.disposition(),
+                                bray_bound_tree::AsyncStorageExitDisposition::Recovered(
+                                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableCleanupOrder))) {
+                                self.apply_published_cleanup(state, StorageMutation::Operation(operation.occurrence()));
+                                self.expire_trusted_scope(state, block);
+                                return;
+                            }
+
                             let exit = flow
                                 .exits()
                                 .iter()
@@ -191,17 +199,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     .storage_type(identity)
                                     .expect("cleanup obligation retains its type");
 
+                                let effect = if self.cleanup_preserves_inputs(state, access) {
+                                    CleanupMutation::Unchanged
+                                } else {
+                                    CleanupMutation::Opaque {
+                                        ty,
+                                        access,
+                                        path: self.storage.logical_path(access),
+                                    }
+                                };
+
                                 mutate(
                                     state,
                                     StorageMutation::Cancellation {
                                         occurrence: operation.occurrence(),
                                         access,
                                     },
-                                    CleanupMutation::Opaque {
-                                        ty,
-                                        access,
-                                        path: self.storage.logical_path(access),
-                                    },
+                                    effect,
                                 );
                             }
                             AnalysisScopeExitPhase::LifecycleResolution
@@ -436,7 +450,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let established = self
                     .trusted_requirements_proven(&evidence, &lifecycle.contract.requirements)
-                    && evidence.proves(&lifecycle.contract.preconditions);
+                    && evidence.proves(
+                        lifecycle
+                            .contract
+                            .preconditions
+                            .iter()
+                            .map(|(condition, _)| condition),
+                    );
 
                 if let Some(observe) = observe {
                     observe(

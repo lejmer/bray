@@ -7,7 +7,6 @@ struct CallbackContext<State>
     internal mut storage: std.memory.RawBuffer<State>;
 
     trusted construct(pos state: State) -> Result<Self, std.memory.MemoryLayoutError>
-        uses(manual_alloc, raw_memory, unchecked_init)
     {
         let mut storage: std.memory.RawBuffer<State> = try trusted std.memory.RawBuffer<State>(capacity = 1);
 

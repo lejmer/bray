@@ -335,7 +335,10 @@ trusted internal func invoke_retaining(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
-        operation < 4,
+        operation < 4 || (operation == 4 && trusted completion_destination(
+            pointer = cursor.pointer,
+            address = argument
+        )),
         operation != 3 || argument < 6,
     )
     ensures(

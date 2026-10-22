@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Possible retained dependencies travel with the same control-flow state as storage.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct State {
-    pub(super) values: BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<DependencyRequirement>>,
+    pub(super) values:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<DependencyRequirement>>,
     pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
     pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<super::sources::SourcePath>>,
     pub(super) borrowed_bindings: BTreeMap<LocalBindingSymbolId, BoundExpressionId>,
@@ -102,8 +103,17 @@ impl State {
         }
 
         match storage.identity(root) {
-            Some(bray_bound_tree::StorageIdentity::InvocationInput { expression, ordinal }) => {
-                values.extend(self.value_requirements(bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal }).cloned());
+            Some(bray_bound_tree::StorageIdentity::InvocationInput {
+                expression,
+                ordinal,
+            }) => {
+                values.extend(
+                    self.value_requirements(bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression,
+                        ordinal,
+                    })
+                    .cloned(),
+                );
             }
             Some(
                 bray_bound_tree::StorageIdentity::Temporary(expression)

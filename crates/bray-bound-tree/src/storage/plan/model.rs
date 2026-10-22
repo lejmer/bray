@@ -5,9 +5,9 @@ use super::contracts::{
 use super::resolve::resolve_accesses;
 use crate::storage::builder::StoragePlanBuilder;
 use crate::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundUnitId, BoundUnitKind,
-    StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAlternativeId, StorageIdentity,
-    StorageIdentityId, StoragePath, StorageProjection, StorageRelationship,
+    AnyBoundNodeId, BorrowCapabilityId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId,
+    StorageAccessPurpose, StorageAlternativeId, StorageIdentity, StorageIdentityId, StoragePath,
+    StorageProjection, StorageRelationship,
 };
 use bray_symbols::{BorrowKind, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -739,11 +739,7 @@ mod tests {
 
         assert_eq!(
             plan.node_plans((expressions[0]).into()).collect::<Vec<_>>(),
-            [
-                plan.access_plans()[0],
-                plan.access_plans()[2],
-                plan.access_plans()[4]
-            ]
+            [plan.access_plans()[1]]
         );
 
         assert_eq!(
@@ -948,7 +944,9 @@ mod tests {
 
         let child = builder
             .push_borrow_capability(crate::PlannedBorrowCapability::new(
-                crate::BorrowCapabilityOrigin::Operation((BoundExpressionId::from_slot(unit, 2)).into()),
+                crate::BorrowCapabilityOrigin::Operation(
+                    (BoundExpressionId::from_slot(unit, 2)).into(),
+                ),
                 bray_symbols::BorrowKind::Shared,
                 first,
                 Some(capability),

@@ -7,35 +7,9 @@ use bray_symbols::{
 };
 
 use super::{
-    CheckedTemplateConstantUsage, CheckedTemplateInputId, CheckedTemplateNodeId,
-    CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
+    CheckedTemplateConstantUsage, CheckedTemplateDispatch, CheckedTemplateInputId,
+    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
-
-/// The exact checked witness source selected for a callable operation.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CheckedTemplateDispatch<
-    Declaration = SymbolKey,
-    Substitution = GenericSubstitutionId,
-    Implementation = SymbolKey,
-    Type = TypeId,
-> {
-    /// A concrete implementation and its checked generic application.
-    Implementation(Implementation, Substitution),
-    /// A surrounding declaration constraint in declaration order.
-    Constraint {
-        /// The generic declaration supplying the witness.
-        owner: Declaration,
-        /// The selected constraint's ordinal.
-        ordinal: bray_symbols::SymbolOrdinal,
-    },
-    /// The witness realizing the selected trait member's default body.
-    TraitDefault {
-        /// The reached subject requiring the default witness.
-        subject: Type,
-        /// The trait-owned substitution of the exact requirement.
-        substitution: Substitution,
-    },
-}
 
 /// The checked callable and access capability selected for custom indexing.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -53,34 +27,6 @@ pub struct CheckedTemplateIndexCall<
     pub borrow_kind: BorrowKind,
     /// The exact checked witness source.
     pub dispatch: CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>,
-}
-
-impl<D, S, I, T> CheckedTemplateDispatch<D, S, I, T> {
-    fn try_map_references<O, P, Q, Y, E>(
-        &self,
-        ty: &mut impl FnMut(&T) -> Result<Y, E>,
-        declaration: &mut impl FnMut(&D) -> Result<O, E>,
-        substitution: &mut impl FnMut(&S) -> Result<P, E>,
-        implementation: &mut impl FnMut(&I) -> Result<Q, E>,
-    ) -> Result<CheckedTemplateDispatch<O, P, Q, Y>, E> {
-        Ok(match self {
-            Self::Implementation(witness, application) => CheckedTemplateDispatch::Implementation(
-                implementation(witness)?,
-                substitution(application)?,
-            ),
-            Self::Constraint { owner, ordinal } => CheckedTemplateDispatch::Constraint {
-                owner: declaration(owner)?,
-                ordinal: *ordinal,
-            },
-            Self::TraitDefault {
-                subject,
-                substitution: application,
-            } => CheckedTemplateDispatch::TraitDefault {
-                subject: ty(subject)?,
-                substitution: substitution(application)?,
-            },
-        })
-    }
 }
 
 impl<D, S, I, T> CheckedTemplateIndexCall<D, S, I, T> {
@@ -105,6 +51,31 @@ impl<D, S, I, T> CheckedTemplateIndexCall<D, S, I, T> {
     }
 }
 
+/// The completion protocol of one checked loop kernel.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CheckedTemplateLoopBody {
+    /// A normal body completes this iteration and repeats the condition.
+    Repeat(CheckedTemplateNodeId),
+    /// A nullable body result finishes the loop when present and otherwise repeats.
+    Return(CheckedTemplateNodeId),
+}
+
+impl CheckedTemplateLoopBody {
+    /// Returns the body expression retaining its completion protocol.
+    pub const fn node(self) -> CheckedTemplateNodeId {
+        match self {
+            Self::Repeat(node) | Self::Return(node) => node,
+        }
+    }
+
+    fn map(self, map: &mut impl FnMut(CheckedTemplateNodeId) -> CheckedTemplateNodeId) -> Self {
+        match self {
+            Self::Repeat(node) => Self::Repeat(map(node)),
+            Self::Return(node) => Self::Return(map(node)),
+        }
+    }
+}
+
 /// The closed normalized operation vocabulary of a checked template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedTemplateOperation<
@@ -122,6 +93,44 @@ pub enum CheckedTemplateOperation<
         before: CheckedTemplateNodeId,
         /// The result evaluated after the preceding operation completes.
         value: CheckedTemplateNodeId,
+    },
+    /// Captures an evaluated value before later operations can mutate its storage.
+    Snapshot {
+        /// The value observed at this evaluation boundary.
+        value: CheckedTemplateNodeId,
+    },
+    /// Replaces one inline component of the current value using an evaluated destination path.
+    Update {
+        /// Current root, evaluated after the replacement expression.
+        subject: CheckedTemplateNodeId,
+        /// Root used when evaluating the destination.
+        base: CheckedTemplateNodeId,
+        /// Inline projection chain whose indices were evaluated before the replacement.
+        component: CheckedTemplateNodeId,
+        /// Replacement value.
+        value: CheckedTemplateNodeId,
+    },
+    /// The current value bound by one enclosing loop kernel.
+    LoopValue {
+        /// Initial value evaluated before the first condition.
+        initial: CheckedTemplateNodeId,
+    },
+    /// Repeats one immutable checked body with explicit value bindings and committed owner outputs.
+    Loop {
+        /// First node whose value belongs to an iteration's evaluation epoch.
+        start: CheckedTemplateNodeId,
+        /// Unique LoopValue nodes, in state-output ordinal order.
+        bindings: Arc<[CheckedTemplateNodeId]>,
+        /// Condition evaluated at entry and after each normal body completion.
+        condition: CheckedTemplateNodeId,
+        /// Body and its established completion protocol.
+        body: CheckedTemplateLoopBody,
+        /// Binding values committed after a normal body completion.
+        next: Arc<[CheckedTemplateNodeId]>,
+        /// Result after a false condition.
+        completed: CheckedTemplateNodeId,
+        /// Owner values after a false condition, including effects of that condition.
+        outputs: Arc<[CheckedTemplateNodeId]>,
     },
     /// Reads one explicitly declared contextual or generic input.
     Input(CheckedTemplateInputId),
@@ -188,8 +197,18 @@ pub enum CheckedTemplateOperation<
         arguments: Arc<[CheckedTemplateNodeId]>,
         /// Receiver-first parameter ordinal for each evaluated argument.
         ordinals: Arc<[u32]>,
+        /// Mutable receiver-first inputs for an internal observational invocation.
+        /// An empty list still distinguishes an ordinary provider from a source const call.
+        state_inputs: Option<Arc<[u32]>>,
         /// The exact selected witness source when dispatch requires one.
         dispatch: Option<CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>>,
+    },
+    /// Reads an operation's committed owner value after normal completion.
+    StateAfter {
+        /// The invocation or control operation publishing this state.
+        operation: CheckedTemplateNodeId,
+        /// The owner's ordinal in the operation's state outputs.
+        ordinal: u32,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -279,6 +298,8 @@ pub enum CheckedTemplateOperation<
         when_true: CheckedTemplateNodeId,
         /// The result evaluated only when the condition is false.
         when_false: CheckedTemplateNodeId,
+        /// Committed owner values on each branch. Absence means that owner is inactive on that path.
+        state_outputs: Arc<[(Option<CheckedTemplateNodeId>, Option<CheckedTemplateNodeId>)]>,
     },
     /// Evaluates the left operand and evaluates the right operand only when required.
     ShortCircuit {
@@ -296,6 +317,46 @@ pub enum CheckedTemplateOperation<
 impl<Term, Type, Declaration, Substitution, Implementation>
     CheckedTemplateOperation<Term, Type, Declaration, Substitution, Implementation>
 {
+    /// Returns the subject of an inline value projection, excluding indirection and custom access.
+    pub fn inline_projection_subject(&self) -> Option<CheckedTemplateNodeId> {
+        match self {
+            Self::Project { subject, .. }
+            | Self::TupleElement { subject, .. }
+            | Self::NullableValue { subject }
+            | Self::Index {
+                subject,
+                call: None,
+                ..
+            } => Some(*subject),
+            _ => None,
+        }
+    }
+
+    /// Checks a component path in an already topologically ordered graph.
+    pub fn is_inline_component<'a>(
+        base: CheckedTemplateNodeId,
+        mut component: CheckedTemplateNodeId,
+        mut operation: impl FnMut(CheckedTemplateNodeId) -> Option<&'a Self>,
+    ) -> bool
+    where
+        Self: 'a,
+    {
+        while component != base {
+            let Some(subject) = operation(component).and_then(Self::inline_projection_subject)
+            else {
+                return false;
+            };
+
+            if subject.raw() >= component.raw() {
+                return false;
+            }
+
+            component = subject;
+        }
+
+        true
+    }
+
     /// Creates a selected callable or predicate application with stable argument order.
     pub fn call(
         callable: Declaration,
@@ -316,6 +377,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             substitution,
             arguments,
             ordinals: shared_slice(ordinals),
+            state_inputs: None,
             dispatch,
         }
     }
@@ -333,8 +395,64 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             substitution,
             arguments: shared_slice(arguments),
             ordinals: shared_slice(ordinals),
+            state_inputs: None,
             dispatch,
         }
+    }
+
+    /// Returns the value snapshot supplying one declared mutable call input.
+    pub fn state_argument(&self, ordinal: u32) -> Option<CheckedTemplateNodeId> {
+        let Self::Call {
+            state_inputs: Some(inputs),
+            arguments,
+            ordinals,
+            ..
+        } = self
+        else {
+            return None;
+        };
+
+        if inputs.binary_search(&ordinal).is_err() {
+            return None;
+        }
+
+        ordinals
+            .iter()
+            .position(|actual| *actual == ordinal)
+            .and_then(|index| arguments.get(index))
+            .copied()
+    }
+
+    /// Returns the defining values for one committed state output.
+    pub fn state_output_nodes(
+        &self,
+        ordinal: u32,
+    ) -> Option<(Option<CheckedTemplateNodeId>, Option<CheckedTemplateNodeId>)> {
+        match self {
+            Self::Call { .. } => self
+                .state_argument(ordinal)
+                .map(|value| (Some(value), None)),
+            Self::Conditional { state_outputs, .. } => {
+                state_outputs.get(usize::try_from(ordinal).ok()?).copied()
+            }
+            Self::Loop { next, outputs, .. } => {
+                let index = usize::try_from(ordinal).ok()?;
+
+                Some((Some(*next.get(index)?), Some(*outputs.get(index)?)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Marks an internal observational call with the exact mutable formal inputs it returns.
+    pub fn with_state_inputs(mut self, inputs: impl IntoIterator<Item = u32>) -> Self {
+        let Self::Call { state_inputs, .. } = &mut self else {
+            panic!("mutable input state belongs to a checked call");
+        };
+
+        *state_inputs = Some(shared_slice(inputs));
+
+        self
     }
 
     /// Creates an ordered tuple construction.
@@ -368,12 +486,56 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         mut implementation: impl FnMut(&Implementation) -> Result<I, E>,
     ) -> Result<CheckedTemplateOperation<T, Y, D, S, I>, E> {
         Ok(match self {
-            Self::ArrayElement { subject } => CheckedTemplateOperation::ArrayElement { subject: *subject },
-            Self::ArrayTransform { subject, element, value } => CheckedTemplateOperation::ArrayTransform {
-                subject: *subject, element: *element, value: *value,
+            Self::LoopValue { initial } => {
+                CheckedTemplateOperation::LoopValue { initial: *initial }
+            }
+            Self::Loop {
+                start,
+                bindings,
+                condition,
+                body,
+                next,
+                completed,
+                outputs,
+            } => CheckedTemplateOperation::Loop {
+                start: *start,
+                bindings: bindings.clone(),
+                condition: *condition,
+                body: *body,
+                next: next.clone(),
+                completed: *completed,
+                outputs: outputs.clone(),
+            },
+            Self::ArrayElement { subject } => {
+                CheckedTemplateOperation::ArrayElement { subject: *subject }
+            }
+            Self::ArrayTransform {
+                subject,
+                element,
+                value,
+            } => CheckedTemplateOperation::ArrayTransform {
+                subject: *subject,
+                element: *element,
+                value: *value,
             },
             Self::Sequence { before, value } => CheckedTemplateOperation::Sequence {
                 before: *before,
+                value: *value,
+            },
+            Self::StateAfter { operation, ordinal } => CheckedTemplateOperation::StateAfter {
+                operation: *operation,
+                ordinal: *ordinal,
+            },
+            Self::Snapshot { value } => CheckedTemplateOperation::Snapshot { value: *value },
+            Self::Update {
+                subject,
+                base,
+                component,
+                value,
+            } => CheckedTemplateOperation::Update {
+                subject: *subject,
+                base: *base,
+                component: *component,
                 value: *value,
             },
             Self::Input(input) => CheckedTemplateOperation::Input(*input),
@@ -395,10 +557,17 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 right: *right,
             },
             Self::MachineUnary { operation, operand } => CheckedTemplateOperation::MachineUnary {
-                operation: *operation, operand: *operand,
+                operation: *operation,
+                operand: *operand,
             },
-            Self::MachineBinary { operation, left, right } => CheckedTemplateOperation::MachineBinary {
-                operation: *operation, left: *left, right: *right,
+            Self::MachineBinary {
+                operation,
+                left,
+                right,
+            } => CheckedTemplateOperation::MachineBinary {
+                operation: *operation,
+                left: *left,
+                right: *right,
             },
             Self::Borrow { kind, operand } => CheckedTemplateOperation::Borrow {
                 kind: *kind,
@@ -417,11 +586,13 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 arguments,
                 ordinals,
                 dispatch: witness,
+                state_inputs,
             } => CheckedTemplateOperation::Call {
                 callable: declaration(callable)?,
                 substitution: substitution(application)?,
                 arguments: Arc::clone(arguments),
                 ordinals: Arc::clone(ordinals),
+                state_inputs: state_inputs.clone(),
                 dispatch: witness
                     .as_ref()
                     .map(|witness| {
@@ -513,10 +684,12 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 condition,
                 when_true,
                 when_false,
+                state_outputs,
             } => CheckedTemplateOperation::Conditional {
                 condition: *condition,
                 when_true: *when_true,
                 when_false: *when_false,
+                state_outputs: Arc::clone(state_outputs),
             },
             Self::ShortCircuit { kind, left, right } => CheckedTemplateOperation::ShortCircuit {
                 kind: *kind,
@@ -547,19 +720,63 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                     *field = ConstantField::new(field.field().clone(), map(*field.value()));
                 }
             }
-            Self::ArrayTransform { subject, element, value } => {
+            Self::ArrayTransform {
+                subject,
+                element,
+                value,
+            } => {
                 *subject = map(*subject);
                 *element = map(*element);
                 *value = map(*value);
+            }
+            Self::LoopValue { initial } => *initial = map(*initial),
+            Self::Loop {
+                start,
+                bindings,
+                condition,
+                body,
+                next,
+                completed,
+                outputs,
+            } => {
+                *start = map(*start);
+
+                for value in Arc::make_mut(bindings)
+                    .iter_mut()
+                    .chain(Arc::make_mut(next))
+                    .chain(Arc::make_mut(outputs))
+                {
+                    *value = map(*value);
+                }
+
+                *condition = map(*condition);
+                *body = body.map(&mut map);
+                *completed = map(*completed);
             }
             Self::ArrayElement { subject } => *subject = map(*subject),
             Self::Sequence { before, value } => {
                 *before = map(*before);
                 *value = map(*value);
             }
-            Self::Convert { value, .. } => *value = map(*value),
-            Self::Unary { operand, .. } | Self::MachineUnary { operand, .. } | Self::Borrow { operand, .. } => *operand = map(*operand),
-            Self::Binary { left, right, .. } | Self::MachineBinary { left, right, .. } | Self::ShortCircuit { left, right, .. } => {
+            Self::Update {
+                subject,
+                base,
+                component,
+                value,
+            } => {
+                *subject = map(*subject);
+                *base = map(*base);
+                *component = map(*component);
+                *value = map(*value);
+            }
+            Self::StateAfter { operation, .. } => *operation = map(*operation),
+            Self::Snapshot { value } | Self::Convert { value, .. } => *value = map(*value),
+            Self::Unary { operand, .. }
+            | Self::MachineUnary { operand, .. }
+            | Self::Borrow { operand, .. } => *operand = map(*operand),
+            Self::Binary { left, right, .. }
+            | Self::MachineBinary { left, right, .. }
+            | Self::ShortCircuit { left, right, .. } => {
                 *left = map(*left);
                 *right = map(*right);
             }
@@ -587,10 +804,16 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 condition,
                 when_true,
                 when_false,
+                state_outputs,
             } => {
                 *condition = map(*condition);
                 *when_true = map(*when_true);
                 *when_false = map(*when_false);
+
+                for (when_true, when_false) in Arc::make_mut(state_outputs) {
+                    *when_true = when_true.map(&mut map);
+                    *when_false = when_false.map(&mut map);
+                }
             }
             Self::Unreachable
             | Self::Input(_)
@@ -616,18 +839,59 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                     visit(*field.value())?;
                 }
             }
-            Self::ArrayTransform { subject, element, value } => {
+            Self::ArrayTransform {
+                subject,
+                element,
+                value,
+            } => {
                 visit(*subject)?;
                 visit(*element)?;
                 visit(*value)?;
+            }
+            Self::LoopValue { initial } => visit(*initial)?,
+            Self::Loop {
+                bindings,
+                condition,
+                body,
+                next,
+                completed,
+                outputs,
+                ..
+            } => {
+                for binding in bindings.iter() {
+                    visit(*binding)?;
+                }
+
+                visit(*condition)?;
+                visit(body.node())?;
+
+                for value in next.iter().chain(outputs.iter()) {
+                    visit(*value)?;
+                }
+
+                visit(*completed)?;
             }
             Self::ArrayElement { subject } => visit(*subject)?,
             Self::Sequence { before, value } => {
                 visit(*before)?;
                 visit(*value)?;
             }
-            Self::Convert { value, .. } => visit(*value)?,
-            Self::Unary { operand, .. } | Self::MachineUnary { operand, .. } | Self::Borrow { operand, .. } => visit(*operand)?,
+            Self::Update {
+                subject,
+                base,
+                component,
+                value,
+            } => {
+                visit(*base)?;
+                visit(*component)?;
+                visit(*value)?;
+                visit(*subject)?;
+            }
+            Self::StateAfter { operation, .. } => visit(*operation)?,
+            Self::Snapshot { value } | Self::Convert { value, .. } => visit(*value)?,
+            Self::Unary { operand, .. }
+            | Self::MachineUnary { operand, .. }
+            | Self::Borrow { operand, .. } => visit(*operand)?,
             Self::Binary { left, right, .. } | Self::MachineBinary { left, right, .. } => {
                 visit(*left)?;
                 visit(*right)?;
@@ -656,10 +920,19 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 condition,
                 when_true,
                 when_false,
+                state_outputs,
             } => {
                 visit(*condition)?;
                 visit(*when_true)?;
                 visit(*when_false)?;
+
+                for value in state_outputs
+                    .iter()
+                    .flat_map(|(left, right)| [*left, *right])
+                    .flatten()
+                {
+                    visit(value)?;
+                }
             }
             Self::ShortCircuit { left, right, .. } => {
                 visit(*left)?;

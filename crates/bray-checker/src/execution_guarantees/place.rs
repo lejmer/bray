@@ -80,7 +80,8 @@ impl ExecutionPlace {
         }
 
         let (bray_bound_tree::StorageBindingTarget::PatternDiscard(_)
-            | bray_bound_tree::StorageBindingTarget::InvocationInput { .. }) = target else {
+        | bray_bound_tree::StorageBindingTarget::InvocationInput { .. }) = target
+        else {
             return None;
         };
 
@@ -140,10 +141,11 @@ impl ExecutionPlace {
                     .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
                 {
                     reference
-                } else if matches!(kind,
+                } else if matches!(
+                    kind,
                     bray_bound_tree::StorageIdentity::LocalOwned(_)
-                    | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                    | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                        | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                        | bray_bound_tree::StorageIdentity::InvocationResult(_)
                 ) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),
@@ -273,4 +275,3 @@ impl ExecutionPlace {
         self.contains(other) || other.contains(self)
     }
 }
-

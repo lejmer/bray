@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation;
 
+using std.numeric;
 using core.target;
 using internal bray.runtime.bootstrap;
 using std.memory;
@@ -63,7 +64,7 @@ trusted internal func resident_address(
         return 0;
     }
 
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
 
     if token.lease.address == 0 || descriptor.header > maximum - token.lease.address
     {

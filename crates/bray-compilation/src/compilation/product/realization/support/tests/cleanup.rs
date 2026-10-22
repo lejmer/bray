@@ -268,18 +268,31 @@ fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
         CompilationRequest::new(
             bray_symbols::PackageIdentity::try_new("std").expect("standard package is valid"),
             crate::test_support::source_inputs(&[
-include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
-r#"module std.test;
+                include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/pointer.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/storage.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/allocation.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/numeric/limits.bray"
+                ),
+                include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/function.bray"
+                ),
+                r#"module std.test;
 
 using std.memory;
 
- func dispose(pos buffer: std.memory.RawBuffer<u8>) {}"#
-]),
+ func dispose(pos buffer: std.memory.RawBuffer<u8>)
+ {
+ }"#,
+            ]),
         )
         .with_standard_library_source_authority(),
     )
@@ -344,16 +357,22 @@ fn imported_standard_buffer_cleanup_uses_structural_allowance() {
 
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
 
-    let compilation = Compilation::load(CompilationRequest::new(
-        crate::test_support::package_identity(),
-        crate::test_support::source_inputs(&[r#"
+    let compilation = Compilation::load(
+        CompilationRequest::new(
+            crate::test_support::package_identity(),
+            crate::test_support::source_inputs(&[r#"
             module app;
 
             using internal std.memory;
 
-            func dispose(pos buffer: std.memory.RawBuffer<u8>) {}
+            func dispose(pos buffer: std.memory.RawBuffer<u8>)
+            {
+            }
         "#]),
-    ).with_dependency_interfaces([dependency])).expect("imported storage consumer must load");
+        )
+        .with_dependency_interfaces([dependency]),
+    )
+    .expect("imported storage consumer must load");
 
     let lowered = compilation
         .lowered_unit(source_function_body_key(&compilation, "dispose"))
@@ -463,11 +482,14 @@ fn imported_standard_buffer_accepts_live_generic_storage() {
         crate::test_support::package_identity(), vec![source_input(r"
             trusted module app;
 
+            using std.numeric;
+
             using core.memory;
             using internal std.memory;
             func pack<T>(pointer: DataPointer<T>, capacity: usize) -> std.memory.RawBuffer<T>
                 requires(
-                    trusted core.memory.owned_allocation(pointer = trusted std.memory.reinterpret<u8, T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
+                    std.memory.stride_of<T>() * capacity <= std.numeric.USIZE_MAX,
+                    trusted core.memory.owned_allocation(pointer = std.memory.byte_address<T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
                     trusted core.memory.valid_write<T>(pointer = pointer, count = capacity),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
                     trusted core.memory.initialized_range_as<T>(pointer = pointer, count = 0),
@@ -497,12 +519,15 @@ fn imported_standard_buffer_requires_bounded_initialized_prefix() {
             r"
             trusted module app;
 
+            using std.numeric;
+
             using core.memory;
             using internal std.memory;
             func pack<T>(pointer: DataPointer<T>, capacity: usize, initialized: usize) -> std.memory.RawBuffer<T>
                 requires(
                     {bound}
-                    trusted core.memory.owned_allocation(pointer = trusted std.memory.reinterpret<u8, T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
+                    std.memory.stride_of<T>() * capacity <= std.numeric.USIZE_MAX,
+                    trusted core.memory.owned_allocation(pointer = std.memory.byte_address<T>(pointer), bytes = std.memory.stride_of<T>() * capacity, align = std.memory.align_of<T>()),
                     trusted core.memory.valid_write<T>(pointer = pointer, count = capacity),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
                     trusted core.memory.initialized_range_as<T>(pointer = pointer, count = initialized),
@@ -803,14 +828,15 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
     let source_authority = CompilationRequest::new(
         bray_symbols::PackageIdentity::try_new("std").unwrap(),
         crate::test_support::source_inputs(&[
-include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
-source
-]),
+            include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
+            source,
+        ]),
     )
     .with_standard_library_source_authority();
 

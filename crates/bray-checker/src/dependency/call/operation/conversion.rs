@@ -105,21 +105,38 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
             let mut result = DependencyContractTemplateData::new([DependencyRequirement::direct(
                 DependencySubject::root(DependencySubjectRoot::Receiver),
                 DependencyRequirementKind::ValueDependencies,
-            )]).with_effects([]);
-            if matches!(conversion.target(), ConversionTarget::Identity
-                | ConversionTarget::CallableContract | ConversionTarget::NullablePresent)
-            {
+            )])
+            .with_effects([]);
+
+            if matches!(
+                conversion.target(),
+                ConversionTarget::Identity
+                    | ConversionTarget::CallableContract
+                    | ConversionTarget::NullablePresent
+            ) {
                 let values = request.semantic_values();
-                let input = values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+
+                let input = values
+                    .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(
+                        SymbolOrdinal::new(0),
+                    ))
                     .expect("canonical conversion input belongs to the checked semantic store");
+
                 let input = if matches!(conversion.target(), ConversionTarget::NullablePresent) {
-                    values.intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(input))
-                        .expect("canonical nullable conversion belongs to the checked semantic store")
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(
+                            input,
+                        ))
+                        .expect(
+                            "canonical nullable conversion belongs to the checked semantic store",
+                        )
                 } else {
                     input
                 };
+
                 result = result.with_returned_input(Some(input));
             }
+
             Ok(result)
         }
     }

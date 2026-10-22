@@ -138,13 +138,13 @@ pub trait CheckerRequestContext: Sync {
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
     /// Returns the exact trait requirement represented by an abstract dispatch route.
-    fn result_dispatch_requirement(
+    fn dispatch_requirement(
         &self,
         dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> CheckerQueryResult<ImplementationRequirementKey, Self::UpstreamError>;
 
-    /// Resolves an abstract result call when its implementation witness is available.
-    fn result_witness_callable(
+    /// Resolves an abstract method when its implementation witness is available.
+    fn witness_callable(
         &self,
         callable: bray_symbols::CallableInstanceId,
         requirement: ImplementationRequirementKey,
@@ -152,6 +152,7 @@ pub trait CheckerRequestContext: Sync {
         Option<(
             bray_symbols::CallableInstanceData,
             bray_symbols::SelfTypeContext,
+            bray_symbols::ImplementationInstanceId,
         )>,
         Self::UpstreamError,
     >;

@@ -184,8 +184,12 @@ impl CheckedSemanticSelections {
             (crate::BoundExecutionSite::Node(_), SemanticSelection::Operation(operation)) => {
                 operation.invoked_callable()
             }
-            (crate::BoundExecutionSite::Iterate(_), SemanticSelection::Iteration(iteration)) => Some(iteration.iterate()),
-            (crate::BoundExecutionSite::Next(_), SemanticSelection::Iteration(iteration)) => Some(iteration.next()),
+            (crate::BoundExecutionSite::Iterate(_), SemanticSelection::Iteration(iteration)) => {
+                Some(iteration.iterate())
+            }
+            (crate::BoundExecutionSite::Next(_), SemanticSelection::Iteration(iteration)) => {
+                Some(iteration.next())
+            }
             (crate::BoundExecutionSite::ScopedEnter(_), SemanticSelection::ScopedUse(scoped)) => {
                 Some(scoped.enter().0)
             }

@@ -18,13 +18,11 @@ trusted internal func thread_storage_exit(pos value: DataPointer<u8>)
 
 trusted internal func attachment_destructor_address() -> FunctionPointer<std.os.unix.ThreadStorageDestructor>
     uses(layout_reinterpret)
-    ensures(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
-            pointer = result
-        )
-    )
+    ensures(trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = result))
 {
     let callback: ExitCallback = thread_storage_exit;
 
-    return trusted std.memory.function.reinterpret<std.os.unix.ThreadStorageDestructor, ExitCallback>(trusted std.memory.function_address(callback));
+    return trusted std.memory.function.reinterpret<std.os.unix.ThreadStorageDestructor, ExitCallback>(
+        trusted std.memory.function_address(callback)
+    );
 }

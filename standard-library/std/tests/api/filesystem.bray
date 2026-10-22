@@ -16,6 +16,7 @@ using std.testing;
 
 @test(serial)
 func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let path: std.path.Path = test_path("bray-file-transfer-conformance");
 
@@ -65,6 +66,7 @@ func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<un
 
 @test(serial)
 func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let directory: std.path.Path = test_path("bray-filesystem-conformance");
     let alpha: std.path.Path = test_path("bray-filesystem-conformance/alpha");
@@ -118,6 +120,7 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
 
 @test(serial)
 func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let path: std.path.Path = test_path("bray-buffered-file-conformance");
 
@@ -189,6 +192,7 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
 
 @test(serial)
 async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let source: std.path.Path = test_path("bray-async-file-conformance");
     let destination: std.path.Path = test_path("bray-async-file-conformance-renamed");
@@ -259,6 +263,7 @@ func missing_files_report_the_portable_error_kind()
 
 @test(serial)
 func create_or_truncate_replaces_existing_contents() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let path: std.path.Path = test_path("bray-create-or-truncate-conformance");
 
@@ -290,6 +295,7 @@ func test_path(pos value: string) -> std.path.Path
 }
 
 func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let options: std.fs.OpenOptions = std.fs.OpenOptions(
         access = std.fs.FileAccess.ReadWrite,
@@ -365,6 +371,7 @@ func discard_existing_directory(pos path: &std.path.Path)
 @target(target.identity.SYSTEM == "windows")
 @test(serial)
 trusted func failed_file_close_retains_the_native_handle_for_retry()
+    requires(blocking_execution())
     uses(foreign_call)
 {
     let path: std.path.Path = test_path("bray-close-retry-conformance");
@@ -377,7 +384,7 @@ trusted func failed_file_close_retains_the_native_handle_for_retry()
     );
 
     let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(std.fs.File.open(&path, options = options));
-    let handle = trusted internal std.platform.handle_pointer(file.handle);
+    let handle = trusted internal std.platform.handle_pointer(internal file.handle);
 
     // HANDLE_FLAG_PROTECT_FROM_CLOSE forces CloseHandle to fail while retaining the resource.
     assert(trusted std.os.windows.set_handle_information(handle, mask = 2, flags = 2) != 0);

@@ -8,6 +8,40 @@ use crate::{
     StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan,
 };
 
+/// An evaluated storage route whose exact origin is retained for functional state interpretation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageStateTarget {
+    /// A planned access at its exact evaluation site.
+    Access {
+        /// The operation evaluating this access.
+        occurrence: crate::BoundExecutionSite,
+        /// Its checked access path.
+        access: StorageAccessId,
+    },
+    /// A source assignment destination.
+    Assignment(BoundExpressionId),
+    /// The destination of a checked scalar or aggregate memory write.
+    MemoryWrite(BoundExpressionId),
+    /// The referent of an actual mutable formal input.
+    Input {
+        /// The exact selected invocation.
+        invocation: crate::BoundExecutionSite,
+        /// Its receiver-first input ordinal.
+        ordinal: bray_symbols::SymbolOrdinal,
+    },
+}
+
+impl StorageStateTarget {
+    /// Returns the operation that established this destination.
+    pub fn occurrence(self) -> crate::BoundExecutionSite {
+        match self {
+            Self::Assignment(expression) | Self::MemoryWrite(expression) => expression.into(),
+            Self::Access { occurrence, .. } => occurrence,
+            Self::Input { invocation, .. } => invocation,
+        }
+    }
+}
+
 /// The checker result for one evaluated storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageOperationStatus {
@@ -305,7 +339,9 @@ pub struct StorageFlow {
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     proven_preconditions: Arc<[crate::BoundExecutionSite]>,
-    assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StorageTarget>,
+    state_targets: std::collections::BTreeMap<StorageStateTarget, crate::StorageTarget>,
+    observation_invalidations:
+        std::collections::BTreeMap<crate::BoundExecutionSite, crate::StorageInvalidation>,
     dependencies: bray_symbols::DependencyContractTemplateData,
     report_collections: Arc<[Option<BoundExpressionId>]>,
     reporting_completions: Arc<[crate::BoundExecutionSite]>,
@@ -419,7 +455,8 @@ impl StorageFlow {
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
-            assignment_targets: std::collections::BTreeMap::new(),
+            state_targets: std::collections::BTreeMap::new(),
+            observation_invalidations: Default::default(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
             report_collections: Arc::from([]),
             reporting_completions: Arc::from([]),
@@ -674,37 +711,97 @@ impl StorageFlow {
         self.proven_preconditions.binary_search(&invocation).is_ok()
     }
 
-    /// Publishes assignment origins agreed by every reachable evaluation without discarding referents.
-    pub fn with_assignment_targets(
+    /// Publishes destination origins agreed by every reachable evaluation without discarding referents.
+    pub fn with_state_targets(
         mut self,
-        targets: std::collections::BTreeMap<BoundExpressionId, crate::StorageTarget>,
+        targets: std::collections::BTreeMap<StorageStateTarget, crate::StorageTarget>,
     ) -> Result<Self, StorageFlowBuildError> {
-        if targets.iter().any(|(expression, access)| {
-            expression.unit() != self.unit || !access.is_valid_for(self.unit)
+        if targets.iter().any(|(destination, access)| {
+            destination.occurrence().node().unit() != self.unit || !access.is_valid_for(self.unit)
         }) {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
 
-        self.assignment_targets = targets;
+        self.state_targets = targets;
 
         Ok(self)
     }
 
-    /// Returns the resolved origin established for an assignment, including borrowed referents.
-    pub fn assignment_target(&self, expression: BoundExpressionId) -> Option<&crate::StorageTarget> {
-        self.assignment_targets.get(&expression)
+    /// Publishes direct-input effects available only under the selected callable's Observation premise.
+    pub fn with_observation_invalidations(
+        mut self,
+        invalidations: std::collections::BTreeMap<
+            crate::BoundExecutionSite,
+            crate::StorageInvalidation,
+        >,
+    ) -> Self {
+        assert!(
+            invalidations
+                .keys()
+                .all(|site| site.node().unit() == self.unit),
+            "conditional observation effects belong to their checked unit"
+        );
+
+        self.observation_invalidations = invalidations;
+
+        self
     }
 
-    /// Returns a whole local slot whose assignment cannot affect an enclosing invocation.
-    /// Referents, allocations and projections require their own established state transition.
+    /// Returns input-frame effects. Consumers must retain their callable Observation dependencies.
+    pub fn observation_invalidations(
+        &self,
+    ) -> &std::collections::BTreeMap<crate::BoundExecutionSite, crate::StorageInvalidation> {
+        &self.observation_invalidations
+    }
+
+    /// Returns the resolved origin established for an assignment, including borrowed referents.
+    pub fn assignment_target(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<&crate::StorageTarget> {
+        self.state_targets
+            .get(&StorageStateTarget::Assignment(expression))
+    }
+
+    /// Returns a checked write's pointee agreed across all reachable evaluations.
+    pub fn memory_write_target(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<&crate::StorageTarget> {
+        self.state_targets
+            .get(&StorageStateTarget::MemoryWrite(expression))
+    }
+
+    /// Returns an access's actual storage origin agreed across all reachable evaluations.
+    pub fn access_target(&self, plan: crate::StorageAccessPlan) -> Option<&crate::StorageTarget> {
+        self.state_targets.get(&StorageStateTarget::Access {
+            occurrence: plan.occurrence(),
+            access: plan.access(),
+        })
+    }
+
+    /// Returns a mutable input's referent agreed by all reachable evaluations of the invocation.
+    pub fn invocation_input_target(
+        &self,
+        invocation: crate::BoundExecutionSite,
+        ordinal: bray_symbols::SymbolOrdinal,
+    ) -> Option<&crate::StorageTarget> {
+        self.state_targets.get(&StorageStateTarget::Input {
+            invocation,
+            ordinal,
+        })
+    }
+
+    /// Returns an invocation-owned inline component whose assignment cannot affect its caller.
+    /// References, allocations, slices and protected payloads retain their separate authority.
     pub fn confined_assignment(
         &self,
         storage: &StoragePlan,
         expression: BoundExpressionId,
     ) -> Option<&crate::StoragePath> {
         let path = self.assignment_target(expression)?.storage_path()?;
-        (path.projections.is_empty()
-            && storage.identity(path.root)?.is_invocation_owned(self.kind))
+
+        (storage.identity(path.root)?.is_invocation_owned(self.kind) && path.is_inline())
             .then_some(path)
     }
 
@@ -976,7 +1073,13 @@ mod tests {
                 .unwrap();
 
         assert_eq!(
-            flow.with_assignment_targets([(expression, crate::StorageTarget::storage(target))].into()),
+            flow.with_state_targets(
+                [(
+                    super::StorageStateTarget::Assignment(expression),
+                    crate::StorageTarget::storage(target)
+                )]
+                .into()
+            ),
             Err(StorageFlowBuildError::ForeignUnit)
         );
     }
@@ -994,17 +1097,28 @@ mod tests {
                     layer: 1,
                     projections: [crate::StorageProjection::Element(
                         BoundExpressionId::from_slot(selector_unit, 0),
-                    )].into(),
+                    )]
+                    .into(),
                 },
             };
 
-            let flow = StorageFlow::try_new(
-                unit, BoundUnitKind::CallableBody, [], [], [], [], [], false,
-            ).unwrap();
-            let published = flow.with_assignment_targets([(expression, target.clone())].into());
+            let flow =
+                StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+                    .unwrap();
+
+            let published = flow.with_state_targets(
+                [(
+                    super::StorageStateTarget::Assignment(expression),
+                    target.clone(),
+                )]
+                .into(),
+            );
 
             if selector_unit == unit {
-                assert_eq!(published.unwrap().assignment_target(expression), Some(&target));
+                assert_eq!(
+                    published.unwrap().assignment_target(expression),
+                    Some(&target)
+                );
             } else {
                 assert_eq!(published, Err(StorageFlowBuildError::ForeignUnit));
             }

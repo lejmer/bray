@@ -4,7 +4,16 @@ trusted internal module std.platform;
 using core.memory;
 using std.memory;
 using std.numeric;
+using std.time;
 using std.os.windows;
+
+internal const FILE_TIME_TICKS_PER_SECOND: u64 = 10_000_000;
+
+internal const FILE_TIME_NANOSECONDS_PER_TICK: u64 = 100;
+
+internal const FILE_TIME_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
+
+internal const MAXIMUM_SLEEP_MILLISECONDS: u32 = std.os.windows.INFINITE - 1;
 
 internal struct LocalAllocation
 {
@@ -59,7 +68,7 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 {
     let required: u32 = trusted std.os.windows.get_current_directory_w(0, destination = std.memory.null<u16>());
 
-    if required == 0 || required > 2_147_483_647
+    if required == 0 || required > (std.numeric.U32_MAX >> 1)
     {
         panic("the platform startup working directory is unavailable");
     }
@@ -95,7 +104,7 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
 
         let bytes: usize = observed.1.length as usize + 2;
 
-        if total > 9_223_372_036_854_775_807 - bytes
+        if total > (std.numeric.USIZE_MAX >> 1) - bytes
         {
             panic("the platform process context is too large");
         }
@@ -163,7 +172,7 @@ trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, 
         {
             let bytes: usize = observed.1.length as usize + 2;
 
-            if total > 9_223_372_036_854_775_807 - bytes
+            if total > (std.numeric.USIZE_MAX >> 1) - bytes
             {
                 panic("the platform process context is too large");
             }
@@ -310,7 +319,7 @@ trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) 
     let left_units: usize = left_bytes / 2;
     let right_units: usize = right_bytes / 2;
 
-    if left_units > 2_147_483_647 || right_units > 2_147_483_647
+    if left_units > ((std.numeric.U32_MAX >> 1) as usize) || right_units > ((std.numeric.U32_MAX >> 1) as usize)
     {
         return false;
     }
@@ -398,14 +407,13 @@ trusted internal func native_argument(pos owner: &LocalAllocation, index: usize)
     requires(trusted native_arguments_live(owner = &owner.identity), index < owner.count)
     ensures(
         trusted native_arguments_live(owner = &owner.identity),
-        !result.0 || trusted core.memory.valid_read<u8>(
+        !result.0 || ((result.1.length <= (std.numeric.U32_MAX as u64) - 1) && (trusted core.memory.valid_read<u8>(
             pointer = result.1.address,
             count = result.1.length as usize + 2
-        ),
-        !result.0 || trusted core.memory.initialized_range_as<u8>(
+        )) && (trusted core.memory.initialized_range_as<u8>(
             pointer = result.1.address,
             count = result.1.length as usize + 2
-        ),
+        ))),
     )
     executes(pure, total)
     uses(layout_reinterpret)
@@ -489,14 +497,13 @@ trusted internal func native_environment_entry(pos owner: &EnvironmentBlock) -> 
         trusted native_environment_live(owner = &owner.identity),
         !result.0 || trusted core.memory.valid_read<u8>(pointer = result.1.address, count = 2),
         !result.0 || trusted core.memory.initialized_range_as<u8>(pointer = result.1.address, count = 2),
-        !result.0 || trusted core.memory.valid_read<u8>(
+        !result.0 || ((result.1.length <= (std.numeric.U32_MAX as u64) - 1) && (trusted core.memory.valid_read<u8>(
             pointer = result.1.address,
             count = result.1.length as usize + 2
-        ),
-        !result.0 || trusted core.memory.initialized_range_as<u8>(
+        )) && (trusted core.memory.initialized_range_as<u8>(
             pointer = result.1.address,
             count = result.1.length as usize + 2
-        ),
+        ))),
     )
     executes(pure, total)
     uses(layout_reinterpret)
@@ -685,12 +692,12 @@ trusted internal func prepare_clock_monotonic_now(pos ticks: DataPointer<u64>) -
 
     trusted std.os.windows.query_interrupt_time_precise(std.memory.address_of_mut<u64>(&mut native_ticks));
 
-    if native_ticks > 184_467_440_737_095_516
+    if native_ticks > std.numeric.U64_MAX / FILE_TIME_NANOSECONDS_PER_TICK
     {
         return Error(other_status());
     }
 
-    return Ok(native_ticks * 100);
+    return Ok(native_ticks * FILE_TIME_NANOSECONDS_PER_TICK);
 }
 
 trusted internal func prepare_clock_wall_now(
@@ -728,24 +735,27 @@ internal func windows_file_time(low: u32, high: u32) -> Result<(i64, u32), Platf
 {
     let native_ticks: u64 = low as u64 | high as u64 << 32;
 
-    if native_ticks >= 116_444_736_000_000_000
+    if native_ticks >= FILE_TIME_UNIX_EPOCH
     {
-        let unix_ticks: u64 = native_ticks - 116_444_736_000_000_000;
-        let whole_seconds: u64 = unix_ticks / 10_000_000;
+        let unix_ticks: u64 = native_ticks - FILE_TIME_UNIX_EPOCH;
+        let whole_seconds: u64 = unix_ticks / FILE_TIME_TICKS_PER_SECOND;
 
-        if whole_seconds > 9_223_372_036_854_775_807
+        if whole_seconds > (std.numeric.U64_MAX >> 1)
         {
             return Error(other_status());
         }
 
         return Ok(
-            (std.numeric.truncate_to<i64>(whole_seconds), std.numeric.truncate_to<u32>(unix_ticks % 10_000_000 * 100))
+            (
+                std.numeric.truncate_to<i64>(whole_seconds),
+                std.numeric.truncate_to<u32>(unix_ticks % FILE_TIME_TICKS_PER_SECOND * FILE_TIME_NANOSECONDS_PER_TICK)
+            )
         );
     }
 
-    let before_epoch: u64 = 116_444_736_000_000_000 - native_ticks;
-    let whole_seconds: u64 = before_epoch / 10_000_000;
-    let remaining_ticks: u64 = before_epoch % 10_000_000;
+    let before_epoch: u64 = FILE_TIME_UNIX_EPOCH - native_ticks;
+    let whole_seconds: u64 = before_epoch / FILE_TIME_TICKS_PER_SECOND;
+    let remaining_ticks: u64 = before_epoch % FILE_TIME_TICKS_PER_SECOND;
 
     if remaining_ticks == 0
     {
@@ -757,7 +767,9 @@ internal func windows_file_time(low: u32, high: u32) -> Result<(i64, u32), Platf
     return Ok(
         (
             -std.numeric.truncate_to<i64>(whole_seconds) - 1,
-            1_000_000_000 - std.numeric.truncate_to<u32>(remaining_ticks * 100),
+            std.time.NANOSECONDS_PER_SECOND - std.numeric.truncate_to<u32>(
+                remaining_ticks * FILE_TIME_NANOSECONDS_PER_TICK
+            ),
         )
     );
 }
@@ -766,24 +778,24 @@ internal func windows_file_time(low: u32, high: u32) -> Result<(i64, u32), Platf
 trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
     uses(foreign_call)
 {
-    if nanoseconds >= 1_000_000_000
+    if nanoseconds >= std.time.NANOSECONDS_PER_SECOND
     {
         return invalid_input_status();
     }
 
     let rounded_nanoseconds: u64 = nanoseconds as u64 + 999_999;
 
-    if seconds > (18_446_744_073_709_551_615 - rounded_nanoseconds / 1_000_000) / 1_000
+    if seconds > (std.numeric.U64_MAX - rounded_nanoseconds / 1_000_000) / 1_000
     {
         return invalid_input_status();
     }
 
     let mut milliseconds: u64 = seconds * 1_000 + rounded_nanoseconds / 1_000_000;
 
-    while milliseconds > 4_294_967_294
+    while milliseconds > (MAXIMUM_SLEEP_MILLISECONDS as u64)
     {
-        trusted std.os.windows.sleep(4_294_967_294);
-        milliseconds -= 4_294_967_294;
+        trusted std.os.windows.sleep(MAXIMUM_SLEEP_MILLISECONDS);
+        milliseconds -= (MAXIMUM_SLEEP_MILLISECONDS as u64);
     }
 
     if milliseconds > 0
@@ -823,9 +835,9 @@ trusted internal func prepare_entropy_fill(
     {
         let remaining: usize = count - completed;
 
-        let requested: u32 = if remaining > 4_294_967_295
+        let requested: u32 = if remaining > (std.numeric.U32_MAX as usize)
         {
-            yield 4_294_967_295;
+            yield std.numeric.U32_MAX;
         }
         else
         {
@@ -1001,9 +1013,9 @@ trusted internal func prepare_handle_write(
 internal func handle_request_length(pos length: u64) -> u32
     executes(pure, total)
 {
-    if length > 4_294_967_295
+    if length > (std.numeric.U32_MAX as u64)
     {
-        return 4_294_967_295;
+        return std.numeric.U32_MAX;
     }
     else
     {

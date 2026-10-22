@@ -28,6 +28,7 @@ pub enum PredicateClauseBindingContext {
 enum SurfaceUnitKind {
     Constraint,
     ContractClause,
+    CapabilityClause,
 }
 
 /// One trusted capability resolved from an exact source path in a `uses` clause.
@@ -126,6 +127,7 @@ pub fn bind_trusted_capability_clause<C>(
     binding_context: &C,
     owner: AnySymbolId,
     clause: &UsesClauseSyntax,
+    parameters: Option<&bray_syntax::ParameterListSyntax>,
 ) -> BindingQueryResult<DiagnosticResult<Box<[BoundTrustedCapability]>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
@@ -135,8 +137,39 @@ where
         binding_context,
         owner,
         syntax_node_view(clause),
-        SurfaceUnitKind::ContractClause,
+        SurfaceUnitKind::CapabilityClause,
         |binder, path| {
+            let path = if let Some(parameters) = parameters {
+                let scope = push_contract_scope(
+                    binder,
+                    path.scope(),
+                    SyntaxAnchor::from_node(clause),
+                    false,
+                )?;
+
+                for (ordinal, parameter) in parameters.parameters().enumerate() {
+                    let token = parameter.identifier_token();
+                    let source = bray_syntax::SourceSyntaxNode::source(&parameter);
+
+                    if let Some(name) = token
+                        .text(source.text())
+                        .and_then(bray_symbols::SymbolName::try_new)
+                    {
+                        crate::entry::push_contract_parameter(
+                            binder,
+                            scope,
+                            ordinal,
+                            name,
+                            SyntaxAnchor::from_node(&parameter),
+                        )?;
+                    }
+                }
+
+                path.with_scope(scope)
+            } else {
+                path
+            };
+
             let mut capabilities = Vec::new();
 
             for capability in clause.paths() {
@@ -192,7 +225,9 @@ where
 
     let key = match unit_kind {
         SurfaceUnitKind::Constraint => BoundUnitKey::constraint(owner_key, source),
-        SurfaceUnitKind::ContractClause => BoundUnitKey::contract_clause(owner_key, source),
+        SurfaceUnitKind::ContractClause | SurfaceUnitKind::CapabilityClause => {
+            BoundUnitKey::contract_clause(owner_key, source)
+        }
     }
     .ok_or(BindingQueryError::Binding(BindingError::InvalidUnitKey {
         source,
@@ -207,6 +242,14 @@ where
 
     let mut binder = Binder::new(binding_context, builder);
     let scope = binder.unit().root_scope();
+
+    // Capability lookup needs lexical names, but never runtime input types.
+    // Keep shadowing without demanding the signature currently being constructed.
+    if matches!(unit_kind, SurfaceUnitKind::CapabilityClause)
+        && let Some(callable) = CallableSymbolId::try_from_any(owner)
+    {
+        crate::entry::push_callable_input_names_for(&mut binder, scope, callable);
+    }
 
     if matches!(unit_kind, SurfaceUnitKind::ContractClause)
         && let Some(callable) = CallableSymbolId::try_from_any(owner)

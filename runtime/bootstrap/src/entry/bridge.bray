@@ -9,6 +9,7 @@ using std.memory.function;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.entry;
+using internal bray.runtime.bootstrap.entry.bridge.address;
 
 // The native scope owns an attachment acquisition on this thread, retains the
 // callback provider through final cleanup. Nested scopes restore the previous callback
@@ -170,8 +171,8 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
-            let old = trusted code_address(attachment.context_bridge);
-            let next = trusted code_address(selected);
+            let old = trusted bray.runtime.bootstrap.entry.bridge.address.context(attachment.context_bridge);
+            let next = trusted bray.runtime.bootstrap.entry.bridge.address.context(selected);
 
             // Different Rust providers have distinct TLS contexts. Their composition
             // needs provider formation authority, not a silent callback replacement.
@@ -180,8 +181,8 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
-            let old_observer = trusted observer_code_address(attachment.report_observer);
-            let next_observer = trusted observer_code_address(observer);
+            let old_observer = trusted bray.runtime.bootstrap.entry.bridge.address.report(attachment.report_observer);
+            let next_observer = trusted bray.runtime.bootstrap.entry.bridge.address.report(observer);
 
             if old_observer != 0 && next_observer != 0 && old_observer != next_observer
             {
@@ -300,43 +301,11 @@ trusted internal func read(
 
             if observer
             {
-                return trusted observer_code_address(attachment.report_observer);
+                return trusted bray.runtime.bootstrap.entry.bridge.address.report(attachment.report_observer);
             }
 
-            return trusted code_address(attachment.context_bridge);
+            return trusted bray.runtime.bootstrap.entry.bridge.address.context(attachment.context_bridge);
         }
-    }
-
-    return 0;
-}
-
-trusted internal func code_address(pos callback: Callback?) -> usize
-    executes(total)
-    uses(layout_reinterpret, intrinsic)
-{
-    if let ?selected = callback
-    {
-        return trusted core.target.expose_address<u8>(
-            trusted std.memory.function.to_data<Callback>(
-                trusted std.memory.function_address<Callback>(selected)
-            )
-        );
-    }
-
-    return 0;
-}
-
-trusted internal func observer_code_address(pos callback: Observer?) -> usize
-    executes(total)
-    uses(layout_reinterpret, intrinsic)
-{
-    if let ?selected = callback
-    {
-        return trusted core.target.expose_address<u8>(
-            trusted std.memory.function.to_data<Observer>(
-                trusted std.memory.function_address<Observer>(selected)
-            )
-        );
     }
 
     return 0;
@@ -348,7 +317,7 @@ trusted internal func observe(
     pos digest: &bytes<32>
 ) -> u32
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(layout_reinterpret)
+    uses(layout_reinterpret, foreign_call)
 {
     let native_address = trusted lambda(pos value: usize) -> FunctionPointer<Observer>
         requires(trusted bray.runtime.bootstrap.pool.protocol_access(), value != 0)

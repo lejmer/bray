@@ -1,6 +1,7 @@
 module std.memory;
 
 using core.memory;
+using std.numeric;
 
 struct RawBuffer<T>
 {
@@ -9,7 +10,7 @@ struct RawBuffer<T>
     initialized: usize;
 
     trusted construct(capacity: usize) -> Result<Self, MemoryLayoutError>
-        uses(manual_alloc, layout_reinterpret)
+        uses(manual_alloc)
     {
         if capacity == 0
         {
@@ -332,8 +333,7 @@ extern trusted internal func byte_buffer_fill(pos destination: DataPointer<u8>, 
 
 extern trusted internal func byte_buffer_read(pos pointer: DataPointer<u8>, index: usize) -> u8
     requires(
-        (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) && index !=
-            18_446_744_073_709_551_615,
-        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1),
+        index != std.numeric.USIZE_MAX && (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) &&
+            (trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1)),
     )
     uses(raw_memory);

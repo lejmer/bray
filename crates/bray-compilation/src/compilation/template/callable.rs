@@ -84,6 +84,30 @@ impl Compilation {
                     ));
                 }
 
+                if !self.unit_requires_constant_evaluation(&key, cancellation)? {
+                    let mut diagnostics = eligibility.clone();
+
+                    for obligation in [
+                        bray_checker::ExecutionObligation::Observation,
+                        bray_checker::ExecutionObligation::Termination,
+                    ] {
+                        let (failure, _, _) = self.certify_execution_obligation(
+                            &key,
+                            obligation,
+                            &mut diagnostics,
+                            false,
+                            cancellation,
+                        )?;
+
+                        if failure.is_some() || diagnostics.has_errors() {
+                            return Ok((
+                                bray_diagnostics::DiagnosticResult::new(None, diagnostics),
+                                Box::new([]),
+                            ));
+                        }
+                    }
+                }
+
                 let inputs = self.constant_body_inputs(&key, cancellation)?;
 
                 let (kind, dependency) = if key.kind()

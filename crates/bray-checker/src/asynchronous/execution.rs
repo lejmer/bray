@@ -139,11 +139,14 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
 
                                 dependencies.push(ExecutionDependency {
                                     target: (BoundCallableTarget::Declaration(*callable)).into(),
-                                    property: if mode == ExecutionCleanupMode::Admission {
-                                        ExecutionProperty::Total
-                                    } else {
-                                        property
-                                    },
+                                    obligation: crate::ExecutionObligation::Property(
+                                        if mode == ExecutionCleanupMode::Admission {
+                                            ExecutionProperty::Total
+                                        } else {
+                                            property
+                                        },
+                                        None,
+                                    ),
                                     occurrence: node.into(),
                                 });
                             }

@@ -75,16 +75,21 @@ impl BoundExpression {
     pub fn pattern_subject_site(&self, owner: BoundExpressionId) -> crate::BoundExecutionSite {
         match self {
             Self::For(_) | Self::Generator(_) => crate::BoundExecutionSite::Next(owner),
-            Self::Structured(operation) if operation.kind() == BoundStructuredExpressionKind::With =>
-                crate::BoundExecutionSite::ScopedEnter(owner),
+            Self::Structured(operation)
+                if operation.kind() == BoundStructuredExpressionKind::With =>
+            {
+                crate::BoundExecutionSite::ScopedEnter(owner)
+            }
             _ => owner.into(),
         }
     }
 
     /// Whether evaluation constructs its result across internal control-flow paths.
     pub fn has_result_region(&self) -> bool {
-        matches!(self, Self::Block(_) | Self::Match(_) | Self::For(_) | Self::Generator(_))
-            || matches!(self, Self::Structured(operation) if matches!(operation.kind(),
+        matches!(
+            self,
+            Self::Block(_) | Self::Match(_) | Self::For(_) | Self::Generator(_)
+        ) || matches!(self, Self::Structured(operation) if matches!(operation.kind(),
                 BoundStructuredExpressionKind::Conditional | BoundStructuredExpressionKind::While
                 | BoundStructuredExpressionKind::Loop | BoundStructuredExpressionKind::With
                 | BoundStructuredExpressionKind::Catch | BoundStructuredExpressionKind::BooleanAllFold

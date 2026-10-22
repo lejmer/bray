@@ -184,7 +184,8 @@ fn convert_projections<E>(
     Ok(Some(result))
 }
 
-fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
+/// Resolves a checked storage component using its established declaration and substitution.
+pub fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     owner: TypeId,
     projection: StorageProjection,
@@ -207,7 +208,14 @@ fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
             ));
         }
         StorageProjection::SliceRange { .. } => {
-            return Ok(DiagnosticResult::new(None, DiagnosticBag::new()));
+            let slice = sequence_element_type(request, owner).map(|element| {
+                request
+                    .semantic_values()
+                    .intern_type(TypeData::Slice(element))
+                    .expect("checked sequence element belongs to the same semantic store")
+            });
+
+            return Ok(DiagnosticResult::new(slice, DiagnosticBag::new()));
         }
     };
 
@@ -248,5 +256,34 @@ pub(super) fn element_projection<C: CheckerRequestContext + ?Sized>(
     match index {
         Some(index) => StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index)),
         None => StorageProjection::Element(selector),
+    }
+}
+
+pub(crate) fn dependency_projections(
+    projections: &[bray_bound_tree::StorageProjection],
+) -> Option<Vec<bray_symbols::DependencyProjection>> {
+    projections
+        .iter()
+        .copied()
+        .map(dependency_projection)
+        .collect()
+}
+
+pub(crate) fn dependency_projection(
+    projection: bray_bound_tree::StorageProjection,
+) -> Option<bray_symbols::DependencyProjection> {
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::DependencyProjection;
+
+    match projection {
+        StorageProjection::ProductField(field) => Some(DependencyProjection::ProductField(field)),
+        StorageProjection::TupleElement(index) => Some(DependencyProjection::TupleElement(index)),
+        StorageProjection::NullableValue => Some(DependencyProjection::NullableValue),
+        StorageProjection::ActiveUnionPayloadField { field, .. } => {
+            Some(DependencyProjection::UnionPayloadField(field))
+        }
+        StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
+        StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
+        _ => None,
     }
 }

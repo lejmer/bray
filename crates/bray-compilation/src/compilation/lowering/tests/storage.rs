@@ -10,37 +10,37 @@ use bray_symbols::{BorrowKind, TypeData};
 use super::support::{declared_unit_key, lowered_mir};
 use crate::test_support::{compilation, source_callable_body_key, source_function_body_key};
 
-const STRUCTURED_LOWERING_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "struct Pair\n",
-    "{\n",
-    "    first: i32;\n",
-    "    second: i32 = 9;\n",
-    "}\n",
-    "\n",
-    "union Choice\n",
-    "{\n",
-    "    Value(value: i32);\n",
-    "    Empty;\n",
-    "}\n",
-    "\n",
-    "func main() -> i64\n",
-    "{\n",
-    "    let tuple: (i32, i32) = (1, 2);\n",
-    "    let array: [i32; 2] = [3, 4];\n",
-    "    let repeated: [i32; 2] = [5; 2];\n",
-    "    let pair: Pair = Pair { first = tuple.0, second = array[0] };\n",
-    "    let defaulted: Pair = Pair { first = 9 };\n",
-    "    let widened: (i64, i64) = tuple as (i64, i64);\n",
-    "    let choice: Choice = Value(value = pair.first);\n",
-    "    let empty: Choice = Empty;\n",
-    "    let owned: box i32 = box(8);\n",
-    "    let owned_tuple: (box i32,) = (owned,);\n",
-    "    let moved: box i32 = owned_tuple.0;\n",
-    "    return pair.first as i64;\n",
-    "}\n",
-);
+const STRUCTURED_LOWERING_SOURCE: &str = r#"
+module app;
+
+struct Pair
+{
+    first: i32;
+    second: i32 = 9;
+}
+
+union Choice
+{
+    Value(value: i32);
+    Empty;
+}
+
+func main() -> i64
+{
+    let tuple: (i32, i32) = (1, 2);
+    let array: [i32; 2] = [3, 4];
+    let repeated: [i32; 2] = [5; 2];
+    let pair: Pair = Pair { first = tuple.0, second = array[0] };
+    let defaulted: Pair = Pair { first = 9 };
+    let widened: (i64, i64) = tuple as (i64, i64);
+    let choice: Choice = Value(value = pair.first);
+    let empty: Choice = Empty;
+    let owned: box i32 = box(8);
+    let owned_tuple: (box i32,) = (owned,);
+    let moved: box i32 = owned_tuple.0;
+    return pair.first as i64;
+}
+"#;
 
 #[test]
 fn runtime_default_borrows_caller_owned_input_storage() {
@@ -71,6 +71,41 @@ fn runtime_default_borrows_caller_owned_input_storage() {
         !mir.storages_with_ids()
             .any(|(_, storage)| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(_)))
     );
+}
+
+#[test]
+fn named_byte_extents_retain_checked_types_through_lowering() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            const BUFFER_CAPACITY: usize = 512;
+
+            func sample() -> u8
+            {
+                let mut buffer: bytes<BUFFER_CAPACITY> = [0; BUFFER_CAPACITY];
+
+                buffer[0] = 7;
+
+                return buffer[0];
+            }
+        "#,
+    );
+
+    let key = source_callable_body_key(&compilation);
+    let types = compilation.expression_types(key.clone()).unwrap();
+
+    assert!(types.diagnostics().is_empty(), "{:?}", types.diagnostics());
+
+    assert!(!types.value().is_recovered(), "{:?}", types.value(),);
+
+    let result = compilation.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&result);
+
+    assert!(mir.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::Aggregate(aggregate) if aggregate.kind() == MirAggregateKind::RepeatedArray
+    )));
 }
 
 #[test]
@@ -123,14 +158,17 @@ fn structured_values_lower_to_aggregates_construction_and_projections() {
         2
     );
 
-    assert!(mir.operations().iter().any(|operation| matches!(
-        operation.kind(),
-        MirOperationKind::Construct(construction)
-            if matches!(
-                construction.target(),
-                bray_bound_tree::ConstructionTarget::TypeForm { .. }
-            )
-    )));
+    assert!(
+        mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Construct(construction)
+                if matches!(
+                    construction.target(),
+                    bray_bound_tree::ConstructionTarget::TypeForm { .. }
+                )
+        )),
+        "typed construction must retain its source operation: {mir:#?}"
+    );
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. }))));
@@ -146,13 +184,16 @@ fn structured_values_lower_to_aggregates_construction_and_projections() {
             .all(|input| matches!(input.value(), MirOperand::Move(_)))
     }));
 
-    assert!(mir.operations().iter().any(|operation| matches!(
-        operation.kind(),
-        MirOperationKind::Store {
-            value: MirOperand::Move(place),
-            ..
-        } if !place.projections().is_empty()
-    )));
+    assert!(
+        mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Store {
+                value: MirOperand::Move(place),
+                ..
+            } if !place.projections().is_empty()
+        )),
+        "aggregate movement must retain its projections: {mir:#?}"
+    );
 
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),

@@ -133,17 +133,17 @@ impl CheckerRequestContext for TestCheckerContext {
         )
     }
 
-    fn result_dispatch_requirement(
+    fn dispatch_requirement(
         &self,
         _dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> crate::CheckerQueryResult<bray_symbols::ImplementationRequirementKey, Self::UpstreamError>
     {
         panic!(
-            "Semantic-selection inputs do not describe the requested bound unit or operation category. in result_dispatch_requirement"
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in dispatch_requirement"
         )
     }
 
-    fn result_witness_callable(
+    fn witness_callable(
         &self,
         _callable: bray_symbols::CallableInstanceId,
         _requirement: bray_symbols::ImplementationRequirementKey,
@@ -151,6 +151,7 @@ impl CheckerRequestContext for TestCheckerContext {
         Option<(
             bray_symbols::CallableInstanceData,
             bray_symbols::SelfTypeContext,
+            bray_symbols::ImplementationInstanceId,
         )>,
         Self::UpstreamError,
     > {

@@ -2,6 +2,7 @@
 trusted module std.process;
 
 using std.memory;
+using std.numeric;
 using internal std.platform;
 
 trusted internal func spawn_storage(
@@ -212,7 +213,7 @@ trusted internal func environment_key_length(pos text: (&[u8])) -> Result<usize,
 
 internal func added_text_capacity(pos current: usize, pos length: usize) -> Result<usize, std.platform.PlatformStatus>
 {
-    if length == 18_446_744_073_709_551_615 || current > 18_446_744_073_709_551_615 - length - 1
+    if length == std.numeric.USIZE_MAX || current > std.numeric.USIZE_MAX - length - 1
     {
         return Error(internal std.platform.exhausted_status());
     }

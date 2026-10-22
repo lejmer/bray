@@ -370,11 +370,19 @@ impl StoragePlanBuilder {
         };
 
         match (target, self.identity(storage).copied()) {
-            (StorageBindingTarget::InvocationResult(expected),
-                Some(StorageIdentity::InvocationResult(actual))) => expected == actual,
             (
-                StorageBindingTarget::InvocationInput { expression, ordinal },
-                Some(StorageIdentity::InvocationInput { expression: actual, ordinal: actual_ordinal }),
+                StorageBindingTarget::InvocationResult(expected),
+                Some(StorageIdentity::InvocationResult(actual)),
+            ) => expected == actual,
+            (
+                StorageBindingTarget::InvocationInput {
+                    expression,
+                    ordinal,
+                },
+                Some(StorageIdentity::InvocationInput {
+                    expression: actual,
+                    ordinal: actual_ordinal,
+                }),
             ) => expression == actual && ordinal == actual_ordinal,
             (
                 StorageBindingTarget::Parameter(expected),

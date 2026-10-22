@@ -107,7 +107,9 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
         id: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let result_region = self.view().expression(id)
+        let result_region = self
+            .view()
+            .expression(id)
             .is_some_and(bray_bound_tree::BoundExpression::has_result_region);
 
         let loop_header = matches!(self.view().expression(id),

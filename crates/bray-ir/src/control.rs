@@ -591,9 +591,7 @@ impl MirTerminatorKind {
                 visit(matched)?;
                 visit(unmatched)?;
             }
-            Self::RangeIterate { exhausted, .. } => {
-                visit(exhausted)?
-            }
+            Self::RangeIterate { exhausted, .. } => visit(exhausted)?,
             Self::Switch {
                 cases, otherwise, ..
             } => {

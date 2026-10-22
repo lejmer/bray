@@ -1,13 +1,13 @@
 mod contract;
-mod instantiation;
 mod input;
+mod instantiation;
 mod operation;
 mod references;
 
-pub(crate) use input::{selected_input_contracts, selected_input_template};
 pub(crate) use contract::{
     cleanup_report_contract, selected_call_contracts, selected_implicit_contracts,
 };
+pub(crate) use input::{selected_input_contracts, selected_input_template};
 
 pub(crate) use references::prepare_reference;
 

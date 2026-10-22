@@ -13,28 +13,49 @@ pub(crate) fn construction_condition(
     construction: &bray_bound_tree::SelectedConstruction,
     mut input_value: impl FnMut(&bray_bound_tree::SelectedConstructionInput) -> ExecutionCondition,
 ) -> ExecutionCondition {
-    let fields = construction.inputs().iter().filter_map(|input| {
-        let (bray_bound_tree::SelectedConstructionInput::Explicit { input: identity, .. }
-            | bray_bound_tree::SelectedConstructionInput::Default { input: identity, .. }) = input;
-        let field = match identity {
-            bray_bound_tree::ConstructionInputId::StructField(field) =>
-                bray_bound_tree::StorageProjection::ProductField(*field),
-            bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => {
-                let bray_bound_tree::ConstructionTarget::UnionVariant(variant) = construction.target() else {
-                    unreachable!("checked union payload input selects its union variant");
-                };
-                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field: *field }
+    let fields = construction
+        .inputs()
+        .iter()
+        .filter_map(|input| {
+            let (bray_bound_tree::SelectedConstructionInput::Explicit {
+                input: identity, ..
             }
-            bray_bound_tree::ConstructionInputId::CallableParameter(_) => return None,
-        };
-        Some((field, input_value(input)))
-    }).collect::<Vec<_>>();
+            | bray_bound_tree::SelectedConstructionInput::Default {
+                input: identity, ..
+            }) = input;
+
+            let field = match identity {
+                bray_bound_tree::ConstructionInputId::StructField(field) => {
+                    bray_bound_tree::StorageProjection::ProductField(*field)
+                }
+                bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => {
+                    let bray_bound_tree::ConstructionTarget::UnionVariant(variant) =
+                        construction.target()
+                    else {
+                        unreachable!("checked union payload input selects its union variant");
+                    };
+
+                    bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                        variant,
+                        field: *field,
+                    }
+                }
+                bray_bound_tree::ConstructionInputId::CallableParameter(_) => return None,
+            };
+
+            Some((field, input_value(input)))
+        })
+        .collect::<Vec<_>>();
+
     let base = ExecutionCondition::Expression(expression);
+
     let base = match construction.target() {
-        bray_bound_tree::ConstructionTarget::UnionVariant(variant) =>
-            ExecutionCondition::Tagged(variant, std::sync::Arc::new(base)),
+        bray_bound_tree::ConstructionTarget::UnionVariant(variant) => {
+            ExecutionCondition::Tagged(variant, std::sync::Arc::new(base))
+        }
         _ => base,
     };
+
     ExecutionCondition::Constructed(std::sync::Arc::new(base), fields.into())
 }
 
@@ -65,11 +86,24 @@ pub(super) fn constructed_condition(
                 | bray_bound_tree::ConstructionTarget::UnionVariant(_)
         )
     {
-        return Some(construction_condition(expression, construction, |input| match input {
-            bray_bound_tree::SelectedConstructionInput::Explicit { expression, conversion, .. } =>
-                value(*expression).coerce(values, conversion.source_type(), conversion.target_type()),
-            bray_bound_tree::SelectedConstructionInput::Default { .. } => ExecutionCondition::Unknown,
-        }));
+        return Some(construction_condition(
+            expression,
+            construction,
+            |input| match input {
+                bray_bound_tree::SelectedConstructionInput::Explicit {
+                    expression,
+                    conversion,
+                    ..
+                } => value(*expression).coerce(
+                    values,
+                    conversion.source_type(),
+                    conversion.target_type(),
+                ),
+                bray_bound_tree::SelectedConstructionInput::Default { .. } => {
+                    ExecutionCondition::Unknown
+                }
+            },
+        ));
     }
 
     match bound {
@@ -353,6 +387,23 @@ pub(super) fn structured_condition(
     evaluate: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
 ) -> ExecutionCondition {
     match operation {
+        operation
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Absence =>
+        {
+            let ty = semantics
+                .types()
+                .expression(expression)
+                .expect("checked absence retains its nullable type")
+                .ty();
+
+            pattern_value(
+                values,
+                ty,
+                bray_bound_tree::PatternPredicate::NullableAbsent,
+            )
+            .expect("nullable absence has an established value")
+            .1
+        }
         operation
             if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
                 && matches!(

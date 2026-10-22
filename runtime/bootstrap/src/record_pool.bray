@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
+using std.numeric;
 using core.target;
 using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.storage;
@@ -51,7 +52,7 @@ trusted internal func reserve_records(
     }
 
     let required: usize = count - pool.available;
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
     let limit: usize = maximum / std.memory.size_of<ReportRecord>() - pool.total;
 
     if required > limit
@@ -247,7 +248,7 @@ trusted internal func admit_record_values(
         {
             let mut guard = trusted bray.runtime.bootstrap.pool.lock();
             let pool = guard.get();
-            let maximum: usize = ~0;
+            let maximum: usize = std.numeric.USIZE_MAX;
 
             if count > maximum - pool.credits
             {

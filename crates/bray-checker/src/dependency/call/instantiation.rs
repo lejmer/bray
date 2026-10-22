@@ -143,7 +143,9 @@ where
         };
 
         match root {
-            DependencySubjectRoot::Result => Some(expression),
+            DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage => {
+                Some(expression)
+            }
             _ if call.evaluates_defaults() => None,
             _ => crate::dependency::result_argument(call.arguments(), call.receiver(), root),
         }
@@ -161,8 +163,9 @@ where
                         .flatten()
                 });
             }
-            CallInstantiationInput::Selected { call, .. }
-                if call.evaluates_defaults() => return None,
+            CallInstantiationInput::Selected { call, .. } if call.evaluates_defaults() => {
+                return None;
+            }
             CallInstantiationInput::Selected { call, .. } => match root {
                 DependencySubjectRoot::Receiver => {
                     let receiver = call.receiver()?;
@@ -227,14 +230,20 @@ where
             CallInstantiationInput::Hidden { input, result, .. } => {
                 if root == input.0 {
                     Some(input.1)
-                } else if root == DependencySubjectRoot::Result {
+                } else if matches!(
+                    root,
+                    DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage
+                ) {
                     *result
                 } else {
                     None
                 }
             }
             CallInstantiationInput::Inputs { inputs, result } => {
-                if root == DependencySubjectRoot::Result {
+                if matches!(
+                    root,
+                    DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage
+                ) {
                     *result
                 } else {
                     inputs
@@ -242,11 +251,10 @@ where
                         .find_map(|(actual, access, _)| (*actual == root).then_some(*access))
                 }
             }
-            CallInstantiationInput::Selected { expression, call }
-                if call.evaluates_defaults() =>
-            {
+            CallInstantiationInput::Selected { expression, call } if call.evaluates_defaults() => {
                 call.input_ordinal(root).map(|ordinal| {
-                    self.storage.invocation_input(*expression, ordinal)
+                    self.storage
+                        .invocation_input(*expression, ordinal)
                         .expect("selected formal input has its staged storage")
                 })
             }
@@ -310,8 +318,9 @@ where
             .borrow_capability_entries()
             .find(|(_, capability)| {
                 capability.kind() == kind
-                    && expression
-                        .is_some_and(|expression| capability.occurrence() == Some(expression.into()))
+                    && expression.is_some_and(|expression| {
+                        capability.occurrence() == Some(expression.into())
+                    })
             })
         {
             return Some(id);
@@ -335,8 +344,9 @@ where
                 (capability.kind() == kind
                     && (self.storage.relationship(capability.access(), access)
                         == bray_bound_tree::StorageRelationship::Identical
-                        || expression
-                            .is_some_and(|expression| capability.occurrence() == Some(expression.into()))))
+                        || expression.is_some_and(|expression| {
+                            capability.occurrence() == Some(expression.into())
+                        })))
                 .then_some(id)
             })
     }
@@ -384,6 +394,22 @@ where
             projections = remaining;
         }
 
+        // Forming an explicit input carries its fresh reborrow, not the parent's loan.
+        // Later default reads have no source expression and use the staged value instead.
+        if requirement == DependencyRequirementKind::ValueDependencies
+            && projections.is_empty()
+            && let Some((capability, _)) =
+                self.storage
+                    .borrow_capability_entries()
+                    .find(|(_, capability)| {
+                        expression.is_some_and(|expression| {
+                            capability.occurrence() == Some(expression.into())
+                        })
+                    })
+        {
+            return Ok(BoundDependencySubject::BorrowCapability(capability));
+        }
+
         if requirement == DependencyRequirementKind::ValueDependencies
             && subject.projections().is_empty()
             && let Some(capability) = self.input_borrow(root)
@@ -391,37 +417,32 @@ where
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
 
-        if requirement == DependencyRequirementKind::ValueDependencies
-            && projections.is_empty()
-            && let Some((capability, _)) =
-                self.storage
-                    .borrow_capability_entries()
-                    .find(|(_, capability)| {
-                        expression
-                            .is_some_and(|expression| capability.occurrence() == Some(expression.into()))
-                    })
-        {
-            return Ok(BoundDependencySubject::BorrowCapability(capability));
-        }
-
         let staged = match &self.input {
-            CallInstantiationInput::Selected { call, .. }
-                if call.evaluates_defaults() =>
-            {
+            CallInstantiationInput::Selected { call, .. } if call.evaluates_defaults() => {
                 self.hidden_access(root)
             }
-            CallInstantiationInput::Inputs { .. } => self.hidden_access(root).filter(|access|
-                matches!(self.storage.root_identity(*access).and_then(|identity| self.storage.identity(identity)),
-                    Some(StorageIdentity::InvocationInput { .. }))),
+            CallInstantiationInput::Inputs { .. } => self.hidden_access(root).filter(|access| {
+                matches!(
+                    self.storage
+                        .root_identity(*access)
+                        .and_then(|identity| self.storage.identity(identity)),
+                    Some(StorageIdentity::InvocationInput { .. })
+                )
+            }),
             _ => None,
         };
 
         // A staged borrow is a checked value, not the original source loan.
         // Retaining its dependencies follows the loans of its current contents.
-        if staged.is_some() && matches!(requirement,
-            DependencyRequirementKind::BorrowCapabilityActive(_))
+        if staged.is_some()
+            && matches!(
+                requirement,
+                DependencyRequirementKind::BorrowCapabilityActive(_)
+            )
         {
-            return Ok(BoundDependencySubject::StorageAccess(staged.expect("staged input exists")));
+            return Ok(BoundDependencySubject::StorageAccess(
+                staged.expect("staged input exists"),
+            ));
         }
 
         let frame_access = self.deferred_frame_access(root);
@@ -478,8 +499,14 @@ pub(super) fn expression_access(
 ) -> Option<StorageAccessId> {
     storage
         .node_plans((expression).into())
-        .find(|plan| !matches!(storage.root_identity(plan.access()).and_then(|root| storage.identity(root)),
-            Some(StorageIdentity::InvocationInput { .. })))
+        .find(|plan| {
+            !matches!(
+                storage
+                    .root_identity(plan.access())
+                    .and_then(|root| storage.identity(root)),
+                Some(StorageIdentity::InvocationInput { .. })
+            )
+        })
         .map(bray_bound_tree::StorageAccessPlan::access)
         .or_else(|| identity_access(storage, StorageIdentity::Temporary(expression)))
 }

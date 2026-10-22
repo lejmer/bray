@@ -1,6 +1,6 @@
 use super::{StorageFlowInput, StorageFlowState};
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
-use crate::analysis::id::AnalysisEdgeId;
+use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
 use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
 use crate::analysis::reachability::ReachabilityResult;
 use crate::analysis::storage_flow::check::StorageFlowCollector;
@@ -144,8 +144,13 @@ where
         state
     }
 
-    fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
-        target.merge(boundary, None)
+    fn merge(
+        &self,
+        block: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        boundary: &Self::State,
+    ) -> bool {
+        target.merge(boundary, block)
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
@@ -161,17 +166,6 @@ where
         if !self.reachability.is_edge_reachable(edge.id()) {
             return false;
         }
-
-        let single_predecessor = self
-            .graph
-            .block(edge.target())
-            .expect("flow edge has a target")
-            .predecessors()
-            .iter()
-            .filter(|id| self.reachability.is_edge_reachable(**id))
-            .take(2)
-            .count()
-            == 1;
 
         // Each edge owns one correlated state before refining and joining it.
         let mut incoming = source.clone();
@@ -190,12 +184,6 @@ where
                 .as_mut()
                 .is_some_and(|state| self.execution.refine_edge(state, edge))
         {
-            if single_predecessor && target.reachable {
-                *target = Self::State::default();
-
-                return true;
-            }
-
             return false;
         }
 
@@ -211,12 +199,6 @@ where
                     .execution
                     .assume_patterns(execution, self.refinements.edge_facts(refinement))
                 {
-                    if single_predecessor && target.reachable {
-                        *target = Self::State::default();
-
-                        return true;
-                    }
-
                     return false;
                 }
             }
@@ -294,17 +276,7 @@ where
             }
         }
 
-        if single_predecessor {
-            if *target == incoming {
-                return false;
-            }
-
-            *target = incoming;
-
-            return true;
-        }
-
-        target.merge(&incoming, Some(edge.target()))
+        self.merge(Some(edge.target()), target, &incoming)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

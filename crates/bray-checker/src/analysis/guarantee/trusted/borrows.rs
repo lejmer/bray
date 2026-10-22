@@ -132,11 +132,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
-        let retains_identity = matches!(result,
-            ExecutionCondition::Expression(_) | ExecutionCondition::ScopedCapability(_))
-            || matches!(&result, ExecutionCondition::PostState(
+        let retains_identity = matches!(
+            result,
+            ExecutionCondition::Expression(_) | ExecutionCondition::ScopedCapability(_)
+        ) || matches!(&result, ExecutionCondition::PostState(
                 bray_bound_tree::StorageMutation::Operation(site), _) if *site == invocation);
-        if !retains_identity { return result; }
+
+        if !retains_identity {
+            return result;
+        }
 
         let Some(source) = invocation.expression() else {
             return result;

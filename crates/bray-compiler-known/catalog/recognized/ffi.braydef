@@ -17,7 +17,6 @@ scope StandardFfi at std.ffi {
             trusted construct(
                 pos state: State,
             ) -> Result<Self, std.memory.MemoryLayoutError>
-                uses(manual_alloc, raw_memory, unchecked_init)
             {}
         }
     }

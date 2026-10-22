@@ -251,6 +251,11 @@ where
             .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
     }
 
+    pub(crate) fn call_cannot_cancel(self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_cancel(expression))
+    }
+
     pub(crate) fn target_cannot_unwind(self, target: bray_bound_tree::BoundCallableTarget) -> bool {
         self.unwind
             .is_some_and(|unwind| unwind.target_cannot_unwind(target))

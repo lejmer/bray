@@ -9,6 +9,8 @@ pub enum PlatformAbiType {
     U64,
     /// Fixed-width signed 64-bit scalar.
     I64,
+    /// Target-native entry address with its Bray callable contract.
+    FunctionPointer,
     /// Raw pointer to byte storage.
     PointerU8,
     /// Raw pointer to unsigned 32-bit storage.

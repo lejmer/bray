@@ -58,7 +58,11 @@ pub(crate) const fn diagnostic_memory_operation(
         Hook::RawPointerIsNull => Operation::PointerNullCheck,
         Hook::RawPointerOffset => Operation::PointerElementOffset,
         Hook::RawPointerByteOffset => Operation::PointerByteOffset,
-        Hook::RawPointerByteAddress | Hook::RawPointerReinterpret | Hook::FunctionPointerReinterpret | Hook::FunctionPointerFromData | Hook::FunctionPointerToData => Operation::PointerReinterpretation,
+        Hook::RawPointerByteAddress
+        | Hook::RawPointerReinterpret
+        | Hook::FunctionPointerReinterpret
+        | Hook::FunctionPointerFromData
+        | Hook::FunctionPointerToData => Operation::PointerReinterpretation,
         Hook::CallableFromPointer => Operation::CallableFromPointer,
         Hook::PointerFromCallable => Operation::PointerFromCallable,
         Hook::CallbackState | Hook::TransferredValueBorrow => Operation::CallbackState,

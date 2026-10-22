@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.storage;
 
+using std.numeric;
 using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.pool.growth;
@@ -111,7 +112,7 @@ trusted internal func reserve_requirement(
 
     let values = trusted shapes(pool);
     let shape = &mut values[index - 1];
-    let limit: usize = ~0;
+    let limit: usize = std.numeric.USIZE_MAX;
 
     if shape.credits == limit
     {

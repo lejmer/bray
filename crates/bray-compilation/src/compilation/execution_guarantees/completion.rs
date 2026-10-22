@@ -6,7 +6,6 @@ use bray_checker::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableContractsQuery, CallableInstanceData, SymbolQueryRequest};
 
-use super::imported::ExecutionProofGraph;
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -646,20 +645,16 @@ impl Compilation {
         mut diagnostics: DiagnosticBag,
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
-        let mut graph = ExecutionProofGraph::new();
-
-        let valid = self.append_imported_execution_proof(
-            callable,
+        let (failure, _, _) = self.certify_execution_proof(
+            super::imported::ExecutionProofOwner::Imported(callable),
+            None,
             selected,
-            &mut graph,
             &mut diagnostics,
+            false,
             cancellation,
         )?;
 
-        Ok((valid
-            && !diagnostics.has_errors()
-            && bray_symbols::check_execution_proof_dependencies(&graph).is_empty())
-        .then_some(selected))
+        Ok((failure.is_none() && !diagnostics.has_errors()).then_some(selected))
     }
 
     /// Certifies a property on every legal input, without authorizing any invocation.

@@ -99,7 +99,12 @@ impl ValueInputs {
             for (pattern, initializer) in subjects {
                 // Implicit invocation values have no source initializer to substitute.
                 let bray_bound_tree::BoundExecutionSite::Node(
-                    bray_bound_tree::AnyBoundNodeId::Expression(initializer)) = initializer else { continue; };
+                    bray_bound_tree::AnyBoundNodeId::Expression(initializer),
+                ) = initializer
+                else {
+                    continue;
+                };
+
                 let mut pending = vec![(*pattern, *initializer)];
 
                 while let Some((id, initializer)) = pending.pop() {
@@ -421,6 +426,21 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     let mut variants = BTreeMap::new();
 
     for entry in selections.entries() {
+        if let SemanticSelection::Operation(SelectedOperation::Construction(construction)) =
+            entry.selection()
+            && let bray_bound_tree::ConstructionTarget::UnionVariant(variant) =
+                construction.target()
+        {
+            for input in construction.inputs() {
+                let (SelectedConstructionInput::Explicit { input, .. }
+                | SelectedConstructionInput::Default { input, .. }) = input;
+
+                if let ConstructionInputId::UnionPayloadField(field) = input {
+                    variants.insert(*field, variant);
+                }
+            }
+        }
+
         if let SemanticSelection::Propagation(selection) = entry.selection() {
             if let Some((variant, field)) = selection.success() {
                 variants.insert(field, variant);

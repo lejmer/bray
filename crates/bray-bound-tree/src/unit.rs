@@ -33,7 +33,10 @@ impl BoundUnitKind {
     /// Whether executable arithmetic uses the operand's machine representation.
     /// Contract and declaration expressions retain exact integer arithmetic.
     pub const fn uses_machine_arithmetic(self) -> bool {
-        matches!(self, Self::CallableBody | Self::AnonymousCallable | Self::RuntimeDefault)
+        matches!(
+            self,
+            Self::CallableBody | Self::AnonymousCallable | Self::RuntimeDefault
+        )
     }
 
     /// Returns this bound-unit kind's stable machine-readable name.
@@ -407,6 +410,12 @@ impl BoundUnitKey {
     /// Returns this key's exact semantic unit category.
     pub fn kind(&self) -> BoundUnitKind {
         self.0.kind()
+    }
+
+    /// Whether this unit prepares one owned static instance rather than a named constant value.
+    pub fn is_static_initializer(&self) -> bool {
+        self.kind() == BoundUnitKind::ConstantTemplate
+            && self.declared_owner().kind() == bray_symbols::SymbolKind::Static
     }
 
     /// Returns the exact source construct checked by the unit.

@@ -164,23 +164,57 @@ where
         }
     }
 
+    fn escape_span(&self, exit: AnyBoundNodeId) -> bray_source::SourceSpan {
+        let origin = bound_node_origin(self.request, exit)
+            .expect("a control-flow exit retains its source origin");
+
+        let span = self.request.source(origin.source_anchor()).span();
+
+        let AnyBoundNodeId::Expression(expression) = exit else {
+            return span;
+        };
+
+        let Some(bray_bound_tree::BoundExpression::Call(call)) =
+            self.request.view().expression(expression)
+        else {
+            return span;
+        };
+
+        let callee = crate::diagnostic::expression_span(self.request, call.callee());
+
+        assert_eq!(
+            span.source_id(),
+            callee.source_id(),
+            "a source invocation and its callee share a snapshot"
+        );
+
+        bray_source::SourceSpan::new(span.source_id(), span.range().cover(callee.range()))
+    }
+
     fn report_escaping_access(
         &mut self,
         exit: AnyBoundNodeId,
         access: bray_bound_tree::StorageAccessId,
     ) {
-        let exit_origin = bound_node_origin(self.request, exit)
-            .expect("a control-flow exit retains its source origin");
+        let exit_span = self.escape_span(exit);
 
         let source = self
             .storage
-            .access(access)
-            .expect("retained dependency has its planned access")
-            .source();
+            .root_identity(access)
+            .and_then(|identity| self.storage.identity(identity))
+            .and_then(|identity| identity.definition_node())
+            .and_then(|node| bound_node_origin(self.request, node))
+            .map(|origin| origin.source_anchor())
+            .unwrap_or_else(|| {
+                self.storage
+                    .access(access)
+                    .expect("retained dependency has its planned access")
+                    .source()
+            });
 
         self.diagnostics.add(escaping_storage_dependency_diagnostic(
             diagnostic_id(self.diagnostics.len()),
-            self.request.source(exit_origin.source_anchor()).span(),
+            exit_span,
             self.request.source(source).span(),
         ));
     }
@@ -243,9 +277,7 @@ where
             }
 
             let diagnostic = {
-                let origin = bound_node_origin(self.request, expression.into()).unwrap_or_else(|| panic!("report_escaping_default_storage requires bound node source origin, expression: {expression:?}"));
-
-                let source = self.request.source(origin.source_anchor());
+                let source = self.escape_span(expression.into());
 
                 let dependency = identity
                     .definition_node()
@@ -257,7 +289,7 @@ where
 
                 escaping_storage_dependency_diagnostic(
                     diagnostic_id(self.diagnostics.len()),
-                    source.span(),
+                    source,
                     dependency.span(),
                 )
             };

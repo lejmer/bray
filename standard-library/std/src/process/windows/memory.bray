@@ -33,9 +33,9 @@ internal func write_windows_u32(pos destination: &mut [u64], pos value: u32, off
 
     let index: usize = offset / 8;
     let shift: u64 = (offset % 8 * 8) as u64;
-    let mask: u64 = 4_294_967_295 << shift;
+    let mask: u64 = (std.numeric.U32_MAX as u64) << shift;
 
-    destination[index] = destination[index] & (mask ^ 18_446_744_073_709_551_615) | (value as u64 << shift);
+    destination[index] = destination[index] & (mask ^ std.numeric.U64_MAX) | (value as u64 << shift);
 }
 
 trusted internal func write_windows_pointer(

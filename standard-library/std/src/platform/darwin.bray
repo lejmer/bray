@@ -4,6 +4,7 @@ trusted internal module std.platform;
 using core.memory;
 using std.memory;
 using std.numeric;
+using std.time;
 using std.os.darwin;
 
 trusted internal func process_identity() -> u64
@@ -39,9 +40,9 @@ trusted internal func environment_cursor() -> NativeTextCursor
     return
     {
         first = entries,
-        limit = 18_446_744_073_709_551_615,
+        limit = std.numeric.USIZE_MAX,
         current = entries,
-        remaining = 18_446_744_073_709_551_615,
+        remaining = std.numeric.USIZE_MAX,
     };
 }
 
@@ -115,7 +116,8 @@ trusted internal func prepare_clock_monotonic_now(pos ticks: DataPointer<u64>) -
         return Error(darwin_error_status());
     }
 
-    if observed.seconds < 0 || 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
+    if observed.seconds < 0 || 0 > observed.nanoseconds || observed.nanoseconds >=
+        (std.time.NANOSECONDS_PER_SECOND as i64)
     {
         return Error(other_status());
     }
@@ -123,12 +125,12 @@ trusted internal func prepare_clock_monotonic_now(pos ticks: DataPointer<u64>) -
     let seconds: u64 = std.numeric.truncate_to<u64>(observed.seconds);
     let observed_nanoseconds: u64 = std.numeric.truncate_to<u64>(observed.nanoseconds);
 
-    if seconds > (18_446_744_073_709_551_615 - observed_nanoseconds) / 1_000_000_000
+    if seconds > (std.numeric.U64_MAX - observed_nanoseconds) / (std.time.NANOSECONDS_PER_SECOND as u64)
     {
         return Error(other_status());
     }
 
-    return Ok(seconds * 1_000_000_000 + observed_nanoseconds);
+    return Ok(seconds * (std.time.NANOSECONDS_PER_SECOND as u64) + observed_nanoseconds);
 }
 
 trusted internal func prepare_clock_wall_now(
@@ -163,7 +165,7 @@ trusted internal func prepare_clock_wall_now(
         return Error(darwin_error_status());
     }
 
-    if 0 > observed.nanoseconds || observed.nanoseconds >= 1_000_000_000
+    if 0 > observed.nanoseconds || observed.nanoseconds >= (std.time.NANOSECONDS_PER_SECOND as i64)
     {
         return Error(other_status());
     }
@@ -175,7 +177,7 @@ trusted internal func prepare_clock_wall_now(
 trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
     uses(foreign_call)
 {
-    if nanoseconds >= 1_000_000_000 || seconds > 9_223_372_036_854_775_807
+    if nanoseconds >= std.time.NANOSECONDS_PER_SECOND || seconds > (std.numeric.U64_MAX >> 1)
     {
         return invalid_input_status();
     }

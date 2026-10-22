@@ -8,7 +8,6 @@ using internal std.platform;
 using std.memory;
 
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
-    uses(foreign_call)
 {
     let native: std.ffi.c.OwnedNarrowString = match trusted std.ffi.c.OwnedNarrowString.from_utf8(name)
     {
@@ -45,11 +44,7 @@ trusted internal func unix_thread_entry(pos context: DataPointer<u8>) -> DataPoi
 }
 
 trusted internal func native_thread_entry() -> FunctionPointer<std.os.unix.ThreadStartRoutine>
-    ensures(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = result
-        )
-    )
+    ensures(trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = result))
     uses(layout_reinterpret)
 {
     let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
@@ -80,9 +75,7 @@ trusted internal func platform_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = entry
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = entry),
     )
     uses(raw_memory, unchecked_init)
 {
@@ -126,9 +119,7 @@ trusted internal func prepare_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = entry
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = entry),
     )
     ensures(
         trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
@@ -190,9 +181,7 @@ trusted internal func platform_thread_storage_create(
 ) -> std.platform.PlatformStatus
     executes(total)
     requires(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
-            pointer = destructor
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
@@ -221,9 +210,7 @@ trusted internal func prepare_thread_storage_create(
 ) -> Result<u64, std.platform.PlatformStatus>
     executes(total)
     requires(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
-            pointer = destructor
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )

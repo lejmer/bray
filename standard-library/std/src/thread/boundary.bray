@@ -7,7 +7,9 @@ using internal std.platform;
 using std.atomic;
 using std.memory;
 
-trusted internal func await_thread_identity<T>(pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>) -> u64
+trusted internal func await_thread_identity<T>(
+    pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>
+) -> u64
 {
     let value: &ThreadControl = trusted internal thread_control<T>(pointer);
     let mut identity: u64 = value.identity.load(order = std.atomic.LoadOrder.Acquire);
@@ -41,7 +43,9 @@ trusted internal func thread_control<T>(
 trusted internal func control_from_address(address: usize) -> &ThreadControl
     uses(intrinsic, raw_memory)
 {
-    let pointer: DataPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(address = address);
+    let pointer: DataPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
+        address = address
+    );
 
     return trusted internal transferred_shared_value<ThreadControl>(pointer);
 }

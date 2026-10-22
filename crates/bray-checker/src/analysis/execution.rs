@@ -57,18 +57,27 @@ where
         let mut current = current;
         let mut may_fail = may_fail;
 
-        let checks_preconditions = self.request().trusted_contracts()
+        let checks_preconditions = self
+            .request()
+            .trusted_contracts()
             .and_then(|contracts| contracts.calls.get(&expression.into()))
             .is_some_and(|contract| contract.checks_preconditions)
-            || self.selections().and_then(|selections| selections.expression(expression))
-                .is_some_and(|selection| matches!(selection, SemanticSelection::Call(call)
-                    if call.phase_behaviors().invocation().has_runtime_requirements()));
+            || self
+                .selections()
+                .and_then(|selections| selections.expression(expression))
+                .is_some_and(|selection| {
+                    matches!(selection, SemanticSelection::Call(call)
+                    if call.phase_behaviors().invocation().has_runtime_requirements())
+                });
+
         if checks_preconditions
-            && let Some(SemanticSelection::Call(call)) =
-                self.selections().and_then(|selections| selections.expression(expression))
+            && let Some(SemanticSelection::Call(call)) = self
+                .selections()
+                .and_then(|selections| selections.expression(expression))
         {
             may_fail = selected_call_may_propagate_panic(call);
         }
+
         current = self.begin_invocation(expression.into(), current, checks_preconditions);
 
         let continuation = self.push_block();
@@ -104,14 +113,27 @@ where
         checks_preconditions: bool,
     ) -> AnalysisBlockId {
         self.push_call(current, invocation, AnalysisCallPhase::Input);
-        if !checks_preconditions { return current; }
+
+        if !checks_preconditions {
+            return current;
+        }
+
         let admitted = self.push_block();
         let failed = self.push_block();
-        self.push_edge(current, failed, AnalysisEdgeKind::Sequential,
-            Some(super::model::AnalysisRefinement::PreconditionFailure(invocation)));
+
+        self.push_edge(
+            current,
+            failed,
+            AnalysisEdgeKind::Sequential,
+            Some(super::model::AnalysisRefinement::PreconditionFailure(
+                invocation,
+            )),
+        );
+
         self.push_exit(failed, AnalysisExitKind::Panic, invocation.node());
         self.push_exit(failed, AnalysisExitKind::Cancellation, invocation.node());
         self.push_edge(current, admitted, AnalysisEdgeKind::Sequential, None);
+
         admitted
     }
 
@@ -120,16 +142,33 @@ where
         invocation: bray_bound_tree::BoundExecutionSite,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
-        let checks = self.request().trusted_contracts()
-            .map_or(true, |contracts| contracts.calls.get(&invocation)
-                .is_some_and(|contract| contract.checks_preconditions));
+        let checks = self
+            .request()
+            .trusted_contracts()
+            .map_or(true, |contracts| {
+                contracts
+                    .calls
+                    .get(&invocation)
+                    .is_some_and(|contract| contract.checks_preconditions)
+            });
+
         let current = self.begin_invocation(invocation, current, checks);
         let completed = self.push_block();
+
         self.push_call(current, invocation, AnalysisCallPhase::Attempt);
-        self.push_edge(current, completed, AnalysisEdgeKind::Sequential,
-            Some(super::model::AnalysisRefinement::InvocationCompletion(invocation)));
+
+        self.push_edge(
+            current,
+            completed,
+            AnalysisEdgeKind::Sequential,
+            Some(super::model::AnalysisRefinement::InvocationCompletion(
+                invocation,
+            )),
+        );
+
         self.push_dependency_failures(current, invocation);
         self.push_call(completed, invocation, AnalysisCallPhase::Completion);
+
         completed
     }
 
@@ -279,11 +318,18 @@ where
         let current = current.unwrap_or_else(|| self.push_block());
         let selections = self.selections();
 
-        let Some(selection) = selections.and_then(|selections| selections.expression(expression))
+        let Some(selection) = selections
+            .and_then(|selections| selections.expression(expression))
             .filter(|selection| selection.evaluates_defaults())
         else {
-            return self.build_expressions(call.arguments().iter().map(|argument| argument.expression()), current);
+            return self.build_expressions(
+                call.arguments()
+                    .iter()
+                    .map(|argument| argument.expression()),
+                current,
+            );
         };
+
         self.build_selected_inputs(expression, selection, current)
     }
 
@@ -297,11 +343,23 @@ where
             if !matches!(input, bray_bound_tree::SelectedInput::Receiver(_))
                 && let Some(source) = input.expression()
             {
-                current = self.build_expression(source, current)?.unwrap_or_else(|| self.push_block());
+                current = self
+                    .build_expression(source, current)?
+                    .unwrap_or_else(|| self.push_block());
             }
-            let ordinal = selection.input_ordinal(input.root()).expect("selected input has its ordinal");
-            current = self.push_call_input(expression, ordinal.raw(), current, input.default_provider().is_some());
+
+            let ordinal = selection
+                .input_ordinal(input.root())
+                .expect("selected input has its ordinal");
+
+            current = self.push_call_input(
+                expression,
+                ordinal.raw(),
+                current,
+                input.default_provider().is_some(),
+            );
         }
+
         Some(current)
     }
 
@@ -316,19 +374,25 @@ where
             expression,
             ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
         };
+
         let current = self.begin_invocation(invocation, current, false);
         let continuation = self.push_block();
 
         self.push_call(current, invocation, AnalysisCallPhase::Attempt);
+
         self.push_edge(
             current,
             continuation,
             AnalysisEdgeKind::Sequential,
-            Some(super::model::AnalysisRefinement::InvocationCompletion(invocation)),
+            Some(super::model::AnalysisRefinement::InvocationCompletion(
+                invocation,
+            )),
         );
+
         if may_fail {
             self.push_dependency_failures(current, invocation);
         }
+
         self.push_call(continuation, invocation, AnalysisCallPhase::Completion);
 
         continuation
@@ -387,13 +451,13 @@ where
 /// Whether evaluation can fail independently of caller-side requirement checks.
 fn selected_call_may_propagate_panic(selection: &bray_bound_tree::SelectedCall) -> bool {
     selection.phase_behaviors().invocation().may_unwind()
-            && implementation_hook_may_propagate_synchronous_panic(selection.implementation_hook())
-            && !selection
-                .phase_behaviors()
-                .invocation()
-                .execution_properties()
-                .contains(&bray_symbols::ExecutionProperty::Total)
-            && selection.invocation() == CallableInvocation::Bray
+        && implementation_hook_may_propagate_synchronous_panic(selection.implementation_hook())
+        && !selection
+            .phase_behaviors()
+            .invocation()
+            .execution_properties()
+            .contains(&bray_symbols::ExecutionProperty::Total)
+        && selection.invocation() == CallableInvocation::Bray
 }
 
 /// Whether a compiler hook can propagate synchronous failure on valid inputs.
@@ -416,22 +480,33 @@ pub const fn implementation_hook_may_propagate_synchronous_panic(
     )
 }
 
-pub(crate) fn exclude_non_unwinding_edges<C: CheckerRequestContext + ?Sized>(
+pub(crate) fn exclude_impossible_call_outcomes<C: CheckerRequestContext + ?Sized>(
     graph: &super::model::ControlFlowGraph,
     request: crate::CheckerUnitView<'_, C>,
     excluded: &mut std::collections::BTreeSet<super::id::AnalysisEdgeId>,
 ) {
     excluded.extend(graph.edges().iter().filter_map(|edge| {
-        let Some(super::model::AnalysisRefinement::InvocationFailure(
-            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(
-                expression,
-            )),
-        )) = edge.refinement()
+        let (invocation, cancellation) = match edge.refinement()? {
+            super::model::AnalysisRefinement::InvocationFailure(invocation) => (invocation, false),
+            super::model::AnalysisRefinement::InvocationCancellation(invocation) => {
+                (invocation, true)
+            }
+            _ => return None,
+        };
+
+        let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(
+            expression,
+        )) = invocation
         else {
             return None;
         };
 
-        request.call_cannot_unwind(expression).then_some(edge.id())
+        (if cancellation {
+            request.call_cannot_cancel(expression)
+        } else {
+            request.call_cannot_unwind(expression)
+        })
+        .then_some(edge.id())
     }));
 }
 

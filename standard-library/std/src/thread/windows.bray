@@ -71,11 +71,7 @@ trusted internal func windows_thread_entry(pos context: DataPointer<u8>) -> u32
 }
 
 trusted internal func native_thread_entry() -> FunctionPointer<std.os.windows.BeginThreadRoutine>
-    ensures(
-        trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(
-            pointer = result
-        )
-    )
+    ensures(trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(pointer = result))
     uses(layout_reinterpret)
 {
     let entry: std.os.windows.BeginThreadRoutine = windows_thread_entry;
@@ -106,9 +102,7 @@ trusted internal func platform_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(
-            pointer = entry
-        ),
+        trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(pointer = entry),
     )
     uses(raw_memory, unchecked_init)
 {
@@ -152,9 +146,7 @@ trusted internal func prepare_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(
-            pointer = entry
-        ),
+        trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(pointer = entry),
     )
     ensures(
         trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
@@ -229,9 +221,7 @@ trusted internal func platform_thread_storage_create(
 ) -> std.platform.PlatformStatus
     executes(total)
     requires(
-        trusted core.memory.callable_address_valid<std.os.windows.ThreadStorageDestructor>(
-            pointer = destructor
-        ),
+        trusted core.memory.callable_address_valid<std.os.windows.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
@@ -261,9 +251,7 @@ trusted internal func prepare_thread_storage_create(
     executes(total)
     uses(foreign_call, layout_reinterpret)
     requires(
-        trusted core.memory.callable_address_valid<std.os.windows.ThreadStorageDestructor>(
-            pointer = destructor
-        ),
+        trusted core.memory.callable_address_valid<std.os.windows.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
@@ -298,7 +286,7 @@ trusted internal func prepare_thread_storage_load(
         trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
     )
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return Error(internal std.platform.invalid_input_status());
     }
@@ -323,7 +311,7 @@ trusted internal func platform_thread_storage_store(
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return internal std.platform.invalid_input_status();
     }
@@ -340,7 +328,7 @@ trusted internal func platform_thread_storage_store(
 trusted internal func platform_thread_storage_destroy(pos key: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return internal std.platform.invalid_input_status();
     }

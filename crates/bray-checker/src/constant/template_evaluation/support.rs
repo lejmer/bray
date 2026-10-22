@@ -36,6 +36,7 @@ pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized
 }
 
 pub(super) enum TemplateEvaluationFailure {
+    Diagnosed,
     Cancelled,
     Upstream,
     Diagnostic(ConstantDiagnostic),

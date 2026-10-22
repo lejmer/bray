@@ -81,7 +81,7 @@ func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
 
 func null<T>() -> DataPointer<T>;
 
-func is_null<T>(pos pointer: DataPointer<T>) -> bool;
+const func is_null<T>(pos pointer: DataPointer<T>) -> bool;
 
 func offset<T>(pos pointer: DataPointer<T>, elements: isize) -> DataPointer<T>;
 

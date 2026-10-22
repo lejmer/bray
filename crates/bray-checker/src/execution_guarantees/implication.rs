@@ -16,6 +16,16 @@ pub(super) fn comparison_is_implied(
         return None;
     };
 
+    if left == right && positively_ordered(left, assumptions, budget) {
+        return match operator {
+            BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual => {
+                Some(true)
+            }
+            BoundOperator::NotEqual | BoundOperator::Less | BoundOperator::Greater => Some(false),
+            _ => None,
+        };
+    }
+
     let known = |operator, left: &ExecutionCondition, right: &ExecutionCondition| {
         // Lookup keys retain the immutable operand terms without scanning assumptions.
         assumptions.contains(&(
@@ -116,6 +126,40 @@ pub(super) fn comparison_is_implied(
     ordered_path(upper, lower, allows_equal, assumptions, budget).then_some(false)
 }
 
+fn positively_ordered(
+    value: &ExecutionCondition,
+    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    budget: &mut usize,
+) -> bool {
+    let limit = *budget;
+
+    assumptions.iter().take(limit).any(|(condition, holds)| {
+        let Some(remaining) = budget.checked_sub(1) else {
+            return false;
+        };
+
+        *budget = remaining;
+
+        let ExecutionCondition::Operation(operator, operands) = condition else {
+            return false;
+        };
+
+        // A held ordering or equality excludes NaN. A false ordering and a true
+        // inequality do not. This uses value evidence, without assuming total order.
+        matches!(
+            (operator, holds),
+            (
+                bray_bound_tree::BoundOperator::Equal
+                    | bray_bound_tree::BoundOperator::Less
+                    | bray_bound_tree::BoundOperator::LessEqual
+                    | bray_bound_tree::BoundOperator::Greater
+                    | bray_bound_tree::BoundOperator::GreaterEqual,
+                true
+            ) | (bray_bound_tree::BoundOperator::NotEqual, false)
+        ) && operands.iter().any(|operand| operand == value)
+    })
+}
+
 fn ordered_path(
     lower: &ExecutionCondition,
     upper: &ExecutionCondition,
@@ -133,6 +177,32 @@ fn ordered_path(
     let mut visited = std::collections::BTreeSet::new();
 
     while let Some((current, strict)) = pending.pop() {
+        if let (ExecutionCondition::Literal(current), ExecutionCondition::Literal(upper)) =
+            (current, upper)
+            && matches!(
+                (current.kind(), upper.kind()),
+                (
+                    bray_symbols::ConstantValueKind::Integer(_),
+                    bray_symbols::ConstantValueKind::Integer(_)
+                )
+            )
+            && matches!(
+                crate::constant::fold_binary(
+                    if requires_strict && !strict {
+                        BoundOperator::Less
+                    } else {
+                        BoundOperator::LessEqual
+                    },
+                    current.kind(),
+                    upper.kind(),
+                    crate::ConstantEvaluationLimits::default().integer_bits(),
+                ),
+                Ok(bray_symbols::ConstantValueKind::Boolean(true))
+            )
+        {
+            return true;
+        }
+
         if !visited.insert((current, strict)) {
             continue;
         }
@@ -230,36 +300,43 @@ pub fn remap_execution_condition_inputs(
     )
 }
 
-/// Substitutes the exact generic identities carried by normalized predicate applications.
+/// Maps the checked references, typed literals and inputs in a normalized condition.
 pub fn map_execution_condition_references<E>(
     condition: &ExecutionCondition,
     map: &impl Fn(bray_symbols::GenericSubstitutionId) -> Result<bray_symbols::GenericSubstitutionId, E>,
     input: &impl Fn(&super::ExecutionPlace) -> Result<ExecutionCondition, E>,
+    literal: &impl Fn(
+        &std::sync::Arc<bray_symbols::ConstantValueData>,
+    ) -> Result<std::sync::Arc<bray_symbols::ConstantValueData>, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
         ExecutionCondition::Input(place) => input(place)?,
+        ExecutionCondition::Literal(value) => ExecutionCondition::Literal(literal(value)?),
         ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
-            map_execution_condition_references(value, map, input)?,
+            map_execution_condition_references(value, map, input, literal)?,
         )),
         ExecutionCondition::VariantTest(variant, value) => {
-            map_execution_condition_references(value, map, input)?.matches_variant(*variant)
+            map_execution_condition_references(value, map, input, literal)?
+                .matches_variant(*variant)
         }
         ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
             *variant,
-            std::sync::Arc::new(map_execution_condition_references(value, map, input)?),
+            std::sync::Arc::new(map_execution_condition_references(
+                value, map, input, literal,
+            )?),
         ),
         ExecutionCondition::Present(value) => {
-            map_execution_condition_references(value, map, input)?.present()
+            map_execution_condition_references(value, map, input, literal)?.present()
         }
         ExecutionCondition::Borrowed(value) => {
-            map_execution_condition_references(value, map, input)?.borrowed()
+            map_execution_condition_references(value, map, input, literal)?.borrowed()
         }
         ExecutionCondition::Entry {
             condition,
             captured,
         } => ExecutionCondition::Entry {
             condition: std::sync::Arc::new(map_execution_condition_references(
-                condition, map, input,
+                condition, map, input, literal,
             )?),
             captured: *captured,
         },
@@ -269,7 +346,7 @@ pub fn map_execution_condition_references<E>(
                 map(*substitution)?,
                 operands
                     .iter()
-                    .map(|operand| map_execution_condition_references(operand, map, input))
+                    .map(|operand| map_execution_condition_references(operand, map, input, literal))
                     .collect::<Result<_, _>>()?,
             )
         }
@@ -277,7 +354,7 @@ pub fn map_execution_condition_references<E>(
             *operator,
             operands
                 .iter()
-                .map(|operand| map_execution_condition_references(operand, map, input))
+                .map(|operand| map_execution_condition_references(operand, map, input, literal))
                 .collect::<Result<_, _>>()?,
         ),
         ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(
@@ -287,20 +364,22 @@ pub fn map_execution_condition_references<E>(
             ),
             operands
                 .iter()
-                .map(|operand| map_execution_condition_references(operand, map, input))
+                .map(|operand| map_execution_condition_references(operand, map, input, literal))
                 .collect::<Result<_, _>>()?,
         ),
         ExecutionCondition::Projection(field, value) => {
-            map_execution_condition_references(value, map, input)?.component(*field)
+            map_execution_condition_references(value, map, input, literal)?.component(*field)
         }
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(map_execution_condition_references(base, map, input)?),
+            std::sync::Arc::new(map_execution_condition_references(
+                base, map, input, literal,
+            )?),
             fields
                 .iter()
                 .map(|(field, value)| {
                     Ok((
                         *field,
-                        map_execution_condition_references(value, map, input)?,
+                        map_execution_condition_references(value, map, input, literal)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, E>>()?
@@ -339,6 +418,13 @@ pub fn substitute_execution_condition(
             }
 
             Ok(value)
+        },
+        &|value| {
+            // Aggregate payloads are shared. Reuse the store's recursive value substitution.
+            let value = values.intern_constant_value((**value).clone())?;
+            let value = values.substitute_constant_value(value, substitution)?;
+
+            Ok(values.constant_value_data(value))
         },
     )
 }
@@ -440,6 +526,33 @@ mod tests {
             let known = std::collections::BTreeSet::from([(comparison(provided), true)]);
 
             assert_eq!(comparison(rejected).prove(&known, &mut 128), Some(false));
+        }
+
+        for (operator, valid) in [
+            (BoundOperator::Equal, true),
+            (BoundOperator::LessEqual, true),
+            (BoundOperator::GreaterEqual, true),
+            (BoundOperator::NotEqual, false),
+            (BoundOperator::Less, false),
+            (BoundOperator::Greater, false),
+        ] {
+            let reflexive =
+                ExecutionCondition::operation(operator, vec![left.clone(), left.clone()]);
+
+            assert_eq!(reflexive.prove(&known, &mut 128), Some(valid));
+
+            let unconditional =
+                matches!(operator, BoundOperator::Less | BoundOperator::Greater).then_some(false);
+
+            assert_eq!(
+                reflexive.prove(&Default::default(), &mut 128),
+                unconditional
+            );
+
+            let false_order =
+                std::collections::BTreeSet::from([(comparison(BoundOperator::Greater), false)]);
+
+            assert_eq!(reflexive.prove(&false_order, &mut 128), unconditional);
         }
 
         let mut unordered = Default::default();

@@ -38,7 +38,7 @@ trusted internal func windows_environment(
         let value_units: usize = try internal windows_text_units(entry.value, allow_empty = true, allow_equals = true);
         let bytes: usize = (key_units + value_units + 2) * 2;
 
-        if total > 18_446_744_073_709_551_615 - bytes
+        if total > std.numeric.USIZE_MAX - bytes
         {
             return Error(internal std.platform.exhausted_status());
         }

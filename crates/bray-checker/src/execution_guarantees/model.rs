@@ -55,8 +55,44 @@ impl ExecutionDeclaration {
 pub enum ExecutionDependencyTarget {
     /// A selected callable implementation.
     Callable(BoundCallableTarget),
+    /// A selected abstract method retains the exact enclosing witness route.
+    Requirement {
+        /// Abstract declaration and its checked generic application.
+        callable: bray_symbols::CallableInstanceData,
+        /// Existing constraint or trait-default witness route.
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    },
     /// An omitted argument or construction field's provider.
     Default(bray_bound_tree::DefaultValueProvider),
+}
+
+impl ExecutionDependencyTarget {
+    pub(crate) fn selected(call: &bray_bound_tree::SelectedCall) -> Self {
+        let target = call
+            .resolution()
+            .declaration_source()
+            .map(BoundCallableTarget::Declaration)
+            .unwrap_or(call.target());
+
+        if let Some(dispatch) = call.resolution().trait_dispatch() {
+            let BoundCallableTarget::Declaration(callable) = target else {
+                panic!("selected abstract invocation retains its declaration");
+            };
+
+            Self::Requirement { callable, dispatch }
+        } else {
+            Self::Callable(target)
+        }
+    }
+
+    /// Returns the selected callable independently of its witness route.
+    pub const fn callable(self) -> Option<BoundCallableTarget> {
+        match self {
+            Self::Callable(target) => Some(target),
+            Self::Requirement { callable, .. } => Some(BoundCallableTarget::Declaration(callable)),
+            Self::Default(_) => None,
+        }
+    }
 }
 
 impl From<BoundCallableTarget> for ExecutionDependencyTarget {
@@ -70,8 +106,8 @@ impl From<BoundCallableTarget> for ExecutionDependencyTarget {
 pub struct ExecutionDependency {
     /// The selected callable or default provider.
     pub target: ExecutionDependencyTarget,
-    /// The independently required execution property.
-    pub property: ExecutionProperty,
+    /// The independently required checked behavior.
+    pub obligation: ExecutionObligation,
     /// The exact source operation or implicit invocation that selected this dependency.
     pub occurrence: bray_bound_tree::BoundExecutionSite,
 }
@@ -79,10 +115,8 @@ pub struct ExecutionDependency {
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
-    pub(crate) inert_cleanup: std::collections::BTreeMap<
-        (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
-        bool,
-    >,
+    pub(crate) inert_cleanup:
+        std::collections::BTreeMap<(AnyBoundNodeId, bray_bound_tree::StorageAccessId), bool>,
     pub(crate) disposal: std::collections::BTreeMap<
         (
             bray_bound_tree::BoundExecutionSite,
@@ -106,6 +140,9 @@ pub struct ExecutionCandidate {
         std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
     pub(crate) failure: Option<SourceSpan>,
     pub(crate) constant_failure: Option<SourceSpan>,
+    pub(crate) observation_failure: Option<SourceSpan>,
+    pub(crate) finite_iteration: bool,
+    pub(crate) input_mutation: Option<SourceSpan>,
     pub(crate) integer_maxima: std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, u64>,
     pub(crate) reachable_nodes: std::collections::BTreeSet<AnyBoundNodeId>,
     pub(crate) dependencies: Vec<ExecutionDependency>,
@@ -157,6 +194,11 @@ impl ExecutionCandidate {
         &self.completion_dependencies
     }
 
+    /// Returns the actual invocation occurrences retained by this analysis.
+    pub fn invocations(&self) -> impl Iterator<Item = bray_bound_tree::BoundExecutionSite> + '_ {
+        self.calls.keys().copied()
+    }
+
     /// Returns captured entry evidence for a selected call operation.
     pub fn call_evidence(
         &self,
@@ -167,7 +209,23 @@ impl ExecutionCandidate {
 
     /// Returns the first operation preventing a local proof, if any.
     pub const fn failure(&self) -> Option<SourceSpan> {
-        self.failure
+        match self.failure {
+            Some(failure) => Some(failure),
+            None => self.input_mutation,
+        }
+    }
+
+    /// Returns an operation that escapes the supported deterministic observation frame.
+    pub const fn observation_failure(&self) -> Option<SourceSpan> {
+        match self.failure {
+            Some(failure) => Some(failure),
+            None => self.observation_failure,
+        }
+    }
+
+    /// Whether every successful step has a checked finite progression proof.
+    pub const fn finite_iteration(&self) -> bool {
+        self.finite_iteration
     }
 
     /// Returns the first reachable operation forbidden in constant evaluation.
@@ -218,7 +276,7 @@ pub struct ExecutionCertification {
     pub dependencies: std::collections::BTreeSet<(
         bray_declarations::SyntaxAnchor,
         ExecutionObligation,
-        BoundCallableTarget,
+        ExecutionDependencyTarget,
         ExecutionObligation,
     )>,
     /// Certified properties restricted to their declared entry domains.
@@ -346,7 +404,10 @@ impl ExecutionCallEvidence {
     }
 
     /// Whether every callee-entry condition follows from the captured argument values.
-    pub fn proves(&self, conditions: &[super::ExecutionCondition]) -> bool {
+    pub fn proves<'a>(
+        &self,
+        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
+    ) -> bool {
         self.proves_from(conditions, &self.assumptions, &[])
     }
 
@@ -364,13 +425,15 @@ impl ExecutionCallEvidence {
         self.proves_from(conditions, &self.trusted_assumptions, inputs)
     }
 
-    fn proves_from(
+    fn proves_from<'a>(
         &self,
-        conditions: &[super::ExecutionCondition],
+        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
         assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
         inputs: &[bray_bound_tree::BoundReferenceTarget],
     ) -> bool {
-        if conditions.is_empty() {
+        let mut conditions = conditions.into_iter().peekable();
+
+        if conditions.peek().is_none() {
             return true;
         }
 
@@ -383,7 +446,7 @@ impl ExecutionCallEvidence {
 
         let known = super::trusted_condition_closure(known, &self.assumptions);
 
-        conditions.iter().all(|condition| {
+        conditions.all(|condition| {
             let condition = condition.substitute(
                 &|input| {
                     input
@@ -420,7 +483,8 @@ impl ExecutionCallEvidence {
 }
 
 /// Local execution candidates keyed by property and guarded declaration, when present.
-pub type ExecutionCandidates = std::collections::BTreeMap<ExecutionObligation, ExecutionCandidate>;
+pub type ExecutionCandidates =
+    std::collections::BTreeMap<ExecutionObligation, std::sync::Arc<ExecutionCandidate>>;
 
 /// The exact declared promise required by a proof node.
 pub type ExecutionObligation = bray_symbols::CallableExecutionObligation<super::ExecutionClauseId>;

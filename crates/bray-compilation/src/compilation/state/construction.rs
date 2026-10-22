@@ -883,12 +883,16 @@ mod tests {
         let compilation = match Compilation::load_sources(
             package_identity(),
             vec![source_input(
-                concat!(
-                    "module app;\n",
-                    "@link(name = \"native\")\n",
-                    "struct NativeMutex;\n",
-                    "func use(pos pointer: DataPointer<NativeMutex>) {}\n",
-                ),
+                r#"
+                    module app;
+
+                    @link(name = "native")
+                    struct NativeMutex;
+
+                    func use(pos pointer: DataPointer<NativeMutex>)
+                    {
+                    }
+                "#,
                 0,
             )],
         ) {

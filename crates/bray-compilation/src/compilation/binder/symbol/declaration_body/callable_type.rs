@@ -39,7 +39,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         panic!("callable clause checking must receive a callable type");
     };
 
-    let (_, mut clauses) = callable_type_clauses(syntax);
+    let (parameters, mut clauses) = callable_type_clauses(syntax);
 
     if let Some(selected) = selected_clauses {
         clauses.retain(|(anchor, ..)| selected.contains(anchor));
@@ -188,10 +188,46 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         );
     }
 
+    let capabilities = super::super::contract::bind_trusted_capability_clauses(
+        context,
+        owner,
+        super::super::contract::direct_contract_clauses(syntax)
+            .into_iter()
+            .filter_map(|clause| match clause {
+                super::super::contract::ContractClauseSyntax::Uses(clause)
+                    if selected_clauses.is_none_or(|selected| {
+                        selected.contains(&bray_declarations::SyntaxAnchor::from_node(&clause))
+                    }) =>
+                {
+                    Some(clause)
+                }
+                _ => None,
+            }),
+        Some(&parameters),
+    )?;
+
+    diagnostics.add_range(capabilities.diagnostics().iter().cloned());
+
+    super::super::contract::validate_trusted_capabilities(
+        context,
+        owner,
+        callable.trust(),
+        capabilities.value(),
+        None,
+        false,
+        &mut diagnostics,
+    )?;
+
     let phases = callable
         .phase_behaviors()
         .clone()
-        .with_predicates(requirements, guarantees);
+        .with_predicates(requirements, guarantees)
+        .with_trusted_capabilities(
+            capabilities
+                .value()
+                .iter()
+                .map(|capability| capability.requirement()),
+        );
 
     Ok(DiagnosticResult::new(phases, diagnostics))
 }

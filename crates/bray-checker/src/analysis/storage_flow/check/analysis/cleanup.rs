@@ -308,7 +308,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         for relation in contracts.borrows() {
-            if relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
+            if !relation.is_exact()
+                || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                 || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
                 || relation.exit().subject_root() != DependencySubjectRoot::Receiver

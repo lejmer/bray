@@ -111,6 +111,16 @@ fn transfers(
     for block in graph.blocks() {
         let transfer = &mut transfers[block.id().to_index().expect("flow block has an index")];
 
+        if let bray_bound_tree::BoundUnitRoot::Expression(root) = unit.root()
+            && graph.exits().iter().any(|exit| {
+                exit.block() == block.id()
+                    && exit.kind() == crate::analysis::model::AnalysisExitKind::NormalFallthrough
+            })
+        {
+            // Expression units publish this value and its witnesses at normal completion.
+            transfer.generated.insert(root);
+        }
+
         for edge in block.successors().iter().map(|id| {
             graph
                 .edge(*id)
@@ -132,6 +142,7 @@ fn transfers(
                 Some(
                     AnalysisRefinement::TrustBoundary(_)
                     | AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::InvocationCancellation(_)
                     | AnalysisRefinement::InvocationCompletion(_)
                     | AnalysisRefinement::InvocationPresence(_, _)
                     | AnalysisRefinement::InvocationBoolean(_, _)
@@ -153,17 +164,23 @@ fn transfers(
                 }
                 AnalysisOperationKind::ScopeExit { .. } => {}
                 AnalysisOperationKind::Call {
-                    invocation: occurrence @ (bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                    invocation:
+                        occurrence @ (bray_bound_tree::BoundExecutionSite::CallInput { .. }
                         | bray_bound_tree::BoundExecutionSite::Iterate(_)
                         | bray_bound_tree::BoundExecutionSite::Next(_)
                         | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                         | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
                     ..
                 } => {
-                    transfer.generated.extend(storage.occurrence_plans(occurrence)
-                        .filter(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
-                        .map(|plan| plan.expression())
-                        .filter(|expression| Some(*expression) != occurrence.expression()));
+                    transfer.generated.extend(
+                        storage
+                            .occurrence_plans(occurrence)
+                            .filter(|plan| {
+                                plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize
+                            })
+                            .map(|plan| plan.expression())
+                            .filter(|expression| Some(*expression) != occurrence.expression()),
+                    );
                 }
                 kind => {
                     if let Some(expression) = kind.occurrence().expression() {

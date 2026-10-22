@@ -167,6 +167,16 @@ impl CallablePhaseBehavior {
         &self.trusted_capabilities
     }
 
+    /// Replaces implementation authority without changing caller obligations.
+    pub fn with_trusted_capabilities(
+        mut self,
+        capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
+    ) -> Self {
+        self.trusted_capabilities = sorted_unique_shared_slice(capabilities);
+
+        self
+    }
+
     /// Returns execution-lane requirements in canonical semantic order.
     pub fn execution_requirements(&self) -> &[CallableExecutionRequirement] {
         &self.execution_requirements
@@ -266,6 +276,23 @@ impl CallablePhaseBehaviors {
             .unwrap_or(&mut self.invocation);
 
         Arc::make_mut(body).execution_properties = sorted_unique_shared_slice(properties);
+
+        self
+    }
+
+    /// Attaches implementation authority to the phase that executes the body.
+    pub fn with_trusted_capabilities(
+        mut self,
+        capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
+    ) -> Self {
+        let body = self
+            .deferred_execution
+            .as_mut()
+            .unwrap_or(&mut self.invocation);
+
+        let behavior = Arc::make_mut(body);
+
+        behavior.trusted_capabilities = sorted_unique_shared_slice(capabilities);
 
         self
     }

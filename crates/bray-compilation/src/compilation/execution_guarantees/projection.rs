@@ -17,7 +17,6 @@ impl Compilation {
         Ok((projection || transfer)
             && declaration.domains().iter().all(|domain| {
                 domain.guards.is_empty()
-                    && domain.postconditions.is_empty()
                     && domain.properties.iter().all(|property| {
                         (projection
                             && matches!(
@@ -56,23 +55,25 @@ impl Compilation {
 
         Ok(hook.is_some_and(|hook| {
             hook.is_available()
-                && matches!(
-                    hook.hook(),
-                    bray_compiler_known::ImplementationHook::NullableIsPresent
-                        | bray_compiler_known::ImplementationHook::NullableIsAbsent
-                        | bray_compiler_known::ImplementationHook::SequenceLength
-                        | bray_compiler_known::ImplementationHook::ByteBufferRead
-                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                        | bray_compiler_known::ImplementationHook::AddressOf
-                        | bray_compiler_known::ImplementationHook::AddressOfMut
-                        | bray_compiler_known::ImplementationHook::PointerFromCallable
-                        | bray_compiler_known::ImplementationHook::UninitPointer
-                        | bray_compiler_known::ImplementationHook::UninitPointerMut
-                        | bray_compiler_known::ImplementationHook::BorrowFrom
-                        | bray_compiler_known::ImplementationHook::BorrowMutFrom
-                        | bray_compiler_known::ImplementationHook::RawBufferInitializedSlice
-                        | bray_compiler_known::ImplementationHook::RawBufferInitializedSliceMut
-                )
+                && (hook.hook().is_value_observation()
+                    || matches!(
+                        hook.hook(),
+                        bray_compiler_known::ImplementationHook::NumericTruncate
+                            | bray_compiler_known::ImplementationHook::NullableIsPresent
+                            | bray_compiler_known::ImplementationHook::NullableIsAbsent
+                            | bray_compiler_known::ImplementationHook::SequenceLength
+                            | bray_compiler_known::ImplementationHook::ByteBufferRead
+                            | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+                            | bray_compiler_known::ImplementationHook::AddressOf
+                            | bray_compiler_known::ImplementationHook::AddressOfMut
+                            | bray_compiler_known::ImplementationHook::PointerFromCallable
+                            | bray_compiler_known::ImplementationHook::UninitPointer
+                            | bray_compiler_known::ImplementationHook::UninitPointerMut
+                            | bray_compiler_known::ImplementationHook::BorrowFrom
+                            | bray_compiler_known::ImplementationHook::BorrowMutFrom
+                            | bray_compiler_known::ImplementationHook::RawBufferInitializedSlice
+                            | bray_compiler_known::ImplementationHook::RawBufferInitializedSliceMut
+                    ))
         }))
     }
 
@@ -82,6 +83,101 @@ impl Compilation {
         obligation: ExecutionObligation,
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<bool, crate::fact::FactQueryError> {
+        // Selected domain identities do not change a compiler operation's fixed semantics.
+        // Numeric conversion still checks the actual substituted input and result below.
+        let obligation = match obligation {
+            ExecutionObligation::Property(property, _) => {
+                ExecutionObligation::Property(property, None)
+            }
+            obligation => obligation,
+        };
+
+        let context = self.checker_context(cancellation)?;
+
+        let hook = context
+            .implementation_hook(callable.definition().symbol())?
+            .filter(|hook| hook.is_available())
+            .map(|hook| hook.hook());
+
+        if hook == Some(bray_compiler_known::ImplementationHook::NumericTruncate) {
+            if !matches!(
+                obligation,
+                ExecutionObligation::Observation
+                    | ExecutionObligation::Termination
+                    | ExecutionObligation::Property(
+                        ExecutionProperty::Pure | ExecutionProperty::Total,
+                        None
+                    )
+            ) {
+                return Ok(false);
+            }
+
+            let signature = self.constant_callable_signature(callable, cancellation)?;
+
+            if signature.diagnostics().has_errors() {
+                return Ok(false);
+            }
+
+            let Some(signature) = signature.value() else {
+                return Ok(false);
+            };
+
+            let values = context.semantic_values();
+            let data = values.type_data(signature.callable_type());
+
+            let bray_symbols::TypeData::Callable(signature) = data.as_ref() else {
+                panic!("checked numeric conversion retains its callable type");
+            };
+
+            let [input] = signature.parameters() else {
+                panic!("checked numeric truncation has one argument");
+            };
+
+            return Ok(bray_checker::integer_conversion_representations(
+                values,
+                context.available_compiler_known_symbols(),
+                input.ty(),
+                signature.result(),
+            )
+            .is_some());
+        }
+
+        if hook.is_some_and(|hook| hook.is_range_iteration())
+            && (matches!(
+                obligation,
+                ExecutionObligation::Observation
+                    | ExecutionObligation::Termination
+                    | ExecutionObligation::Property(ExecutionProperty::Total, None)
+            ) || hook != Some(bray_compiler_known::ImplementationHook::RangeNext)
+                && obligation == ExecutionObligation::Property(ExecutionProperty::Pure, None)
+                || hook == Some(bray_compiler_known::ImplementationHook::RangeNext)
+                    && obligation == ExecutionObligation::FiniteIteration)
+        {
+            return Ok(true);
+        }
+
+        let value_observation = hook.is_some_and(|hook| hook.is_value_observation());
+
+        if value_observation
+            && matches!(
+                obligation,
+                ExecutionObligation::Observation
+                    | ExecutionObligation::Termination
+                    | ExecutionObligation::Property(
+                        ExecutionProperty::Pure | ExecutionProperty::Total,
+                        None
+                    )
+            )
+        {
+            return Ok(true);
+        }
+
+        let obligation = if obligation == ExecutionObligation::Termination {
+            ExecutionObligation::Property(ExecutionProperty::Total, None)
+        } else {
+            obligation
+        };
+
         if !matches!(
             obligation,
             ExecutionObligation::Property(ExecutionProperty::Pure | ExecutionProperty::Total, None)

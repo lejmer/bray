@@ -37,7 +37,9 @@ impl Compilation {
 
         if matches!(
             role,
-            RepresentationRole::RawPointer | RepresentationRole::FunctionPointer | RepresentationRole::DevicePointer
+            RepresentationRole::RawPointer
+                | RepresentationRole::FunctionPointer
+                | RepresentationRole::DevicePointer
         ) {
             return self.codegen_indirect_pointer_type(ty, role, substitution, target);
         }

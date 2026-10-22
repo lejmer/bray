@@ -2,7 +2,7 @@
 module bray.standard_library_tests.os_windows;
 
 using std.os.windows;
-using std.platform;
+using internal std.platform;
 using internal std.platform.PlatformStatus;
 
 @test

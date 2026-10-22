@@ -1,5 +1,5 @@
 use super::core::{PredicateLowerer, PredicateLoweringContext};
-use bray_bound_tree::CheckedMemoryOperationKind;
+use bray_bound_tree::{CheckedMemoryOperationKind, MemoryLayoutQueryKind};
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirCall, MirCallTarget, MirMemoryOperation, MirNullableQuery,
@@ -102,11 +102,109 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 .map(Some);
         }
 
-        let memory = match hook {
+        if hook == ImplementationHook::NumericTruncate {
+            let [value] = inputs.as_slice() else {
+                panic!("checked numeric policy retains one argument");
+            };
+
+            return self
+                .value(
+                    block,
+                    MirOperationKind::NumericConversion {
+                        kind: bray_ir::MirNumericConversionKind::Truncate,
+                        operand: value.clone(),
+                    },
+                    result,
+                )
+                .map(Some);
+        }
+
+        let memory = self.memory_kind(callable.instance(), hook, &types, result)?;
+
+        memory
+            .map(|kind| {
+                self.value(
+                    block,
+                    MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                        kind,
+                        inputs,
+                        types,
+                        Some(result),
+                    ))),
+                    result,
+                )
+            })
+            .transpose()
+    }
+
+    fn memory_kind(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        hook: ImplementationHook,
+        types: &[TypeId],
+        result: TypeId,
+    ) -> Result<Option<CheckedMemoryOperationKind>, C::Error> {
+        if let Some(kind) = MemoryLayoutQueryKind::for_implementation_hook(hook) {
+            let substitution = self
+                .context
+                .semantic_values()
+                .generic_substitution_data(callable.substitution());
+
+            let [binding] = substitution.bindings() else {
+                panic!("checked layout query retains exactly one generic argument");
+            };
+
+            let bray_symbols::GenericArgument::Type(ty) = binding.argument() else {
+                panic!("checked layout query retains its subject type");
+            };
+
+            let ty = self.context.predicate_type(ty)?;
+
+            return Ok(Some(CheckedMemoryOperationKind::LayoutQuery { ty, kind }));
+        }
+
+        Ok(match hook {
+            ImplementationHook::UninitNew | ImplementationHook::UninitFrom => {
+                let element = self
+                    .context
+                    .compiler_known_symbols()
+                    .unary_representation_argument(
+                        self.context.semantic_values(),
+                        RepresentationRole::Uninit,
+                        result,
+                    )
+                    .expect("checked protected initialization retains its element type");
+
+                Some(if hook == ImplementationHook::UninitNew {
+                    CheckedMemoryOperationKind::UninitNew { element }
+                } else {
+                    CheckedMemoryOperationKind::UninitFrom { element }
+                })
+            }
+            ImplementationHook::AtomicInitialize => {
+                let value = self
+                    .context
+                    .compiler_known_symbols()
+                    .unary_representation_argument(
+                        self.context.semantic_values(),
+                        RepresentationRole::Atomic,
+                        result,
+                    )
+                    .expect("checked atomic initialization retains its value type");
+
+                Some(CheckedMemoryOperationKind::AtomicInitialize { value })
+            }
             ImplementationHook::RawPointerByteAddress => {
-                let pointee = self.context.compiler_known_symbols().unary_representation_argument(
-                    self.context.semantic_values(), RepresentationRole::RawPointer, types[0],
-                ).expect("checked byte-address projection retains its data pointee");
+                let pointee = self
+                    .context
+                    .compiler_known_symbols()
+                    .unary_representation_argument(
+                        self.context.semantic_values(),
+                        RepresentationRole::RawPointer,
+                        types[0],
+                    )
+                    .expect("checked byte-address projection retains its data pointee");
+
                 Some(CheckedMemoryOperationKind::ByteAddress { pointee })
             }
             ImplementationHook::RawPointerNull | ImplementationHook::RawPointerIsNull => {
@@ -132,38 +230,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     CheckedMemoryOperationKind::IsNull { pointee }
                 })
             }
-            ImplementationHook::NumericTruncate => {
-                let [value] = inputs.as_slice() else {
-                    panic!("checked numeric policy retains one argument");
-                };
-
-                return self
-                    .value(
-                        block,
-                        MirOperationKind::NumericConversion {
-                            kind: bray_ir::MirNumericConversionKind::Truncate,
-                            operand: value.clone(),
-                        },
-                        result,
-                    )
-                    .map(Some);
-            }
             _ => None,
-        };
-
-        memory
-            .map(|kind| {
-                self.value(
-                    block,
-                    MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
-                        kind,
-                        inputs,
-                        types,
-                        Some(result),
-                    ))),
-                    result,
-                )
-            })
-            .transpose()
+        })
     }
 }

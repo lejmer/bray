@@ -513,6 +513,7 @@ fn native_atomic_word_production_source_bindings_export() {
     let sources = [
         include_str!("../../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../../standard-library/std/src/numeric/policy.bray"),
+        include_str!("../../../../../../../../standard-library/std/src/numeric/limits.bray"),
         include_str!("../../../../../../../../standard-library/std/src/os.bray"),
         include_str!("../../../../../../../../standard-library/std/src/os/windows.bray"),
         include_str!("../../../../../../../../runtime/bootstrap/src/atomic.bray"),
@@ -735,15 +736,15 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         callable Callback = @abi(c) func(pos mode: u32) -> u32;
         @symbol(name = "through_pointer")
         @abi(c)
-        func through_pointer(pos mode: u32) -> u32 {
+        trusted func through_pointer(pos mode: u32) -> u32 uses(foreign_call) {
             let callback: Callback = plain;
-            return callback(mode);
+            return trusted callback(mode);
         }
         @symbol(name = "through_lambda")
         @abi(c)
         func through_lambda(pos mode: u32) -> u32 {
             let callback = @abi(c) lambda(pos value: u32) -> u32 { return scalar(value); };
-            return callback(mode);
+            return trusted callback(mode);
         }
         @symbol(name = "nested")
         @abi(c)

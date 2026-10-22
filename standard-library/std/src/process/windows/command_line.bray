@@ -2,6 +2,7 @@
 trusted module std.process;
 
 using std.memory;
+using std.numeric;
 using internal std.platform;
 
 trusted internal func windows_command_line(
@@ -18,7 +19,7 @@ trusted internal func windows_command_line(
     {
         let argument_units: usize = try internal quoted_windows_units(arguments[index]);
 
-        if units > 9_223_372_036_854_775_806 - argument_units
+        if units > (std.numeric.USIZE_MAX >> 1) - 1 - argument_units
         {
             return Error(internal std.platform.exhausted_status());
         }
@@ -27,7 +28,7 @@ trusted internal func windows_command_line(
         index += 1;
     }
 
-    if units == 9_223_372_036_854_775_807
+    if units == (std.numeric.USIZE_MAX >> 1)
     {
         return Error(internal std.platform.exhausted_status());
     }
@@ -68,7 +69,7 @@ internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platf
         {
             let emitted: usize = if value == 34
             {
-                if slashes > 9_223_372_036_854_775_806
+                if slashes > (std.numeric.USIZE_MAX >> 1) - 1
                 {
                     return Error(internal std.platform.exhausted_status());
                 }
@@ -80,7 +81,7 @@ internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platf
                 yield slashes + 1;
             };
 
-            if result > 18_446_744_073_709_551_615 - emitted
+            if result > std.numeric.USIZE_MAX - emitted
             {
                 return Error(internal std.platform.exhausted_status());
             }
@@ -92,7 +93,7 @@ internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platf
         index += 1;
     }
 
-    if slashes > (18_446_744_073_709_551_615 - result) / 2
+    if slashes > (std.numeric.USIZE_MAX - result) / 2
     {
         return Error(internal std.platform.exhausted_status());
     }

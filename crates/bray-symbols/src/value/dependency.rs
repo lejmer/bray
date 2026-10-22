@@ -306,8 +306,9 @@ pub enum DependencyReferenceKind {
     Address,
 }
 
-/// Proven identity of borrowed storage across one callable's normal completion.
-/// The exit subject, when initialized, refers to the entry subject's original storage.
+/// Checked origin information across one callable's normal completion.
+/// Exact relations identify the entry subject's original address. Other relations
+/// jointly bound its possible regions without establishing address equality.
 /// This relation grants no storage, initialization, or acquisition authority.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = DependencyProjection>
@@ -317,6 +318,7 @@ pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = De
     kind: DependencyReferenceKind,
     target_projections: Arc<[Projection]>,
     dereferences: u32,
+    exact: bool,
 }
 
 impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
@@ -328,7 +330,20 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             kind,
             target_projections: Arc::from([]),
             dereferences: 0,
+            exact: true,
         }
+    }
+
+    /// Retains a complete origin bound without claiming one exact address.
+    pub const fn with_exactness(mut self, exact: bool) -> Self {
+        self.exact = exact;
+
+        self
+    }
+
+    /// Whether the relation identifies one address on every completing path.
+    pub const fn is_exact(&self) -> bool {
+        self.exact
     }
 
     /// Selects additional nested borrow layers before reading the entry reference.
@@ -624,17 +639,35 @@ impl DependencyContractTemplateData {
         self.normal_storage_preserved || self.effects.is_empty()
     }
 
-    /// Attaches checked entry-to-exit borrow identities in deterministic order.
+    /// Attaches complete entry-to-exit origin bounds and exact identities in deterministic order.
     pub fn with_borrows(
         mut self,
         borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
     ) -> Self {
-        self.borrows = sorted_unique_shared_slice(borrows);
+        let borrows = sorted_unique_shared_slice(borrows);
+
+        if borrows.len() < 2 {
+            self.borrows = borrows;
+
+            return self;
+        }
+
+        let mut alternatives = std::collections::BTreeMap::new();
+
+        for relation in borrows.iter() {
+            *alternatives.entry(relation.exit()).or_insert(0usize) += 1;
+        }
+
+        self.borrows = sorted_unique_shared_slice(borrows.iter().cloned().map(|relation| {
+            let exact = relation.is_exact() && alternatives[relation.exit()] == 1;
+
+            relation.with_exactness(exact)
+        }));
 
         self
     }
 
-    /// Returns proven borrow identities, distinct from required lifetime conditions.
+    /// Returns checked origin bounds and exact identities, independently of lifetime requirements.
     pub fn borrows(&self) -> &[DependencyBorrowRelation] {
         &self.borrows
     }

@@ -55,7 +55,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation RawPointerIsNull;
 
-        surface { func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
+        surface { const func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
     }
 
     declaration StandardMemoryOffset {
@@ -539,7 +539,7 @@ scope StandardMemory at std.memory {
             trusted construct(
                 capacity: usize,
             ) -> Result<Self, MemoryLayoutError>
-                uses(manual_alloc, layout_reinterpret)
+                uses(manual_alloc)
             {}
         }
     }
@@ -768,8 +768,9 @@ scope StandardMemory at std.memory {
                 index: usize,
             ) -> u8
                 requires(
-                    (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) && index != 18_446_744_073_709_551_615,
-                    trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1),
+                    index != std.numeric.USIZE_MAX &&
+                        (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) &&
+                        (trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1)),
                 )
                 uses(raw_memory);
         }

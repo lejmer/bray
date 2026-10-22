@@ -219,38 +219,10 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             inputs,
         )?;
 
-        let dispatch = match dispatch {
-            None | Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(..)) => None,
-            Some(bray_bound_tree::CheckedTemplateDispatch::Constraint { owner, ordinal }) => {
-                Some(bray_symbols::TraitConstraintDispatch::Constraint {
-                    owner: bray_symbols::GenericOwnerId::try_new(self.predicate_symbol(owner)?)
-                        .expect("checked callable constraint retains its generic owner"),
-                    ordinal: *ordinal,
-                })
-            }
-            Some(bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
-                subject,
-                substitution,
-            }) => {
-                let owner = self.values.generic_substitution_data(*substitution).owner();
-
-                let AnySymbolId::Trait(definition) = owner.symbol() else {
-                    panic!("checked default dispatch retains its trait");
-                };
-
-                let application = self
-                    .values
-                    .intern_trait_application(bray_symbols::TraitApplicationData::new(
-                        definition,
-                        *substitution,
-                    ))
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                Some(bray_symbols::TraitConstraintDispatch::TraitDefault(
-                    bray_symbols::ImplementationRequirementKey::new(*subject, application),
-                ))
-            }
-        };
+        let dispatch = dispatch
+            .map(|dispatch| dispatch.trait_dispatch(self.values, |key| self.predicate_symbol(key)))
+            .transpose()?
+            .flatten();
 
         if let Some(dispatch) = dispatch {
             call = call.with_trait_dispatch(dispatch);

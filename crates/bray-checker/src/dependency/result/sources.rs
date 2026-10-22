@@ -460,7 +460,15 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             let sources = self.state.sources.get(&value);
 
             if path.is_empty() || sources.is_none_or(BTreeSet::is_empty) {
-                requirements.extend(self.state.values.get(&(value).into()).into_iter().flatten().cloned());
+                requirements.extend(
+                    self.state
+                        .values
+                        .get(&(value).into())
+                        .into_iter()
+                        .flatten()
+                        .cloned(),
+                );
+
                 continue;
             }
 

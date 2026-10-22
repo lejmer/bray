@@ -50,8 +50,8 @@ pub struct TrustedCallContract {
     pub requirements: Vec<ExecutionCondition>,
     /// Compiler-only compound execution conditions that require ordinary caller evidence.
     pub execution_requirements: Vec<ExecutionCondition>,
-    /// Ordinary entry conditions that guard the trusted guarantees.
-    pub preconditions: Vec<ExecutionCondition>,
+    /// Checked value and execution entry conditions that guard completion guarantees.
+    pub preconditions: Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>,
     /// Conditions established on normal completion.
     pub guarantees: Vec<ExecutionCondition>,
     /// Ordinary completion predicates used for path and equality reasoning.

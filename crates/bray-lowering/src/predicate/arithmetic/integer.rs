@@ -11,6 +11,39 @@ use super::super::core::{PredicateLowerer, PredicateLoweringContext};
 use crate::SyntheticLoweringError;
 
 impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
+    pub(in crate::predicate) fn power(
+        &mut self,
+        block: MirBlockId,
+        base: MirOperand,
+        exponent: MirOperand,
+        machine_type: Option<TypeId>,
+    ) -> Result<(MirBlockId, MirOperand), C::Error> {
+        let (bits, signed) = self
+            .integer_shape(&base)
+            .expect("checked exact exponentiation retains integer base");
+
+        let ty = match machine_type {
+            Some(ty) => ty,
+            None => {
+                let maximum = self.maximum_shift(&exponent);
+
+                self.integer_type(u64::from(bits).saturating_mul(maximum).max(2), signed)?
+            }
+        };
+
+        let base = self.convert(block, base, ty)?;
+
+        let value = self.machine(
+            block,
+            bray_ir::MirBinaryOperator::Exponentiate,
+            base,
+            exponent,
+            ty,
+        )?;
+
+        Ok((block, value))
+    }
+
     pub(in crate::predicate) fn integer_type(
         &self,
         bits: u64,
@@ -159,18 +192,25 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         ty: TypeId,
     ) -> Result<MirOperand, C::Error> {
         let operand = self.observe(block, operand)?;
+
         if self.integer_shape(&operand).is_none() {
             return self.unary(block, operation, operand, ty);
         }
+
         let operator = match operation {
-            ConstantUnaryOperation::Identity | ConstantUnaryOperation::BorrowObservation
+            ConstantUnaryOperation::Identity
+            | ConstantUnaryOperation::BorrowObservation
             | ConstantUnaryOperation::EntryCondition => return self.convert(block, operand, ty),
             ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
             ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,
             ConstantUnaryOperation::BitwiseNot => MirUnaryOperator::BitwiseNot,
-            ConstantUnaryOperation::PredicateTrust => panic!("trusted evidence has no executable unary value"),
+            ConstantUnaryOperation::PredicateTrust => {
+                panic!("trusted evidence has no executable unary value")
+            }
         };
+
         let operand = self.convert(block, operand, ty)?;
+
         self.value(block, MirOperationKind::Unary { operator, operand }, ty)
     }
 
@@ -185,15 +225,23 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
     ) -> Result<(MirBlockId, MirOperand), C::Error> {
         let left = self.observe(block, left)?;
         let right = self.observe(block, right)?;
+
         if self.integer_shape(&left).is_none() {
             return self.binary(block, operation, left, right, ty);
         }
+
         let left = self.convert(block, left, operand_type)?;
+
         if operation == ConstantBinaryOperation::Exponentiate {
             return self.power(block, left, right, Some(ty));
         }
+
         let right = self.convert(block, right, operand_type)?;
-        Ok((block, self.machine(block, machine_operator(operation), left, right, ty)?))
+
+        Ok((
+            block,
+            self.machine(block, machine_operator(operation), left, right, ty)?,
+        ))
     }
 
     pub(in crate::predicate) fn binary(
@@ -210,6 +258,56 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let right = self.observe(block, right)?;
 
         let operand_type = self.builder.operand_type(&left);
+
+        if matches!(operation, Operation::Equal | Operation::NotEqual) {
+            let subject =
+                if crate::operand::nullable_presence(self.context.semantic_values(), &right)
+                    == Some(false)
+                {
+                    Some(&left)
+                } else if crate::operand::nullable_presence(self.context.semantic_values(), &left)
+                    == Some(false)
+                {
+                    Some(&right)
+                } else {
+                    None
+                };
+
+            if let Some(subject) = subject {
+                let subject_type = self.builder.operand_type(subject);
+
+                assert!(
+                    matches!(
+                        self.context
+                            .semantic_values()
+                            .type_data(subject_type)
+                            .as_ref(),
+                        TypeData::Nullable(_)
+                    ),
+                    "checked nullable presence comparison retains its nullable subject"
+                );
+
+                let kind = if operation == Operation::Equal {
+                    bray_ir::MirNullableQueryKind::IsAbsent
+                } else {
+                    bray_ir::MirNullableQueryKind::IsPresent
+                };
+
+                let value = self.value(
+                    block,
+                    MirOperationKind::NullableQuery(bray_ir::MirNullableQuery::new(
+                        kind,
+                        subject.clone(),
+                        subject_type,
+                        subject_type,
+                        ty,
+                    )),
+                    ty,
+                )?;
+
+                return Ok((block, value));
+            }
+        }
 
         if matches!(operation, Operation::Equal | Operation::NotEqual)
             && matches!(self.context.semantic_values().type_data(operand_type).as_ref(),

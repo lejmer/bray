@@ -172,8 +172,8 @@ trusted func narrow_string_length(pos text: DataPointer<u8>, pos limit: usize) -
         trusted core.memory.nul_terminated_read(pointer = text),
         trusted core.memory.valid_read<u8>(pointer = text, count = result),
         trusted core.memory.initialized_range_as<u8>(pointer = text, count = result),
-        result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
-        result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
     )
     uses(foreign_call)
 {
@@ -468,10 +468,10 @@ trusted func pthread_key_create(pos key: DataPointer<u64>, pos destructor: Threa
 {
     let destructor_pointer: FunctionPointer<ThreadStorageDestructor> = trusted std.memory.function_address(destructor);
 
-    let native_pointer: FunctionPointer<std.os.darwin.ThreadStorageDestructor> = trusted std.memory.function.reinterpret<
-        std.os.darwin.ThreadStorageDestructor,
-        ThreadStorageDestructor
-    >(destructor_pointer);
+    let native_pointer: FunctionPointer<std.os.darwin.ThreadStorageDestructor> =
+        trusted std.memory.function.reinterpret<std.os.darwin.ThreadStorageDestructor, ThreadStorageDestructor>(
+        destructor_pointer
+    );
 
     let native_destructor: std.os.darwin.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(
         native_pointer,

@@ -107,9 +107,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .and_then(|contracts| contracts.calls.get(&occurrence))
                 && contract.preserves_inputs
                 && state.entries.get(&occurrence).is_some_and(|entry| {
-                    entry.proves(&contract.preconditions)
-                        && (entry.trusted_boundary
-                            || self.trusted_requirements_proven(entry, &contract.requirements))
+                    entry.proves(
+                        contract
+                            .preconditions
+                            .iter()
+                            .map(|(condition, _)| condition),
+                    ) && (entry.trusted_boundary
+                        || self.trusted_requirements_proven(entry, &contract.requirements))
                 })
             {
                 return;
@@ -125,7 +129,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             });
 
         let content_only = matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
-            .then(|| occurrence.expression().and_then(|expression| self.memory.operation(expression)))
+            .then(|| {
+                occurrence
+                    .expression()
+                    .and_then(|expression| self.memory.operation(expression))
+            })
             .flatten()
             .is_some_and(|operation| {
                 crate::memory::execution::storage_effect(operation.kind())
@@ -168,7 +176,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let owners = stable_values
+        let owners: BTreeSet<_> = stable_values
             .iter()
             .flat_map(|path| {
                 self.storage_places(state, bray_bound_tree::StoragePath::root(path.root))

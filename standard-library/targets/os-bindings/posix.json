@@ -962,8 +962,8 @@
             "trusted core.memory.nul_terminated_read(pointer = text)",
             "trusted core.memory.valid_read<u8>(pointer = text, count = result)",
             "trusted core.memory.initialized_range_as<u8>(pointer = text, count = result)",
-            "result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1)",
-            "result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1)"
+            "result >= limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1)",
+            "result >= limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1)"
           ],
           "dependencies": [
             "foreign_call",

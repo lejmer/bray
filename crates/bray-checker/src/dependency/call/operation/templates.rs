@@ -1,8 +1,8 @@
 use super::inputs::{evaluation_dependencies, nullable_inputs, operation_inputs};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundExpressionId, ConstructionTarget, IndexTarget,
-    OperatorTarget, SelectedConstructionInput, SelectedOperation,
+    BoundExpressionId, ConstructionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput,
+    SelectedOperation,
 };
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
@@ -104,7 +104,7 @@ pub(super) fn invocation_dependencies<C: CheckerRequestContext + ?Sized>(
     roots: impl IntoIterator<Item = DependencySubjectRoot>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let requirement = dispatch
-        .map(|dispatch| request.context().result_dispatch_requirement(dispatch))
+        .map(|dispatch| request.context().dispatch_requirement(dispatch))
         .transpose()?;
 
     let symbol = instance.definition().callable_symbol();
@@ -130,18 +130,26 @@ fn direct_dependencies(
 fn construction_dependencies<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     construction: &bray_bound_tree::SelectedConstruction,
-) -> Result<crate::dependency::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+) -> Result<crate::dependency::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>>
+{
     let roots = construction.inputs().iter().map(|input| {
         let (SelectedConstructionInput::Explicit { ordinal, .. }
-            | SelectedConstructionInput::Default { ordinal, .. }) = input;
+        | SelectedConstructionInput::Default { ordinal, .. }) = input;
+
         DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))
     });
+
     let template = if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
         invocation_dependencies(request, callable, None, roots)?
     } else {
-        DependencyContractTemplateData::new(roots.map(|root|
-            DependencyRequirement::direct(DependencySubject::root(root), DependencyRequirementKind::ValueDependencies)))
-            .with_effects([])
+        DependencyContractTemplateData::new(roots.map(|root| {
+            DependencyRequirement::direct(
+                DependencySubject::root(root),
+                DependencyRequirementKind::ValueDependencies,
+            )
+        }))
+        .with_effects([])
     };
+
     Ok(direct_dependencies(template))
 }

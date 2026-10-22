@@ -318,6 +318,7 @@ pub(super) const fn integer_predicate(operator: MirBinaryOperator, signed: bool)
         MirBinaryOperator::Add
         | MirBinaryOperator::Subtract
         | MirBinaryOperator::Multiply
+        | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder
         | MirBinaryOperator::BitwiseAnd
@@ -331,7 +332,7 @@ pub(super) const fn integer_predicate(operator: MirBinaryOperator, signed: bool)
 pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredicate {
     match operator {
         MirBinaryOperator::Equal => FloatPredicate::OEQ,
-        MirBinaryOperator::NotEqual => FloatPredicate::ONE,
+        MirBinaryOperator::NotEqual => FloatPredicate::UNE,
         MirBinaryOperator::LessThan => FloatPredicate::OLT,
         MirBinaryOperator::LessThanOrEqual => FloatPredicate::OLE,
         MirBinaryOperator::GreaterThan => FloatPredicate::OGT,
@@ -339,6 +340,7 @@ pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredica
         MirBinaryOperator::Add
         | MirBinaryOperator::Subtract
         | MirBinaryOperator::Multiply
+        | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder
         | MirBinaryOperator::BitwiseAnd

@@ -12,25 +12,44 @@ use crate::CheckerQueryResult;
 use super::{ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantReferenceResolution};
 
 /// One evaluated constant call and its transitive deterministic work usage.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct EvaluatedConstantCall {
     value: ConstantValueId,
     usage: ConstantEvaluationUsage,
+    states: Option<Arc<[(u32, ConstantValueId)]>>,
 }
 
 impl EvaluatedConstantCall {
     /// Creates a completed call result with its transitive work usage.
     pub const fn new(value: ConstantValueId, usage: ConstantEvaluationUsage) -> Self {
-        Self { value, usage }
+        Self {
+            value,
+            usage,
+            states: None,
+        }
+    }
+
+    /// Retains the final values of mutable formal referents without creating a source aggregate.
+    pub fn with_states(mut self, states: impl IntoIterator<Item = (u32, ConstantValueId)>) -> Self {
+        let states = states.into_iter().collect::<Vec<_>>();
+
+        self.states = (!states.is_empty()).then(|| states.into());
+
+        self
+    }
+
+    /// Returns committed mutable formal values in receiver-first ordinal order.
+    pub fn states(&self) -> &[(u32, ConstantValueId)] {
+        self.states.as_deref().unwrap_or(&[])
     }
 
     /// Returns the closed call result.
-    pub const fn value(self) -> ConstantValueId {
+    pub const fn value(&self) -> ConstantValueId {
         self.value
     }
 
     /// Returns work consumed by the complete nested evaluation.
-    pub const fn usage(self) -> ConstantEvaluationUsage {
+    pub const fn usage(&self) -> ConstantEvaluationUsage {
         self.usage
     }
 }
@@ -100,6 +119,7 @@ pub struct ConstantCallRequest {
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     limits: ConstantEvaluationLimits,
+    observation: bool,
 }
 
 impl ConstantCallRequest {
@@ -117,7 +137,20 @@ impl ConstantCallRequest {
             arguments: shared_slice(arguments),
             result_type,
             limits,
+            observation: false,
         }
+    }
+
+    /// Selects the checked internal observation domain instead of the source const surface.
+    pub fn with_observation(mut self, observation: bool) -> Self {
+        self.observation = observation;
+
+        self
+    }
+
+    /// Whether this request consumes an internally established observation proof.
+    pub const fn is_observation(&self) -> bool {
+        self.observation
     }
 
     /// Returns the exact substituted callable selected for evaluation.
@@ -240,4 +273,83 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         DiagnosticResult<bray_symbols::StaticReferenceSelection>,
         Self::UpstreamError,
     >;
+}
+
+/// Returns the actual callable/default targets at one checked invocation, excluding cleanup admission.
+/// Abstract trait members retain their declaration identity before witness selection.
+pub fn constant_invocation_targets(
+    selections: &bray_bound_tree::CheckedSemanticSelections,
+    invocation: bray_bound_tree::BoundExecutionSite,
+) -> Vec<crate::ExecutionDependencyTarget> {
+    use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
+
+    let Some(expression) = invocation.expression() else {
+        return Vec::new();
+    };
+
+    // Proof dependencies can also name boundaries with no invocation.
+    let Some(selection) = selections.expression(expression) else {
+        return Vec::new();
+    };
+
+    let mut calls = Vec::new();
+    let mut defaults = Vec::new();
+
+    match invocation {
+        BoundExecutionSite::Node(_) => match selection {
+            SemanticSelection::Call(call) => {
+                return vec![crate::ExecutionDependencyTarget::selected(call)];
+            }
+            SemanticSelection::Operation(operation) => {
+                let _resolved = crate::behavior::collect_operation_behavior(
+                    operation,
+                    None,
+                    &mut calls,
+                    &mut defaults,
+                );
+            }
+            SemanticSelection::Propagation(propagation) => {
+                if let Some(conversion) = propagation.error_conversion() {
+                    let _resolved =
+                        crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
+                }
+            }
+            SemanticSelection::Reference(_)
+            | SemanticSelection::CallableReference(_)
+            | SemanticSelection::StaticReference(_)
+            | SemanticSelection::Predicate(_)
+            | SemanticSelection::Iteration(_)
+            | SemanticSelection::ScopedUse(_) => {}
+        },
+        BoundExecutionSite::CallInput { ordinal, .. } => {
+            let input = selection
+                .input(ordinal)
+                .expect("constant input retains its selected formal");
+
+            if let Some(provider) = input.default_provider() {
+                defaults.push(provider);
+            }
+
+            if let Some(conversion) = input.conversion() {
+                let _resolved =
+                    crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
+            }
+        }
+        // Implicit cursor operations use their checked observation and finite-progress contracts.
+        BoundExecutionSite::Cleanup(_)
+        | BoundExecutionSite::Iterate(_)
+        | BoundExecutionSite::Next(_)
+        | BoundExecutionSite::ScopedEnter(_)
+        | BoundExecutionSite::ScopedExit(_) => {}
+    }
+
+    calls
+        .into_iter()
+        .map(|call| call.target().into())
+        .chain(
+            defaults
+                .into_iter()
+                .map(crate::ExecutionDependencyTarget::Default),
+        )
+        .collect()
 }

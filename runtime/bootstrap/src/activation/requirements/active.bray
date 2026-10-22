@@ -73,7 +73,7 @@ trusted internal func active(
         return trusted selected(context, state, operation, argument);
     };
 
-    let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
+    let callback = trusted std.memory.function.from_data<Query>(descriptor.state);
     let own = trusted query(cursor, callback, header.context, state, operation, argument);
 
     let parent: State =

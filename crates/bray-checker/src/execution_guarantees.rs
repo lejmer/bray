@@ -25,7 +25,8 @@ pub use model::{
     ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,
 };
 pub(crate) use normalize::{
-    construction_condition, selected_call_condition, condition_literals, expression_condition, expression_place, pattern_conditions, pattern_value,
+    condition_literals, construction_condition, expression_condition, expression_place,
+    pattern_conditions, pattern_value, selected_call_condition,
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;

@@ -93,7 +93,7 @@ where
         return Ok(None);
     }
 
-    if let Some(kind) = layout_query_kind(hook)
+    if let Some(kind) = MemoryLayoutQueryKind::for_implementation_hook(hook)
         && !validate_layout_query_type(request, hook, kind, types, expression, diagnostics)?
     {
         return Ok(None);
@@ -311,6 +311,7 @@ where
         }
         ImplementationHook::FunctionPointerFromData | ImplementationHook::FunctionPointerToData => {
             let callable = one_type_argument(types)?;
+
             let byte = crate::representation::representation_type(
                 request,
                 bray_compiler_known::RepresentationRole::ScalarU8,
@@ -364,7 +365,7 @@ where
         | ImplementationHook::MemoryLayoutOf
         | ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
             ty: one_type_argument(types)?,
-            kind: layout_query_kind(hook).unwrap_or_else(|| panic!("classify_direct_memory_operation requires layout query classification, hook: {hook:?}")),
+            kind: MemoryLayoutQueryKind::for_implementation_hook(hook).unwrap_or_else(|| panic!("classify_direct_memory_operation requires layout query classification, hook: {hook:?}")),
         },
         _ => return Ok(None),
     };
@@ -382,17 +383,6 @@ fn one_type_argument<Upstream>(
     };
 
     Ok(*ty)
-}
-
-const fn layout_query_kind(hook: ImplementationHook) -> Option<MemoryLayoutQueryKind> {
-    match hook {
-        ImplementationHook::MemorySizeOf => Some(MemoryLayoutQueryKind::Size),
-        ImplementationHook::MemoryAlignOf => Some(MemoryLayoutQueryKind::Alignment),
-        ImplementationHook::MemoryStrideOf => Some(MemoryLayoutQueryKind::Stride),
-        ImplementationHook::MemoryLayoutOf => Some(MemoryLayoutQueryKind::Layout),
-        ImplementationHook::MemoryTrailingLayoutOf => Some(MemoryLayoutQueryKind::Trailing),
-        _ => None,
-    }
 }
 
 const fn memory_operation_requires_complete_pointee(hook: ImplementationHook) -> bool {
@@ -439,9 +429,7 @@ where
 
     let data = request.semantic_values().type_data(pointee);
 
-    if matches!(data.as_ref(), bray_symbols::TypeData::Error)
-        || complete
-    {
+    if matches!(data.as_ref(), bray_symbols::TypeData::Error) || complete {
         return Ok(true);
     }
 
@@ -611,7 +599,12 @@ where
         return Ok(false);
     }
 
-    Ok(validate_function_pointer_target(request, hook, expression, diagnostics))
+    Ok(validate_function_pointer_target(
+        request,
+        hook,
+        expression,
+        diagnostics,
+    ))
 }
 
 fn validate_function_pointer_target<C>(
@@ -623,11 +616,17 @@ fn validate_function_pointer_target<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if request.selected_target().properties().operations().callable_addresses() {
+    if request
+        .selected_target()
+        .properties()
+        .operations()
+        .callable_addresses()
+    {
         return true;
     }
 
     let span = crate::diagnostic::expression_span(request, expression);
+
     let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook)
         .expect("function-pointer operations retain their diagnostic classification");
 

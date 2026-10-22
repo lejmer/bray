@@ -206,8 +206,16 @@ impl StorageIdentity {
     pub const fn definition_occurrence(self) -> Option<crate::BoundExecutionSite> {
         match self {
             Self::InvocationResult(occurrence) => Some(occurrence),
-            Self::InvocationInput { expression, ordinal } => Some(crate::BoundExecutionSite::CallInput { expression, ordinal }),
-            Self::ScopedCapability { expression, .. } => Some(crate::BoundExecutionSite::ScopedEnter(expression)),
+            Self::InvocationInput {
+                expression,
+                ordinal,
+            } => Some(crate::BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            }),
+            Self::ScopedCapability { expression, .. } => {
+                Some(crate::BoundExecutionSite::ScopedEnter(expression))
+            }
             _ => match self.definition_node() {
                 Some(node) => Some(crate::BoundExecutionSite::Node(node)),
                 None => None,

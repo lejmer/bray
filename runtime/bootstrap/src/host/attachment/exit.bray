@@ -27,6 +27,7 @@ internal struct AttachmentExit
     mut incidents: (&mut u32)?;
 
     trusted destruct()
+        uses(foreign_call)
         requires(
             (!self.ready && trusted attachment_exit_inactive(owner = &self)) || (self.ready &&
                 trusted attachment_exit_selected(owner = &self))

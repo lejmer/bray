@@ -3,6 +3,159 @@ use bray_diagnostics::DiagnosticKind;
 use crate::test_support::compilation;
 
 #[test]
+fn ordinary_consequences_of_mixed_guarantees_do_not_restore_revoked_authority() {
+    for (intervening, valid) in [("", true), ("opaque(&mut owner);", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            struct Owner
+            {{
+                mut ready: bool;
+            }}
+            trusted predicate valid(owner: &Owner);
+
+            trusted func acquire() -> Owner
+                ensures(result.ready || trusted valid(owner = &result))
+            {{
+                return {{ ready = false }};
+            }}
+
+            extern func opaque(pos owner: &mut Owner);
+
+            func use_value(pos owner: &Owner)
+                requires(trusted valid(owner = owner))
+            {{
+            }}
+
+            func caller()
+            {{
+                let mut owner = trusted acquire();
+                if !owner.ready
+                {{
+                    {intervening}
+                    use_value(&owner);
+                }}
+            }}
+        "#
+        );
+
+        let checked = compilation(&source);
+        let diagnostics = checked.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            assert!(
+                diagnostics.iter().all(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingTrustedObligationNotProven),
+                "{source}: {diagnostics:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn recovering_source_retains_its_diagnostic_inside_a_refined_payload() {
+    let application = compilation(
+        r#"
+        module app;
+
+        func selected(pos input: u32?)
+        {
+            if let ?value = input
+            {
+                missing();
+                let observed: u32 = value;
+            }
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        application.check_diagnostics(),
+        DiagnosticKind::BindingUnresolvedName,
+    );
+}
+
+#[test]
+fn completed_value_requirements_preserve_snapshots_without_restoring_mutated_borrows() {
+    for (parameters, requirement, preparation, count, valid) in [
+        (
+            "pos start: usize, pos end: usize, pos pointer: DataPointer<u8>",
+            "count = end",
+            "validate(start, end = end);",
+            "end - start",
+            true,
+        ),
+        (
+            "pos record: &mut Record, pos pointer: DataPointer<u8>",
+            "count = record.number",
+            "change(record);",
+            "record.number - 1",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+
+            struct Record
+            {{
+                mut number: usize;
+            }}
+
+            func validate(pos start: usize, end: usize)
+                requires(start <= end)
+            {{
+            }}
+
+            func change(pos record: &mut Record)
+                requires(record.number > 0)
+            {{
+                record.number = 0;
+            }}
+
+            func inspect(pos pointer: DataPointer<u8>, count: usize)
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = count))
+            {{
+            }}
+
+            func caller({parameters})
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, {requirement}))
+            {{
+                {preparation}
+                inspect(pointer, count = {count});
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            assert!(
+                diagnostics.iter().all(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingTrustedObligationNotProven),
+                "{source}: {diagnostics:#?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn initialized_protected_storage_transfers_and_consumes_its_witness() {
     for (intervening, valid) in [
         ("", true),
@@ -645,10 +798,11 @@ fn copied_range_extents_describe_storage_without_owning_it() {
 
         using core.memory;
 
-        trusted func extent(pos value: &u8) -> usize
+        trusted func extent(pos pointer: DataPointer<u8>) -> usize
+            requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
             ensures(
                 trusted core.memory.valid_read<u8>(
-                    pointer = core.memory.address_of<u8>(value),
+                    pointer = pointer,
                     count = result,
                 ),
             )
@@ -658,7 +812,8 @@ fn copied_range_extents_describe_storage_without_owning_it() {
 
         func caller() {
             let value: u8 = 1;
-            let count: usize = extent(&value);
+            let pointer = core.memory.address_of<u8>(&value);
+            let count: usize = extent(pointer);
             let copied: usize = count;
             let _ = copied;
         }
@@ -737,8 +892,8 @@ fn cursor_witness_survives_observation_and_independent_loop_counters() {
             requires(trusted valid(cursor = cursor))
             ensures(
                 trusted valid(cursor = cursor),
-                core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(pointer = result.0, count = result.1 + 1),
-                core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = result.1 + 1),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(pointer = result.0, count = result.1),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = result.1),
             )
         {
             return (cursor.current, cursor.remaining);
@@ -865,14 +1020,17 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
     for (producer, valid) in [
         ("core.memory.function_address<Callback>(entry)", true),
         (
-            "core.memory.function.from_data<Callback>(core.memory.function.to_data<Callback>(core.memory.function_address<Callback>(entry)))",
+            "trusted core.memory.function.from_data<Callback>(trusted core.memory.function.to_data<Callback>(core.memory.function_address<Callback>(entry)))",
             true,
         ),
         (
-            "core.memory.function.reinterpret<Callback, Callback>(core.memory.function_address<Callback>(entry))",
+            "trusted core.memory.function.reinterpret<Callback, Callback>(core.memory.function_address<Callback>(entry))",
             true,
         ),
-        ("core.memory.function.from_data<Callback>(core.memory.null<u8>())", false),
+        (
+            "trusted core.memory.function.from_data<Callback>(core.memory.null<u8>())",
+            false,
+        ),
     ] {
         let compilation = compilation(&format!(
             r#"
@@ -2615,7 +2773,10 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
         using core.memory;
         struct Header { capacity: usize; }
         trusted func write_unknown_storage(pos header: &mut Header, pos destination: DataPointer<u8>) -> usize
-            requires(trusted core.memory.valid_write<u8>(pointer = destination, count = 1))
+            requires(
+                trusted core.memory.valid_write<u8>(pointer = destination, count = 1),
+                trusted core.memory.aligned_for<u8>(pointer = destination),
+            )
             when(true) { ensures(result <= header.capacity) }
             uses(raw_memory, unchecked_init)
         {
@@ -3383,14 +3544,18 @@ fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacemen
             true,
         ),
         (
-            "let mut selected = slice; let count = selected.length(); selected = other; if count > 0 { selected[0] = 1; }",
+            "let count = slice.length(); let selected: &mut [u8] = if replace { yield &mut slice[..]; } else { yield &mut other[..]; }; if count > 0 { selected[0] = 1; }",
             false,
         ),
     ] {
         let source = format!(
             r#"
             module app;
-            func caller(pos slice: &mut [u8], pos other: &mut [u8]) executes(total) {{ {body} }}
+            func caller(pos slice: &mut [u8], pos other: &mut [u8], pos replace: bool)
+                    executes(total)
+                {{
+                    {body}
+                }}
         "#
         );
 
@@ -3563,7 +3728,10 @@ fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
 
             using core.memory;
             extern func opaque();
-            struct Pointer {{ value: DataPointer<u8>; }}
+            struct Pointer
+            {{
+                value: DataPointer<u8>;
+            }}
             trusted func run(pos owner: &Pointer, pos slot: DataPointer<DataPointer<u8>>, pos replacement: DataPointer<u8>)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = owner.value, count = 1),
@@ -3770,7 +3938,10 @@ fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
             trusted module app;
 
             using core.target;
-            struct Owner {{ pointer: DataPointer<u8>; }}
+            struct Owner
+            {{
+                pointer: DataPointer<u8>;
+            }}
             trusted predicate live(owner: &Owner);
             {helper}
             func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
@@ -3822,7 +3993,11 @@ fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Cursor {{ root: DataPointer<u8>; member: DataPointer<u8>; }}
+            struct Cursor
+            {{
+                root: DataPointer<u8>;
+                member: DataPointer<u8>;
+            }}
             trusted predicate selected(cursor: &Cursor);
             extern trusted func update(pos cursor: &Cursor)
                 requires(trusted selected(cursor)) {guarantee};
@@ -4067,7 +4242,10 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
         let source = r#"
             trusted module app;
 
-            struct Owner { mut epoch: u8; }
+            struct Owner
+            {
+                mut epoch: u8;
+            }
             trusted predicate live(value: &u8);
 
             trusted func acquire() -> Owner

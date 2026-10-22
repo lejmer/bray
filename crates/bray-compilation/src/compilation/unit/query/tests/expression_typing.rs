@@ -527,3 +527,51 @@ fn directional_initializers_preserve_contextual_variant_types() {
         compilation.check_diagnostics()
     );
 }
+
+#[test]
+fn byte_extents_report_incorrect_argument_counts() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            func sample()
+            {
+                let buffer: bytes<1, 2> = [0; 1];
+            }
+        "#,
+    );
+
+    let key = source_callable_body_key(&compilation);
+
+    let declared = compilation
+        .declared_value_type_templates(key.clone())
+        .unwrap();
+
+    let diagnostic = declared
+        .diagnostics()
+        .by_kind(DiagnosticKind::BindingGenericArgumentCountMismatch)
+        .next()
+        .expect("invalid byte extent arity retains its source diagnostic");
+
+    bray_testing::assert_goal_state_diagnostic(diagnostic);
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&DiagnosticArg::expected_count(1))
+    );
+
+    assert!(diagnostic.args().contains(&DiagnosticArg::actual_count(2)));
+
+    let lowered = compilation.lowered_unit(key).unwrap();
+
+    assert!(lowered.value().is_none());
+
+    assert!(
+        lowered
+            .diagnostics()
+            .by_kind(DiagnosticKind::BindingGenericArgumentCountMismatch)
+            .next()
+            .is_some()
+    );
+}

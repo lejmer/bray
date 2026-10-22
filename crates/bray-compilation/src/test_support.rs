@@ -934,3 +934,82 @@ pub(crate) fn production_standard_library_compilation(
     )
     .expect("production standard-library sources load")
 }
+
+pub(crate) fn finite_iterator_source(step: &str) -> String {
+    format!(
+        r#"
+                module api;
+
+                struct Items
+                {{
+                    count: u32;
+                }}
+
+                struct Cursor
+                {{
+                    mut remaining: u32;
+                }}
+
+                impl ItemsIterable = &Items(Iterable)
+                {{
+                    type Element = bool;
+                    type Cursor = api.Cursor;
+
+                    consume func iterate() -> api.Cursor
+                    {{
+                        return api.Cursor {{ remaining = self.count }};
+                    }}
+                }}
+
+                impl CursorIterator = Cursor(Iterator)
+                {{
+                    type Element = bool;
+
+                    mut func next() -> bool?
+                    {{
+                        if self.remaining == 0
+                        {{
+                            return none;
+                        }}
+
+                        {step}
+                    }}
+                }}
+
+                predicate every(value: Items) = all(value);
+
+                func root(pos value: Items)
+                    requires(every(value = value))
+                {{
+                }}
+                "#
+    )
+}
+
+pub(crate) fn diagnostic_source_fragments(
+    compilation: &Compilation,
+    diagnostics: &bray_diagnostics::DiagnosticBag,
+) -> Vec<(bray_source::SourceSpan, String)> {
+    diagnostics
+        .iter()
+        .flat_map(|diagnostic| {
+            diagnostic
+                .primary_span()
+                .into_iter()
+                .chain(diagnostic.labels().iter().map(|label| label.span()))
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|span| {
+            let source = compilation
+                .source(span.source_id())
+                .expect("test diagnostic source must exist");
+
+            let text = source
+                .text_slice(span.range())
+                .expect("test diagnostic span must belong to its source");
+
+            (span, text.to_owned())
+        })
+        .collect()
+}

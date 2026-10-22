@@ -2,7 +2,7 @@ use bray_binder::BindingQueryContext;
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, BoundUnitRoot};
 use bray_checker::ExecutionCondition;
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::DiagnosticResult;
 use bray_source::SourceSpan;
 
 use crate::compilation::{Compilation, binder};
@@ -75,39 +75,65 @@ impl Compilation {
             .collect())
     }
 
-    pub(super) fn anonymous_predicate_condition_inputs(
+    pub(super) fn callable_predicate_condition_inputs(
         &self,
         owner: &BoundUnitKey,
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, bool, SourceSpan)>>, FactQueryError> {
-        let declared =
-            self.declared_value_type_templates_with_cancellation(owner.clone(), cancellation)?;
-
+    ) -> Result<
+        DiagnosticResult<
+            Vec<(
+                ExecutionCondition,
+                bray_symbols::PredicateDomain,
+                SourceSpan,
+            )>,
+        >,
+        FactQueryError,
+    > {
         let bound = self.bound_unit_with_cancellation(owner.clone(), cancellation)?;
-
-        let template = declared
-            .result()
-            .value()
-            .callable_type()
-            .expect("anonymous unit owns its callable type");
-
         let references = self.execution_unit_inputs(owner, cancellation)?;
-
         let context = self.binding_context(cancellation)?;
 
         let lexical_owner = context
             .symbols()
             .symbol_for_key(owner.declared_owner())
-            .expect("anonymous callable retains its lexical declaration");
+            .expect("callable clause retains its lexical declaration");
 
-        let syntax = self.execution_declaration_node(owner.source().syntax())?;
         let values = self.semantic_value_store()?;
+        let mut diagnostics = bound.result().diagnostics().clone();
 
-        let mut diagnostics = DiagnosticBag::merged_all([
-            declared.result().diagnostics(),
-            bound.result().diagnostics(),
-        ]);
+        let (template, anchor) = if let Some(header) = owner.callable_type_header() {
+            let checked = binder::callable_clause_header(&context, owner)
+                .map_err(binder::binding_query_error)?;
+
+            let (header_type, header_diagnostics) = checked.into_parts();
+
+            diagnostics.add_range(header_diagnostics);
+
+            let ty = values.intern_type(bray_symbols::TypeData::Callable(header_type))?;
+
+            (
+                bray_symbols::TypeExpressionTemplate::Resolved(ty),
+                header.syntax(),
+            )
+        } else {
+            let declared =
+                self.declared_value_type_templates_with_cancellation(owner.clone(), cancellation)?;
+
+            diagnostics.add_range(declared.result().diagnostics().iter().cloned());
+
+            // Keep this Arc-backed template while querying independent clause publications.
+            let template = declared
+                .result()
+                .value()
+                .callable_type()
+                .expect("anonymous unit owns its callable type")
+                .clone();
+
+            (template, owner.source().syntax())
+        };
+
+        let syntax = self.execution_declaration_node(anchor)?;
 
         let mut conditions = Vec::new();
 
@@ -116,7 +142,7 @@ impl Compilation {
                 &context,
                 lexical_owner,
                 syntax,
-                template,
+                &template,
                 Some(std::slice::from_ref(anchor)),
             )
             .map_err(binder::binding_query_error)?;
@@ -130,7 +156,11 @@ impl Compilation {
             let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
 
             if checked.diagnostics().has_errors() {
-                conditions.push((ExecutionCondition::Unknown, true, span));
+                conditions.push((
+                    ExecutionCondition::Unknown,
+                    bray_symbols::PredicateDomain::Value,
+                    span,
+                ));
             } else {
                 for predicate in behavior
                     .invocation()
@@ -146,7 +176,7 @@ impl Compilation {
                         .transpose()?
                         .unwrap_or(ExecutionCondition::Unknown);
 
-                    conditions.push((condition, predicate.is_trusted(), span));
+                    conditions.push((condition, predicate.domain(), span));
                 }
             }
 

@@ -763,6 +763,24 @@ pub enum MemoryLayoutQueryKind {
     Trailing,
 }
 
+impl MemoryLayoutQueryKind {
+    /// Classifies the established implementation hook of a target-layout declaration.
+    pub const fn for_implementation_hook(
+        hook: bray_compiler_known::ImplementationHook,
+    ) -> Option<Self> {
+        use bray_compiler_known::ImplementationHook;
+
+        match hook {
+            ImplementationHook::MemorySizeOf => Some(Self::Size),
+            ImplementationHook::MemoryAlignOf => Some(Self::Alignment),
+            ImplementationHook::MemoryStrideOf => Some(Self::Stride),
+            ImplementationHook::MemoryLayoutOf => Some(Self::Layout),
+            ImplementationHook::MemoryTrailingLayoutOf => Some(Self::Trailing),
+            _ => None,
+        }
+    }
+}
+
 /// Integer fetch behavior selected for protected atomic storage.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AtomicFetchKind {

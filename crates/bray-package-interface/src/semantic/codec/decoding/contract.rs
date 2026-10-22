@@ -99,14 +99,15 @@ pub(super) fn decode_dependency_contract(
     let mut borrows = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
+        let entry = decode_dependency_subject(reader, limits, context)?;
+        let exit = decode_dependency_subject(reader, limits, context)?;
+        let kind = read_u32(reader)?;
+
         borrows.push(
-            bray_symbols::DependencyBorrowRelation::new(
-                decode_dependency_subject(reader, limits, context)?,
-                decode_dependency_subject(reader, limits, context)?,
-                decode_tag(read_u32(reader)?)?,
-            )
-            .with_dereferences(read_u32(reader)?)
-            .with_target_projections(decode_dependency_projections(reader, limits, context)?),
+            bray_symbols::DependencyBorrowRelation::new(entry, exit, decode_tag(kind >> 1)?)
+                .with_exactness(kind & 1 != 0)
+                .with_dereferences(read_u32(reader)?)
+                .with_target_projections(decode_dependency_projections(reader, limits, context)?),
         );
     }
 

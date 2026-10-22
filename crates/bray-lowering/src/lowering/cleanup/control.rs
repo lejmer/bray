@@ -418,6 +418,7 @@ impl Lowerer<'_> {
                 if self.input_cleanup_owns(*access, phase, pending_inputs) {
                     continue;
                 }
+
                 let completed = self.input.finalizer_is_complete(plan.exit(), *access);
 
                 block = self

@@ -3,6 +3,7 @@ mod completion;
 mod condition;
 mod conformance;
 mod defaults;
+mod dependency;
 mod export;
 mod imported;
 mod predicate;

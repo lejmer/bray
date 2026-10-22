@@ -49,12 +49,99 @@ impl StorageOrigin {
 impl StorageTarget {
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         match &self.origin {
-            StorageOrigin::Storage(path) | StorageOrigin::Allocation(path) => path.is_valid_for(unit),
-            StorageOrigin::Entry { reference, projections, .. }
-            | StorageOrigin::Returned { reference, projections } => {
-                reference.is_valid_for(unit)
-                    && projections.iter().all(|projection| projection.is_valid_for(unit))
+            StorageOrigin::Storage(path) | StorageOrigin::Allocation(path) => {
+                path.is_valid_for(unit)
             }
+            StorageOrigin::Entry {
+                reference,
+                projections,
+                ..
+            }
+            | StorageOrigin::Returned {
+                reference,
+                projections,
+            } => {
+                reference.is_valid_for(unit)
+                    && projections
+                        .iter()
+                        .all(|projection| projection.is_valid_for(unit))
+            }
+        }
+    }
+
+    /// Classifies the checked write boundary without re-resolving aliases.
+    pub fn mutation_scope(
+        &self,
+        storage: &crate::StoragePlan,
+        values: &bray_symbols::SemanticValueStore,
+    ) -> crate::StorageMutationScope {
+        use crate::StorageMutationScope;
+
+        if self.previous {
+            return StorageMutationScope::Unbounded;
+        }
+
+        match &self.origin {
+            StorageOrigin::Storage(path)
+                if path.is_inline()
+                    && storage
+                        .identity(path.root)
+                        .is_some_and(|identity| identity.is_invocation_owned(storage.kind())) =>
+            {
+                StorageMutationScope::Invocation
+            }
+            StorageOrigin::Entry {
+                reference,
+                layer: 1,
+                projections,
+            } if reference.projections.is_empty()
+                && StoragePath::inline_projections(projections)
+                && matches!(
+                    storage.identity(reference.root),
+                    Some(
+                        crate::StorageIdentity::Parameter(_)
+                            | crate::StorageIdentity::Receiver(_)
+                            | crate::StorageIdentity::AnonymousParameter(_)
+                    )
+                )
+                && storage.storage_type(reference.root).is_some_and(|ty| {
+                    matches!(
+                        values.type_data(ty).as_ref(),
+                        bray_symbols::TypeData::Borrow {
+                            kind: bray_symbols::BorrowKind::Mutable,
+                            ..
+                        }
+                    )
+                }) =>
+            {
+                StorageMutationScope::Inputs
+            }
+            _ => StorageMutationScope::Unbounded,
+        }
+    }
+
+    /// Returns the inline value path represented by an invocation's immutable state frame.
+    /// The caller establishes confinement before using an entry referent as a frame.
+    pub fn inline_state_path(&self) -> Option<StoragePath> {
+        if self.previous {
+            return None;
+        }
+
+        match &self.origin {
+            StorageOrigin::Storage(path) if path.is_inline() => Some(path.clone()),
+            StorageOrigin::Entry {
+                reference,
+                layer: 1,
+                projections,
+            } if reference.projections.is_empty()
+                && StoragePath::inline_projections(projections) =>
+            {
+                Some(StoragePath {
+                    root: reference.root,
+                    projections: projections.clone(),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -92,7 +179,9 @@ impl StorageTarget {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
                 }
-                StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => place.is_exact(),
+                StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => {
+                    place.is_exact()
+                }
             }
     }
 
@@ -119,7 +208,8 @@ impl StorageTarget {
     /// Returns components within the established referent.
     pub fn projections(&self) -> &[StorageProjection] {
         match &self.origin {
-            StorageOrigin::Entry { projections, .. } | StorageOrigin::Returned { projections, .. } => projections,
+            StorageOrigin::Entry { projections, .. }
+            | StorageOrigin::Returned { projections, .. } => projections,
             StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => &place.projections,
         }
     }
@@ -152,10 +242,7 @@ impl StorageTarget {
     }
 
     /// Compares referents without equating independent entry or returned references.
-    pub fn relationship(
-        &self,
-        other: &Self,
-    ) -> crate::StorageRelationship {
+    pub fn relationship(&self, other: &Self) -> crate::StorageRelationship {
         use crate::StorageRelationship;
 
         if self.previous || other.previous {
@@ -245,16 +332,15 @@ impl StorageTarget {
                 },
             ) => left == right && projections.starts_with(prefix),
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right))
-            | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => left.contains(right),
+            | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
+                left.contains(right)
+            }
             _ => false,
         }
     }
 
     /// Derives components while preserving the original reference identity and epoch.
-    pub fn project(
-        &self,
-        projections: &[StorageProjection],
-    ) -> Self {
+    pub fn project(&self, projections: &[StorageProjection]) -> Self {
         let append =
             |prefix: &[StorageProjection]| prefix.iter().chain(projections).copied().collect();
 
@@ -312,7 +398,9 @@ fn region_relationship(
 #[cfg(test)]
 mod tests {
     use super::{StorageOrigin, StorageTarget};
-    use crate::{BoundUnitId, StorageIdentityId, StoragePath, StorageProjection, StorageRelationship};
+    use crate::{
+        BoundUnitId, StorageIdentityId, StoragePath, StorageProjection, StorageRelationship,
+    };
     use bray_symbols::SymbolOrdinal;
 
     fn slot(index: u32) -> StoragePath {
@@ -321,31 +409,58 @@ mod tests {
 
     #[test]
     fn independent_reference_slots_do_not_prove_disjoint_referents() {
-        let left = StorageTarget { previous: false, origin: StorageOrigin::entry(slot(0)) };
-        let right = StorageTarget { previous: false, origin: StorageOrigin::entry(slot(1)) };
+        let left = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(slot(0)),
+        };
+
+        let right = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(slot(1)),
+        };
 
         assert!(left.is_exact());
         assert!(left.storage_path().is_none());
-        assert_eq!(left.relationship(&right), StorageRelationship::PotentiallyOverlapping);
+
+        assert_eq!(
+            left.relationship(&right),
+            StorageRelationship::PotentiallyOverlapping
+        );
+
         assert!(!left.contains(&right));
     }
 
     #[test]
     fn projected_entry_snapshots_keep_their_epoch_and_borrow_layer() {
-        let current = StorageTarget { previous: false, origin: StorageOrigin::entry(slot(0)) };
+        let current = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(slot(0)),
+        };
+
         let projected = current.project(&[StorageProjection::TupleElement(SymbolOrdinal::new(1))]);
-        let previous = StorageTarget { previous: true, ..current.clone() };
+
+        let previous = StorageTarget {
+            previous: true,
+            ..current.clone()
+        };
+
         let second_layer = StorageTarget {
             previous: false,
             origin: StorageOrigin::Entry {
-                reference: slot(0), layer: 2, projections: [].into(),
+                reference: slot(0),
+                layer: 2,
+                projections: [].into(),
             },
         };
 
         assert!(current.contains(&projected));
         assert!(projected.is_exact());
-        assert_eq!(projected.observation_path().unwrap().projections.as_ref(),
-            &[StorageProjection::TupleElement(SymbolOrdinal::new(1))]);
+
+        assert_eq!(
+            projected.observation_path().unwrap().projections.as_ref(),
+            &[StorageProjection::TupleElement(SymbolOrdinal::new(1))]
+        );
+
         assert!(!previous.is_exact());
         assert!(previous.observation_path().is_none());
         assert!(!previous.contains(&current));
@@ -357,13 +472,19 @@ mod tests {
     fn returned_referents_are_not_their_receiving_slots() {
         let returned = StorageTarget {
             previous: false,
-            origin: StorageOrigin::Returned { reference: slot(0), projections: [].into() },
+            origin: StorageOrigin::Returned {
+                reference: slot(0),
+                projections: [].into(),
+            },
         };
 
         assert!(returned.is_exact());
         assert!(returned.storage_path().is_none());
         assert!(returned.observation_path().is_none());
-        assert_eq!(returned.relationship(&StorageTarget::storage(slot(0))),
-            StorageRelationship::PotentiallyOverlapping);
+
+        assert_eq!(
+            returned.relationship(&StorageTarget::storage(slot(0))),
+            StorageRelationship::PotentiallyOverlapping
+        );
     }
 }

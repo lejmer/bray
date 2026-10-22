@@ -7,6 +7,17 @@ use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTempor
 pub enum CheckedTemplateBuildError {
     /// A template-local identity table cannot represent another entry.
     CapacityExceeded,
+    /// Loop bindings or committed outputs do not match their checked kernel.
+    InvalidLoop(CheckedTemplateNodeId),
+    /// A replacement does not identify an inline component of its declared base.
+    InvalidComponent(CheckedTemplateNodeId),
+    /// A state output does not name a declared mutable input of its call.
+    InvalidStateOutput {
+        /// The call whose mutable input was requested.
+        operation: CheckedTemplateNodeId,
+        /// The invalid receiver-first input ordinal.
+        ordinal: u32,
+    },
     /// Semantic recovery contributed to a template that must be portable and lowerable.
     RecoveredTemplate,
     /// An operation references an input that is not declared by the template.
@@ -67,13 +78,13 @@ pub enum CheckedTemplateBuildError {
         /// The type produced by the operation.
         actual: TypeId,
     },
-    /// A sequence result differs from the value it produces.
-    SequenceTypeMismatch {
-        /// The sequence operation.
+    /// A value-preserving operation changes the type of its result.
+    ValueTypeMismatch {
+        /// The value-preserving operation.
         node: CheckedTemplateNodeId,
-        /// The following value's type.
+        /// The observed value's type.
         expected: TypeId,
-        /// The type assigned to the sequence.
+        /// The operation's assigned type.
         actual: TypeId,
     },
     /// A conversion result differs from its checked destination type.

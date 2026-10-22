@@ -2,6 +2,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place};
 use crate::analysis::storage_flow::model::StorageFlowState;
+use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{DependencySubjectRoot, TypeData};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
@@ -47,10 +48,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let mut relations = Vec::new();
+        let mut unbounded = std::collections::BTreeSet::new();
         let summary = std::mem::take(&mut self.results).summary();
         let mut requirements = summary.requirements().to_vec();
 
-        for (slot, target, exact) in self
+        for (slot, target, exact, bounded) in self
             .references
             .iter()
             .flat_map(|references| references.targets())
@@ -69,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            if let Some(relation) = self.result_reference(slot, target, ty)? {
+            if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
                 if root == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
                 {
@@ -80,15 +82,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     ));
                 }
 
-                if exact {
-                    relations.push(relation);
+                if bounded {
+                    relations.push((slot.clone(), relation.with_exactness(exact)));
+                } else {
+                    unbounded.insert(slot.clone());
                 }
+            } else {
+                unbounded.insert(slot.clone());
             }
         }
 
         Ok(summary
             .with_requirements(requirements)
-            .with_borrows(relations)
+            .with_borrows(
+                relations.into_iter().filter_map(|(slot, relation)| {
+                    (!unbounded.contains(&slot)).then_some(relation)
+                }),
+            )
             .with_normal_completion(self.references.is_some())
             .with_carriers(carriers)
             .with_returned_input(returned_input)
@@ -168,6 +178,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         slot: &Place,
         origin: &Origin,
         ty: bray_symbols::TypeId,
+        exact: bool,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyBorrowRelation>, C::UpstreamError>
     {
         let (target, stored_reference) = match origin {
@@ -234,6 +245,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let target_projections = match origin {
+            Origin::Entry { projections, .. } if !exact => Some(
+                projections
+                    .iter()
+                    .copied()
+                    .map_while(dependency_projection)
+                    .collect(),
+            ),
             Origin::Entry { projections, .. } => dependency_projections(projections),
             _ => Some(Vec::new()),
         };
@@ -261,30 +279,4 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_target_projections(target_projections),
         ))
     }
-}
-
-pub(in crate::analysis::storage_flow::check::analysis) fn dependency_projections(
-    projections: &[bray_bound_tree::StorageProjection],
-) -> Option<Vec<bray_symbols::DependencyProjection>> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::DependencyProjection;
-
-    projections
-        .iter()
-        .map(|projection| match projection {
-            StorageProjection::ProductField(field) => {
-                Some(DependencyProjection::ProductField(*field))
-            }
-            StorageProjection::TupleElement(index) => {
-                Some(DependencyProjection::TupleElement(*index))
-            }
-            StorageProjection::NullableValue => Some(DependencyProjection::NullableValue),
-            StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                Some(DependencyProjection::UnionPayloadField(*field))
-            }
-            StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
-            StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
-            _ => None,
-        })
-        .collect()
 }

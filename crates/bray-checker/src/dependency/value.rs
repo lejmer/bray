@@ -10,9 +10,10 @@ use bray_bound_tree::{
 /// The operands whose values contribute to an expression's result, excluding evaluation inputs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ValueInputs {
-    independent: std::collections::BTreeSet<BoundExpressionId>,
+    independent: std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
-    pub(super) pattern_subjects: BTreeMap<bray_bound_tree::BoundPatternId, bray_bound_tree::BoundExecutionSite>,
+    pub(super) pattern_subjects:
+        BTreeMap<bray_bound_tree::BoundPatternId, bray_bound_tree::BoundExecutionSite>,
     pub(super) projections: BTreeMap<
         BoundExpressionId,
         BTreeMap<
@@ -112,9 +113,20 @@ impl ValueInputs {
             returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
-            pattern_subjects: unit.tree().binding_subjects().into_iter().map(|(pattern, source)|
-                (pattern, unit.view().expression(source).expect("pattern source is bound")
-                    .pattern_subject_site(source))).collect(),
+            pattern_subjects: unit
+                .tree()
+                .binding_subjects()
+                .into_iter()
+                .map(|(pattern, source)| {
+                    (
+                        pattern,
+                        unit.view()
+                            .expression(source)
+                            .expect("pattern source is bound")
+                            .pattern_subject_site(source),
+                    )
+                })
+                .collect(),
             independent: Default::default(),
             source_inputs: Default::default(),
             projections: BTreeMap::new(),
@@ -128,12 +140,14 @@ impl ValueInputs {
                 && let Some(BoundExpression::Structured(value)) =
                     unit.tree().expression(entry.expression())
             {
-                result.pattern_subjects.extend(
-                    value
-                        .patterns()
-                        .iter()
-                        .map(|pattern| (*pattern, bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()))),
-                );
+                result
+                    .pattern_subjects
+                    .extend(value.patterns().iter().map(|pattern| {
+                        (
+                            *pattern,
+                            bray_bound_tree::BoundExecutionSite::ScopedEnter(entry.expression()),
+                        )
+                    }));
             }
         }
 
@@ -164,7 +178,7 @@ impl ValueInputs {
         inputs.writes =
             super::assignment::AssignmentInputs::new(request.unit(), selections, &inputs);
 
-        inputs.filter_independent(request, types)?;
+        inputs.filter_independent(request, types, selections)?;
         inputs.collect_propagation(request, selections)?;
         inputs.collect_source_inputs(request.unit(), selections, patterns);
 
@@ -211,9 +225,11 @@ impl ValueInputs {
                     );
                 }
                 SemanticSelection::Iteration(iteration) => {
-                    if matches!(iteration.mode(), bray_bound_tree::IterationSourceMode::Shared
-                        | bray_bound_tree::IterationSourceMode::Mutable)
-                    {
+                    if matches!(
+                        iteration.mode(),
+                        bray_bound_tree::IterationSourceMode::Shared
+                            | bray_bound_tree::IterationSourceMode::Mutable
+                    ) {
                         pending.push(iteration.source());
                     }
                 }
@@ -256,10 +272,12 @@ impl ValueInputs {
                     })
                 }) {
                     if let bray_bound_tree::BoundExecutionSite::Node(
-                        bray_bound_tree::AnyBoundNodeId::Expression(source)) = source
+                        bray_bound_tree::AnyBoundNodeId::Expression(source),
+                    ) = source
                     {
                         pending.push(*source);
                     }
+
                     break;
                 }
 
@@ -341,21 +359,69 @@ impl ValueInputs {
         &mut self,
         request: CheckerUnitView<'_, C>,
         types: &bray_bound_tree::CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
-        for (expression, _) in request.unit().tree().expressions() {
-            if let Some(ty) = types.expression(expression)
-                && independent_value_type(request, ty.ty())?
-            {
-                self.independent.insert(expression);
-                self.expressions.remove(&expression);
+        use bray_bound_tree::{AnyBoundNodeId, BoundExecutionSite};
+
+        let expressions = request
+            .unit()
+            .tree()
+            .expressions()
+            .filter_map(|(expression, _)| {
+                Some((
+                    BoundExecutionSite::from(expression),
+                    types.expression(expression)?.ty(),
+                ))
+            });
+
+        let inputs = selections
+            .entries()
+            .iter()
+            .filter(|entry| entry.selection().evaluates_defaults())
+            .flat_map(|entry| {
+                entry.selection().inputs().map(move |input| {
+                    let ordinal = entry
+                        .selection()
+                        .input_ordinal(input.root())
+                        .expect("normalized input has its declared ordinal");
+
+                    (
+                        BoundExecutionSite::CallInput {
+                            expression: entry.expression(),
+                            ordinal,
+                        },
+                        input.ty(request.semantic_values()),
+                    )
+                })
+            });
+
+        let mut classified = BTreeMap::new();
+
+        for (site, ty) in expressions.chain(inputs) {
+            let independent = match classified.entry(ty) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    *entry.insert(independent_value_type(request, ty)?)
+                }
+            };
+
+            if independent {
+                self.independent.insert(site);
+
+                if let BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = site {
+                    self.expressions.remove(&expression);
+                }
             }
         }
 
         Ok(())
     }
 
-    pub(crate) fn is_independent(&self, expression: BoundExpressionId) -> bool {
-        self.independent.contains(&expression)
+    pub(crate) fn is_independent(
+        &self,
+        site: impl Into<bray_bound_tree::BoundExecutionSite>,
+    ) -> bool {
+        self.independent.contains(&site.into())
     }
 
     pub(crate) fn projected_initializer(

@@ -184,7 +184,11 @@ pub(crate) fn expression_condition(
             if unit.key().kind().uses_machine_arithmetic()
                 && !matches!(operator,
                     bray_bound_tree::BoundOperator::Add if operands.len() == 1)
-                && !matches!(operator, bray_bound_tree::BoundOperator::LogicalNot
+                // Division and remainder do not wrap on normal completion. Retain their
+                // operation in short-circuit snapshots before an operand executes.
+                // Trapping input domains are still checked at the actual operation.
+                && !matches!(operator, bray_bound_tree::BoundOperator::Divide
+                    | bray_bound_tree::BoundOperator::Remainder | bray_bound_tree::BoundOperator::LogicalNot
                     | bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr
                     | bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual
                     | bray_bound_tree::BoundOperator::Less | bray_bound_tree::BoundOperator::LessEqual

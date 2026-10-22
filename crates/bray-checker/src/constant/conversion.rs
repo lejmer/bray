@@ -49,9 +49,14 @@ pub(super) fn complex_from_components(
     components: [bray_symbols::ConstantValueId; 2],
 ) -> Option<ConstantValueKind> {
     let [real, imaginary] = components.map(|value| values.constant_value_data(value));
+
     match (real.kind(), imaginary.kind()) {
-        (ConstantValueKind::Real(real), ConstantValueKind::Real(imaginary)) =>
-            Some(ConstantValueKind::Complex { real: *real, imaginary: *imaginary }),
+        (ConstantValueKind::Real(real), ConstantValueKind::Real(imaginary)) => {
+            Some(ConstantValueKind::Complex {
+                real: *real,
+                imaginary: *imaginary,
+            })
+        }
         _ => None,
     }
 }

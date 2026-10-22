@@ -957,6 +957,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             13 => Ok(MirBinaryOperator::BitwiseXor),
             14 => Ok(MirBinaryOperator::ShiftLeft),
             15 => Ok(MirBinaryOperator::ShiftRight),
+            16 => Ok(MirBinaryOperator::Exponentiate),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -2714,7 +2715,7 @@ fn validate_decoded_protected_memory_types(
     let uninit = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Uninit")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
-    let raw_pointer = bray_compiler_known::CompilerKnownDeclarationKey::try_new("RawPointer")
+    let data_pointer = bray_compiler_known::CompilerKnownDeclarationKey::try_new("DataPointer")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
     protected_memory_types_valid(
@@ -2724,7 +2725,7 @@ fn validate_decoded_protected_memory_types(
         |ty, wrapper| {
             let expected = match wrapper {
                 ProtectedMemoryWrapper::Uninit => &uninit,
-                ProtectedMemoryWrapper::RawPointer => &raw_pointer,
+                ProtectedMemoryWrapper::DataPointer => &data_pointer,
             };
 
             semantics.compiler_known_type_argument(ty, expected)
@@ -2738,7 +2739,7 @@ fn validate_decoded_protected_memory_types(
 #[derive(Clone, Copy)]
 enum ProtectedMemoryWrapper {
     Uninit,
-    RawPointer,
+    DataPointer,
 }
 
 fn protected_memory_types_valid(
@@ -2781,7 +2782,7 @@ fn protected_memory_types_valid(
                 .and_then(|storage| wrapper_argument(storage, ProtectedMemoryWrapper::Uninit))
                 == Some(element)
                 && result.is_some_and(|result| {
-                    wrapper_argument(result, ProtectedMemoryWrapper::RawPointer) == Some(element)
+                    wrapper_argument(result, ProtectedMemoryWrapper::DataPointer) == Some(element)
                 })
         }
         Kind::UninitWrite { element } => {
@@ -2823,7 +2824,7 @@ fn protected_memory_types_valid(
             let borrow = address_borrow_kind(kind);
 
             borrow_target(*authority, borrow).is_some()
-                && wrapper_argument(*pointer, ProtectedMemoryWrapper::RawPointer) == Some(pointee)
+                && wrapper_argument(*pointer, ProtectedMemoryWrapper::DataPointer) == Some(pointee)
                 && result.is_some_and(|result| borrow_target(result, borrow) == Some(pointee))
         }
         _ => true,
@@ -3165,7 +3166,7 @@ mod tests {
                 result,
                 |ty, wrapper| match (ty, wrapper) {
                     (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => Some(self.element),
-                    (ty, ProtectedMemoryWrapper::RawPointer) if ty == self.pointer => {
+                    (ty, ProtectedMemoryWrapper::DataPointer) if ty == self.pointer => {
                         Some(self.element)
                     }
                     _ => None,

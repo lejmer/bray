@@ -218,4 +218,44 @@ impl Compilation {
 
         Ok(imported.map(|template| template.map(|template| template.template().clone())))
     }
+    pub(super) fn resolve_template_input_types(
+        &self,
+        inputs: &mut [SourceTemplateInput],
+        evidence: &[bray_bound_tree::DeclaredValueTypeEvidence],
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<(), FactQueryError> {
+        for input in inputs {
+            let Some(BoundReferenceTarget::Surface(owner)) = input.target else {
+                continue;
+            };
+
+            let term =
+                bray_bound_tree::DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(owner));
+
+            let index = evidence.partition_point(|entry| entry.term() < term);
+
+            if let Some(entry) = evidence.get(index).filter(|entry| entry.term() == term) {
+                let constants = self.checked_constant_terms_for_templates_with_cancellation(
+                    [entry.template()],
+                    cancellation,
+                )?;
+
+                diagnostics.add_range(constants.diagnostics().clone());
+
+                if constants.diagnostics().has_errors() {
+                    continue;
+                }
+
+                input.ty = bray_checker::resolve_type_expression_template(
+                    self.semantic_value_store()?,
+                    entry.template(),
+                    constants.value(),
+                )
+                .expect("checked source input type resolves from its established constant terms");
+            }
+        }
+
+        Ok(())
+    }
 }

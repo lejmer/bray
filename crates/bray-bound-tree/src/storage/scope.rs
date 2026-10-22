@@ -174,22 +174,35 @@ impl StorageScopeOwners {
                     }
                 }
                 BoundExpression::For(expression) => {
-                    invocation_owners.insert(crate::BoundExecutionSite::Next(id), expression.body());
-                    assign_pattern_scope(unit.view(), expression.pattern(), expression.body(), &mut nodes)?;
-                }
+                    invocation_owners
+                        .insert(crate::BoundExecutionSite::Next(id), expression.body());
 
+                    assign_pattern_scope(
+                        unit.view(),
+                        expression.pattern(),
+                        expression.body(),
+                        &mut nodes,
+                    )?;
+                }
                 BoundExpression::Generator(expression) => {
-                    invocation_owners.insert(crate::BoundExecutionSite::Next(id), expression.body());
-                    assign_pattern_scope(unit.view(), expression.pattern(), expression.body(), &mut nodes)?;
-                }
+                    invocation_owners
+                        .insert(crate::BoundExecutionSite::Next(id), expression.body());
 
+                    assign_pattern_scope(
+                        unit.view(),
+                        expression.pattern(),
+                        expression.body(),
+                        &mut nodes,
+                    )?;
+                }
                 BoundExpression::Structured(expression) => {
                     if expression.kind() == crate::BoundStructuredExpressionKind::With {
                         let [scope] = expression.blocks() else {
                             panic!("with occurrence {id:?} retains its sole body scope");
                         };
 
-                        invocation_owners.insert(crate::BoundExecutionSite::ScopedEnter(id), *scope);
+                        invocation_owners
+                            .insert(crate::BoundExecutionSite::ScopedEnter(id), *scope);
 
                         for pattern in expression.patterns() {
                             assign_pattern_scope(unit.view(), *pattern, *scope, &mut nodes)?;
@@ -248,12 +261,16 @@ impl StorageScopeOwners {
     pub fn scope(&self, identity: Option<StorageIdentity>) -> Option<BoundBlockId> {
         match identity {
             Some(StorageIdentity::Static(_)) | None => None,
-            Some(StorageIdentity::ScopedCapability { expression, .. }) => {
-                self.invocation_owners.get(&crate::BoundExecutionSite::ScopedEnter(expression)).copied()
-            }
-            Some(StorageIdentity::InvocationResult(occurrence)) => self.invocation_owners
-                .get(&occurrence).copied()
-                .or_else(|| self.nodes.get(&occurrence.node()).copied()).or(self.root),
+            Some(StorageIdentity::ScopedCapability { expression, .. }) => self
+                .invocation_owners
+                .get(&crate::BoundExecutionSite::ScopedEnter(expression))
+                .copied(),
+            Some(StorageIdentity::InvocationResult(occurrence)) => self
+                .invocation_owners
+                .get(&occurrence)
+                .copied()
+                .or_else(|| self.nodes.get(&occurrence.node()).copied())
+                .or(self.root),
             Some(identity) if identity.borrows_input_storage(self.unit) => None,
             Some(identity) => identity
                 .definition_node()

@@ -88,6 +88,10 @@ impl<'unit> LoweringInput<'unit> {
         self.unwind
             .is_some_and(|unwind| unwind.call_cannot_unwind(expression))
     }
+    pub(crate) fn call_cannot_cancel(&self, expression: BoundExpressionId) -> bool {
+        self.unwind
+            .is_some_and(|unwind| unwind.call_cannot_cancel(expression))
+    }
 
     /// Publishes checked semantic inputs and the indexes used directly by lowering.
     #[expect(

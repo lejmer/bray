@@ -23,7 +23,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         self.prepare_assignment_reference(state, operation, assignment);
 
-        if let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = operation.occurrence()
+        if let bray_bound_tree::BoundExecutionSite::Node(
+            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+        ) = operation.occurrence()
             && self.memory.operation(expression).is_some()
         {
             return self.memory_effects(state, expression);
@@ -37,9 +39,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(bray_bound_tree::BoundExpression::Await(_))
             )
         {
-            let source = self.execution.awaited_invocation(execution, expression)?;
+            let source = self.execution.awaited_invocation(execution, expression);
+            let effects = source.and_then(|source| state.memory.deferred_effects(source));
 
-            return state.memory.deferred_effects(source);
+            return effects;
         }
 
         if !self.dependencies.calls().contains_key(&invocation)
@@ -59,13 +62,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let contracts = self.dependencies.calls().get(&invocation)?;
 
+        let mut task_effects = invocation
+            .expression()
+            .and_then(|expression| self.execution.task_effect_source(execution, expression))
+            .and_then(|source| state.memory.deferred_effects(source))
+            .map(|mut effects| {
+                // Scheduling and resolution can affect external runtime state even
+                // when the captured computation has no user storage mutations.
+                if !effects.contains(&Effect::Unknown) {
+                    effects.push(Effect::Unknown);
+                }
+
+                effects
+            });
+
         if let Some(effects) = contracts.deferred_effects() {
-            let effects = self.call_effects(state, invocation, effects);
+            let effects = task_effects
+                .take()
+                .unwrap_or_else(|| self.call_effects(state, invocation, effects));
 
             state.memory.defer_effects(invocation, Some(effects));
         }
 
-        if let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
+        if let bray_bound_tree::BoundExecutionSite::Node(
+            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+        ) = invocation
             && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 self.execution.semantics.selections().expression(expression)
             && crate::analysis::storage_invalidation::call_preserves_storage(call, None)
@@ -73,7 +94,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Some(Vec::new());
         }
 
-        Some(self.call_effects(state, invocation, contracts.effects()))
+        let effects = if contracts.deferred_effects().is_none() {
+            task_effects
+                .unwrap_or_else(|| self.call_effects(state, invocation, contracts.effects()))
+        } else {
+            self.call_effects(state, invocation, contracts.effects())
+        };
+
+        Some(effects)
     }
 
     pub(super) fn call_attempt(
@@ -91,7 +119,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } => Some(invocation),
             AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(
                 expression,
-            )) => {
+            ))
+            | AnalysisOperationKind::TaskOperation { expression, .. } => {
                 // Calls without an abnormal edge complete in one graph operation.
                 let occurrence = expression.into();
 
@@ -226,11 +255,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation: Option<&StorageInvalidation>,
     ) {
         if self.call_attempt(kind).is_some()
-            && kind
-                .occurrence()
-                .expression()
-                .is_some_and(|expression| !matches!(kind.occurrence(), bray_bound_tree::BoundExecutionSite::Node(_))
-                    || self.memory.operation(expression).is_none())
+            && kind.occurrence().expression().is_some_and(|expression| {
+                !matches!(
+                    kind.occurrence(),
+                    bray_bound_tree::BoundExecutionSite::Node(_)
+                ) || self.memory.operation(expression).is_none()
+            })
         {
             if let Some(invalidation) =
                 invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))
@@ -468,11 +498,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return;
                 };
 
-                let source = super::references::dependency_projections(&reference.projections);
-                let suffix = super::references::dependency_projections(projections);
+                let source = crate::storage::dependency_projections(&reference.projections);
 
-                match (source, suffix) {
-                    (Some(source), Some(suffix)) => Some(DependencyStorageEffect::Indirect {
+                // An unportable selector widens the reached region, never the identity
+                // of the reference through which this operation obtained access.
+                let suffix = projections
+                    .iter()
+                    .copied()
+                    .map_while(crate::storage::dependency_projection)
+                    .collect::<Vec<_>>();
+
+                match source {
+                    Some(source) => Some(DependencyStorageEffect::Indirect {
                         reference: DependencySubject::new(root, source),
                         projections: suffix.into(),
                         kind,
@@ -589,7 +626,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             _ => return None,
         };
 
-        let projections = super::references::dependency_projections(&path.projections);
+        let projections = crate::storage::dependency_projections(&path.projections);
 
         let Some(projections) = projections else {
             return Some(DependencyStorageEffect::Unknown);

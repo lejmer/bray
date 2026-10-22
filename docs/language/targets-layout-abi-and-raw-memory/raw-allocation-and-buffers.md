@@ -82,7 +82,7 @@ struct RawBuffer<T>
     initialized: usize;
 
     trusted construct(capacity: usize) -> Result<Self, MemoryLayoutError>
-        uses(manual_alloc, layout_reinterpret);
+        uses(manual_alloc);
 }
 
 func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;

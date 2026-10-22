@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.storage;
 
+using std.numeric;
 using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap.pool.growth;
@@ -113,7 +114,7 @@ trusted internal func admit_locked(
     {
         let values = trusted shapes(pool);
         let shape = &mut values[index - 1];
-        let limit: usize = ~0;
+        let limit: usize = std.numeric.USIZE_MAX;
 
         if shape.credits == limit
         {
@@ -140,7 +141,10 @@ trusted internal func admit_locked(
 }
 
 @abi(c)
-trusted internal func activate(pos pointer: DataPointer<Lease>, pos descriptor: DataPointer<Descriptor>) -> DataPointer<u8>
+trusted internal func activate(
+    pos pointer: DataPointer<Lease>,
+    pos descriptor: DataPointer<Descriptor>
+) -> DataPointer<u8>
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted lease_slot(pointer = pointer),

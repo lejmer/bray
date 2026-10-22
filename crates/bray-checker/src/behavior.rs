@@ -1,19 +1,16 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
-    BoundCallableTarget, CheckedControlFlow, CheckedSemanticSelections, ConstructionTarget,
-    ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget, SelectedArgument,
-    SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
+    BoundCallableTarget, CheckedSemanticSelections, ConstructionTarget, ConversionTarget,
+    DefaultValueProvider, IndexTarget, OperatorTarget, SelectedArgument, SelectedConstructionInput,
+    SelectedConversion, SelectedOperation, SemanticSelection,
 };
-use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::CurrentRunCancellation;
 
 use crate::unit::assert_unit_inputs;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn collect_selected_behavior<C>(
     request: CheckerUnitView<'_, C>,
-    control_flow: &CheckedControlFlow,
     selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<BodyBehaviorContributions>
 where
@@ -25,19 +22,15 @@ where
 
     assert_unit_inputs(
         request,
-        [
-            ("control flow", (control_flow.unit(), control_flow.kind())),
-            (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
-            ),
-        ],
+        [(
+            "semantic selections",
+            (selections.unit(), selections.kind()),
+        )],
     );
 
     let mut calls = Vec::new();
     let mut defaults = Vec::new();
     let mut static_dependencies = Vec::new();
-    let mut enters_current_run_cancellation = false;
 
     for entry in selections.entries() {
         if request.is_cancelled() {
@@ -51,11 +44,6 @@ where
 
         match entry.selection() {
             SemanticSelection::Call(call) => {
-                enters_current_run_cancellation |= matches!(
-                    call.implementation_hook(),
-                    Some(ImplementationHook::CurrentRunCancellationPropagation)
-                );
-
                 let mut contribution =
                     BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::Invocation);
 
@@ -148,22 +136,11 @@ where
         }
     }
 
-    let current_run_cancellation = if enters_current_run_cancellation
-        || control_flow
-            .completion()
-            .contains(bray_bound_tree::ControlCompletionKind::Cancellation)
-    {
-        CurrentRunCancellation::MayEnter
-    } else {
-        CurrentRunCancellation::NotEntered
-    };
-
-    let is_recovered = control_flow.is_recovered()
-        || request
-            .unit()
-            .tree()
-            .expressions()
-            .any(|(_, expression)| expression.is_recovered());
+    let is_recovered = request
+        .unit()
+        .tree()
+        .expressions()
+        .any(|(_, expression)| expression.is_recovered());
 
     CheckerOutcome::Complete(DiagnosticResult::new(
         BodyBehaviorContributions::new(
@@ -172,7 +149,6 @@ where
             calls,
             defaults,
             static_dependencies,
-            current_run_cancellation,
             is_recovered,
         ),
         DiagnosticBag::new(),
@@ -286,11 +262,10 @@ mod tests {
     use bray_bound_tree::{
         AsyncSuspensionPoint, BodyBehaviorCall, BodyBehaviorPhase, BoundAwaitExpression,
         BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
-        BoundResolvedCall, BoundUnitId, CheckedAsync, CheckedControlFlow,
-        CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, SemanticSelection,
-        SemanticSelectionEntry,
+        BoundResolvedCall, BoundUnitId, CheckedAsync, CheckedSemanticSelections,
+        ExpressionTypeResult, ExpressionTypeStatus, SemanticSelection, SemanticSelectionEntry,
     };
-    use bray_symbols::{CallableAbi, CurrentRunCancellation, TypeData};
+    use bray_symbols::{CallableAbi, TypeData};
 
     use crate::service::BodyBehaviorCollector;
     use crate::test_support::{
@@ -362,14 +337,6 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test selections must validate: {error:?}"));
 
-        let control_flow = CheckedControlFlow::new(
-            unit_id,
-            unit.key().kind(),
-            bray_bound_tree::ControlCompletion::from_kinds([
-                bray_bound_tree::ControlCompletionKind::Cancellation,
-            ]),
-        );
-
         let async_analysis = CheckedAsync::try_new(
             unit_id,
             unit.key().kind(),
@@ -401,11 +368,7 @@ mod tests {
 
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
-        let result = DefaultBodyBehaviorCollector.collect_selected_behavior(
-            request,
-            &control_flow,
-            &selections,
-        );
+        let result = DefaultBodyBehaviorCollector.collect_selected_behavior(request, &selections);
 
         let crate::CheckerOutcome::Complete(result) = result else {
             panic!("behavior collection must complete");
@@ -421,10 +384,5 @@ mod tests {
         );
 
         assert_eq!(completed.calls().len(), 2);
-
-        assert_eq!(
-            completed.current_run_cancellation(),
-            CurrentRunCancellation::MayEnter
-        );
     }
 }

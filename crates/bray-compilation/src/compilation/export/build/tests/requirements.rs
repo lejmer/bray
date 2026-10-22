@@ -1,4 +1,4 @@
-use super::fixtures::{compilation, export, implementation_dependency};
+use super::fixtures::{compilation, execution_consumer, export, implementation_dependency};
 
 #[test]
 fn imported_unproved_requirements_reach_concrete_predicate_helpers() {
@@ -755,7 +755,12 @@ fn default_observations_substitute_preceding_inputs_before_checking_entry() {
 
 #[test]
 fn floating_self_comparisons_do_not_satisfy_unconditional_call_requirements() {
-    for condition in ["value == value", "value <= value", "value >= value", "!(value != value)"] {
+    for condition in [
+        "value == value",
+        "value <= value",
+        "value >= value",
+        "!(value != value)",
+    ] {
         let declaration = format!(
             r#"
                 module api;
@@ -767,8 +772,15 @@ fn floating_self_comparisons_do_not_satisfy_unconditional_call_requirements() {
                 }}
             "#
         );
+
         let provider = compilation(&declaration);
-        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{:?}",
+            provider.check_diagnostics()
+        );
+
         let consumer = super::fixtures::execution_consumer(
             &provider,
             r#"
@@ -783,6 +795,7 @@ fn floating_self_comparisons_do_not_satisfy_unconditional_call_requirements() {
                 }
             "#,
         );
+
         bray_testing::assert_goal_state_diagnostic_kind(
             consumer.check_diagnostics(),
             bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
@@ -799,7 +812,10 @@ fn byte_address_preserves_only_the_supplied_allocation_authority() {
     ] {
         let second = if repeated {
             "trusted core.memory.deallocate(address, bytes = 4, align = 2);"
-        } else { "" };
+        } else {
+            ""
+        };
+
         let source = format!(
             r#"
                 trusted module app;
@@ -823,9 +839,15 @@ fn byte_address_preserves_only_the_supplied_allocation_authority() {
                 }}
             "#
         );
+
         let checked = compilation(&source);
+
         if valid {
-            assert!(!checked.check_diagnostics().has_errors(), "{:#?}", checked.check_diagnostics());
+            assert!(
+                !checked.check_diagnostics().has_errors(),
+                "{:#?}",
+                checked.check_diagnostics()
+            );
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 checked.check_diagnostics(),
@@ -851,9 +873,10 @@ fn byte_address_rejects_function_pointers() {
             }
         "#,
     );
+
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.check_diagnostics(),
-        bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
+        bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType,
     );
 }
 
@@ -885,7 +908,6 @@ fn byte_address_cannot_hide_a_function_pointer_in_a_generic_wrapper() {
     );
 }
 
-
 #[test]
 fn byte_address_accepts_callable_storage_through_source_and_imported_generics() {
     let declaration = r#"
@@ -898,7 +920,9 @@ fn byte_address_accepts_callable_storage_through_source_and_imported_generics() 
             return core.memory.byte_address<T>(pointer);
         }
     "#;
+
     let provider = compilation(declaration);
+
     let body = r#"
         callable Callback = @abi(c) func();
 
@@ -907,7 +931,9 @@ fn byte_address_accepts_callable_storage_through_source_and_imported_generics() 
             return project<Callback>(pointer);
         }
     "#;
+
     let source = compilation(&format!("{declaration}\n{body}"));
+
     let imported = super::fixtures::execution_consumer(
         &provider,
         &format!(
@@ -923,7 +949,11 @@ fn byte_address_accepts_callable_storage_through_source_and_imported_generics() 
     );
 
     for checked in [&source, &imported] {
-        assert!(!checked.check_diagnostics().has_errors(), "{:#?}", checked.check_diagnostics());
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:#?}",
+            checked.check_diagnostics()
+        );
     }
 }
 
@@ -947,9 +977,12 @@ fn data_pointer_to_a_callable_addresses_its_stored_value() {
         "#,
     );
 
-    assert!(!checked.check_diagnostics().has_errors(), "{:#?}", checked.check_diagnostics());
+    assert!(
+        !checked.check_diagnostics().has_errors(),
+        "{:#?}",
+        checked.check_diagnostics()
+    );
 }
-
 
 #[test]
 fn checked_body_sequences_keep_discarded_calls_reachable_after_export() {
@@ -975,42 +1008,75 @@ fn checked_body_sequences_keep_discarded_calls_reachable_after_export() {
                 return snapshot == value;
             }
 
-            func selected(pos value: u8) requires(observed(value)) {}
+            func selected(pos value: u8) requires(observed(value))
+            {
+            }
         "#,
     );
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
     let bundle = export(&provider);
     let mut covered = false;
 
-    for template in bundle.semantics().checked_templates() {
-        let calls = template.nodes().iter().filter(|node| matches!(
-            node.operation(),
-            bray_package_interface::InterfaceCheckedTemplateOperation::Call { .. }
-        )).count();
+    for body in bundle.constant_callable_bodies() {
+        let template = body.template();
+
+        let calls = template
+            .nodes()
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.operation(),
+                    bray_package_interface::InterfaceCheckedTemplateOperation::Call { .. }
+                )
+            })
+            .count();
+
         if calls < 2 {
             continue;
         }
 
         let mut pending = vec![template.result()];
         let mut reachable = std::collections::BTreeSet::new();
+
         while let Some(node) = pending.pop() {
             if !reachable.insert(node) {
                 continue;
             }
-            template.nodes()[usize::try_from(node.raw()).unwrap()].operation()
+
+            template.nodes()[usize::try_from(node.raw()).unwrap()]
+                .operation()
                 .try_for_each_node_reference(|child| {
                     pending.push(child);
+
                     Ok::<_, std::convert::Infallible>(())
-                }).unwrap();
+                })
+                .unwrap();
         }
 
-        assert_eq!(reachable.iter().filter(|node| matches!(
-            template.nodes()[usize::try_from(node.raw()).unwrap()].operation(),
-            bray_package_interface::InterfaceCheckedTemplateOperation::Call { .. }
-        )).count(), calls);
+        assert_eq!(
+            reachable
+                .iter()
+                .filter(|node| matches!(
+                    template.nodes()[usize::try_from(node.raw()).unwrap()].operation(),
+                    bray_package_interface::InterfaceCheckedTemplateOperation::Call { .. }
+                ))
+                .count(),
+            calls
+        );
+
         covered = true;
     }
-    assert!(covered, "export must retain the body containing both evaluated calls");
+
+    assert!(
+        covered,
+        "export must retain the body containing both evaluated calls"
+    );
 
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
@@ -1030,9 +1096,19 @@ fn checked_body_sequences_keep_discarded_calls_reachable_after_export() {
         "#,
         [implementation_dependency(bundle)],
     );
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    assert!(consumer.codegen_instance_count_for_test(|_| true)
-        .expect("sequenced imported predicates must realize native bodies") > 0);
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    assert!(
+        consumer
+            .codegen_instance_count_for_test(|_| true)
+            .expect("sequenced imported predicates must realize native bodies")
+            > 0
+    );
 }
 
 #[test]
@@ -1047,6 +1123,7 @@ fn compound_execution_requirements_do_not_emit_runtime_authority_queries() {
             }
         "#,
     );
+
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
             module app;
@@ -1067,12 +1144,19 @@ fn compound_execution_requirements_do_not_emit_runtime_authority_queries() {
         [implementation_dependency(export(&provider))],
     );
 
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    assert_eq!(consumer.codegen_instance_count_for_test(|key| matches!(
-        key, bray_ir::MirUnitKey::Predicate(_)
-    )).expect("established execution requirements must reach native realization"), 0);
-}
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 
+    assert_eq!(
+        consumer
+            .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+            .expect("established execution requirements must reach native realization"),
+        0
+    );
+}
 
 #[test]
 fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
@@ -1095,11 +1179,26 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
             }
         "#,
     );
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
     let bundle = export(&provider);
-    assert!(bundle.semantics().checked_templates().iter().any(|template|
-        template.nodes().iter().any(|node| matches!(node.operation(),
-            bray_package_interface::InterfaceCheckedTemplateOperation::ArrayTransform { .. }))));
+
+    assert!(
+        bundle
+            .semantics()
+            .checked_templates()
+            .iter()
+            .any(|template| template.nodes().iter().any(|node| matches!(
+                node.operation(),
+                bray_package_interface::InterfaceCheckedTemplateOperation::ArrayTransform { .. }
+            )))
+    );
+
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
             module app;
@@ -1121,15 +1220,25 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
         "#,
         [implementation_dependency(bundle)],
     );
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    assert!(consumer.codegen_instance_count_for_test(|key| matches!(key,
-        bray_ir::MirUnitKey::Predicate(_)))
-        .expect("imported aggregate conversion predicates reach concrete native helpers") > 0);
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    assert!(
+        consumer
+            .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+            .expect("imported aggregate conversion predicates reach concrete native helpers")
+            > 0
+    );
 }
 
 #[test]
 fn checked_array_conversion_graph_size_is_independent_of_array_length() {
     let mut sizes = Vec::new();
+
     for length in [2, 4096] {
         let provider = compilation(&format!(
             r#"
@@ -1139,13 +1248,22 @@ fn checked_array_conversion_graph_size_is_independent_of_array_length() {
                     (value as [u16; {length}])[0] > 0;
             "#,
         ));
+
         let bundle = export(&provider);
-        let template = bundle.semantics().checked_templates().iter().find(|template|
-            template.nodes().iter().any(|node| matches!(node.operation(),
-                bray_package_interface::InterfaceCheckedTemplateOperation::ArrayTransform { .. })))
+
+        let template = bundle
+            .semantics()
+            .checked_templates()
+            .iter()
+            .find(|template| {
+                template.nodes().iter().any(|node| matches!(node.operation(),
+                bray_package_interface::InterfaceCheckedTemplateOperation::ArrayTransform { .. }))
+            })
             .expect("array conversion retains one element computation");
+
         sizes.push(template.nodes().len());
     }
+
     assert_eq!(sizes[0], sizes[1]);
 }
 
@@ -1191,7 +1309,13 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
             }
         "#,
     );
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
             module app;
@@ -1210,10 +1334,19 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
         "#,
         [implementation_dependency(export(&provider))],
     );
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    assert!(consumer.codegen_instance_count_for_test(|key| matches!(key,
-        bray_ir::MirUnitKey::Predicate(_)))
-        .expect("functional local updates reach concrete native predicate helpers") > 0);
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    assert!(
+        consumer
+            .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+            .expect("functional local updates reach concrete native predicate helpers")
+            > 0
+    );
 }
 
 #[test]
@@ -1228,6 +1361,7 @@ fn const_local_slot_updates_do_not_admit_writes_through_entry_borrows() {
             }
         "#,
     );
+
     bray_testing::assert_goal_state_diagnostic_kind(
         provider.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
@@ -1258,11 +1392,24 @@ fn imported_const_machine_updates_wrap_before_later_contract_arithmetic() {
             }
         "#,
     );
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
     let bundle = export(&provider);
-    assert!(bundle.semantics().checked_templates().iter().any(|template|
-        template.nodes().iter().any(|node| matches!(node.operation(),
-            bray_package_interface::InterfaceCheckedTemplateOperation::MachineBinary { .. }))));
+
+    assert!(bundle.constant_callable_bodies().iter().any(|body| {
+        body.template().nodes().iter().any(|node| {
+            matches!(
+                node.operation(),
+                bray_package_interface::InterfaceCheckedTemplateOperation::MachineBinary { .. }
+            )
+        })
+    }));
+
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
             module app;
@@ -1280,10 +1427,19 @@ fn imported_const_machine_updates_wrap_before_later_contract_arithmetic() {
         "#,
         [implementation_dependency(bundle)],
     );
-    assert!(!consumer.check_diagnostics().has_errors(), "{:#?}", consumer.check_diagnostics());
-    assert!(consumer.codegen_instance_count_for_test(|key| matches!(key,
-        bray_ir::MirUnitKey::Predicate(_)))
-        .expect("machine updates reach native predicate helpers") > 0);
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    assert!(
+        consumer
+            .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+            .expect("machine updates reach native predicate helpers")
+            > 0
+    );
 }
 
 #[test]
@@ -1299,6 +1455,7 @@ fn machine_overflow_does_not_certify_an_exact_postcondition() {
             }
         "#,
     );
+
     bray_testing::assert_goal_state_diagnostic_kind(
         invalid.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
@@ -1316,5 +1473,450 @@ fn machine_overflow_does_not_certify_an_exact_postcondition() {
             }
         "#,
     );
-    assert!(!valid.check_diagnostics().has_errors(), "{:#?}", valid.check_diagnostics());
+
+    assert!(
+        !valid.check_diagnostics().has_errors(),
+        "{:#?}",
+        valid.check_diagnostics()
+    );
+}
+
+#[test]
+fn generic_nullable_requirements_keep_instantiated_literal_types() {
+    let provider_source = r#"
+        module api;
+
+        const func accepted<T>(pos value: &(T?)) -> bool
+            requires(value matches ?_)
+        {
+            return true;
+        }
+        func local(pos value: &(u8?)) executes(total)
+        {
+            if value matches ?_
+            {
+                let _ = accepted<u8>(value);
+            }
+        }
+    "#;
+
+    let provider = compilation(provider_source);
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func caller(pos value: &(u8?)) executes(total)
+        {
+            if value matches ?_
+            {
+                let _ = example.package.api.accepted<u8>(value);
+            }
+        }
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn staged_reborrows_follow_source_and_imported_result_contracts() {
+    for (result_type, result, body, valid) in [
+        (
+            "&mut Value",
+            "value",
+            "let left = selected(value); let right = selected(value); left.state = 1; right.state = 2;",
+            false,
+        ),
+        (
+            "DataPointer<Value>",
+            "core.memory.address_of_mut<Value>(value)",
+            "let left = selected(value); value.state = 1; let right = selected(value); let _ = (left, right);",
+            true,
+        ),
+    ] {
+        let declaration = format!(
+            r#"
+            trusted module api;
+
+            using core.memory;
+
+            struct Value
+            {{
+                mut state: u8;
+            }}
+
+            func selected(pos value: &mut Value, ignored: bool = false) -> {result_type}
+            {{
+                return {result};
+            }}
+        "#
+        );
+
+        let caller = format!(
+            r#"
+            func caller(pos value: &mut Value)
+            {{
+                {body}
+            }}
+        "#
+        );
+
+        let provider = compilation(&declaration);
+        let source = compilation(&format!("{declaration}\n{caller}"));
+
+        let imported_caller = caller
+            .replace("selected(", "example.package.api.selected(")
+            .replace("&mut Value", "&mut example.package.api.Value");
+
+        let imported = crate::test_support::compilation_with_dependencies(
+            &format!(
+                r#"
+                module app;
+
+                using example.package.api;
+
+                {imported_caller}
+            "#
+            ),
+            [implementation_dependency(export(&provider))],
+        );
+
+        for checked in [&source, &imported] {
+            let diagnostics = checked.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{declaration}\n{caller}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn joined_result_bounds_and_checked_arithmetic_compose_across_interfaces() {
+    let declaration = r#"
+        module api;
+
+        func cleanup(pos kind: u32) -> usize
+            requires(kind >= 1 && kind <= 4)
+            ensures(result < 4)
+            executes(pure, total)
+        {
+            return (kind - 1) as usize;
+        }
+    "#;
+
+    let provider = compilation(declaration);
+    let dependency = implementation_dependency(export(&provider));
+
+    for (upper, valid) in [(3, true), (4, false)] {
+        let caller = format!(
+            r#"
+            func selected(pos choice: bool, pos kind: u32) -> (i8, usize)
+                requires(kind >= 1 && kind <= 4)
+                ensures(result.0 < 4, result.1 < 6)
+            {{
+                return (
+                    if choice
+                    {{
+                        yield {upper};
+                    }}
+                    else
+                    {{
+                        yield -2;
+                    }},
+                    cleanup(kind)
+                );
+            }}
+        "#
+        );
+
+        let source = compilation(&format!(
+            "{declaration}
+{caller}"
+        ));
+
+        let imported = crate::test_support::compilation_with_dependencies(
+            &format!(
+                r#"
+                module app;
+
+                using example.package.api;
+
+                {}
+            "#,
+                caller.replace("cleanup(kind)", "example.package.api.cleanup(kind)")
+            ),
+            [dependency.clone()],
+        );
+
+        for checked in [&source, &imported] {
+            let diagnostics = checked.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{caller}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
+    for (slot, local, stored, returned, valid) in [
+        ("storage", "", "none", "previous", true),
+        ("storage", "", "previous", "none", false),
+        (
+            "&mut other",
+            "let mut other: T? = none;",
+            "none",
+            "previous",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module api;
+
+            using core.memory;
+
+            trusted func take<T>(pos storage: &mut (T?)) -> T?
+                ensures(storage matches none)
+                executes(total)
+                uses(raw_memory, unchecked_init)
+            {{
+                {local}
+                let pointer: DataPointer<(T?)> = core.memory.address_of_mut<(T?)>({slot});
+                let previous: T? = trusted core.memory.read<(T?)>(pointer);
+
+                trusted core.memory.write<(T?)>(pointer, {stored});
+
+                return {returned};
+            }}
+        "#
+        );
+
+        let provider = compilation(&source);
+
+        assert_eq!(
+            !provider.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                provider.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+
+            continue;
+        }
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            trusted module app;
+
+            using example.package.api;
+
+            struct Record
+            {
+                mut value: u32?;
+            }
+
+            func clear(pos record: &mut Record)
+                ensures(record.value matches none)
+            {
+                let previous = trusted example.package.api.take<u32>(&mut record.value);
+            }
+        "#,
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:#?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn protected_initializers_in_runtime_requirements_reach_native_operations() {
+    for (storage, initializer) in [
+        ("Uninit<u8>", "core.memory.uninit<u8>()"),
+        ("Uninit<u8>", "core.memory.uninit_from<u8>(1)"),
+        ("core.atomic.Atomic<u64>", "core.atomic.initialize<u64>(1)"),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+
+            using core.memory;
+            using core.atomic;
+
+            const func observed(pos storage: {storage}, pos value: u32) -> bool
+            {{
+                return value > 0;
+            }}
+
+            func selected(pos value: u32)
+                requires(observed({initializer}, value))
+            {{
+            }}
+        "#
+        ));
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{initializer}: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = crate::test_support::compilation_with_dependencies(
+            r#"
+            module app;
+
+            using example.package.api;
+
+            func caller(pos value: u32)
+            {
+                example.package.api.selected(value);
+            }
+
+            func main()
+            {
+                caller(1);
+            }
+        "#,
+            [implementation_dependency(export(&provider))],
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:#?}",
+            consumer.check_diagnostics()
+        );
+
+        assert!(
+            consumer
+                .codegen_instance_count_for_test(|key| matches!(
+                    key,
+                    bray_ir::MirUnitKey::Predicate(_)
+                ))
+                .expect("protected initialization lowers to its existing native operation")
+                > 0
+        );
+    }
+}
+
+#[test]
+fn wrapping_power_uses_its_machine_domain_and_preserves_exact_predicate_limits() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        const func wrapped(pos value: i32, pos exponent: i32) -> i32
+            requires(exponent >= 0)
+        {
+            return value ** exponent;
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (requirement, valid) in [("requires(exponent >= 0)", true), ("", false)] {
+        let source = format!(
+            r#"
+            module app;
+
+            using example.package.api;
+
+            func caller(pos value: i32, pos exponent: i32) -> i32
+                {requirement}
+                executes(total)
+            {{
+                return example.package.api.wrapped(value, exponent);
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            consumer.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+
+    for source in [
+        r#"
+        module app;
+
+        const func invalid(pos value: i32, pos exponent: i32) -> i32
+        {
+            return value ** exponent;
+        }
+    "#,
+        r#"
+        module app;
+
+        func exact(pos value: i32, pos exponent: i32)
+            requires(exponent >= 0 && value ** exponent >= 0)
+        {
+        }
+    "#,
+    ] {
+        let checked = compilation(source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            checked.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        );
+    }
 }

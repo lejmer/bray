@@ -85,7 +85,7 @@ trusted internal func invoke(
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted owned(owner = &owner), trusted bray.runtime.bootstrap.entry.native_entry())
-    uses(raw_memory)
+    uses(raw_memory, foreign_call)
 {
     let permit = trusted lambda(pos owner: &Owner)
         requires(trusted owned(owner = owner))

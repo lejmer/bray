@@ -16,11 +16,27 @@ pub(super) type OwnedSection = (InterfaceSectionTag, u64, Vec<u8>);
 pub(super) struct Resolver {
     symbols: Vec<AnySymbolId>,
     keys: Vec<ExternalSymbolKey>,
+    compiler_known: std::collections::BTreeMap<bray_symbols::SymbolKey, AnySymbolId>,
 }
 
 impl Resolver {
     pub(super) fn new(symbols: Vec<AnySymbolId>, keys: Vec<ExternalSymbolKey>) -> Self {
-        Self { symbols, keys }
+        Self {
+            symbols,
+            keys,
+            compiler_known: Default::default(),
+        }
+    }
+
+    pub(super) fn with_compiler_known(
+        mut self,
+        key: bray_symbols::SymbolKey,
+        symbol: AnySymbolId,
+    ) -> Self {
+        assert_eq!(key.kind(), symbol.kind());
+        assert!(self.compiler_known.insert(key, symbol).is_none());
+
+        self
     }
 
     pub(super) fn replace_symbol(
@@ -38,6 +54,10 @@ impl Resolver {
 
 impl crate::InterfaceSymbolResolver for Resolver {
     fn resolve(&self, reference: &crate::InterfaceSymbolReference) -> Option<AnySymbolId> {
+        if let crate::InterfaceSymbolReference::CompilerKnown(reference) = reference {
+            return self.compiler_known.get(reference.key()).copied();
+        }
+
         let crate::InterfaceSymbolReference::Local(id) = reference else {
             return None;
         };
@@ -49,6 +69,13 @@ impl crate::InterfaceSymbolResolver for Resolver {
         &self,
         reference: &crate::InterfaceSymbolReference,
     ) -> Option<bray_symbols::SymbolKey> {
+        if let crate::InterfaceSymbolReference::CompilerKnown(reference) = reference {
+            return self
+                .compiler_known
+                .get(reference.key())
+                .map(|_| reference.key().clone());
+        }
+
         let crate::InterfaceSymbolReference::Local(id) = reference else {
             return None;
         };

@@ -521,7 +521,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
     ) {
         if matches!(occurrence, BoundExecutionSite::Node(_))
-            && occurrence.expression().is_some_and(|expression| self.memory.operation(expression).is_some())
+            && occurrence
+                .expression()
+                .is_some_and(|expression| self.memory.operation(expression).is_some())
         {
             return;
         }
@@ -532,25 +534,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         state.memory.begin_transition(occurrence);
 
-        if let BoundExecutionSite::CallInput { expression, ordinal } = occurrence
+        if let BoundExecutionSite::CallInput {
+            expression,
+            ordinal,
+        } = occurrence
             && let Some(selection) = self.execution.semantics.selections().expression(expression)
         {
-            let input = selection.input(ordinal).expect("input reference transfer retains its selection");
+            let input = selection
+                .input(ordinal)
+                .expect("input reference transfer retains its selection");
+
             let projections = match input.conversion() {
                 None if input.expression().is_some() => Some(&[][..]),
                 Some(conversion) => match conversion.target() {
                     bray_bound_tree::ConversionTarget::Identity
                     | bray_bound_tree::ConversionTarget::CallableContract => Some(&[][..]),
-                    bray_bound_tree::ConversionTarget::NullablePresent => Some(&[bray_bound_tree::StorageProjection::NullableValue][..]),
+                    bray_bound_tree::ConversionTarget::NullablePresent => {
+                        Some(&[bray_bound_tree::StorageProjection::NullableValue][..])
+                    }
                     _ => None,
                 },
                 None => None,
             };
+
             if let Some(projections) = projections
-                && let Some(source) = self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
+                && let Some(source) =
+                    self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
                 && let Some(destination) = self.invocation_result(occurrence)
             {
-                source.stage(&mut state.memory, occurrence, Target::storage(destination).project(projections));
+                source.stage(
+                    &mut state.memory,
+                    occurrence,
+                    Target::storage(destination).project(projections),
+                );
             }
         }
 
@@ -592,6 +608,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } else {
                 let Some(targets) = self.invocation_locations(state, occurrence, relation.entry())
                 else {
+                    state.memory.stage_unknown(occurrence, destination);
                     continue;
                 };
 
@@ -600,6 +617,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .map(crate::analysis::storage_flow::memory::Source::Value)
                     .collect()
             };
+
+            if sources.is_empty() {
+                state.memory.stage_unknown(occurrence, destination.clone());
+            }
 
             for source in sources {
                 // Each alternative owns its output path while sharing immutable projections.
@@ -656,6 +677,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let Some(targets) = source.targets(memory) else {
+            memory.stage_unknown(occurrence, destination);
             return;
         };
 
@@ -668,6 +690,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             for target in targets {
                 let Some(values) = memory.value_targets(&target) else {
+                    memory.stage_unknown(occurrence, destination);
                     return;
                 };
 
@@ -701,12 +724,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if !relation.target_projections().is_empty() {
             let Some(targets) = source.targets(memory) else {
+                memory.stage_unknown(occurrence, destination);
                 return;
             };
 
             let Some(projections) =
                 storage_projections(self.dependencies, relation.target_projections())
             else {
+                memory.stage_unknown(occurrence, destination);
                 return;
             };
 
@@ -731,6 +756,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             memory.stage_address(occurrence, target, destination.clone(), ty, relation.kind());
         } else {
             source.stage(memory, occurrence, destination.clone());
+        }
+
+        if !relation.is_exact() {
+            memory.bound_staged_reference(occurrence, &destination);
         }
     }
 

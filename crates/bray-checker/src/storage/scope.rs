@@ -57,8 +57,12 @@ where
     let mut result = BTreeMap::new();
 
     for (pattern, source) in request.unit().tree().binding_subjects() {
-        let source = request.view().expression(source)
-            .expect("pattern subject retains its source expression").pattern_subject_site(source);
+        let source = request
+            .view()
+            .expression(source)
+            .expect("pattern subject retains its source expression")
+            .pattern_subject_site(source);
+
         extend_pattern_bindings(
             request.view(),
             storage,

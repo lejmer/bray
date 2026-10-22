@@ -82,8 +82,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             super::execution::callable_execution_properties(bray_syntax::syntax_node_view(syntax)),
         )?;
 
-        let ty =
-            self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
+        let ty = self.bind_callable_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
 
         self.check_cancellation()?;
 
@@ -287,20 +286,21 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             ));
         }
 
-        self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)
+        self.bind_callable_contracts(bray_syntax::syntax_node_view(syntax), ty)
     }
 
-    fn bind_callable_predicate_contracts(
+    fn bind_callable_contracts(
         &mut self,
         syntax: bray_syntax::SyntaxNodeView<'_>,
         ty: TypeExpressionTemplate,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
-        let mut has_predicates = false;
+        let mut has_contracts = false;
 
         bray_syntax::walk_direct_child_nodes(&syntax, |child| {
-            has_predicates |= matches!(
+            has_contracts |= matches!(
                 child.kind(),
                 bray_syntax::SyntaxKind::RequiresClause
+                    | bray_syntax::SyntaxKind::UsesClause
                     | bray_syntax::SyntaxKind::EnsuresClause
                     | bray_syntax::SyntaxKind::WhenClause
             );
@@ -308,7 +308,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             bray_syntax::SyntaxWalkControl::SkipChildren
         });
 
-        if has_predicates {
+        if has_contracts {
             let contracts = self
                 .imports
                 .callable_type_contracts(self.owner, syntax, &ty)?;

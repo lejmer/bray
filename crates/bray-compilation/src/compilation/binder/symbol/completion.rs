@@ -566,7 +566,7 @@ mod tests {
             TypeData::Callable(_)
         ));
 
-        let element = declaration::<StructFieldSymbolId>(symbols, "RawPointerElement");
+        let element = declaration::<StructFieldSymbolId>(symbols, "DataPointerElement");
 
         let element_type = resolved_query(
             &binding_context,

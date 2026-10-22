@@ -318,9 +318,12 @@ where
             {
                 let real = self.convert_value(expression, &children[0], values[0])?;
                 let imaginary = self.convert_value(expression, &children[1], values[1])?;
+
                 crate::constant::conversion::complex_from_components(
-                    self.request.semantic_values(), [real, imaginary],
-                ).ok_or_else(|| EvaluationFailure::invalid_expression(expression))
+                    self.request.semantic_values(),
+                    [real, imaginary],
+                )
+                .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
             }
             ConstantValueKind::Tuple(values) if values.len() == children.len() => values
                 .iter()

@@ -10,10 +10,11 @@ fn bootstrap_pool_callbacks_reject_data_pointer_replacement() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../runtime/bootstrap/src/records.bray"),
         include_str!("../../../../../../../runtime/bootstrap/src/panic.bray"),
         r#"module app;
@@ -145,15 +146,16 @@ fn standard_callback_compilation(source: &str) -> Compilation {
     let request = CompilationRequest::new(
         package,
         crate::test_support::source_inputs(&[
-include_str!("../../../../../../../standard-library/std/src/std.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
-include_str!("../../../../../../../standard-library/std/src/ffi/callback.bray"),
-source
-]),
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/ffi/callback.bray"),
+            source,
+        ]),
     )
     .with_standard_library_source_authority();
 

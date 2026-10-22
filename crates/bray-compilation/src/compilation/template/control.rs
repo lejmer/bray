@@ -17,12 +17,40 @@ pub(super) enum TemplatePath {
     Unreachable,
 }
 
+pub(super) struct TemplateBoundary {
+    checkpoint: usize,
+    pub(super) exits: Vec<TemplateExit>,
+}
+
+impl TemplateBoundary {
+    pub(super) fn new(checkpoint: usize) -> Self {
+        Self {
+            checkpoint,
+            exits: Vec::new(),
+        }
+    }
+}
+
+pub(super) struct TemplateExit {
+    path: TemplatePath,
+    pub(super) value: CheckedTemplateNodeId,
+    updates: std::collections::BTreeMap<bray_bound_tree::StorageIdentityId, CheckedTemplateNodeId>,
+}
+
 impl SourceTemplateBuilder<'_, '_, '_> {
     pub(super) fn push_node(
         &mut self,
         operation: CheckedTemplateOperation,
         ty: TypeId,
     ) -> CheckedTemplateNodeId {
+        if let CheckedTemplateOperation::Convert { value, target } = &operation
+            && self.nodes[usize::try_from(value.raw()).expect("checked conversion input fits host")]
+                .ty()
+                == *target
+        {
+            return *value;
+        }
+
         let id = CheckedTemplateNodeId::new(super::build::index(self.nodes.len()));
 
         self.nodes.push(CheckedTemplateNode::new(operation, ty));
@@ -34,17 +62,25 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         let Some(before) = self.evaluation else {
             return value;
         };
-        let node = &self.nodes[usize::try_from(value.raw()).expect("checked sequence value fits host")];
+
+        let node =
+            &self.nodes[usize::try_from(value.raw()).expect("checked sequence value fits host")];
+
         if before == value || matches!(node.operation(), CheckedTemplateOperation::Unreachable) {
             return value;
         }
+
         let ty = node.ty();
 
         self.push_node(CheckedTemplateOperation::Sequence { before, value }, ty)
     }
 
-    fn record_evaluation(&mut self, value: CheckedTemplateNodeId) -> CheckedTemplateNodeId {
+    pub(super) fn record_evaluation(
+        &mut self,
+        value: CheckedTemplateNodeId,
+    ) -> CheckedTemplateNodeId {
         let value = self.sequence(value);
+
         self.evaluation = Some(value);
 
         value
@@ -71,10 +107,23 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
         let value = self.sequence(value);
 
+        let checkpoint = self
+            .exits
+            .get(&boundary)
+            .expect("source exit has its owning boundary")
+            .checkpoint;
+
+        let updates = self.retained_updates(checkpoint);
+
         self.exits
-            .entry(boundary)
-            .or_default()
-            .push((self.path, value));
+            .get_mut(&boundary)
+            .expect("source exit has its owning boundary")
+            .exits
+            .push(TemplateExit {
+                path: self.path,
+                value,
+                updates,
+            });
 
         self.path = TemplatePath::Unreachable;
     }
@@ -85,18 +134,37 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         mut value: CheckedTemplateNodeId,
         ty: TypeId,
     ) -> Result<CheckedTemplateNodeId, FactQueryError> {
-        for (path, exited) in self
+        let boundary = self
             .exits
             .remove(&boundary)
-            .unwrap_or_default()
-            .into_iter()
-            .rev()
+            .expect("completed region has its owning boundary");
+
+        for TemplateExit {
+            path,
+            value: exited,
+            updates,
+        } in boundary.exits.into_iter().rev()
         {
-            value = match path {
-                TemplatePath::Always => exited,
-                TemplatePath::When(condition) => self.select_value(condition, exited, value, ty),
-                TemplatePath::Unreachable => value,
-            };
+            match path {
+                TemplatePath::Always => {
+                    value = exited;
+
+                    for (root, value) in updates {
+                        self.assign_state(root, value);
+                    }
+                }
+                TemplatePath::When(condition) => {
+                    value = self.commit_choice(
+                        condition,
+                        exited,
+                        value,
+                        ty,
+                        updates,
+                        Default::default(),
+                    );
+                }
+                TemplatePath::Unreachable => {}
+            }
 
             self.path = self.merge_paths(self.path, path)?;
         }
@@ -228,6 +296,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         result: TypeId,
     ) -> Result<CheckedTemplateNodeId, FactQueryError> {
         self.return_type = Some(result);
+
         let value = self.block_value(block, result)?;
 
         self.finish_exit(
@@ -261,6 +330,13 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             block.origin().source_anchor().syntax(),
         );
 
+        assert!(
+            self.exits
+                .insert(boundary, TemplateBoundary::new(self.state_changes.len()))
+                .is_none(),
+            "source block has one active exit boundary"
+        );
+
         for item in block.items() {
             if matches!(self.path, TemplatePath::Unreachable) {
                 break;
@@ -279,7 +355,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                         .symbol()
                         .expect("checked local constant has a symbol");
 
-                    self.local_values.insert(
+                    self.bindings.insert(
                         bray_bound_tree::BoundReferenceTarget::Local(symbol.into()),
                         value,
                     );
@@ -340,6 +416,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     }
 
                     let value = self.expression(*id)?;
+
                     self.record_evaluation(value);
                 }
             }
@@ -363,7 +440,9 @@ impl SourceTemplateBuilder<'_, '_, '_> {
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
         let evaluation = self.evaluation;
         let value = self.conditional_case(expression, 0, ty)?;
+
         self.evaluation = evaluation;
+
         Ok(CheckedTemplateOperation::Convert { value, target: ty })
     }
 
@@ -379,26 +458,36 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 None => Ok(self.unit_node(ty)),
             };
         };
+
         let condition = self.expression(*condition)?;
         let condition = self.record_evaluation(condition);
         let remaining = self.path;
         let evaluation = self.evaluation;
-        let checkpoint = self.binding_changes.len();
+        let checkpoint = self.state_changes.len();
 
         self.path = self.refine_path(remaining, condition, true)?;
+
         let when_true = self.block_value(expression.blocks()[index], ty)?;
         let true_path = self.path;
-        let true_bindings = self.take_binding_updates(checkpoint);
+        let true_bindings = self.take_state_updates(checkpoint);
 
         self.path = self.refine_path(remaining, condition, false)?;
         self.evaluation = evaluation;
+
         let when_false = self.conditional_case(expression, index + 1, ty)?;
-        let false_bindings = self.take_binding_updates(checkpoint);
+        let false_bindings = self.take_state_updates(checkpoint);
 
         self.path = self.merge_paths(true_path, self.path)?;
         self.evaluation = evaluation;
-        self.merge_bindings(condition, true_bindings, false_bindings);
-        Ok(self.select_value(condition, when_true, when_false, ty))
+
+        Ok(self.commit_choice(
+            condition,
+            when_true,
+            when_false,
+            ty,
+            true_bindings.outer,
+            false_bindings.outer,
+        ))
     }
 
     pub(super) fn match_value(
@@ -410,10 +499,16 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         let evaluation = self.evaluation;
         let subject = self.expression(expression.subject())?;
         let subject = self.record_evaluation(subject);
-        let exhaustive = self.patterns.match_coverage(id)
+
+        let exhaustive = self
+            .patterns
+            .match_coverage(id)
             .is_some_and(|coverage| coverage.is_exhaustive() && !coverage.is_recovered());
+
         let value = self.match_case(expression.arms(), subject, exhaustive, ty)?;
+
         self.evaluation = evaluation;
+
         Ok(CheckedTemplateOperation::Convert { value, target: ty })
     }
 
@@ -427,43 +522,70 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         let Some((arm, remaining_arms)) = arms.split_first() else {
             if exhaustive {
                 self.path = TemplatePath::Unreachable;
+
                 return Ok(self.unreachable_node(ty));
             }
+
             return Ok(self.unit_node(ty));
         };
+
         let remaining = self.path;
-        self.bind_pattern_value(arm.pattern(), subject)?;
+        let arm_checkpoint = self.state_changes.len();
         let pattern = self.pattern_condition(arm.pattern(), subject)?;
+
         self.path = self.refine_path(remaining, pattern, true)?;
+        self.bind_pattern_value(arm.pattern(), subject)?;
 
         let mut condition = pattern;
+
         if let Some(guard) = arm.guard() {
-            let checkpoint = self.binding_changes.len();
             let evaluation = self.evaluation;
             let guard = self.expression(guard)?;
+
             self.evaluation = evaluation;
-            let updates = self.take_binding_updates(checkpoint);
-            self.merge_bindings(pattern, updates, Default::default());
-            condition = self.boolean_operation(CheckedTemplateShortCircuitKind::And, pattern, guard)?;
+
+            let updates = self.take_state_updates(arm_checkpoint);
+            let mut active = updates.outer;
+
+            active.extend(updates.local);
+
+            let boolean = self.nodes
+                [usize::try_from(pattern.raw()).expect("checked condition fits host")]
+            .ty();
+
+            let absent = self.boolean_constant(false)?;
+
+            condition =
+                self.commit_choice(pattern, guard, absent, boolean, active, Default::default());
         }
+
         let condition = self.record_evaluation(condition);
         let evaluation = self.evaluation;
-        let checkpoint = self.binding_changes.len();
+        let checkpoint = arm_checkpoint;
 
         self.path = self.refine_path(remaining, condition, true)?;
+
         let when_true = self.block_value(arm.body(), ty)?;
         let true_path = self.path;
-        let true_bindings = self.take_binding_updates(checkpoint);
+        let true_bindings = self.take_state_updates(checkpoint);
 
         self.path = self.refine_path(remaining, condition, false)?;
         self.evaluation = evaluation;
+
         let when_false = self.match_case(remaining_arms, subject, exhaustive, ty)?;
-        let false_bindings = self.take_binding_updates(checkpoint);
+        let false_bindings = self.take_state_updates(checkpoint);
 
         self.path = self.merge_paths(true_path, self.path)?;
         self.evaluation = evaluation;
-        self.merge_bindings(condition, true_bindings, false_bindings);
-        Ok(self.select_value(condition, when_true, when_false, ty))
+
+        Ok(self.commit_choice(
+            condition,
+            when_true,
+            when_false,
+            ty,
+            true_bindings.outer,
+            false_bindings.outer,
+        ))
     }
 
     fn is_callable_value(&self, expression: BoundExpressionId) -> bool {
@@ -570,7 +692,13 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     == &CheckedTemplateOperation::Unreachable
             })
         {
-            return when_true;
+            return self.push_node(
+                CheckedTemplateOperation::Sequence {
+                    before: condition,
+                    value: when_true,
+                },
+                ty,
+            );
         }
 
         self.push_node(
@@ -578,9 +706,40 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 condition,
                 when_true,
                 when_false,
+                state_outputs: Default::default(),
             },
             ty,
         )
+    }
+
+    pub(super) fn boolean_constant(
+        &mut self,
+        value: bool,
+    ) -> Result<CheckedTemplateNodeId, FactQueryError> {
+        let ty = self
+            .context
+            .compilation()
+            .target_property_type(bray_target::TargetPropertyKind::ScalarBool)?;
+
+        let value = self.context.semantic_values().intern_constant_value(
+            bray_symbols::ConstantValueData::new(
+                ty,
+                bray_symbols::ConstantValueKind::Boolean(value),
+            ),
+        )?;
+
+        let term = self
+            .context
+            .semantic_values()
+            .intern_constant_term(bray_symbols::ConstantTermData::Value(value))?;
+
+        Ok(self.push_node(
+            CheckedTemplateOperation::Constant {
+                term,
+                usage: Default::default(),
+            },
+            ty,
+        ))
     }
 
     pub(super) fn unit_node(&mut self, ty: TypeId) -> CheckedTemplateNodeId {

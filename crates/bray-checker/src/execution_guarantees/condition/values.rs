@@ -488,10 +488,9 @@ impl ExecutionCondition {
             }
             // Strict self-ordering is false even for NaN. Equality and weak ordering
             // require value-domain evidence that this untyped normalization does not carry.
-            (
-                BoundOperator::Less | BoundOperator::Greater,
-                [left, right],
-            ) if left == right => Self::Boolean(false),
+            (BoundOperator::Less | BoundOperator::Greater, [left, right]) if left == right => {
+                Self::Boolean(false)
+            }
             (
                 BoundOperator::Equal | BoundOperator::NotEqual,
                 [condition, Self::Boolean(expected)] | [Self::Boolean(expected), condition],

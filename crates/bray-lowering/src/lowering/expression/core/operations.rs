@@ -3,8 +3,7 @@
 use bray_bound_tree::{
     BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
     BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, OperatorTarget,
-    SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageIdentity,
-    StorageIdentityId,
+    SelectedArgument, SelectedOperation, SemanticSelection, StorageIdentity, StorageIdentityId,
 };
 use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
@@ -721,11 +720,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let (current, destination) = match self.lower_expression_place(
-            *destination,
-            StorageAccessPurpose::Write,
-            current,
-        )? {
+        let (current, destination) = match self.lower_assignment_place(id, *destination, current)? {
             super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
             super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
         };
@@ -1027,9 +1022,18 @@ impl Lowerer<'_> {
                 );
             };
 
-            let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
-                expression: id, ordinal: bray_symbols::SymbolOrdinal::new(0),
-            }, current, &source, operand, receiver_type)?;
+            let input = bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: id,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            };
+
+            let (continuation, operand) =
+                self.consume_staged_input(input, receiver.expression(), current, &source, operand)?;
+
+            current = continuation;
+
+            let value =
+                self.materialize_call_input(input, current, &source, operand, receiver_type)?;
 
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
@@ -1090,11 +1094,22 @@ impl Lowerer<'_> {
 
                     current = continued;
 
-                    let input = selection.input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
-                        bray_symbols::SymbolOrdinal::new(*ordinal))).expect("selected default has its input ordinal");
-                    let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
-                        expression: id, ordinal: input,
-                    }, current, &source, value, *ty)?;
+                    let input = selection
+                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                            bray_symbols::SymbolOrdinal::new(*ordinal),
+                        ))
+                        .expect("selected default has its input ordinal");
+
+                    let value = self.materialize_call_input(
+                        bray_bound_tree::BoundExecutionSite::CallInput {
+                            expression: id,
+                            ordinal: input,
+                        },
+                        current,
+                        &source,
+                        value,
+                        *ty,
+                    )?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: Some(*parameter),
@@ -1124,9 +1139,23 @@ impl Lowerer<'_> {
                         );
                     };
 
+                    let input = selection
+                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                            bray_symbols::SymbolOrdinal::new(*ordinal),
+                        ))
+                        .expect("selected argument has its input ordinal");
+
+                    let input = bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression: id,
+                        ordinal: input,
+                    };
+
+                    let (continuation, operand) =
+                        self.consume_staged_input(input, *expression, current, &source, operand)?;
+
                     let (continuation, value) = self.convert_operand(
                         id,
-                        current,
+                        continuation,
                         Self::retained_source(&source),
                         operand,
                         conversion,
@@ -1135,11 +1164,7 @@ impl Lowerer<'_> {
                     current = continuation;
 
                     let ty = self.builder.operand_type(&value);
-                    let input = selection.input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
-                        bray_symbols::SymbolOrdinal::new(*ordinal))).expect("selected argument has its input ordinal");
-                    let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
-                        expression: id, ordinal: input,
-                    }, current, &source, value, ty)?;
+                    let value = self.materialize_call_input(input, current, &source, value, ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
@@ -1391,6 +1416,7 @@ impl Lowerer<'_> {
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let occurrence = occurrence.into();
+
         let (current, call) =
             self.lower_protocol_requirements(occurrence, current, &source, call)?;
 
@@ -1412,7 +1438,11 @@ impl Lowerer<'_> {
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let occurrence = occurrence.into();
-        let expression = occurrence.expression().expect("checked value operation has its source owner");
+
+        let expression = occurrence
+            .expression()
+            .expect("checked value operation has its source owner");
+
         let may_propagate_panic = matches!(
             &operation,
             MirOperationKind::Call(call) if call.may_propagate_panic()
@@ -1577,12 +1607,12 @@ fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
         BoundOperator::Add => Some(MirBinaryOperator::Add),
         BoundOperator::Subtract => Some(MirBinaryOperator::Subtract),
         BoundOperator::Multiply => Some(MirBinaryOperator::Multiply),
+        BoundOperator::Exponentiate => Some(MirBinaryOperator::Exponentiate),
         BoundOperator::Divide => Some(MirBinaryOperator::Divide),
         BoundOperator::Remainder => Some(MirBinaryOperator::Remainder),
         BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::MatrixMultiply
-        | BoundOperator::Exponentiate
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
     }

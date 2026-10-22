@@ -40,7 +40,11 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         Some(bray_symbols::DependencyReferenceKind::Borrow)
     } else if matches!(
         type_representation(request, ty),
-        Some(RepresentationRole::RawPointer | RepresentationRole::FunctionPointer | RepresentationRole::DevicePointer)
+        Some(
+            RepresentationRole::RawPointer
+                | RepresentationRole::FunctionPointer
+                | RepresentationRole::DevicePointer
+        )
     ) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {
@@ -191,6 +195,22 @@ pub fn type_representation_for_values(
     };
 
     representation
+}
+
+/// Returns both representations only for a conversion between built-in integer scalars.
+pub fn integer_conversion_representations(
+    values: &SemanticValueStore,
+    available: &AvailableCompilerKnownSymbols,
+    source: TypeId,
+    target: TypeId,
+) -> Option<(
+    bray_compiler_known::IntegerRepresentation,
+    bray_compiler_known::IntegerRepresentation,
+)> {
+    Some((
+        type_representation_for_values(values, available, source)?.integer_representation()?,
+        type_representation_for_values(values, available, target)?.integer_representation()?,
+    ))
 }
 
 pub(crate) fn representation_type<C>(

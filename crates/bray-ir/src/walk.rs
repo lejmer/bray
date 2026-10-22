@@ -355,9 +355,7 @@ impl MirTerminatorKind {
             Self::Panic { report, .. }
             | Self::PropagatePanic { report, .. }
             | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
-            Self::RangeIterate { cursor, .. } => {
-                visit_place_operands(cursor, &mut visit)
-            }
+            Self::RangeIterate { cursor, .. } => visit_place_operands(cursor, &mut visit),
             Self::CheckCallOutcome {
                 panicked,
                 cancelled,

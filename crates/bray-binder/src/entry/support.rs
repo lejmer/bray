@@ -96,6 +96,80 @@ where
     push_callable_inputs_for(binder, scope, callable)
 }
 
+pub(crate) fn push_contract_parameter<C: BindingQueryContext + ?Sized>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    ordinal: usize,
+    name: SymbolName,
+    anchor: SyntaxAnchor,
+) -> Result<BoundReferenceTarget, BindingError<C::UpstreamError>> {
+    let ordinal = bray_symbols::SymbolOrdinal::new(
+        u32::try_from(ordinal).expect("contract parameter ordinal fits compiler identity"),
+    );
+
+    let local = binder
+        .unit_mut()
+        .push_binding(scope, name, [anchor], Some(ordinal), anchor.is_recovered())
+        .map_err(BindingError::Construction)?;
+
+    binder.unit_mut().activate_local(scope, local);
+
+    Ok(BoundReferenceTarget::Local(local.into()))
+}
+
+pub(crate) fn push_callable_input_names_for<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    callable: CallableSymbolId,
+) where
+    C: BindingQueryContext + ?Sized,
+{
+    let context = binder.binding_context();
+
+    let (parameters, receiver) = context
+        .symbols()
+        .callable_parameters_and_receiver(callable)
+        .expect("callable name scope retains its declared inputs");
+
+    let mut names = Vec::new();
+
+    if let Some(receiver) = receiver {
+        names.push((
+            receiver.into(),
+            SymbolName::try_new("self").expect("receiver name is valid"),
+        ));
+    }
+
+    for parameter in parameters {
+        let symbol = (*parameter).into();
+
+        let name = context.symbols().member_name(symbol).cloned().or_else(|| {
+            let anchor = context.symbols().declaration_syntax_anchor(symbol)?;
+
+            let parameter =
+                anchor.find_descendant::<bray_syntax::ParameterSyntax>(context.syntax())?;
+
+            let token = parameter.identifier_token();
+
+            if token.is_missing() {
+                return None;
+            }
+
+            let source = bray_syntax::SourceSyntaxNode::source(&parameter);
+
+            token.text(source.text()).and_then(SymbolName::try_new)
+        });
+
+        if let Some(name) = name {
+            names.push((symbol, name));
+        }
+    }
+
+    for (symbol, name) in names {
+        binder.unit_mut().insert_surface_name(scope, name, symbol);
+    }
+}
+
 pub(crate) fn push_callable_inputs_for<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,

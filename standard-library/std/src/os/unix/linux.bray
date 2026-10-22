@@ -170,8 +170,8 @@ trusted func narrow_string_length(pos text: DataPointer<u8>, pos limit: usize) -
         trusted core.memory.nul_terminated_read(pointer = text),
         trusted core.memory.valid_read<u8>(pointer = text, count = result),
         trusted core.memory.initialized_range_as<u8>(pointer = text, count = result),
-        result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
-        result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
     )
     uses(foreign_call)
 {
@@ -486,7 +486,7 @@ trusted func pthread_key_delete(pos key: u64) -> i32
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.os.linux.EINVAL;
     }
@@ -498,7 +498,7 @@ trusted func pthread_getspecific(pos key: u64) -> DataPointer<u8>
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.memory.null<u8>();
     }
@@ -510,7 +510,7 @@ trusted func pthread_setspecific(pos key: u64, pos value: DataPointer<u8>) -> i3
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.os.linux.EINVAL;
     }

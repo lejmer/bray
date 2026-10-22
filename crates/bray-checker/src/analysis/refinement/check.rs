@@ -153,7 +153,10 @@ pub(crate) fn transfer_operation(
         }
         AnalysisOperationKind::Recovery(_) => state.clear(),
         AnalysisOperationKind::PatternObservation(_)
-        | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. } => {}
+        | AnalysisOperationKind::Call {
+            phase: AnalysisCallPhase::Input,
+            ..
+        } => {}
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..

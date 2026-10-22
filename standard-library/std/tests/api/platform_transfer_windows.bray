@@ -2,6 +2,7 @@
 trusted module bray.standard_library_tests.platform_transfer_windows;
 
 using std.io;
+using std.numeric;
 using std.io.IoErrorKindEquatable;
 using internal std.io.checked_transfer;
 using std.memory;
@@ -15,9 +16,9 @@ func handle_requests_are_bounded_without_unsigned_wraparound()
 {
     assert(internal std.platform.handle_request_length(0) == 0);
     assert(internal std.platform.handle_request_length(3) == 3);
-    assert(internal std.platform.handle_request_length(4_294_967_295) == 4_294_967_295);
-    assert(internal std.platform.handle_request_length(4_294_967_296) == 4_294_967_295);
-    assert(internal std.platform.handle_request_length(18_446_744_073_709_551_615) == 4_294_967_295);
+    assert(internal std.platform.handle_request_length(std.numeric.U32_MAX as u64) == std.numeric.U32_MAX);
+    assert(internal std.platform.handle_request_length((std.numeric.U32_MAX as u64) + 1) == std.numeric.U32_MAX);
+    assert(internal std.platform.handle_request_length(std.numeric.U64_MAX) == std.numeric.U32_MAX);
 }
 
 @test

@@ -482,7 +482,11 @@ fn validate_abi_type(target: &TargetDescription, ty: &str) -> Result<(), String>
         .strip_prefix("FunctionPointer<")
         .and_then(|contract| contract.strip_suffix('>'))
     {
-        if target.callbacks.iter().any(|callback| callback.name == contract) {
+        if target
+            .callbacks
+            .iter()
+            .any(|callback| callback.name == contract)
+        {
             return Ok(());
         }
 

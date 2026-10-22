@@ -18,10 +18,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let paths = match invalidation {
             StorageInvalidation::All { .. } => {
                 let invocation = self.dependencies.calls().contains_key(&occurrence)
-                    || occurrence.expression().is_some_and(|expression| matches!(
-                        self.request.view().expression(expression),
-                        Some(bray_bound_tree::BoundExpression::Await(_))
-                    ));
+                    || occurrence.expression().is_some_and(|expression| {
+                        matches!(
+                            self.request.view().expression(expression),
+                            Some(bray_bound_tree::BoundExpression::Await(_))
+                        )
+                    });
 
                 return if invocation {
                     self.opaque_observations(
@@ -134,36 +136,40 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(path) = self.storage.logical_path(capability.access()) else {
-                continue;
-            };
+            let referent = memory.borrow_observation(*borrow);
 
-            // An address formed from this borrow can be used by native code to replace
-            // its allocation. The temporary borrow does not bound that opaque effect.
-            if exposed.contains(&path.root) {
-                continue;
+            for path in self
+                .storage
+                .logical_path(capability.access())
+                .into_iter()
+                .chain(referent.as_ref())
+            {
+                // An address formed from this borrow can be used by native code to replace
+                // its allocation. The temporary borrow does not bound that opaque effect.
+                if exposed.contains(&path.root) {
+                    continue;
+                }
+
+                let Some(markers) = self
+                    .input
+                    .stable_identities
+                    .get(&path.root)
+                    .or_else(|| self.input.borrowed_identities.get(&path.root))
+                else {
+                    continue;
+                };
+
+                // The logical access can be an invocation input. Its exact physical
+                // referent still retains the complete owner for this shared loan.
+                stable_descriptors.insert(path.clone());
+
+                stable_values.extend(
+                    markers
+                        .iter()
+                        .filter(|marker| path.contains(marker))
+                        .cloned(),
+                );
             }
-
-            let Some(markers) = self
-                .input
-                .stable_identities
-                .get(&path.root)
-                .or_else(|| self.input.borrowed_identities.get(&path.root))
-            else {
-                continue;
-            };
-
-            // A live shared borrow prevents replacement of the selected storage,
-            // including a complete owner nested in another value. Keep only marker
-            // observations within that borrow, never an unborrowed sibling.
-            stable_descriptors.insert(path.clone());
-
-            stable_values.extend(
-                markers
-                    .iter()
-                    .filter(|marker| path.contains(marker))
-                    .cloned(),
-            );
         }
     }
 
@@ -313,7 +319,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for reference in contracts.references() {
             let relation = reference.relation();
 
-            if relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
+            if !relation.is_exact()
+                || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                 || relation.entry() != relation.exit()
                 || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
@@ -477,6 +484,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if mutations.clone().next().is_none() {
             return StorageInvalidation::Observed {
+                scope: mutations
+                    .clone()
+                    .map(|target| {
+                        target.mutation_scope(self.storage, self.request.semantic_values())
+                    })
+                    .max()
+                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
                 referents,
@@ -588,6 +602,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if unrepresented.is_empty() {
             StorageInvalidation::Observed {
+                scope: mutations
+                    .clone()
+                    .map(|target| {
+                        target.mutation_scope(self.storage, self.request.semantic_values())
+                    })
+                    .max()
+                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
                 referents,

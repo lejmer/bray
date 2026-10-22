@@ -70,11 +70,14 @@ where
             return None;
         };
 
-        let Some(operation) = self.memory.operation(expression) else {
+        let memory = self.memory;
+
+        let Some(operation) = memory.operation(expression) else {
             return None;
         };
 
         let proven = self.memory_evidence;
+        let mut write_target = None;
 
         let status = if !state.reachable {
             MemoryOperationStatus::Unreachable
@@ -102,8 +105,18 @@ where
                             return None;
                         }
 
-                        self.expression_target(state, argument)
-                            .map(|place| (state.memory.reached_storage(&place), element, purpose))
+                        self.expression_target(state, argument).map(|place| {
+                            if self.publish
+                                && matches!(
+                                    operation.kind(),
+                                    CheckedMemoryOperationKind::Write { .. }
+                                )
+                            {
+                                write_target = state.memory.value_target(&place, element);
+                            }
+
+                            (state.memory.reached_storage(&place), element, purpose)
+                        })
                     });
 
             let status = self.apply_valid_memory_operation(state, operation, proven);
@@ -129,6 +142,16 @@ where
 
             status
         };
+
+        if self.publish
+            && status == MemoryOperationStatus::Valid
+            && matches!(operation.kind(), CheckedMemoryOperationKind::Write { .. })
+        {
+            self.record_state_target(
+                bray_bound_tree::StorageStateTarget::MemoryWrite(expression),
+                write_target,
+            );
+        }
 
         self.is_recovered |= status == MemoryOperationStatus::Recovered;
 
@@ -488,6 +511,17 @@ where
             }
             CheckedMemoryOperationKind::Copy { pointee, .. } => {
                 (1, pointee, StorageAccessPurpose::Initialize)
+            }
+            CheckedMemoryOperationKind::ByteBufferFill => {
+                let element = self
+                    .execution
+                    .semantics
+                    .types()
+                    .expression(operation.arguments()[1])
+                    .expect("checked byte fill retains its byte value type")
+                    .ty();
+
+                (0, element, StorageAccessPurpose::Initialize)
             }
             _ => return None,
         };

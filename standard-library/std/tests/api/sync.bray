@@ -268,7 +268,16 @@ async func concurrency_stress_barrier_reuses_its_generation_across_contended_rou
     assert(crossings.load(order = std.atomic.LoadOrder.Acquire) == 48);
 }
 
-static REENTERED_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+static REENTERED_ONCE: std.sync.Once<i32> =
+{
+    let prepared = std.sync.Once<i32>.prepare();
+
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
 
 internal func catch_once_reentry() -> i32
 {

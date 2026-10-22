@@ -1,0 +1,11 @@
+internal module std.sync.tickets;
+
+using std.numeric;
+
+const MASK: u32 = std.numeric.U16_MAX as u32;
+
+const SHIFT: u32 = 16;
+
+const CAPACITY: u32 = MASK + 1;
+
+const SERVING_MASK: u32 = MASK << SHIFT;

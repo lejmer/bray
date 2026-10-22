@@ -28,21 +28,3 @@ const func marker<T>(pos guard: &(std.sync.SpinLockGuard<T>?)) -> &Marker
         case none { panic("missing spin lock acquisition"); }
     }
 }
-
-/// Creates a lock whose protocol and payload are initialized together.
-trusted const func initialize<T>(pos value: T) -> std.sync.SpinLock<T>
-    ensures(trusted valid(marker = &result.instance))
-{
-    return
-    {
-        instance = Marker
-        {
-        },
-        storage = std.memory.uninit_from<State<T>>(
-            {
-                tickets = core.atomic.initialize<u32>(0),
-                value = std.memory.uninit_from<T>(value),
-            }
-        ),
-    };
-}

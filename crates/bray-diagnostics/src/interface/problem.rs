@@ -575,7 +575,7 @@ pub enum DiagnosticCheckedTemplateProblem {
         when_true_type: u32,
         when_false_type: u32,
     },
-    SequenceTypeMismatch {
+    ValueTypeMismatch {
         node: u32,
         expected_type: u32,
         actual_type: u32,

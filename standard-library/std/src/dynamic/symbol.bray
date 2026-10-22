@@ -10,7 +10,7 @@ trusted internal func resolve_dynamic_symbol<T>(
     pos name: &[u8],
 ) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call, layout_reinterpret)
+    uses(layout_reinterpret)
 {
     if !valid_symbol_name(name)
     {

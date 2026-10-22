@@ -27,9 +27,19 @@ pub(super) fn selected_condition(
     >,
 ) -> Option<ExecutionCondition> {
     if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression) {
-        return Some(selected_call_condition(values, predicates, expression, call,
-            |budget| call_argument_conditions(call, unit, semantics, values, literals,
-                patterns, current, evaluated, budget, predicates), budget));
+        return Some(selected_call_condition(
+            values,
+            predicates,
+            expression,
+            call,
+            |budget| {
+                call_argument_conditions(
+                    call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                    predicates,
+                )
+            },
+            budget,
+        ));
     }
 
     if let Some(SemanticSelection::Predicate(predicate)) =
@@ -84,53 +94,92 @@ pub(super) fn selected_condition(
 
 pub(crate) fn selected_call_condition(
     values: &SemanticValueStore,
-    predicates: Option<&BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>>,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+    >,
     expression: BoundExpressionId,
     call: &bray_bound_tree::SelectedCall,
     arguments: impl FnOnce(&mut usize) -> Vec<ExecutionCondition>,
     budget: &mut usize,
 ) -> ExecutionCondition {
     use bray_compiler_known::ImplementationHook as Hook;
-    if matches!(call.implementation_hook(), Some(Hook::RawPointerReinterpret
-        | Hook::FunctionPointerReinterpret | Hook::FunctionPointerFromData
-        | Hook::FunctionPointerToData | Hook::RawPointerByteAddress))
-        && let [bray_bound_tree::SelectedArgument::Explicit { conversion, .. }] = call.arguments()
-        && matches!(conversion.target(), bray_bound_tree::ConversionTarget::Identity)
+
+    if matches!(
+        call.implementation_hook(),
+        Some(
+            Hook::RawPointerReinterpret
+                | Hook::FunctionPointerReinterpret
+                | Hook::FunctionPointerFromData
+                | Hook::FunctionPointerToData
+                | Hook::RawPointerByteAddress
+        )
+    ) && let [bray_bound_tree::SelectedArgument::Explicit { conversion, .. }] = call.arguments()
+        && matches!(
+            conversion.target(),
+            bray_bound_tree::ConversionTarget::Identity
+        )
     {
-        return arguments(budget).into_iter().next().expect("pointer projection has its single input");
+        return arguments(budget)
+            .into_iter()
+            .next()
+            .expect("pointer projection has its single input");
     }
+
     if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
         let mut arguments = arguments(budget);
+
         for input in call.arguments() {
             let (ordinal, ty) = match input {
-                bray_bound_tree::SelectedArgument::Explicit { ordinal, conversion, .. } =>
-                    (*ordinal, conversion.target_type()),
+                bray_bound_tree::SelectedArgument::Explicit {
+                    ordinal,
+                    conversion,
+                    ..
+                } => (*ordinal, conversion.target_type()),
                 bray_bound_tree::SelectedArgument::Default { ordinal, ty, .. } => (*ordinal, *ty),
             };
-            if matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+
+            if matches!(
+                values.type_data(ty).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) {
                 let index = usize::try_from(ordinal).expect("input ordinal fits host")
                     + usize::from(call.receiver().is_some());
+
                 arguments[index] = arguments[index].clone().borrowed();
             }
         }
+
         return predicate_condition(values, predicates, predicate, arguments, budget);
     }
-    let observed_intrinsic = matches!(call.implementation_hook(), Some(
-        Hook::SequenceLength | Hook::SequenceIsEmpty | Hook::RawPointerIsNull));
+
+    let observed_intrinsic = matches!(
+        call.implementation_hook(),
+        Some(Hook::SequenceLength | Hook::SequenceIsEmpty | Hook::RawPointerIsNull)
+    );
+
     if let Some(callable) = call.resolution().declaration_source()
         && (observed_intrinsic || call.constness() == bray_symbols::CallableConstness::Constant)
     {
         let mut arguments = arguments(budget);
-        if matches!(call.implementation_hook(), Some(Hook::SequenceLength | Hook::SequenceIsEmpty)) {
+
+        if matches!(
+            call.implementation_hook(),
+            Some(Hook::SequenceLength | Hook::SequenceIsEmpty)
+        ) {
             for value in &mut arguments {
                 *value = value.owner_identity().clone();
             }
         }
+
         let condition = ExecutionCondition::call(callable, arguments);
+
         return if condition == ExecutionCondition::Unknown {
             ExecutionCondition::Expression(expression)
-        } else { condition };
+        } else {
+            condition
+        };
     }
+
     ExecutionCondition::Expression(expression)
 }
 
@@ -204,7 +253,6 @@ fn call_argument_conditions(
                     } else {
                         condition
                     };
-
 
                 (*ordinal, condition)
             }

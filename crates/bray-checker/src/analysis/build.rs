@@ -265,12 +265,35 @@ where
             current = self.enter_callable_body(current);
         }
 
-        for item in block.items() {
-            let next = self.build_block_item(item, current)?;
+        let conjunctive = self.request().unit().key().kind()
+            == bray_bound_tree::BoundUnitKind::ContractClause
+            && self.request().root() == CheckerUnitRoot::ExpressionSequence(id);
 
-            current = match next {
+        let rejected = conjunctive.then(|| self.push_block());
+        let mut has_fallthrough = true;
+
+        for item in block.items() {
+            if let (Some(rejected), BoundBlockItem::Expression(expression)) = (rejected, item) {
+                let next = self.push_block();
+
+                self.build_condition(
+                    *expression,
+                    current,
+                    (next, AnalysisEdgeKind::ConditionalTrue),
+                    (rejected, AnalysisEdgeKind::ConditionalFalse),
+                )?;
+
+                current = next;
+                continue;
+            }
+
+            current = match self.build_block_item(item, current)? {
                 Some(next) => next,
-                None => self.push_block(),
+                None => {
+                    has_fallthrough = false;
+
+                    self.push_block()
+                }
             };
         }
 
@@ -278,7 +301,13 @@ where
             panic!("checker scope stack lost the active lexical block");
         };
 
-        Some(Some(self.push_scope_exit(current, scope, id.into())))
+        if let Some(rejected) = rejected {
+            let rejected = self.push_scope_exit(rejected, scope, id.into());
+
+            self.push_exit(rejected, AnalysisExitKind::NormalFallthrough, id.into());
+        }
+
+        Some(has_fallthrough.then(|| self.push_scope_exit(current, scope, id.into())))
     }
 
     fn build_block_item(
@@ -315,11 +344,17 @@ where
             return Some(Some(current));
         };
 
-        if let Some(selection @ SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(_))) =
-            self.selections().and_then(|selections| selections.expression(id))
+        if let Some(
+            selection @ SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(_),
+            ),
+        ) = self
+            .selections()
+            .and_then(|selections| selections.expression(id))
             && selection.evaluates_defaults()
         {
             let current = self.build_selected_inputs(id, selection, current)?;
+
             return Some(Some(self.push_source_operation(id, current)));
         }
 
@@ -343,8 +378,10 @@ where
             BoundExpression::Generator(expression) => {
                 let current = self.build_expression(expression.source(), current)?;
                 let current = current.unwrap_or_else(|| self.push_block());
+
                 self.build_iteration(
-                    id, expression.pattern(),
+                    id,
+                    expression.pattern(),
                     expression.body(),
                     None,
                     expression.region(),
@@ -442,6 +479,16 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
+        if self
+            .view
+            .expression(expression)
+            .is_some_and(BoundExpression::has_result_region)
+        {
+            self.push_bound(current, expression.into());
+
+            return current;
+        }
+
         if !self.source_operation_may_propagate_panic(expression) {
             self.push_bound(current, expression.into());
 
@@ -710,6 +757,10 @@ where
 
     pub(super) fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
         match self.view.node_is_recovered(node) {
+            Some(false)
+                if matches!(node, AnyBoundNodeId::Expression(expression)
+                if self.view.expression(expression).is_some_and(BoundExpression::has_result_region)) =>
+                {}
             Some(false) => self.storage.push_bound(block, node),
             Some(true) | None => self.storage.push_recovery(block, node),
         }
@@ -785,7 +836,9 @@ where
         self.checked_storage
     }
 
-    pub(super) const fn selections(&self) -> Option<&'view bray_bound_tree::CheckedSemanticSelections> {
+    pub(super) const fn selections(
+        &self,
+    ) -> Option<&'view bray_bound_tree::CheckedSemanticSelections> {
         self.selections
     }
 

@@ -43,6 +43,8 @@ pub enum DiagnosticPlatformAbiType {
     U64,
     /// A 64-bit signed integer value.
     I64,
+    /// A target-native function entry address.
+    FunctionPointer,
     /// A raw pointer to 8-bit unsigned values.
     PointerU8,
     /// A raw pointer to 32-bit unsigned values.

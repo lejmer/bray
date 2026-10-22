@@ -72,8 +72,23 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
 
-    let constant_callable_bodies =
-        constant_callable_bodies(compilation, &binder, selected, &mut export)?;
+    let execution = compilation
+        .export_execution_contracts(selected, &compilation.state.cancellation)
+        .map_err(super::super::invalid_compilation_fact_error)?;
+
+    if let Some(error) =
+        super::super::error::source_diagnostic_export_error(execution.diagnostics())
+    {
+        return Err(error);
+    }
+
+    let constant_callable_bodies = constant_callable_bodies(
+        compilation,
+        &binder,
+        selected,
+        execution.value(),
+        &mut export,
+    )?;
 
     let (executable_templates, runtime_requirements) =
         executable_templates(compilation, graph, selected, &mut export)?;
@@ -84,6 +99,7 @@ pub(in crate::compilation::export) fn build_semantics(
         compilation,
         &resolved_contracts,
         selected,
+        execution.value(),
         &mut export,
     )?;
 
@@ -125,6 +141,7 @@ fn constant_callable_bodies(
     compilation: &Compilation,
     binder: &crate::compilation::binder::CompilationBindingContext<'_>,
     selected: &BTreeSet<AnySymbolId>,
+    execution: &BTreeMap<AnySymbolId, bray_symbols::ResolvedCallableExecutionContract>,
     export: &mut SemanticExporter<'_>,
 ) -> Result<Vec<InterfaceConstantCallableBody>, PackageInterfaceExportError> {
     let values = export.values;
@@ -148,13 +165,31 @@ fn constant_callable_bodies(
             ))
             .map_err(super::super::invalid_compilation_binding_error)?;
 
-        if signature.diagnostics().has_errors()
-            || signature
-                .value()
-                .constness(values)
-                .map_err(|error| super::super::callable_signature_export_error(error))?
-                != CallableConstness::Constant
-        {
+        if signature.diagnostics().has_errors() {
+            continue;
+        }
+
+        let constant = signature
+            .value()
+            .constness(values)
+            .map_err(super::super::callable_signature_export_error)?
+            == CallableConstness::Constant;
+
+        let observed = execution.get(&symbol).is_some_and(|contract| {
+            [
+                bray_symbols::CallableExecutionObligation::Observation,
+                bray_symbols::CallableExecutionObligation::Termination,
+            ]
+            .iter()
+            .all(|role| {
+                contract
+                    .evidence
+                    .iter()
+                    .any(|proof| proof.obligation == *role)
+            })
+        });
+
+        if !constant && !observed {
             continue;
         }
 

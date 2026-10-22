@@ -409,9 +409,10 @@ fn format_english_checked_template_problem(
         } => format!(
             "conversion node {node} produces type {actual_type}, but its destination is type {expected_type}"
         ),
-        Problem::SequenceTypeMismatch { node, expected_type, actual_type } => format!(
-            "sequence node {node} produces type {actual_type}, but its following value has type {expected_type}"
-        ),
+        Problem::ValueTypeMismatch { .. } => {
+            "a compiled expression produces a value that does not match its declared result type"
+                .to_owned()
+        }
         Problem::ConditionalBranchTypeMismatch {
             node,
             when_true_type,
@@ -556,6 +557,24 @@ pub(crate) const fn format_english_interface_symbol_kind(
 mod tests {
     use super::format_english_interface_symbol_graph_problem;
     use bray_diagnostics::DiagnosticInterfaceSymbolGraphProblem;
+
+    #[test]
+    fn value_type_mismatch_describes_the_expression_without_internal_identifiers() {
+        let text = super::format_english_interface_semantic_problem(
+            &bray_diagnostics::DiagnosticInterfaceSemanticProblem::InvalidTemplate(
+                bray_diagnostics::DiagnosticCheckedTemplateProblem::ValueTypeMismatch {
+                    node: 7,
+                    expected_type: 9,
+                    actual_type: 11,
+                },
+            ),
+        );
+
+        assert_eq!(
+            text,
+            "a compiled expression produces a value that does not match its declared result type"
+        );
+    }
 
     #[test]
     fn direct_visibility_mismatch_names_the_declaration_and_both_accessibilities() {

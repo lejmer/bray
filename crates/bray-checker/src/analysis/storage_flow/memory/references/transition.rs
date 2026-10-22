@@ -112,21 +112,14 @@ impl State {
 
         let mut roots = BTreeSet::new();
 
-        for target in self.reachable_targets(inputs) {
-            match target.origin {
-                Origin::Storage(path) => {
-                    roots.insert(path.root);
-                }
+        for target in self.transitive_regions(inputs, |_| true).0 {
+            match &target.origin {
                 Origin::Returned { reference, .. } => {
-                    roots.extend(
-                        self.returned_roots
-                            .get(&reference)
-                            .into_iter()
-                            .flatten()
-                            .copied(),
-                    );
+                    roots.extend(self.returned_input_regions(reference).iter().cloned());
                 }
-                Origin::Entry { .. } | Origin::Allocation(_) => {}
+                _ => {
+                    roots.insert(target);
+                }
             }
         }
 
@@ -134,10 +127,10 @@ impl State {
             let slot = Target::storage(destination.clone());
 
             // This finite union also bounds older executions of a call site at loop joins.
-            self.returned_roots
+            self.returned_inputs
                 .entry(destination.clone())
                 .or_default()
-                .extend(roots.iter().copied());
+                .extend(roots.iter().cloned());
 
             let target = Target {
                 previous: false,
@@ -172,6 +165,20 @@ impl State {
 
         references.unknown = true;
         references.targets.extend(captures);
+    }
+
+    pub(in crate::analysis::storage_flow) fn bound_staged_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: &Target,
+    ) {
+        if let Some(references) = self
+            .pending
+            .get_mut(&call)
+            .and_then(|pending| pending.values.get_mut(destination))
+        {
+            references.inexact = true;
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn stage_null(
@@ -322,16 +329,17 @@ impl State {
         };
 
         // An opaque operation can change the referent without replacing a reference
-        // stored in an invocation-owned value whose address was never available to it.
+        // stored in an unexposed owner or reached through a protected shared entry borrow.
+        // The established observation identifies the slot independently of its referent.
         self.values.retain(|target, _| {
             kind == bray_symbols::DependencyMutationKind::Atomic
-                || match target.storage_path() {
+                || match target.observation_path() {
                     Some(slot) => {
                         unexposed.contains(&slot.root)
                             && !slot
                                 .projections
                                 .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            || !invalidation.invalidates_path(slot, storage)
+                            || !invalidation.invalidates_path(&slot, storage)
                     }
                     None => !matches!(
                         invalidation,

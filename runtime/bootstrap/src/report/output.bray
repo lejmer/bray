@@ -14,7 +14,7 @@ trusted internal func primary(
     pos copy: bray.runtime.bootstrap.PanicMessageCopy?
 ) -> u32
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(intrinsic)
+    uses(intrinsic, foreign_call)
 {
     let identity: bytes<32> = [0; 32];
     let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(0, value, &identity);
@@ -28,15 +28,16 @@ trusted internal func primary(
 
     if let ?callback = copy
     {
-        let mut buffer: bytes<512> = [0; 512];
+        let mut buffer: bytes = [0; 512];
+        let capacity = buffer.length();
 
         while offset < value.message_length
         {
             let mut length = value.message_length - offset;
 
-            if length > 512
+            if length > capacity
             {
-                length = 512;
+                length = capacity;
             }
 
             let destination = trusted internal std.memory.slice_pointer_mut<u8>(&mut buffer[..], count = length);

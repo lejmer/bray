@@ -128,7 +128,10 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             _ => return,
         };
 
-        if phase == AnalysisCallPhase::Input { return; }
+        if phase == AnalysisCallPhase::Input {
+            return;
+        }
+
         if phase == AnalysisCallPhase::Attempt {
             self.prepare_call_reports(state, invocation);
             return;

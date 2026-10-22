@@ -42,7 +42,9 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         use crate::analysis::{AnalysisCallPhase, AnalysisOperationKind};
 
         if matches!(operation, AnalysisOperationKind::Bound(_))
-            && operation.occurrence().expression()
+            && operation
+                .occurrence()
+                .expression()
                 .and_then(|expression| self.request.view().expression(expression))
                 .is_some_and(bray_bound_tree::BoundExpression::has_result_region)
         {
@@ -66,21 +68,28 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         if let crate::analysis::AnalysisOperationKind::Call {
             invocation: input @ bray_bound_tree::BoundExecutionSite::CallInput { .. },
             phase: AnalysisCallPhase::Completion,
-        } = operation {
+        } = operation
+        {
             let values = self.input_values(input)?;
+
             super::state::assign(&mut self.state.values, input, values);
+
             return Ok(());
         }
 
         if let AnalysisOperationKind::Call {
-            invocation: invocation @ (bray_bound_tree::BoundExecutionSite::Iterate(_)
+            invocation:
+                invocation @ (bray_bound_tree::BoundExecutionSite::Iterate(_)
                 | bray_bound_tree::BoundExecutionSite::Next(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
             phase: AnalysisCallPhase::Completion,
-        } = operation {
+        } = operation
+        {
             let values = self.implicit_values(invocation)?;
+
             super::state::assign(&mut self.state.values, invocation, values);
+
             return Ok(());
         }
 
@@ -109,7 +118,12 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                     && let Some(operand) = transfer.operand()
                 {
                     // The selected branch supplies the enclosing expression's result at this edge.
-                    let values = self.state.values.get(&(operand).into()).cloned().unwrap_or_default();
+                    let values = self
+                        .state
+                        .values
+                        .get(&(operand).into())
+                        .cloned()
+                        .unwrap_or_default();
 
                     let sources = self
                         .state
@@ -135,9 +149,14 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 };
 
                 if let Some(value) = returned {
-                    self.state
-                        .returned
-                        .extend(self.state.values.get(&(value).into()).into_iter().flatten().cloned());
+                    self.state.returned.extend(
+                        self.state
+                            .values
+                            .get(&(value).into())
+                            .into_iter()
+                            .flatten()
+                            .cloned(),
+                    );
                 }
 
                 if self.inputs.returned_errors.contains(&id) {
@@ -151,13 +170,15 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             bray_bound_tree::AnyBoundNodeId::Pattern(pattern) => {
                 if let Some(source) = self.inputs.pattern_subjects.get(&pattern).copied() {
                     let values = self.state.values.get(&source).cloned().unwrap_or_default();
+
                     match source {
                         bray_bound_tree::BoundExecutionSite::Node(
-                            bray_bound_tree::AnyBoundNodeId::Expression(expression)) =>
-                            self.bind_pattern(pattern, expression, values)?,
+                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                        ) => self.bind_pattern(pattern, expression, values)?,
                         bray_bound_tree::BoundExecutionSite::Next(_)
-                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_) =>
-                            self.bind_pattern_values(pattern, None, BTreeSet::new(), values)?,
+                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => {
+                            self.bind_pattern_values(pattern, None, BTreeSet::new(), values)?
+                        }
                         _ => panic!("binding pattern has an evaluated subject: {source:?}"),
                     }
                 }
@@ -240,7 +261,12 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::With =>
                 {
-                    let mut values = self.state.values.get(&(id).into()).cloned().unwrap_or_default();
+                    let mut values = self
+                        .state
+                        .values
+                        .get(&(id).into())
+                        .cloned()
+                        .unwrap_or_default();
 
                     if let Some(SemanticSelection::ScopedUse(scoped)) =
                         self.selections.expression(id)
@@ -263,7 +289,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Catch =>
                 {
-                    self.state.values.get(&(id).into()).cloned().unwrap_or_default()
+                    self.state
+                        .values
+                        .get(&(id).into())
+                        .cloned()
+                        .unwrap_or_default()
                 }
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
@@ -277,7 +307,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 _ => self
                     .inputs
                     .operands(id)
-                    .flat_map(|child| self.state.values.get(&(child).into()).into_iter().flatten().cloned())
+                    .flat_map(|child| {
+                        self.state
+                            .values
+                            .get(&(child).into())
+                            .into_iter()
+                            .flatten()
+                            .cloned()
+                    })
                     .collect(),
             }
         };

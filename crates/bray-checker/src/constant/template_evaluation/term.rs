@@ -135,6 +135,7 @@ where
                     limits: self.limits,
                     budget: self.budget,
                     values: vec![None; template.nodes().len()],
+                    outputs: Default::default(),
                     checked_materialization: Default::default(),
                     diagnostics: Default::default(),
                     upstream_failure: None,

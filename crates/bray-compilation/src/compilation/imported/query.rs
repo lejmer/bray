@@ -1086,6 +1086,15 @@ fn checked_template_problem(
     use bray_bound_tree::CheckedTemplateBuildError as Error;
 
     match error {
+        Error::InvalidLoop(node) => panic!(
+            "validated imported loop retains coherent bindings, condition and state outputs: {node:?}"
+        ),
+        Error::InvalidComponent(node) => panic!(
+            "validated imported update retains its inline base/component relationship: {node:?}"
+        ),
+        Error::InvalidStateOutput { operation, ordinal } => panic!(
+            "validated imported state output names an established owner output: operation {operation:?}, ordinal {ordinal}"
+        ),
         Error::CapacityExceeded => DiagnosticCheckedTemplateProblem::CapacityExceeded,
         Error::RecoveredTemplate => DiagnosticCheckedTemplateProblem::RecoveredTemplate,
         Error::MissingInput(input) => DiagnosticCheckedTemplateProblem::MissingInput(input.raw()),
@@ -1151,13 +1160,15 @@ fn checked_template_problem(
             expected_type: expected.slot(),
             actual_type: actual.slot(),
         },
-        Error::SequenceTypeMismatch { node, expected, actual } => {
-            DiagnosticCheckedTemplateProblem::SequenceTypeMismatch {
-                node: node.raw(),
-                expected_type: expected.slot(),
-                actual_type: actual.slot(),
-            }
-        }
+        Error::ValueTypeMismatch {
+            node,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::ValueTypeMismatch {
+            node: node.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
         Error::ConditionalBranchTypeMismatch {
             node,
             when_true,

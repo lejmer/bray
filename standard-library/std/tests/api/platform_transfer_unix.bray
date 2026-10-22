@@ -2,6 +2,7 @@
 trusted module bray.standard_library_tests.platform_transfer_unix;
 
 using std.memory;
+using std.numeric;
 using internal std.memory;
 using internal std.platform;
 using std.io;
@@ -14,9 +15,13 @@ func descriptor_requests_are_bounded_without_signed_wraparound()
 {
     assert(internal std.platform.descriptor_request_length(0) == 0);
     assert(internal std.platform.descriptor_request_length(3) == 3);
-    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_807) == 9_223_372_036_854_775_807);
-    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_808) == 9_223_372_036_854_775_807);
-    assert(internal std.platform.descriptor_request_length(18_446_744_073_709_551_615) == 9_223_372_036_854_775_807);
+    assert(internal std.platform.descriptor_request_length(std.numeric.U64_MAX >> 1) == (std.numeric.USIZE_MAX >> 1));
+
+    assert(
+        internal std.platform.descriptor_request_length((std.numeric.U64_MAX >> 1) + 1) == (std.numeric.USIZE_MAX >> 1)
+    );
+
+    assert(internal std.platform.descriptor_request_length(std.numeric.U64_MAX) == (std.numeric.USIZE_MAX >> 1));
 }
 
 @test

@@ -146,6 +146,7 @@ fn render_abi_type_contract(
     {
         let canonical = declared_native_type(target, contract)
             .expect("validated function pointer contract has a native callback declaration");
+
         writeln!(
             source,
             "_Static_assert(__builtin_types_compatible_p({native}, {canonical}), \"{context} Bray function pointer representation\");"

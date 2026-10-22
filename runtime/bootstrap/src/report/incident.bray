@@ -291,6 +291,7 @@ trusted internal func dispose_value(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.retained_report_value(value = &value)
     )
+    uses(foreign_call)
 {
     match value
     {

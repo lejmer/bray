@@ -1582,3 +1582,326 @@ fn imported_total_cleanup_certification_preserves_the_entry_domain() {
         );
     }
 }
+
+#[test]
+fn imported_predicate_iteration_reuses_checked_producer_bodies_and_finite_evidence() {
+    let provider = compilation(&crate::test_support::finite_iterator_source(
+        "self.remaining -= 1; return true;",
+    ));
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(!bundle.constant_callable_bodies().is_empty());
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+
+        func caller(pos value: example.package.api.Items)
+            requires(example.package.api.every(value = value))
+        {
+        }
+        "#,
+        [super::fixtures::implementation_dependency(bundle)],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn imported_const_trait_calls_retain_their_declared_generic_premises() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        trait Readable
+        {
+            const func read() -> bool executes(pure, total);
+        }
+
+        const func forward<T>(pos value: &T) -> bool with(T: Readable)
+        {
+            return value.read();
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api;
+
+        struct Flag
+        {
+        }
+
+        impl Flag(example.package.api.Readable)
+        {
+            const func read() -> bool executes(pure, total)
+            {
+                return true;
+            }
+        }
+
+        func main(pos value: Flag)
+            requires(example.package.api.forward<Flag>(&value))
+        {
+        }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn imported_checked_edges_retain_the_producers_selected_entry_domain() {
+    let provider = compilation(
+        r"
+        trusted module api;
+
+        struct Token
+        {
+        }
+
+        trusted predicate admitted(value: &Token);
+
+        trusted func leaf(pos value: &Token)
+            requires(trusted admitted(value))
+            executes(total)
+        {
+        }
+
+        trusted func wrapper(pos value: &Token)
+            requires(trusted admitted(value))
+            executes(total)
+        {
+            leaf(value);
+        }
+    ",
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (entry, valid) in [
+        (
+            "requires(trusted example.package.api.admitted(value))",
+            true,
+        ),
+        ("", false),
+    ] {
+        let source = format!(
+            r"
+            trusted module app;
+
+            using example.package.api;
+
+            trusted func caller(pos value: &example.package.api.Token)
+                {entry}
+                executes(total)
+            {{
+                example.package.api.wrapper(value);
+            }}
+        "
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            consumer.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_checked_edges_preserve_the_selected_conditional_property() {
+    let provider = compilation(
+        r"
+        module api;
+
+        func leaf(pos ready: bool)
+            when(ready)
+            {
+                executes(total)
+            }
+        {
+            if !ready
+            {
+                assert(false);
+            }
+        }
+
+        func wrapper(pos ready: bool)
+            when(ready)
+            {
+                executes(total)
+            }
+        {
+            leaf(ready);
+        }
+    ",
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (value, valid) in [("true", true), ("false", false)] {
+        let source = format!(
+            r"
+            module app;
+
+            using example.package.api;
+
+            func caller()
+                executes(total)
+            {{
+                example.package.api.wrapper({value});
+            }}
+        "
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            consumer.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn checked_total_calls_support_imported_static_termination() {
+    let declarations = r"
+        trusted module api;
+
+        using core.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+            value: u32;
+        }
+
+        const func prepared() -> (Marker, u32)
+        {
+            return (
+                Marker
+                {
+                },
+                7,
+            );
+        }
+    ";
+
+    let provider = compilation(declarations);
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let source = compilation(&format!(
+        r"
+        {declarations}
+
+        static STORAGE: Uninit<Owner> =
+        {{
+            let value = prepared();
+
+            yield core.memory.uninit_from<Owner>(
+                {{
+                    marker = value.0,
+                    value = value.1,
+                }}
+            );
+        }};
+    "
+    ));
+
+    assert!(
+        !source.check_diagnostics().has_errors(),
+        "{:#?}",
+        source.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r"
+        trusted module app;
+
+        using core.memory;
+        using example.package.api;
+
+        static STORAGE: Uninit<example.package.api.Owner> =
+        {
+            let value = example.package.api.prepared();
+
+            yield core.memory.uninit_from<example.package.api.Owner>(
+                {
+                    marker = value.0,
+                    value = value.1,
+                }
+            );
+        };
+    ",
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}

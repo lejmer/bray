@@ -176,9 +176,11 @@ impl BoundExecutionSite {
     pub const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Node(node) | Self::Cleanup(node) => node,
-            Self::CallInput { expression, .. } | Self::Iterate(expression) | Self::Next(expression) | Self::ScopedEnter(expression) | Self::ScopedExit(expression) => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            Self::CallInput { expression, .. }
+            | Self::Iterate(expression)
+            | Self::Next(expression)
+            | Self::ScopedEnter(expression)
+            | Self::ScopedExit(expression) => AnyBoundNodeId::Expression(expression),
         }
     }
 

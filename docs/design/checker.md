@@ -137,6 +137,12 @@ storage state. Other domains observe its finalized decisions instead of maintain
 Merges conservatively preserve requirements and exact partial-state identity. Access IDs are occurrence identities, so
 their inequality is not a proof of disjoint storage.
 
+Storage analysis publishes complete possible-origin bounds separately from exact reference identity. Effect consumers
+use the bounds, while identity and authority consumers require the corresponding proof. Joins combine possible origins
+and retain an exact identity only when all normal outcomes agree. Recursive summaries preserve that distinction and
+never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
+results for downstream consumers.
+
 ## Dependencies, behavior and async plans
 
 Dependency analysis infers the requirements carried by values and accesses from established storage, capability,

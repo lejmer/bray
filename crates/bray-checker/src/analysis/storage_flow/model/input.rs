@@ -1,9 +1,8 @@
 use crate::storage::local_initialization_destinations;
 use crate::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 use bray_bound_tree::{
-    BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
-    StoragePlan,
+    BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::{BorrowKind, CallableSignatureQuery};
 use std::collections::{BTreeMap, BTreeSet};
@@ -276,11 +275,17 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
-        for plan in storage.access_plans().iter().copied()
-            .filter(|plan| matches!(plan.occurrence(), bray_bound_tree::BoundExecutionSite::Node(_))
-                && !matches!(storage.root_identity(plan.access()).and_then(|identity| storage.identity(identity)),
-                    Some(StorageIdentity::InvocationInput { .. })))
-        {
+        for plan in storage.access_plans().iter().copied().filter(|plan| {
+            matches!(
+                plan.occurrence(),
+                bray_bound_tree::BoundExecutionSite::Node(_)
+            ) && !matches!(
+                storage
+                    .root_identity(plan.access())
+                    .and_then(|identity| storage.identity(identity)),
+                Some(StorageIdentity::InvocationInput { .. })
+            )
+        }) {
             if let Some(place) = storage.logical_path(plan.access()).cloned() {
                 self.expression_places
                     .entry(plan.expression())
@@ -294,7 +299,12 @@ impl StorageFlowInput {
         let initialized_at = self
             .initialization_destinations
             .iter()
-            .map(|(expression, identity)| (*identity, bray_bound_tree::BoundExecutionSite::from(*expression)))
+            .map(|(expression, identity)| {
+                (
+                    *identity,
+                    bray_bound_tree::BoundExecutionSite::from(*expression),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
 
         for (storage, identity) in storage.identity_entries() {
@@ -550,7 +560,9 @@ impl StorageFlowInput {
     }
 }
 
-fn identity_definition_occurrence(identity: StorageIdentity) -> Option<bray_bound_tree::BoundExecutionSite> {
+fn identity_definition_occurrence(
+    identity: StorageIdentity,
+) -> Option<bray_bound_tree::BoundExecutionSite> {
     match identity {
         StorageIdentity::Result(_) => None,
         _ => identity.definition_occurrence(),

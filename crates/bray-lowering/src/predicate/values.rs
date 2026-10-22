@@ -15,7 +15,6 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         operand: MirOperand,
         target: TypeId,
     ) -> Result<MirOperand, C::Error> {
-        let operand = self.local_operand(block, operand)?;
         let source = self.builder.operand_type(&operand);
 
         if source == target {
@@ -96,28 +95,56 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 MirOperationKind::Convert {
                     operand,
                     conversion: bray_bound_tree::SelectedConversion::new(
-                        source, target, bray_bound_tree::ConversionTarget::CallableContract),
+                        source,
+                        target,
+                        bray_bound_tree::ConversionTarget::CallableContract,
+                    ),
                 },
                 target,
             ),
             (TypeData::Tuple(elements), TypeData::Named { definition, .. })
-                if self.context.representation_role(*definition)
-                    .and_then(|role| role.complex_component()).is_some() =>
+                if self
+                    .context
+                    .representation_role(*definition)
+                    .and_then(|role| role.complex_component())
+                    .is_some() =>
             {
-                let component = self.context.representation_role(*definition)
+                let component = self
+                    .context
+                    .representation_role(*definition)
                     .and_then(|role| role.complex_component())
                     .expect("checked complex conversion has its real component");
+
                 let component = self.context.representation_type(component)?;
-                assert!(elements.len() == 2 && elements.iter().all(|ty| *ty == component),
-                    "checked tuple conversion has already converted both complex components");
-                let children = elements.iter().map(|ty|
-                    bray_bound_tree::SelectedConversion::new(*ty, component,
-                        bray_bound_tree::ConversionTarget::Identity)).collect();
-                self.value(block, MirOperationKind::Convert {
-                    operand,
-                    conversion: bray_bound_tree::SelectedConversion::new(source, target,
-                        bray_bound_tree::ConversionTarget::Composite(children)),
-                }, target)
+
+                assert!(
+                    elements.len() == 2 && elements.iter().all(|ty| *ty == component),
+                    "checked tuple conversion has already converted both complex components"
+                );
+
+                let children = elements
+                    .iter()
+                    .map(|ty| {
+                        bray_bound_tree::SelectedConversion::new(
+                            *ty,
+                            component,
+                            bray_bound_tree::ConversionTarget::Identity,
+                        )
+                    })
+                    .collect();
+
+                self.value(
+                    block,
+                    MirOperationKind::Convert {
+                        operand,
+                        conversion: bray_bound_tree::SelectedConversion::new(
+                            source,
+                            target,
+                            bray_bound_tree::ConversionTarget::Composite(children),
+                        ),
+                    },
+                    target,
+                )
             }
             (
                 TypeData::Named {
@@ -177,8 +204,6 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         block: MirBlockId,
         value: MirOperand,
     ) -> Result<MirPlace, C::Error> {
-        let value = self.local_operand(block, value)?;
-
         if let MirOperand::Copy(place) | MirOperand::Move(place) = value {
             return Ok(place);
         }
@@ -190,20 +215,11 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             .push_storage(self.source.clone(), MirStorageKind::Temporary, ty)
             .map_err(capacity)?;
 
+        self.private_homes.insert(storage);
+
         let place = MirPlace::new(storage, [], ty);
 
-        self.builder
-            .push_operation(
-                block,
-                self.source.clone(),
-                MirOperationKind::Store {
-                    kind: MirStoreKind::Initialize,
-                    destination: place.clone(),
-                    value,
-                },
-                None,
-            )
-            .map_err(capacity)?;
+        self.store(block, MirStoreKind::Initialize, place.clone(), value)?;
 
         Ok(place)
     }

@@ -183,6 +183,19 @@ impl Lowerer<'_> {
                                 );
                             };
 
+                            let occurrence = bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: id,
+                                ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                            };
+
+                            let (continuation, value) = self.consume_staged_input(
+                                occurrence,
+                                expression,
+                                continuation,
+                                &source,
+                                value,
+                            )?;
+
                             let (continuation, value) = self.convert_operand(
                                 id,
                                 continuation,
@@ -195,9 +208,16 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
-                                expression: id, ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
-                            }, block, &source, value, ty)?;
+                            let value = self.materialize_call_input(
+                                bray_bound_tree::BoundExecutionSite::CallInput {
+                                    expression: id,
+                                    ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                                },
+                                block,
+                                &source,
+                                value,
+                                ty,
+                            )?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }
@@ -260,9 +280,16 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value = self.materialize_call_input(bray_bound_tree::BoundExecutionSite::CallInput {
-                                expression: id, ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
-                            }, block, &source, value, ty)?;
+                            let value = self.materialize_call_input(
+                                bray_bound_tree::BoundExecutionSite::CallInput {
+                                    expression: id,
+                                    ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                                },
+                                block,
+                                &source,
+                                value,
+                                ty,
+                            )?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }

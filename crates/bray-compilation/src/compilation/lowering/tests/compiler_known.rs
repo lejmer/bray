@@ -394,9 +394,20 @@ fn direct_compiler_known_trait_calls_retain_builtin_intrinsics() {
 
 #[test]
 fn standard_run_utilities_lower_to_current_run_operations() {
-    let compilation = standard_text_compilation(&[include_str!(
-        "../../../../../../standard-library/std/src/run.bray"
-    )]);
+    let compilation = standard_text_compilation(&[
+        include_str!("../../../../../../standard-library/std/src/run.bray"),
+        r#"
+        module std.run;
+
+        func caller()
+        {
+            while true
+            {
+                checkpoint();
+            }
+        }
+        "#,
+    ]);
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -447,6 +458,23 @@ fn standard_run_utilities_lower_to_current_run_operations() {
     assert!(checkpoint.diagnostics().is_empty());
 
     assert!(lowered_mir(&checkpoint).blocks().iter().any(|block| {
+        matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::PropagateCancellation { .. }
+        )
+    }));
+
+    let caller = compilation
+        .lowered_unit(source_function_body_key(&compilation, "caller"))
+        .expect("ordinary checkpoint caller must lower");
+
+    assert!(
+        caller.diagnostics().is_empty(),
+        "{:?}",
+        caller.diagnostics()
+    );
+
+    assert!(lowered_mir(&caller).blocks().iter().any(|block| {
         matches!(
             block.terminator().kind(),
             MirTerminatorKind::PropagateCancellation { .. }

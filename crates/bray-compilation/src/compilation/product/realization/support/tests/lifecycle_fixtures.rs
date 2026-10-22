@@ -97,13 +97,24 @@ pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
         CompilationRequest::with_options(
             package.clone(),
             crate::test_support::source_inputs(&[
-include_str!("../../../../../../../../standard-library/std/src/std.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../../standard-library/std/src/memory/function.bray")
-]),
+                include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/pointer.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/storage.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/allocation.bray"
+                ),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/numeric/limits.bray"
+                ),
+                include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+                include_str!(
+                    "../../../../../../../../standard-library/std/src/memory/function.bray"
+                ),
+            ]),
             crate::CompilationOptions::new(
                 crate::WorkerBudget::serial(),
                 bray_symbols::ProductKind::Library,

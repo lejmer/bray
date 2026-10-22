@@ -119,7 +119,10 @@ impl OperationEffects {
                     continue;
                 };
 
-                if phase == AnalysisCallPhase::Input { continue; }
+                if phase == AnalysisCallPhase::Input {
+                    continue;
+                }
+
                 if phase == AnalysisCallPhase::Attempt {
                     if let Some(contract) = call.report(CallReportOutput::Abnormal) {
                         self.owner_dependencies
@@ -197,9 +200,13 @@ impl OperationEffects {
         for (identity, provenance) in storage.identity_entries() {
             let occurrence = match provenance {
                 bray_bound_tree::StorageIdentity::InvocationResult(occurrence) => occurrence,
-                bray_bound_tree::StorageIdentity::InvocationInput { expression, ordinal } => {
-                    bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal }
-                }
+                bray_bound_tree::StorageIdentity::InvocationInput {
+                    expression,
+                    ordinal,
+                } => bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                },
                 bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
                     bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
                 }
@@ -308,15 +315,24 @@ impl OperationEffects {
                             self.extend_uses(*occurrence, retained.iter().copied());
                         }
 
-                        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
-                            && expression.is_some_and(|expression| {
-                                self.value_inputs.is_independent(expression)
-                                    || self
-                                        .value_inputs
+                        if self.value_inputs.is_independent(*occurrence)
+                            || matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+                                && expression.is_some_and(|expression| {
+                                    self.value_inputs
                                         .projected_initializer(expression)
                                         .is_some()
-                            })
+                                })
                         {
+                            continue;
+                        }
+
+                        if matches!(storage.identity(root),
+                            Some(bray_bound_tree::StorageIdentity::InvocationInput { expression: call, .. })
+                                if *occurrence == call.into())
+                        {
+                            // Callee entry consumes every staged input. Only its checked result
+                            // contract determines which of those dependencies survive the call.
+                            self.extend_uses(*occurrence, retained.iter().copied());
                             continue;
                         }
 

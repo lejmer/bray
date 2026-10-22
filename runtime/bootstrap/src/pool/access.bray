@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.pool;
 
+using std.numeric;
 using core.target;
 using core.memory;
 using std.memory;
@@ -15,10 +16,9 @@ trusted internal predicate protocol_access();
 
 // The record allocator must outlive product cleanup and retirement of its backing records.
 // Host shutdown releases the allocations. Ordinary static cleanup must not destroy this owner.
-internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>> = core.memory.uninit_from<
-    std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>
->(
-    std.sync.spin_lock.initialize<bray.runtime.bootstrap.ReportPool>(
+internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>> =
+{
+    let prepared = std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>.prepare(
         {
             slabs = none,
             free = 0,
@@ -27,10 +27,17 @@ internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportP
             credits = 0,
             storage = none,
             next_epoch = 1,
-            remaining_epochs = 0xffff_ffff_ffff_fffe,
+            remaining_epochs = std.numeric.U64_MAX - 1,
         }
-    )
-);
+    );
+
+    yield core.memory.uninit_from<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+        {
+            instance = prepared.0,
+            storage = prepared.1,
+        }
+    );
+};
 
 trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.ReportPool>
     ensures(trusted std.sync.spin_lock.acquired(&result.acquisition))

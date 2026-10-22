@@ -139,14 +139,45 @@ pub enum StorageBindingTarget {
 }
 
 impl StorageBindingTarget {
+    /// Returns the storage binding role named by a source value reference.
+    pub fn from_reference_target(target: crate::BoundReferenceTarget) -> Option<Self> {
+        use crate::BoundReferenceTarget;
+        use bray_symbols::{AnyLocalSymbolId, AnySymbolId};
+
+        match target {
+            BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(id)) => Some(Self::Local(id)),
+            BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(id)) => {
+                Some(Self::AnonymousParameter(id))
+            }
+            BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(id)) => {
+                Some(Self::PostconditionResult(id))
+            }
+            BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(id)) => {
+                Some(Self::Parameter(id))
+            }
+            BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(id)) => {
+                Some(Self::Receiver(id))
+            }
+            BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => {
+                Some(Self::PredicateParameter(id))
+            }
+            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => Some(Self::Static(id)),
+            _ => None,
+        }
+    }
+
     /// Returns the source value named by an ordinary parameter, receiver or local binding.
     pub fn reference_target(self) -> Option<crate::BoundReferenceTarget> {
         use crate::BoundReferenceTarget;
+
         match self {
             Self::Local(id) => Some(BoundReferenceTarget::Local(id.into())),
             Self::Parameter(id) => Some(BoundReferenceTarget::Surface(id.into())),
             Self::Receiver(id) => Some(BoundReferenceTarget::Surface(id.into())),
             Self::AnonymousParameter(id) => Some(BoundReferenceTarget::Local(id.into())),
+            Self::PostconditionResult(id) => Some(BoundReferenceTarget::Local(id.into())),
+            Self::PredicateParameter(id) => Some(BoundReferenceTarget::Surface(id.into())),
+            Self::Static(id) => Some(BoundReferenceTarget::Surface(id.into())),
             _ => None,
         }
     }

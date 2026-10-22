@@ -1136,7 +1136,10 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
             );
 
             assert!(
-                !replaced.borrows().is_empty(),
+                replaced
+                    .borrows()
+                    .iter()
+                    .any(|relation| relation.is_exact()),
                 "replacement must publish its changed field: {replaced:#?}"
             );
         }
@@ -1149,6 +1152,7 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
         let returns = template
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -1303,6 +1307,7 @@ fn nullable_borrow_origins_preserve_payload_paths() {
         let returned = template
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -1397,7 +1402,10 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .dependency_contract_template_data(*dependencies.value());
 
         assert_eq!(
-            !template.borrows().is_empty(),
+            template
+                .borrows()
+                .iter()
+                .any(|relation| relation.is_exact()),
             exact,
             "{source}\n{template:#?}"
         );
@@ -1407,7 +1415,12 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .unwrap();
 
         assert_eq!(
-            !producer.value().dependencies().borrows().is_empty(),
+            producer
+                .value()
+                .dependencies()
+                .borrows()
+                .iter()
+                .any(|relation| relation.is_exact()),
             exact,
             "{source}\nnormal-exit references: {:?}",
             producer.value().dependencies().borrows()
@@ -2054,6 +2067,7 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
         let origins = dependencies
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -2128,7 +2142,14 @@ fn different_reference_layers_do_not_supply_a_common_exact_origin() {
         "choose",
     );
 
-    assert!(dependencies.borrows().is_empty(), "{dependencies:#?}");
+    assert!(
+        dependencies
+            .borrows()
+            .iter()
+            .all(|relation| !relation.is_exact()),
+        "{dependencies:#?}"
+    );
+
     assert!(!dependencies.requirements().is_empty(), "{dependencies:#?}");
 }
 
@@ -2470,4 +2491,60 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
             "{source}\n{references:?}"
         );
     }
+}
+
+#[test]
+fn conditional_null_pointer_returns_export_only_a_bounded_origin() {
+    let application = compilation(
+        r#"
+        module app;
+        using core.memory;
+
+        func selected(pos value: &u32, pos present: bool) -> DataPointer<u32>
+        {
+            if present { return core.memory.address_of<u32>(value); }
+            return core.memory.null<u32>();
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "selected",
+    );
+
+    assert_eq!(summary.borrows().len(), 1, "{summary:#?}");
+    assert!(!summary.borrows()[0].is_exact(), "{summary:#?}");
+}
+
+#[test]
+fn one_unbounded_return_alternative_prevents_a_partial_origin_certificate() {
+    let application = compilation(
+        r#"
+        module app;
+        using core.memory;
+        extern func opaque() -> DataPointer<u32>;
+
+        func selected(pos value: &u32, pos present: bool) -> DataPointer<u32>
+        {
+            if present { return core.memory.address_of<u32>(value); }
+            return opaque();
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "selected",
+    );
+
+    assert!(summary.borrows().is_empty(), "{summary:#?}");
 }

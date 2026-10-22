@@ -87,6 +87,10 @@ pub(super) struct PredicateLowerer<'context, C: PredicateLoweringContext + ?Size
     pub(super) source: MirSourceAnchor,
     pub(super) boolean: TypeId,
     pub(super) inputs: Vec<Option<MirOperand>>,
+    pub(super) private_homes: std::collections::BTreeSet<bray_ir::MirStorageId>,
+    pub(super) temporary_nodes: Vec<Option<CheckedTemplateNodeId>>,
+    pub(super) temporary_homes: BTreeMap<bray_bound_tree::CheckedTemplateTemporaryId, MirPlace>,
+    pub(super) outputs: BTreeMap<CheckedTemplateNodeId, Vec<Option<MirOperand>>>,
     pub(super) inserted: Vec<CheckedTemplateNodeId>,
     pub(super) values: BTreeMap<CheckedTemplateNodeId, MirOperand>,
     pub(super) value_blocks: BTreeMap<MirValueId, MirBlockId>,
@@ -169,6 +173,16 @@ pub fn lower_predicate<C: PredicateLoweringContext + ?Sized>(
     }
 
     let result = template.result();
+    let mut temporary_nodes = vec![None; template.temporaries().len()];
+
+    for (ordinal, node) in template.nodes().iter().enumerate() {
+        if let CheckedTemplateOperation::Temporary(temporary) = node.operation() {
+            temporary_nodes[usize::try_from(temporary.raw()).expect("checked temporary fits host")]
+                .get_or_insert(CheckedTemplateNodeId::new(
+                    u32::try_from(ordinal).expect("checked node fits its ID"),
+                ));
+        }
+    }
 
     let mut lowerer = PredicateLowerer {
         context,
@@ -177,6 +191,10 @@ pub fn lower_predicate<C: PredicateLoweringContext + ?Sized>(
         source,
         boolean,
         inputs,
+        private_homes: Default::default(),
+        temporary_nodes,
+        temporary_homes: Default::default(),
+        outputs: BTreeMap::new(),
         inserted: Vec::new(),
         values: BTreeMap::new(),
         value_blocks: BTreeMap::new(),
@@ -261,6 +279,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         Ok(MirOperand::Value(value))
     }
 
+    // rust-style: allow(function-too-large, reason = "one template operation dispatch keeps value caching and result representation consistent across the closed operation vocabulary")
     pub(super) fn node(
         &mut self,
         mut block: MirBlockId,
@@ -279,10 +298,20 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let ty = self.context.predicate_type(node.ty())?;
 
         let (continued, value) = match node.operation() {
-            CheckedTemplateOperation::ArrayElement { .. } =>
-                panic!("checked array element is lowered only under its transform binding"),
-            CheckedTemplateOperation::ArrayTransform { subject, element, value } =>
-                self.array_transform(block, *subject, *element, *value, ty)?,
+            CheckedTemplateOperation::LoopValue { .. } => {
+                panic!("loop state is lowered only under its owning kernel")
+            }
+            operation @ CheckedTemplateOperation::Loop { .. } => {
+                self.loop_value(block, id, operation, ty)?
+            }
+            CheckedTemplateOperation::ArrayElement { .. } => {
+                panic!("checked array element is lowered only under its transform binding")
+            }
+            CheckedTemplateOperation::ArrayTransform {
+                subject,
+                element,
+                value,
+            } => self.array_transform(block, *subject, *element, *value, ty)?,
             CheckedTemplateOperation::Unreachable => panic!(
                 "excluded template value is lowered only as a terminating conditional alternative"
             ),
@@ -296,7 +325,48 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             ),
             CheckedTemplateOperation::Sequence { before, value } => {
                 let (continued, _) = self.node(block, *before)?;
+
                 self.node(continued, *value)?
+            }
+            CheckedTemplateOperation::Update {
+                subject,
+                base,
+                component,
+                value,
+            } => self.update(block, *subject, *base, *component, *value)?,
+            CheckedTemplateOperation::StateAfter { operation, ordinal } => {
+                let (block, _) = self.node(block, *operation)?;
+
+                let value = self.outputs[operation]
+                    [usize::try_from(*ordinal).expect("checked state ordinal fits host")]
+                .clone()
+                .expect("owner state is read only on its initialized path");
+
+                (block, value)
+            }
+            CheckedTemplateOperation::Snapshot { value } => {
+                let (continued, value) = self.node(block, *value)?;
+
+                let value = if matches!(value, MirOperand::Copy(_) | MirOperand::Move(_)) {
+                    let represented = self.builder.operand_type(&value);
+
+                    self.value(
+                        continued,
+                        MirOperationKind::Convert {
+                            operand: value,
+                            conversion: bray_bound_tree::SelectedConversion::new(
+                                represented,
+                                represented,
+                                bray_bound_tree::ConversionTarget::Identity,
+                            ),
+                        },
+                        represented,
+                    )?
+                } else {
+                    value
+                };
+
+                (continued, value)
             }
             CheckedTemplateOperation::Constant { term, .. } => self.term(block, *term, ty)?,
             CheckedTemplateOperation::Unary { operation, operand } => {
@@ -306,14 +376,29 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             }
             CheckedTemplateOperation::MachineUnary { operation, operand } => {
                 let (continued, operand) = self.node(block, *operand)?;
-                (continued, self.machine_unary(continued, *operation, operand, ty)?)
+
+                (
+                    continued,
+                    self.machine_unary(continued, *operation, operand, ty)?,
+                )
             }
-            CheckedTemplateOperation::MachineBinary { operation, left, right } => {
+            CheckedTemplateOperation::MachineBinary {
+                operation,
+                left,
+                right,
+            } => {
                 let operand_type = self.context.predicate_type(
-                    self.template.nodes()[usize::try_from(left.raw()).expect("checked operand fits host")].ty())?;
+                    self.template.nodes()
+                        [usize::try_from(left.raw()).expect("checked operand fits host")]
+                    .ty(),
+                )?;
+
                 let operand_type = self.context.semantic_values().unborrowed_type(operand_type);
+
                 let (continued, left) = self.node(block, *left)?;
+
                 let (continued, right) = self.node(continued, *right)?;
+
                 self.machine_binary(continued, *operation, left, right, operand_type, ty)?
             }
             CheckedTemplateOperation::Binary {
@@ -351,7 +436,16 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 condition,
                 when_true,
                 when_false,
-            } => self.conditional(block, *condition, *when_true, *when_false, ty)?,
+                state_outputs,
+            } => self.conditional(
+                block,
+                id,
+                *condition,
+                *when_true,
+                *when_false,
+                state_outputs,
+                ty,
+            )?,
             CheckedTemplateOperation::ShortCircuit { kind, left, right } => {
                 self.short_circuit(block, *kind, *left, *right)?
             }
@@ -360,6 +454,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 substitution,
                 arguments,
                 ordinals,
+                state_inputs,
                 dispatch,
             } => {
                 let mut inputs = Vec::with_capacity(arguments.len());
@@ -380,6 +475,24 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     .map(|(_, value)| value)
                     .collect::<Vec<_>>();
 
+                let states = state_inputs.as_ref().map(|ordinals| {
+                    let mut states = vec![None; inputs.len()];
+
+                    for ordinal in ordinals.iter() {
+                        let index = usize::try_from(*ordinal).expect("checked input ordinal fits host");
+                        let value = &inputs[index];
+
+                        let MirOperand::Copy(place) = value else {
+                            panic!("mutable observation input retains its private owner place: {value:?}");
+                        };
+
+                        assert!(self.private_homes.contains(&place.storage()), "observation mutates only its private owner storage");
+                        states[index] = Some(value.clone());
+                    }
+
+                    states
+                });
+
                 let call = self.context.predicate_call(
                     callable,
                     *substitution,
@@ -387,7 +500,13 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     inputs,
                 )?;
 
-                self.call(block, call)?
+                let result = self.call(block, call)?;
+
+                if let Some(states) = states {
+                    self.outputs.insert(id, states);
+                }
+
+                result
             }
             CheckedTemplateOperation::Declaration {
                 declaration,
@@ -405,21 +524,26 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 (continued, self.convert(continued, value, target)?)
             }
             CheckedTemplateOperation::Temporary(temporary) => {
-                let initializer = self.template.temporaries()[usize::try_from(temporary.raw())
-                    .expect("checked temporary index fits the host")]
-                .initializer();
-
-                self.node(block, initializer)?
+                self.materialized(block, id, *temporary)?
             }
             operation => self.structural(block, operation, ty)?,
         };
 
         let value = if let Some(bits) = node.unsigned_integer_bits() {
-            let exact = self.context.semantic_values().intern_type(bray_symbols::TypeData::ExactInteger {
-                bits: std::num::NonZeroU16::new(u16::from(bits.get())).expect("checked width is nonzero"), signed: false,
-            }).map_err(crate::SyntheticLoweringError::SemanticValue)?;
+            let exact = self
+                .context
+                .semantic_values()
+                .intern_type(bray_symbols::TypeData::ExactInteger {
+                    bits: std::num::NonZeroU16::new(u16::from(bits.get()))
+                        .expect("checked width is nonzero"),
+                    signed: false,
+                })
+                .map_err(crate::SyntheticLoweringError::SemanticValue)?;
+
             self.convert(continued, value, exact)?
-        } else { value };
+        } else {
+            value
+        };
 
         // This invocation owns the memoized operand while its immutable place remains shared.
         self.values.insert(id, value.clone());

@@ -76,30 +76,7 @@ fn indexed_constant_templates_evaluate_after_import() {
 
             assert!(!diagnostics.has_errors(), "{expression}: {diagnostics:?}");
 
-            let graph = consumer.symbol_graph().unwrap();
-
-            let definition = graph
-                .constants()
-                .iter()
-                .find(|constant| constant.origin() == bray_symbols::SymbolOrigin::Source)
-                .unwrap();
-
-            let definition = bray_symbols::AnyConstantDefinitionId::Constant(definition.id());
-            let values = consumer.semantic_value_store().unwrap();
-
-            let substitution =
-                crate::compilation::substitution::empty_substitution(values, definition.into_any())
-                    .unwrap();
-
-            let result = consumer
-                .constant_instance(bray_symbols::ConstantInstanceKey::new(
-                    definition,
-                    substitution,
-                    None,
-                ))
-                .unwrap();
-
-            let result = values.constant_value_data(result.value().value());
+            let result = super::fixtures::source_constant_value(consumer, "result");
 
             assert_eq!(
                 result.kind(),

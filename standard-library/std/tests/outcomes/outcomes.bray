@@ -9,9 +9,27 @@ using std.string;
 using std.sync;
 using std.testing;
 
-static FIRST_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+static FIRST_ONCE: std.sync.Once<i32> =
+{
+    let prepared = std.sync.Once<i32>.prepare();
 
-static SECOND_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
+
+static SECOND_ONCE: std.sync.Once<i32> =
+{
+    let prepared = std.sync.Once<i32>.prepare();
+
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
 
 static RAW_BUFFER_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 

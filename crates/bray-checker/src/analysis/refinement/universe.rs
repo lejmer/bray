@@ -134,15 +134,25 @@ impl RefinementUniverse {
         Ok(match refinement {
             AnalysisRefinement::CleanupRequired { .. }
             | AnalysisRefinement::InvocationFailure(_)
+            | AnalysisRefinement::InvocationCancellation(_)
             | AnalysisRefinement::PreconditionFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
             AnalysisRefinement::InvocationPresence(invocation, value) => {
-                let access = storage.invocation_result(invocation)
+                let access = storage
+                    .invocation_result(invocation)
                     .expect("presence edge retains its actual nullable result");
-                vec![Refinement::new(RefinementKind::Pattern {
-                    subject: invocation.expression().expect("protocol result has an expression owner"),
-                    access, predicate: PatternPredicate::NullablePresent, value,
-                }, [access])]
+
+                vec![Refinement::new(
+                    RefinementKind::Pattern {
+                        subject: invocation
+                            .expression()
+                            .expect("protocol result has an expression owner"),
+                        access,
+                        predicate: PatternPredicate::NullablePresent,
+                        value,
+                    },
+                    [access],
+                )]
             }
             AnalysisRefinement::InvocationBoolean(_, _) => Vec::new(),
             AnalysisRefinement::PropagationOutcome {

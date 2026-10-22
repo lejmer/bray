@@ -2149,8 +2149,6 @@ impl TerminatorParts {
             text,
         });
     }
-
-
 }
 
 fn inspection_operand(
@@ -2813,6 +2811,7 @@ fn binary_operator(operator: MirBinaryOperator) -> &'static str {
         MirBinaryOperator::BitwiseXor => "bitwise_xor",
         MirBinaryOperator::ShiftLeft => "shift_left",
         MirBinaryOperator::ShiftRight => "shift_right",
+        MirBinaryOperator::Exponentiate => "exponentiate",
     }
 }
 

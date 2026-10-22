@@ -19,9 +19,10 @@ pub struct PreparedBodyAnalysis {
     pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) sequence_lengths: Vec<BoundExpressionId>,
+    pub(crate) has_bounds_checks: bool,
     pub(crate) observed_types: BTreeMap<crate::ExecutionPlace, Option<TypeId>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
-    pub(crate) assigned_places: BTreeSet<crate::ExecutionPlace>,
+    pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
     pub(crate) scope_places: BTreeMap<
         bray_bound_tree::BoundBlockId,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
@@ -170,9 +171,10 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         cleanup,
         kind: request.unit().key().kind(),
         sequence_lengths: Vec::new(),
+        has_bounds_checks: false,
         observed_types: BTreeMap::new(),
         borrowed_inputs: BTreeSet::new(),
-        assigned_places: BTreeSet::new(),
+        input_invariants: Vec::new(),
         scope_places: BTreeMap::new(),
         yield_targets: BTreeMap::new(),
         literals: crate::execution_guarantees::condition_literals(
@@ -188,6 +190,15 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
     };
 
     prepared.prepare_observations(request, expressions);
+
+    match prepared.prepare_input_invariants(request) {
+        Ok(()) => {}
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    }
+
     prepared.prepare_scope_places(request, storage);
 
     CheckerOutcome::complete(prepared, cleanup_shapes.diagnostics)
@@ -203,6 +214,19 @@ impl PreparedBodyAnalysis {
         let mut yields = Vec::new();
 
         for (expression, node) in request.unit().tree().expressions() {
+            self.has_bounds_checks |= matches!(
+                semantics.selections().expression(expression),
+                Some(bray_bound_tree::SemanticSelection::Operation(
+                    bray_bound_tree::SelectedOperation::Index {
+                        target: bray_bound_tree::IndexTarget::ArrayElement
+                            | bray_bound_tree::IndexTarget::SliceElement
+                            | bray_bound_tree::IndexTarget::ArraySlice
+                            | bray_bound_tree::IndexTarget::Slice,
+                        ..
+                    }
+                ))
+            );
+
             if let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 semantics.selections().expression(expression)
                 && call.implementation_hook()
@@ -229,13 +253,6 @@ impl PreparedBodyAnalysis {
                 yields.push((expression, target));
             }
 
-            if let BoundExpression::Assignment(assignment) = node
-                && let Some(target) = assignment.operands().first()
-                && let Some(BoundExpression::Name(name)) = request.view().expression(*target)
-            {
-                self.assigned_places.insert(name.target().into());
-            }
-
             if let Some(place) = crate::execution_guarantees::expression_place(
                 request.unit(),
                 semantics,
@@ -246,17 +263,6 @@ impl PreparedBodyAnalysis {
                     .types()
                     .expression(expression)
                     .map(|entry| entry.ty());
-
-                if place.is_callable_input()
-                    && ty.is_some_and(|ty| {
-                        matches!(
-                            request.semantic_values().type_data(ty).as_ref(),
-                            bray_symbols::TypeData::Borrow { .. }
-                        )
-                    })
-                {
-                    self.borrowed_inputs.insert(place.clone());
-                }
 
                 while let Some(current) = ty
                     && let bray_symbols::TypeData::Borrow { target, .. } =
@@ -282,6 +288,76 @@ impl PreparedBodyAnalysis {
             .collect();
     }
 
+    fn prepare_input_invariants<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+    ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+        let mut types = BTreeMap::new();
+
+        for (place, ty) in &self.observed_types {
+            if !place.is_callable_input() {
+                continue;
+            }
+
+            let Some(ty) = ty else {
+                continue;
+            };
+
+            let fields = if let Some(fields) = types.get(ty) {
+                *fields
+            } else {
+                let fields = match request.semantic_values().type_data(*ty).as_ref() {
+                    bray_symbols::TypeData::Named {
+                        definition: definition @ bray_symbols::NamedTypeSymbolId::Struct(structure),
+                        substitution,
+                    } if request
+                        .context()
+                        .raw_buffer_element(*definition, *substitution)?
+                        .is_some() =>
+                    {
+                        let field = |name| {
+                            let bray_symbols::MemberLookupResult::Found(
+                                bray_symbols::AnySymbolId::StructField(field),
+                            ) = request.lookup_member((*structure).into(), name)?
+                            else {
+                                panic!("recognized buffer {structure:?} requires its {name} field");
+                            };
+
+                            Ok::<_, crate::CheckerQueryError<C::UpstreamError>>(field)
+                        };
+
+                        Some((field("capacity")?, field("initialized")?))
+                    }
+                    _ => None,
+                };
+
+                types.insert(*ty, fields);
+
+                fields
+            };
+
+            let Some((capacity, initialized)) = fields else {
+                continue;
+            };
+
+            let field = |field| {
+                crate::ExecutionCondition::Input(
+                    place
+                        .clone()
+                        .component(bray_symbols::ConstantProjectionKind::ProductField(field)),
+                )
+            };
+
+            self.input_invariants
+                .push(crate::ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::LessEqual,
+                    vec![field(initialized), field(capacity)],
+                ));
+        }
+
+        Ok(())
+    }
+
     fn prepare_scope_places<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,
@@ -295,6 +371,21 @@ impl PreparedBodyAnalysis {
                 bray_bound_tree::StorageBinding::Identity(identity) => Some(*identity),
                 bray_bound_tree::StorageBinding::Access(access) => storage.root_identity(*access),
             };
+
+            // Receiver expressions already expose their reached type. The stored
+            // formal type retains whether the caller owns the referent.
+            if let Some(identity) = identity
+                && storage.storage_type(identity).is_some_and(|ty| {
+                    matches!(
+                        request.semantic_values().type_data(ty).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    )
+                })
+                && let Some(place) = crate::ExecutionPlace::binding(storage, *target)
+                && place.is_callable_input()
+            {
+                self.borrowed_inputs.insert(place);
+            }
 
             // A borrowed input ends its local binding at return, while its caller retains
             // the reached storage and the authority carried by a returned projection.

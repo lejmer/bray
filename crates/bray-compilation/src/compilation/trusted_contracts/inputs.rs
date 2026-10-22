@@ -50,8 +50,8 @@ impl Compilation {
 
             diagnostics.add_range(requirements.diagnostics().iter().cloned());
 
-            for (condition, trusted, _) in requirements.into_parts().0 {
-                if trusted {
+            for (condition, domain, _) in requirements.into_parts().0 {
+                if domain == bray_symbols::PredicateDomain::Trusted {
                     inputs.requirements.push(condition);
                 } else {
                     inputs.preconditions.push(condition);
@@ -72,8 +72,8 @@ impl Compilation {
                     inputs
                         .guarantees
                         .extend(guarantees.into_parts().0.into_iter().filter_map(
-                            |(mut condition, trusted, span)| {
-                                if !trusted {
+                            |(mut condition, domain, span)| {
+                                if domain != bray_symbols::PredicateDomain::Trusted {
                                     return None;
                                 }
 
@@ -107,8 +107,9 @@ impl Compilation {
         }
 
         for (expression, node) in bound.tree().expressions() {
-            if let Some(selection @ (SemanticSelection::ScopedUse(_) | SemanticSelection::Iteration(_))) =
-                semantics.selections().expression(expression)
+            if let Some(
+                selection @ (SemanticSelection::ScopedUse(_) | SemanticSelection::Iteration(_)),
+            ) = semantics.selections().expression(expression)
             {
                 self.add_implicit_trusted_contracts(
                     selection,
@@ -211,14 +212,14 @@ impl Compilation {
             || !inputs.guarantees.is_empty()
             || !inputs.calls.is_empty();
 
-        if needs_predicate_flow {
-            inputs.constants.extend(self.execution_constant_inputs(
-                bound,
-                semantics,
-                cancellation,
-                &mut diagnostics,
-            )?);
+        inputs.constants.extend(self.execution_constant_inputs(
+            bound,
+            semantics,
+            cancellation,
+            &mut diagnostics,
+        )?);
 
+        if needs_predicate_flow {
             inputs
                 .statics
                 .extend(semantics.selections().entries().iter().filter_map(|entry| {

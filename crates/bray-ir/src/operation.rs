@@ -54,6 +54,8 @@ pub enum MirBinaryOperator {
     Subtract,
     /// Numeric multiplication.
     Multiply,
+    /// Integer exponentiation with a nonnegative exponent.
+    Exponentiate,
     /// Numeric division.
     Divide,
     /// Numeric remainder.

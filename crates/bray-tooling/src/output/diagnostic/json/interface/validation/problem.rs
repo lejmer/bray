@@ -518,8 +518,12 @@ fn checked_template_problem_json(
             *expected_type,
             *actual_type,
         ),
-        Problem::SequenceTypeMismatch { node, expected_type, actual_type } => type_mismatch_problem(
-            "template_sequence_type_mismatch",
+        Problem::ValueTypeMismatch {
+            node,
+            expected_type,
+            actual_type,
+        } => type_mismatch_problem(
+            "template_value_type_mismatch",
             "node",
             *node,
             *expected_type,

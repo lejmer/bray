@@ -262,6 +262,40 @@ define_catalog_enum! {
 }
 
 impl ImplementationHook {
+    /// Fixed operations that observe supplied values deterministically and always complete.
+    /// This excludes ambient identity, memory access requiring authority, allocation and mutation.
+    pub const fn is_value_observation(self) -> bool {
+        matches!(
+            self,
+            Self::NullableIsPresent
+                | Self::NullableIsAbsent
+                | Self::SequenceLength
+                | Self::SequenceIsEmpty
+                | Self::RawPointerByteAddress
+                | Self::RawPointerIsNull
+                | Self::StringScalarCount
+                | Self::StringIsEmpty
+                | Self::StringEquals
+                | Self::StringScalarAt
+                | Self::MemorySizeOf
+                | Self::MemoryAlignOf
+                | Self::MemoryStrideOf
+                | Self::MemoryLayoutOf
+                | Self::MemoryTrailingLayoutOf
+                | Self::UninitNew
+                | Self::UninitFrom
+                | Self::AtomicInitialize
+        )
+    }
+
+    /// Fixed iteration operations over the supplied half-open integer range.
+    pub const fn is_range_iteration(self) -> bool {
+        matches!(
+            self,
+            Self::RangeSharedIterate | Self::RangeMoveIterate | Self::RangeNext
+        )
+    }
+
     /// Whether this predicate describes the current runtime execution lane.
     pub const fn is_execution_requirement(self) -> bool {
         matches!(

@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.outgoing;
 
+using std.numeric;
 using core.target;
 using core.memory;
 using std.memory;
@@ -78,7 +79,7 @@ trusted internal func accept_locked(
 ) -> Result<bool, bray.runtime.bootstrap.pool.growth.Request>
 {
 
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
 
     if bundle.records > maximum - pool.credits
     {

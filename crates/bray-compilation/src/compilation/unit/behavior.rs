@@ -22,9 +22,6 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                let control_flow =
-                    self.control_flow_with_cancellation(key.clone(), cancellation)?;
-
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
@@ -35,7 +32,6 @@ impl Compilation {
                 let result =
                     checker_result(DefaultBodyBehaviorCollector.collect_selected_behavior(
                         request,
-                        control_flow.result().value(),
                         expressions.result().value().selections(),
                     ))?;
 
@@ -43,7 +39,6 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
-                    control_flow.result().diagnostics(),
                     expressions.result().diagnostics(),
                     &diagnostics,
                 ]);

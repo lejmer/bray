@@ -120,13 +120,10 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             source
         };
 
+        let purpose = self.materialization_purpose(expression, purpose, source)?;
+
         self.builder_mut()
-            .plan_occurrence_access(
-                occurrence,
-                expression,
-                purpose,
-                source,
-            )
+            .plan_occurrence_access(occurrence, expression, purpose, source)
             .unwrap_or_else(|error| panic!("input access must match its invocation: {error:?}"));
 
         Ok(source)

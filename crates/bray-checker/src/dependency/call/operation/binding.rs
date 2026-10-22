@@ -29,9 +29,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
     let inputs = operands
         .iter()
         .copied()
-        .filter_map(|(root, input)| {
-            Some((root, input.access(storage)?, input.expression()))
-        })
+        .filter_map(|(root, input)| Some((root, input.access(storage)?, input.expression())))
         .collect::<Vec<_>>();
 
     let mut context = CallInstantiationContext::hidden_inputs(
@@ -49,10 +47,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
 
     let result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
 
-    let reports = super::super::contract::instantiate_reports(
-        &template.template,
-        &mut context,
-    )?;
+    let reports = super::super::contract::instantiate_reports(&template.template, &mut context)?;
 
     let contracts =
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)
@@ -62,7 +57,9 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             .with_carriers(template.template.carriers().iter().cloned())
             .with_returned_input(template.template.returned_input())
             .with_normal_completion(template.template.normal_completion())
-            .with_normal_storage_preservation(template.template.preserves_storage_on_normal_return());
+            .with_normal_storage_preservation(
+                template.template.preserves_storage_on_normal_return(),
+            );
 
     let contracts = super::super::references::with_reference_inputs(
         request,

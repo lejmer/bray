@@ -35,10 +35,10 @@ pub(in crate::compilation::export) fn encode_template(
                 }
             };
 
-            Ok(InterfaceCheckedTemplateInput::new(
-                kind,
-                export.type_id(input.ty())?,
-            ))
+            Ok(
+                InterfaceCheckedTemplateInput::new(kind, export.type_id(input.ty())?)
+                    .with_state_output(input.state_output()),
+            )
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
@@ -71,7 +71,8 @@ pub(in crate::compilation::export) fn encode_template(
             Ok(InterfaceCheckedTemplateNode::new(
                 operation,
                 references.borrow_mut().type_id(node.ty())?,
-            ).with_unsigned_integer_bits(node.unsigned_integer_bits()))
+            )
+            .with_unsigned_integer_bits(node.unsigned_integer_bits()))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
@@ -82,7 +83,6 @@ pub(in crate::compilation::export) fn encode_template(
             Ok(InterfaceCheckedTemplateTemporary::new(
                 temporary.initializer(),
                 export.type_id(temporary.ty())?,
-                export.dependency_contract_id(temporary.dependency_contract())?,
             ))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;

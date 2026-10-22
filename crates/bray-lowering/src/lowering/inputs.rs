@@ -122,6 +122,57 @@ impl Lowerer<'_> {
             .collect()
     }
 
+    /// Consume the checked source before conversions can invoke another callable.
+    /// Staged inputs have a separate transfer occurrence from their preparatory read.
+    pub(super) fn consume_staged_input(
+        &mut self,
+        input: bray_bound_tree::BoundExecutionSite,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        value: MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        use bray_bound_tree::StorageAccessPurpose;
+
+        let Some(decision) = self.find_storage_decision_matching(input, |plan| {
+            matches!(
+                plan.purpose(),
+                StorageAccessPurpose::ValueTransfer
+                    | StorageAccessPurpose::Move
+                    | StorageAccessPurpose::Copy,
+            )
+        }) else {
+            return Ok((block, value));
+        };
+
+        let MirOperand::Copy(place) = value else {
+            return Ok((block, value));
+        };
+
+        if decision.purpose() != StorageAccessPurpose::Move
+            || matches!(
+                self.input.semantic_values().type_data(place.ty()).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            )
+        {
+            return Ok((block, MirOperand::Copy(place)));
+        }
+
+        let block = if bray_bound_tree::storage_expression_republishes_destructor_receiver(
+            self.input.unit(),
+            self.input.storage_plan(),
+            expression,
+        )
+        .is_some()
+        {
+            self.admit_outgoing_owner(expression, block, source, place.ty())?
+        } else {
+            block
+        };
+
+        Ok((block, MirOperand::Move(place)))
+    }
+
     pub(super) fn materialize_call_input(
         &mut self,
         input: bray_bound_tree::BoundExecutionSite,
@@ -130,25 +181,60 @@ impl Lowerer<'_> {
         value: MirOperand,
         ty: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } = input else {
+        let bray_bound_tree::BoundExecutionSite::CallInput {
+            expression,
+            ordinal,
+        } = input
+        else {
             panic!("selected input materialization has its exact occurrence");
         };
-        let Some(access) = self.input.storage_plan().invocation_input(expression, ordinal) else {
+
+        let Some(access) = self
+            .input
+            .storage_plan()
+            .invocation_input(expression, ordinal)
+        else {
             return self.materialize_owned_input(block, source, value, ty);
         };
-        let identity = self.input.storage_plan().root_identity(access)
+
+        let identity = self
+            .input
+            .storage_plan()
+            .root_identity(access)
             .expect("staged input owns a storage root");
-        let origin = self.input.unit().view().expression(expression)
-            .expect("selected input retains its source owner").origin();
+
+        let origin = self
+            .input
+            .unit()
+            .view()
+            .expression(expression)
+            .expect("selected input retains its source owner")
+            .origin();
+
         let place = self.place_for_identity(identity, ty, origin)?;
-        self.push_operation(block, Self::retained_source(source), bray_ir::MirOperationKind::Store {
-            kind: bray_ir::MirStoreKind::Initialize,
-            destination: Self::retained_place(&place),
-            value,
-        }, None)?;
+
+        self.push_operation(
+            block,
+            Self::retained_source(source),
+            bray_ir::MirOperationKind::Store {
+                kind: bray_ir::MirStoreKind::Initialize,
+                destination: Self::retained_place(&place),
+                value,
+            },
+            None,
+        )?;
+
         let phases = self.input_cleanup_phases(ty);
-        self.track_input(block, source, Self::retained_place(&place), InputCleanup::Value(phases))?;
+
+        self.track_input(
+            block,
+            source,
+            Self::retained_place(&place),
+            InputCleanup::Value(phases),
+        )?;
+
         self.initialized_temporaries.insert(identity);
+
         Ok(MirOperand::Move(place))
     }
 
@@ -159,16 +245,23 @@ impl Lowerer<'_> {
         temporaries: &[InputTemporary],
     ) -> bool {
         let storage = self.input.storage_plan();
-        let Some(identity) = storage.root_identity(access).filter(|identity|
-            matches!(storage.identity(*identity), Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })))
-        else {
+
+        let Some(identity) = storage.root_identity(access).filter(|identity| {
+            matches!(
+                storage.identity(*identity),
+                Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })
+            )
+        }) else {
             return false;
         };
+
         let Some(storage) = self.storages.get(&identity) else {
             return false;
         };
-        temporaries.iter().any(|temporary|
-            temporary.requires_cleanup(phase) && temporary.place.storage() == *storage)
+
+        temporaries.iter().any(|temporary| {
+            temporary.requires_cleanup(phase) && temporary.place.storage() == *storage
+        })
     }
 
     pub(super) fn materialize_owned_input(
@@ -228,7 +321,9 @@ impl Lowerer<'_> {
         // A partial array is owned exactly by its range. It has no whole-value
         // initialization flag. Ordinary inputs need a guard because a call can
         // consume their complete value before a later input fails.
-        if matches!(action, InputCleanup::Value(Some(_))) && self.initialization_guards.contains_key(&place.storage()) {
+        if matches!(action, InputCleanup::Value(Some(_)))
+            && self.initialization_guards.contains_key(&place.storage())
+        {
             self.set_storage_initialized(block, source, &place, true)?;
         } else if matches!(action, InputCleanup::Value(Some(_))) {
             let boolean = self.representation_type(RepresentationRole::ScalarBool)?;

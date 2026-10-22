@@ -216,7 +216,10 @@ mod tests {
 
         assert_eq!(
             create.signature().parameters(),
-            [PlatformAbiType::PointerU8, PlatformAbiType::PointerU64]
+            [
+                PlatformAbiType::FunctionPointer,
+                PlatformAbiType::PointerU64
+            ]
         );
 
         assert_eq!(load.id(), 0x0332);

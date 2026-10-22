@@ -70,7 +70,7 @@ trusted internal func equals(
 
     let mut index: usize = 0;
 
-    while index < left_length && index != 18_446_744_073_709_551_615
+    while index < left_length && index != std.numeric.USIZE_MAX
     {
         if trusted internal std.memory.byte_buffer_read(left_data, index = index) !=
             trusted internal std.memory.byte_buffer_read(right_data, index = index)
@@ -156,6 +156,7 @@ trusted internal func scalar_slice_data(
     end: usize,
 ) -> DataPointer<u8>
     requires(
+        start <= end && end <= length && start <= (std.numeric.USIZE_MAX >> 1),
         trusted core.memory.valid_read<u8>(pointer = data, count = length),
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
     )
@@ -164,11 +165,6 @@ trusted internal func scalar_slice_data(
         trusted core.memory.initialized_range_as<u8>(pointer = result, count = end - start),
     )
 {
-    assert(
-        start <= end && end <= length && start <= 9_223_372_036_854_775_807,
-        "string byte slice bounds exceed its storage"
-    );
-
     return std.memory.offset<u8>(data, elements = std.numeric.truncate_to<isize>(start));
 }
 
@@ -457,7 +453,7 @@ trusted internal func byte(pos data: DataPointer<u8>, pos length: usize, pos ind
     )
     uses(raw_memory)
 {
-    if !(index < length) || !(index != 18_446_744_073_709_551_615)
+    if !(index < length) || !(index != std.numeric.USIZE_MAX)
     {
         panic("string byte index is out of bounds");
     }
@@ -475,7 +471,7 @@ trusted internal func continuation(pos data: DataPointer<u8>, pos length: usize,
         trusted core.memory.initialized_range_as<u8>(pointer = data, count = length),
     )
 {
-    if !(index < length) || !(index != 18_446_744_073_709_551_615)
+    if !(index < length) || !(index != std.numeric.USIZE_MAX)
     {
         panic("string byte index is out of bounds");
     }

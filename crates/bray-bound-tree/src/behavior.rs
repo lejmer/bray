@@ -83,7 +83,6 @@ pub struct BodyBehaviorContributions {
     calls: Arc<[BodyBehaviorCall]>,
     defaults: Arc<[DefaultValueProvider]>,
     static_dependencies: Arc<[StaticSymbolId]>,
-    current_run_cancellation: CurrentRunCancellation,
     is_recovered: bool,
 }
 
@@ -125,7 +124,6 @@ impl BodyBehaviorContributions {
         calls: impl IntoIterator<Item = BodyBehaviorCall>,
         defaults: impl IntoIterator<Item = DefaultValueProvider>,
         static_dependencies: impl IntoIterator<Item = StaticSymbolId>,
-        current_run_cancellation: CurrentRunCancellation,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -134,7 +132,6 @@ impl BodyBehaviorContributions {
             calls: shared_slice(calls),
             defaults: shared_slice(defaults),
             static_dependencies: sorted_unique_shared_slice(static_dependencies),
-            current_run_cancellation,
             is_recovered,
         }
     }
@@ -176,11 +173,6 @@ impl BodyBehaviorContributions {
     /// Returns static declarations selected directly in this unit.
     pub fn static_dependencies(&self) -> &[StaticSymbolId] {
         &self.static_dependencies
-    }
-
-    /// Returns whether the current run can enter cancellation directly in this unit.
-    pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
-        self.current_run_cancellation
     }
 
     /// Returns whether recovery prevented complete contribution discovery.

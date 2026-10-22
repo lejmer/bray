@@ -107,7 +107,7 @@ trusted internal func invoke(
         ),
     )
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
-    uses(raw_memory)
+    uses(raw_memory, foreign_call)
 {
     trusted callback(execution, descriptor, context, operation, argument, progress, records);
 

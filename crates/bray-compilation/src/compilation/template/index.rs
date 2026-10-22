@@ -75,7 +75,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
                 Ok(CheckedTemplateOperation::Index {
                     call,
-                    subject: self.expression(*subject)?,
+                    subject: self.place_expression(*subject)?,
                     index: self.expression(*index)?,
                 })
             }
@@ -90,7 +90,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
                 Ok(CheckedTemplateOperation::Slice {
                     call,
-                    subject: self.expression(*subject)?,
+                    subject: self.place_expression(*subject)?,
                     lower: bounds
                         .lower()
                         .map(|bound| self.expression(bound))

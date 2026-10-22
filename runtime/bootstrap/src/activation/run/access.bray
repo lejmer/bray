@@ -37,7 +37,7 @@ trusted internal func select(pos cursor: &mut Cursor)
     uses(intrinsic)
 {
     let address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(cursor.pointer);
-    let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor, root = true);
+    let header = trusted bray.runtime.bootstrap.activation.execution.root(cursor);
 
     header.current = address;
 }
@@ -76,7 +76,7 @@ trusted internal func begin_broadcast(pos cursor: &mut Cursor)
     let identity = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(root);
 
     {
-        let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor, root = true);
+        let header = trusted bray.runtime.bootstrap.activation.execution.root(cursor);
 
         header.broadcast_next = identity;
         header.current = identity;

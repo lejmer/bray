@@ -71,6 +71,13 @@ pub(super) fn decode_execution_contract(
                     reader,
                 )?)),
                 1 => CallableExecutionTarget::Indirect(InterfaceTypeId::new(read_u32(reader)?)),
+                2 => CallableExecutionTarget::Requirement {
+                    callable: InterfaceCallableInstanceId::new(read_u32(reader)?),
+                    requirement: (
+                        InterfaceTypeId::new(read_u32(reader)?),
+                        crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
+                    ),
+                },
                 _ => {
                     return Err(crate::semantic::codec::invalid_discriminant(
                         InterfaceValidationField::Reference,
@@ -119,6 +126,9 @@ fn decode_obligation(
 
             Ok(CallableExecutionObligation::Property(property, guard))
         }
+        2 => Ok(CallableExecutionObligation::Observation),
+        3 => Ok(CallableExecutionObligation::Termination),
+        4 => Ok(CallableExecutionObligation::FiniteIteration),
         1 => Ok(CallableExecutionObligation::Postcondition(
             SymbolOrdinal::new(read_u32(reader)?),
         )),

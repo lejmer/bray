@@ -2,6 +2,7 @@
 trusted module std.process;
 
 using std.memory;
+using std.numeric;
 using internal std.platform;
 
 trusted internal func windows_spawn_storage(
@@ -42,7 +43,7 @@ internal func windows_text_units(
 {
     let bytes: usize = text.length();
 
-    if bytes % 2 != 0 || !allow_empty && bytes == 0 || bytes / 2 > 2_147_483_647
+    if bytes % 2 != 0 || !allow_empty && bytes == 0 || bytes / 2 > ((std.numeric.U32_MAX >> 1) as usize)
     {
         return Error(internal std.platform.invalid_input_status());
     }
@@ -86,7 +87,7 @@ trusted internal func windows_terminated_text(
         return trusted internal windows_buffer(0);
     }
 
-    if bytes > 18_446_744_073_709_551_613
+    if bytes > std.numeric.USIZE_MAX - 2
     {
         return Error(internal std.platform.exhausted_status());
     }

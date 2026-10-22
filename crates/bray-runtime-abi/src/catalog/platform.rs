@@ -221,7 +221,7 @@ macro_rules! platform_role_catalog {
             ThreadCreate {
                 "Creates one operating-system thread and transfers its callback context.", 0x0321, "platform.thread.create",
                 PLATFORM_THREAD_CREATE_SYMBOL = "bray_platform_thread_create",
-                Thread, [PointerU8, PointerU8, PointerU64, PointerI64] -> Status, bootstrap: ()
+                Thread, [FunctionPointer, PointerU8, PointerU64, PointerI64] -> Status, bootstrap: ()
             }
             ThreadJoin {
                 "Waits for one operating-system thread and consumes its owner.", 0x0322, "platform.thread.join",
@@ -236,7 +236,7 @@ macro_rules! platform_role_catalog {
             ThreadStorageCreate {
                 "Creates one destructor-bearing native thread-storage key.", 0x0331, "platform.thread_storage.create",
                 PLATFORM_THREAD_STORAGE_CREATE_SYMBOL = "bray_platform_thread_storage_create",
-                Thread, [PointerU8, PointerU64] -> Status, bootstrap: ()
+                Thread, [FunctionPointer, PointerU64] -> Status, bootstrap: ()
             }
             ThreadStorageLoad {
                 "Loads the calling native thread's value for one storage key.", 0x0332, "platform.thread_storage.load",

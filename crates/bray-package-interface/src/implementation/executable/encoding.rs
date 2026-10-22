@@ -1543,6 +1543,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirBinaryOperator::BitwiseXor => 13,
             MirBinaryOperator::ShiftLeft => 14,
             MirBinaryOperator::ShiftRight => 15,
+            MirBinaryOperator::Exponentiate => 16,
         });
     }
 
@@ -1885,6 +1886,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         Ok(())
     }
 
+    // rust-style: allow(function-too-large, reason = "memory operation tags and their wire fields form one exhaustive flat protocol mapping")
     fn memory_kind(
         &mut self,
         kind: CheckedMemoryOperationKind,

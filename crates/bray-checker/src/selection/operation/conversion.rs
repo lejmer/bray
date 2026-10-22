@@ -187,17 +187,20 @@ fn phase_contract_is_compatible(
     source: &bray_symbols::CallablePhaseBehavior,
     target: &bray_symbols::CallablePhaseBehavior,
 ) -> bool {
-    // Removing promises compares the same immutable phase contracts without widening obligations.
+    // Implementation authority is non-transitive. Callable conversion compares caller
+    // obligations and promises independently of the authority used inside either body.
     source
         .clone()
         .with_may_unwind(true)
         .with_execution_properties([])
         .with_predicates([], [])
+        .with_trusted_capabilities([])
         == target
             .clone()
             .with_may_unwind(true)
             .with_execution_properties([])
             .with_predicates([], [])
+            .with_trusted_capabilities([])
         && (target.may_unwind() || !source.may_unwind())
         && source.predicate_requirements().iter().all(|condition| {
             target.predicate_requirements().iter().any(|candidate| {

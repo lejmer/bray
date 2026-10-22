@@ -149,3 +149,49 @@ pub(super) fn compilation_from_sources_for_product_with_platform_services_and_wo
     Compilation::load(request)
         .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
 }
+
+pub(super) fn source_constant_value(
+    compilation: &Compilation,
+    name: &str,
+) -> Arc<bray_symbols::ConstantValueData> {
+    let graph = compilation
+        .symbol_graph()
+        .expect("test symbol graph must publish");
+
+    let constant = graph
+        .constants()
+        .iter()
+        .find(|constant| {
+            constant.origin() == bray_symbols::SymbolOrigin::Source
+                && graph
+                    .member_name(constant.id().into())
+                    .is_some_and(|member| member.as_str() == name)
+        })
+        .unwrap_or_else(|| panic!("source constant {name} must exist"));
+
+    let definition = bray_symbols::AnyConstantDefinitionId::Constant(constant.id());
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("test semantic values must publish");
+
+    let substitution =
+        crate::compilation::substitution::empty_substitution(values, definition.into_any())
+            .expect("closed source constant has its empty substitution");
+
+    let result = compilation
+        .constant_instance(bray_symbols::ConstantInstanceKey::new(
+            definition,
+            substitution,
+            None,
+        ))
+        .expect("closed source constant must evaluate");
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{:#?}",
+        result.diagnostics()
+    );
+
+    values.constant_value_data(result.value().value())
+}

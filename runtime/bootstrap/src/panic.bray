@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
+using std.numeric;
 using core.target;
 using internal bray.runtime.bootstrap.heap;
 using core.atomic;
@@ -220,7 +221,7 @@ trusted internal func retain_message_storage(pos storage: std.memory.RawBuffer<u
         {
             let mut guard = trusted bray.runtime.bootstrap.pool.lock();
             let pool = guard.get();
-            let maximum: usize = ~0;
+            let maximum: usize = std.numeric.USIZE_MAX;
 
             if pool.credits == maximum
             {

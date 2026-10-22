@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.atomic;
 
 using core.memory;
+using std.numeric;
 using std.os.linux;
 
 @abi(c)
@@ -67,7 +68,7 @@ trusted internal func notify_all(pos address: DataPointer<u32>)
         std.os.linux.SYS_FUTEX,
         address,
         std.os.linux.FUTEX_WAKE_PRIVATE,
-        2_147_483_647,
+        std.numeric.I32_MAX,
         core.memory.null<u8>(),
         core.memory.null<u8>(),
         0,

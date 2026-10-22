@@ -26,7 +26,7 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 {
     let mut capacity: usize = 256;
 
-    while capacity <= 9_223_372_036_854_775_807
+    while capacity <= (std.numeric.USIZE_MAX >> 1)
     {
         let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(capacity);
 
@@ -39,7 +39,7 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
             return buffer;
         }
 
-        if trusted internal unix_error_code() != 34 || capacity > 4_611_686_018_427_387_903
+        if trusted internal unix_error_code() != 34 || capacity > (std.numeric.USIZE_MAX >> 1) / 2
         {
             panic("the platform startup working directory is unavailable");
         }
@@ -51,7 +51,6 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 }
 
 trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
-    uses(foreign_call, raw_memory)
 {
     return Ok(trusted internal copy_native_text_list(trusted internal environment_cursor()));
 }
@@ -129,14 +128,11 @@ trusted internal func native_text_cursor_entry(pos cursor: &NativeTextCursor) ->
     requires(trusted native_text_cursor_valid(cursor = cursor))
     ensures(
         trusted native_text_cursor_valid(cursor = cursor),
-        core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(
-            pointer = result.0,
-            count = result.1 + 1
-        ),
-        core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(
-            pointer = result.0,
-            count = result.1 + 1
-        ),
+        core.memory.is_null<u8>(result.0) || ((result.1 != std.numeric.USIZE_MAX) && (trusted core.memory.valid_read<
+            u8
+        >(pointer = result.0, count = result.1 + 1))),
+        core.memory.is_null<u8>(result.0) || ((result.1 != std.numeric.USIZE_MAX) &&
+            (trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = result.1 + 1))),
     )
 {
     let entry: DataPointer<u8> = trusted internal native_text_cursor_value(cursor);
@@ -146,7 +142,7 @@ trusted internal func native_text_cursor_entry(pos cursor: &NativeTextCursor) ->
         return (entry, 0);
     }
 
-    let length: usize = trusted internal terminated_byte_length(entry, limit = 9_223_372_036_854_775_807);
+    let length: usize = trusted internal terminated_byte_length(entry, limit = (std.numeric.USIZE_MAX >> 1));
 
     return (entry, length);
 }
@@ -223,7 +219,7 @@ trusted internal func copy_native_text_list(pos mut cursor: NativeTextCursor) ->
             break;
         }
 
-        if total > 9_223_372_036_854_775_807 - observed.1 - 1
+        if total > (std.numeric.USIZE_MAX >> 1) - observed.1 - 1
         {
             panic("the platform process context is too large");
         }
@@ -248,7 +244,6 @@ trusted internal func copy_native_text_list(pos mut cursor: NativeTextCursor) ->
 }
 
 trusted internal func read_process_file(pos path: DataPointer<u8>) -> std.memory.RawBuffer<u8>
-    uses(foreign_call)
 {
     let descriptor: i32 = trusted std.os.unix.open_file(
         path,
@@ -407,13 +402,13 @@ trusted internal func append_context_terminator(pos buffer: &mut std.memory.RawB
 trusted internal func terminated_byte_length(pos pointer: DataPointer<u8>, limit: usize) -> usize
     requires(trusted core.memory.nul_terminated_read(pointer = pointer))
     ensures(
-        trusted core.memory.valid_read<u8>(pointer = pointer, count = result + 1),
-        trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = result + 1),
+        (result < limit) && (trusted core.memory.valid_read<u8>(pointer = pointer, count = result + 1)) &&
+            (trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = result + 1)),
     )
 {
     let length: usize = trusted std.os.unix.narrow_string_length(pointer, limit);
 
-    if length == limit
+    if length >= limit
     {
         panic("the platform process context contains invalid native text");
     }
@@ -543,7 +538,7 @@ internal const func descriptor_request_length(pos length: u64) -> usize
     executes(pure, total)
     ensures(result <= length as usize)
 {
-    let maximum: u64 = 9_223_372_036_854_775_807;
+    let maximum: u64 = (std.numeric.U64_MAX >> 1);
 
     if length > maximum
     {
@@ -556,7 +551,9 @@ internal const func descriptor_request_length(pos length: u64) -> usize
 internal func checked_descriptor(pos handle: u64) -> Result<i32, PlatformStatus>
     executes(pure, total)
 {
-    if handle > 2_147_483_647
+    const MAXIMUM: u64 = std.numeric.truncate_to<u64>(std.numeric.I32_MAX);
+
+    if handle > MAXIMUM
     {
         return Error(invalid_input_status());
     }

@@ -349,7 +349,6 @@ internal func environment_entry_index(
 
 trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildProcess, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let argument_views: std.collection.List<(&[u8])> = try argument_spans(&state.argument_values);
 
@@ -399,7 +398,6 @@ trusted internal func spawn_child_request(
     standard_error: ChildStreamPolicy,
 ) -> Result<ChildProcess, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut child: u64 = 0;
     let mut input: u64 = 0;
@@ -489,7 +487,6 @@ trusted internal func environment_spans(
 
 trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<ExitStatus, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
     ensures(result matches Error(_) || ChildProcess.complete(value = &child))
 {
     try trusted close_retained_pipes(&mut child.state);
@@ -552,7 +549,6 @@ trusted internal func request_child_termination(pos child: &mut ChildProcess) ->
 
 trusted internal func force_child_termination(pos child: &mut ChildProcess) -> Result<ExitStatus, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
     ensures(result matches Error(_) || ChildProcess.complete(value = &child))
 {
     if !child.state.is_open

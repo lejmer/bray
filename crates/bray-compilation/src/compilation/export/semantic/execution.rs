@@ -16,18 +16,9 @@ pub(super) fn callable_contracts(
     compilation: &Compilation,
     resolved: &BTreeMap<AnySymbolId, Arc<DiagnosticResult<CallableContractSet>>>,
     selected: &BTreeSet<AnySymbolId>,
+    execution: &BTreeMap<AnySymbolId, bray_symbols::ResolvedCallableExecutionContract>,
     export: &mut SemanticExporter<'_>,
 ) -> Result<Vec<InterfaceCallableContract>, PackageInterfaceExportError> {
-    let execution = compilation
-        .export_execution_contracts(selected, &compilation.state.cancellation)
-        .map_err(super::super::invalid_compilation_fact_error)?;
-
-    if let Some(error) =
-        super::super::error::source_diagnostic_export_error(execution.diagnostics())
-    {
-        return Err(error);
-    }
-
     let mut contracts = Vec::new();
 
     for symbol in selected.iter().copied() {
@@ -68,7 +59,7 @@ pub(super) fn callable_contracts(
 
         let mut serialized = export.callable_contract(symbol, contract.value())?;
 
-        if let Some(evidence) = execution.value().get(&symbol) {
+        if let Some(evidence) = execution.get(&symbol) {
             let evidence = evidence.try_map(
                 export,
                 |export, term| export.constant_term_id(term),
@@ -76,6 +67,16 @@ pub(super) fn callable_contracts(
                     CallableExecutionTarget::Callable(callable) => export
                         .callable_instance_id(callable)
                         .map(CallableExecutionTarget::Callable),
+                    CallableExecutionTarget::Requirement {
+                        callable,
+                        requirement,
+                    } => Ok(CallableExecutionTarget::Requirement {
+                        callable: export.callable_instance_id(callable)?,
+                        requirement: (
+                            export.type_id(requirement.subject())?,
+                            export.trait_application_id(requirement.trait_application())?,
+                        ),
+                    }),
                     CallableExecutionTarget::Indirect(ty) => {
                         export.type_id(ty).map(CallableExecutionTarget::Indirect)
                     }

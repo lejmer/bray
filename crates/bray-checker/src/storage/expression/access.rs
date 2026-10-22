@@ -395,7 +395,11 @@ where
         result: TypeId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let occurrence = occurrence.into();
-        let expression = occurrence.expression().expect("borrow creation has its source owner");
+
+        let expression = occurrence
+            .expression()
+            .expect("borrow creation has its source owner");
+
         let capability = self.plan_borrow(occurrence, access, kind)?;
 
         self.push_expression_access(
@@ -416,7 +420,11 @@ where
         kind: bray_symbols::BorrowKind,
     ) -> Result<bray_bound_tree::BorrowCapabilityId, PlanError<C::UpstreamError>> {
         let occurrence = occurrence.into();
-        let expression = occurrence.expression().expect("borrow creation has its source owner");
+
+        let expression = occurrence
+            .expression()
+            .expect("borrow creation has its source owner");
+
         let borrowed = self
             .builder()
             .access(access).unwrap_or_else(|| panic!("borrow_access requires planned storage access, expression: {expression:?}, access: {access:?}"));
@@ -583,10 +591,16 @@ where
         let is_recovered = node.is_recovered();
 
         let storage = match identity {
-            StorageIdentity::InvocationResult(occurrence) => self.bind_identity(
-                StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
-            )?.expect("selected invocation result is planned once"),
-            _ => self.builder_mut().push_identity(identity)
+            StorageIdentity::InvocationResult(occurrence) => self
+                .bind_identity(
+                    StorageBindingTarget::InvocationResult(occurrence),
+                    identity,
+                    Some(ty),
+                )?
+                .expect("selected invocation result is planned once"),
+            _ => self
+                .builder_mut()
+                .push_identity(identity)
                 .expect("protocol identity belongs to its checked unit"),
         };
 

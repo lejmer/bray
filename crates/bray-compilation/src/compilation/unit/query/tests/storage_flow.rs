@@ -1185,11 +1185,12 @@ fn native_callbacks_consume_only_their_implicit_report_outputs() {
         let source = r#"
             module app;
 
-            trusted func invoke(pos callback: NativeAbi func(pos value: u32) -> u32, pos value: u32) -> u32
+            trusted func invoke(pos callback: NativeAbi func(pos value: u32) -> u32, pos value: u32) -> u32 NativeCapability
             {
                 return callback(value);
             }
-        "#.replace("NativeAbi", if native { "@abi(c)" } else { "" });
+        "#.replace("NativeAbi", if native { "@abi(c)" } else { "" })
+            .replace("NativeCapability", if native { "uses(foreign_call)" } else { "" });
 
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
@@ -1423,19 +1424,39 @@ fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referent
         "#,
     );
 
-    assert!(!compilation.check_diagnostics().has_errors(), "{:#?}", compilation.check_diagnostics());
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
 
     for (name, borrowed) in [("borrowed", true), ("owned", false)] {
         let key = crate::test_support::source_function_body_key(&compilation, name);
         let bound = compilation.bound_unit(key.clone()).unwrap();
         let flow = compilation.storage_flow(key).unwrap();
-        let assignment = bound.value().tree().expressions().find_map(|(id, expression)| {
-            matches!(expression, bray_bound_tree::BoundExpression::Assignment(_)).then_some(id)
-        }).unwrap();
-        let target = flow.value().assignment_target(assignment)
+
+        let assignment = bound
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(id, expression)| {
+                matches!(expression, bray_bound_tree::BoundExpression::Assignment(_)).then_some(id)
+            })
+            .unwrap();
+
+        let target = flow
+            .value()
+            .assignment_target(assignment)
             .expect("a settled assignment must retain its established origin");
 
-        assert_eq!(matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { layer: 1, .. }), borrowed);
+        assert_eq!(
+            matches!(
+                target.origin,
+                bray_bound_tree::StorageOrigin::Entry { layer: 1, .. }
+            ),
+            borrowed
+        );
+
         assert_eq!(target.storage_path().is_none(), borrowed);
         assert!(!target.previous);
     }

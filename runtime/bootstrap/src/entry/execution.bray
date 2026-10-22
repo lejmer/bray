@@ -47,7 +47,7 @@ trusted internal func dispatch(
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(trusted native_entry())
-    uses(layout_reinterpret)
+    uses(layout_reinterpret, foreign_call)
 {
     let selected = trusted bray.runtime.bootstrap.entry.bridge.current();
 

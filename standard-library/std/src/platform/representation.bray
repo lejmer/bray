@@ -90,7 +90,7 @@ trusted internal func terminated_native_text(
 {
     let count: usize = length as usize;
 
-    if count as u64 != length || terminator_bytes == 0 || count > 18_446_744_073_709_551_615 - terminator_bytes
+    if count as u64 != length || terminator_bytes == 0 || count > std.numeric.USIZE_MAX - terminator_bytes
     {
         return Error(invalid_input_status());
     }
@@ -193,7 +193,7 @@ trusted internal func read_native_u64(pos pointer: DataPointer<u8>) -> u64
     let mut value: u64 = 0;
     let mut index: usize = 0;
 
-    while index < 8 && index != 18_446_744_073_709_551_615
+    while index < 8 && index != std.numeric.USIZE_MAX
     {
         value |= trusted internal std.memory.byte_buffer_read(pointer, index = index) as u64 << (index as u64 * 8);
         index += 1;

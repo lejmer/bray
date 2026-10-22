@@ -475,6 +475,12 @@ impl Lowerer<'_> {
         let may_cancel = match outcome_kind {
             CallOutcome::Runtime => false,
             CallOutcome::Predicate => true,
+            CallOutcome::Selected
+                if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+                    && self.input.call_cannot_cancel(expression) =>
+            {
+                false
+            }
             CallOutcome::Selected => match (
                 occurrence,
                 self.input.semantic_selections().expression(expression),

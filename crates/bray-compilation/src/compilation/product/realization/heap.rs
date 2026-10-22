@@ -340,7 +340,9 @@ trusted func allocate(pos bytes: usize, pos align: usize) -> DataPointer<u8>
 {
     return core.memory.null<u8>();
 }
-trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos align: usize) {}
+trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos align: usize)
+{
+}
 "#,
                 0,
             )],

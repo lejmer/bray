@@ -92,7 +92,7 @@ impl Compilation {
             Ok(result) => {
                 *diagnostics = diagnostics.merged(result.diagnostics());
 
-                ConstantReferenceResolution::Evaluated(*result.value())
+                ConstantReferenceResolution::Evaluated(result.value().clone())
             }
             Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle {
                 definition: self.constant_definition_span(definition)?,
@@ -622,7 +622,7 @@ impl Compilation {
         ]);
 
         if let Some(evaluated) = evaluated.value() {
-            return Ok(DiagnosticResult::new(*evaluated, diagnostics));
+            return Ok(DiagnosticResult::new(evaluated.clone(), diagnostics));
         }
 
         recovered_error_constant_instance(
@@ -898,7 +898,9 @@ impl Compilation {
                             dependency_diagnostics =
                                 dependency_diagnostics.merged(result.diagnostics());
 
-                            Ok(ConstantReferenceResolution::Evaluated(*result.value()))
+                            Ok(ConstantReferenceResolution::Evaluated(
+                                result.value().clone(),
+                            ))
                         }
                         Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle {
                             definition: self.constant_definition_span(definition)?,
@@ -1321,7 +1323,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert!(first.diagnostics().is_empty());
 
-        let Some(value) = *first.value() else {
+        let Some(value) = first.value().as_ref() else {
             panic!("constant callable must be eligible for evaluation");
         };
 
@@ -1331,7 +1333,26 @@ mod tests {
     #[test]
     fn pattern_conditions_evaluate_constant_calls_and_conditional_bindings() {
         let compilation = compilation(
-            "module app; const func choose(pos input: i32) -> i32 requires(input < 100) { if input matches 0 | 1 { return 10; } else if let value = input && value > 5 && let next = value + 1 { return next; } else { return 99; } }",
+            r#"
+                module app;
+
+                const func choose(pos input: i32) -> i32
+                    requires(input < 100)
+                {
+                    if input matches 0 | 1
+                    {
+                        return 10;
+                    }
+                    else if let value = input && value > 5 && let next = value + 1
+                    {
+                        return next;
+                    }
+                    else
+                    {
+                        return 99;
+                    }
+                }
+            "#,
         );
 
         let result_type = i32_type(&compilation);
@@ -1352,7 +1373,7 @@ mod tests {
             );
 
             assert_eq!(
-                integer_value(&compilation, result.value().unwrap().value()),
+                integer_value(&compilation, result.value().as_ref().unwrap().value()),
                 expected
             );
         }
@@ -1417,7 +1438,7 @@ mod tests {
             result.diagnostics()
         );
 
-        let Some(value) = *result.value() else {
+        let Some(value) = result.value().as_ref() else {
             panic!("constant callable must be eligible for evaluation");
         };
 
@@ -1478,7 +1499,7 @@ mod tests {
                 checked.diagnostics()
             );
 
-            let Some(value) = *checked.value() else {
+            let Some(value) = checked.value().as_ref() else {
                 panic!("constant callable must be eligible for evaluation");
             };
 
@@ -2368,11 +2389,10 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             panic!("constant value must be an integer: {value:?}");
         };
 
-        let [value] = integer.magnitude() else {
-            panic!("test integer must fit in one byte");
-        };
-
-        *value
+        integer
+            .to_u64()
+            .and_then(|value| u8::try_from(value).ok())
+            .expect("test integer must fit in one byte")
     }
 
     fn constant_value(
@@ -2383,5 +2403,53 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             .semantic_value_store()
             .map(|values| values.constant_value_data(value))
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
+    }
+    #[test]
+    fn checked_while_templates_commit_state_and_preserve_early_returns() {
+        let source = r#"
+            module app;
+
+            const func count(pos limit: u32) -> u32
+                executes(pure, total)
+            {
+                let mut index: u32 = 0;
+
+                while index < limit
+                {
+                    index += 1;
+
+                    if index == 3
+                    {
+                        return index;
+                    }
+                }
+
+                return index;
+            }
+
+            const empty: u32 = count(0);
+            const short: u32 = count(2);
+            const early: u32 = count(7);
+        "#;
+
+        let checked = compilation(source);
+
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:#?}",
+            checked.check_diagnostics()
+        );
+
+        let definitions = source_constant_definitions(&checked);
+
+        assert_eq!(definitions.len(), 3);
+
+        for (definition, expected) in definitions.into_iter().zip([0, 2, 3]) {
+            let value = checked
+                .constant_instance(instance_key(&checked, definition))
+                .expect("checked stateful constant loop evaluates");
+
+            assert_eq!(integer_value(&checked, value.value().value()), expected);
+        }
     }
 }

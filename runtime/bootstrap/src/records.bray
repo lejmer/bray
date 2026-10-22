@@ -423,7 +423,10 @@ trusted internal func exchange_record_value(
 }
 
 @abi(c)
-trusted internal func report_segment_mark(pos chain: DataPointer<ReportRecords>, pos metadata: DataPointer<ReportSegment>)
+trusted internal func report_segment_mark(
+    pos chain: DataPointer<ReportRecords>,
+    pos metadata: DataPointer<ReportSegment>
+)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),

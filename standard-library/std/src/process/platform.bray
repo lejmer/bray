@@ -106,7 +106,7 @@ internal func exit_status(pos status: PlatformExitStatus) -> Result<ExitStatus, 
     {
         case 0
         {
-            if status.payload < -2147483648 || status.payload > 2147483647
+            if (status.payload < (std.numeric.I32_MIN as i64)) || (status.payload > (std.numeric.I32_MAX as i64))
             {
                 return Error(invalid_child_error(kind = Reaping));
             }

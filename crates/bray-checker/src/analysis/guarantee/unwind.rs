@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan};
+use bray_bound_tree::{
+    CheckedExpressionSemantics, CheckedMemoryOperations, StoragePlan, UnwindBehavior,
+};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::ExecutionProperty;
 
@@ -10,10 +12,10 @@ use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUni
 /// Body-local unwind behavior with the selected dependencies that can still unwind.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct UnwindCandidate {
-    may_unwind: bool,
+    behavior: UnwindBehavior,
     entry_conditions: BTreeSet<crate::ExecutionCondition>,
     dependencies: BTreeSet<crate::ExecutionDependencyTarget>,
-    calls: BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>>,
+    calls: BTreeMap<bray_bound_tree::BoundExpressionId, UnwindCall>,
 }
 
 impl UnwindCandidate {
@@ -22,16 +24,13 @@ impl UnwindCandidate {
         &self.entry_conditions
     }
 
-    /// Whether local operations can unwind independently of the retained dependencies.
-    pub const fn may_unwind(&self) -> bool {
-        self.may_unwind
+    /// Local abnormal outcomes, independent of retained dependencies.
+    pub const fn behavior(&self) -> UnwindBehavior {
+        self.behavior
     }
 
-    /// Locally non-unwinding call sites and all of their invocation and conversion dependencies.
-    pub fn calls(
-        &self,
-    ) -> &BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<crate::ExecutionDependencyTarget>>
-    {
+    /// Selected invocations and their local and dependency outcomes.
+    pub fn calls(&self) -> &BTreeMap<bray_bound_tree::BoundExpressionId, UnwindCall> {
         &self.calls
     }
 
@@ -41,8 +40,28 @@ impl UnwindCandidate {
     }
 }
 
+/// The local panic bound and selected dependencies of one invocation.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnwindCall {
+    locally_non_unwinding: bool,
+    dependencies: BTreeSet<crate::ExecutionDependencyTarget>,
+}
+
+impl UnwindCall {
+    /// Whether local checks and argument conversions exclude abnormal completion.
+    pub const fn locally_non_unwinding(&self) -> bool {
+        self.locally_non_unwinding
+    }
+
+    /// The selected dependencies that may propagate an abnormal outcome.
+    pub fn dependencies(&self) -> &BTreeSet<crate::ExecutionDependencyTarget> {
+        &self.dependencies
+    }
+}
+
 /// Infers abnormal completion from checked operations before ownership-flow analysis.
 /// Termination is deliberately independent: a loop may run forever without unwinding.
+// rust-style: allow(function-too-large, reason = "one reachable graph walk shares edge reachability while collecting direct failure, call, cleanup, and cancellation behavior")
 pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     prepared: &crate::PreparedBodyAnalysis,
@@ -66,24 +85,59 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
         return CheckerOutcome::Cancelled;
     };
 
-    let mut may_unwind = graph
+    let mut may_unwind = false;
+    let mut cancellation = bray_symbols::CurrentRunCancellation::NotEntered;
+
+    for exit in graph
         .exits()
         .iter()
         .filter(|exit| reachable.is_block_reachable(exit.block()))
-        .any(|exit| {
-            matches!(
-                exit.kind(),
-                AnalysisExitKind::Panic
-                    | AnalysisExitKind::Cancellation
-                    | AnalysisExitKind::Recovery
-            )
-        });
+    {
+        match exit.kind() {
+            AnalysisExitKind::Cancellation | AnalysisExitKind::Recovery => {
+                may_unwind = true;
+                cancellation = bray_symbols::CurrentRunCancellation::MayEnter;
+            }
+            AnalysisExitKind::Panic => may_unwind = true,
+            _ => {}
+        }
+    }
+
+    // Suspension can cancel its current run even when no child body does.
+    // Its failure edge is excluded above to separate local and callee unwind.
+    if graph.edges().iter().any(|edge| {
+        edge.kind() == super::super::model::AnalysisEdgeKind::RunCancellation
+            && reachable.is_block_reachable(edge.source())
+    }) {
+        may_unwind = true;
+        cancellation = bray_symbols::CurrentRunCancellation::MayEnter;
+    }
 
     let mut dependencies = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
     let mut calls = BTreeMap::new();
 
-    for (expression, _) in request.unit().tree().expressions() {
+    // A source expression can have several input, invocation and completion operations.
+    // Check each reachable expression once, using the prepared graph's established reachability.
+    let reachable_expressions = graph
+        .blocks()
+        .iter()
+        .filter(|block| reachable.is_block_reachable(block.id()))
+        .flat_map(|block| block.operations())
+        .filter_map(|operation| {
+            match graph
+                .operation(*operation)
+                .expect("reachable block retains its operation")
+                .kind()
+                .node()
+            {
+                bray_bound_tree::AnyBoundNodeId::Expression(expression) => Some(expression),
+                _ => None,
+            }
+        })
+        .collect::<BTreeSet<_>>();
+
+    for expression in reachable_expressions {
         if request.is_cancelled() {
             return CheckerOutcome::Cancelled;
         }
@@ -105,41 +159,97 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
 
         may_unwind |= !valid;
 
-        if valid
-            && matches!(
-                expressions.selections().expression(expression),
-                Some(
-                    bray_bound_tree::SemanticSelection::Call(_)
-                        | bray_bound_tree::SemanticSelection::Operation(
-                            bray_bound_tree::SelectedOperation::Operator { .. }
-                                | bray_bound_tree::SelectedOperation::CompoundAssignment(_)
-                                | bray_bound_tree::SelectedOperation::Index { .. }
-                                | bray_bound_tree::SelectedOperation::Conversion(_)
-                        )
-                )
+        if matches!(
+            expressions.selections().expression(expression),
+            Some(
+                bray_bound_tree::SemanticSelection::Call(_)
+                    | bray_bound_tree::SemanticSelection::Operation(
+                        bray_bound_tree::SelectedOperation::Operator { .. }
+                            | bray_bound_tree::SelectedOperation::CompoundAssignment(_)
+                            | bray_bound_tree::SelectedOperation::Index { .. }
+                            | bray_bound_tree::SelectedOperation::Conversion(_)
+                    )
             )
-        {
+        ) {
+            if !valid {
+                match expressions.selections().expression(expression) {
+                    Some(bray_bound_tree::SemanticSelection::Call(call))
+                        if matches!(
+                            call.resolution().result(),
+                            bray_bound_tree::BoundCallResult::Immediate(_)
+                        ) =>
+                    {
+                        // A local access check can panic before this invocation.
+                        // Retain the invocation's independent cancellation dependency.
+                        dependencies.push(crate::ExecutionDependency {
+                            target: crate::ExecutionDependencyTarget::selected(call),
+                            obligation: crate::ExecutionObligation::Property(
+                                ExecutionProperty::Total,
+                                None,
+                            ),
+                            occurrence: expression.into(),
+                        });
+                    }
+                    Some(bray_bound_tree::SemanticSelection::Operation(_))
+                        if expressions
+                            .selections()
+                            .invoked_callable(expression.into())
+                            .is_some() =>
+                    {
+                        super::operation::collect_invocation_dependency(
+                            expressions.selections(),
+                            expression.into(),
+                            ExecutionProperty::Total,
+                            &mut dependencies,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
             calls.insert(
                 expression,
-                dependencies[first_dependency..]
-                    .iter()
-                    .map(|dependency| dependency.target)
-                    .collect(),
+                UnwindCall {
+                    locally_non_unwinding: valid,
+                    dependencies: dependencies[first_dependency..]
+                        .iter()
+                        .map(|dependency| dependency.target)
+                        .collect(),
+                },
             );
         }
     }
 
-    for operation in graph.operations() {
+    for operation in graph
+        .blocks()
+        .iter()
+        .filter(|block| reachable.is_block_reachable(block.id()))
+        .flat_map(|block| block.operations())
+        .map(|operation| {
+            graph
+                .operation(*operation)
+                .expect("reachable block retains its operation")
+        })
+    {
         if let super::super::model::AnalysisOperationKind::Call {
             invocation: invocation @ bray_bound_tree::BoundExecutionSite::CallInput { .. },
             phase: super::super::model::AnalysisCallPhase::Attempt,
-        } = operation.kind() {
-            may_unwind |= !super::operation::check_input(request, invocation,
-                expressions.selections(), storage, ExecutionProperty::Total, &mut dependencies);
+        } = operation.kind()
+        {
+            may_unwind |= !super::operation::check_input(
+                request,
+                invocation,
+                expressions.selections(),
+                storage,
+                ExecutionProperty::Total,
+                &mut dependencies,
+            );
         }
+
         if let super::super::model::AnalysisOperationKind::Call {
-            invocation, phase: super::super::model::AnalysisCallPhase::Attempt } =
-            operation.kind()
+            invocation,
+            phase: super::super::model::AnalysisCallPhase::Attempt,
+        } = operation.kind()
             && matches!(
                 invocation,
                 bray_bound_tree::BoundExecutionSite::Iterate(_)
@@ -185,13 +295,16 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
 
         match cleanup {
             Some(cleanup) => dependencies.extend(cleanup),
-            None => may_unwind = true,
+            None => {
+                may_unwind = true;
+                cancellation = bray_symbols::CurrentRunCancellation::MayEnter;
+            }
         }
     }
 
     CheckerOutcome::complete(
         UnwindCandidate {
-            may_unwind,
+            behavior: UnwindBehavior::new(may_unwind, cancellation),
             entry_conditions,
             calls,
             dependencies: dependencies

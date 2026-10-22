@@ -67,7 +67,7 @@ trusted internal func broadcast(
     }
     else
     {
-        let root = trusted bray.runtime.bootstrap.activation.execution.access(cursor, root = true);
+        let root = trusted bray.runtime.bootstrap.activation.execution.root(cursor);
 
         root.broadcast_next = 0;
     }

@@ -8,6 +8,17 @@ use crate::{
     PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
 };
 
+/// The outermost storage boundary reached by an operation's checked writes.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageMutationScope {
+    /// Only inline slots owned by this invocation can change.
+    Invocation,
+    /// Direct mutable input referents may also change.
+    Inputs,
+    /// The operation can reach storage outside the supported observation frame.
+    Unbounded,
+}
+
 /// Storage whose previously observed contents may change at one execution site.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StorageInvalidation {
@@ -23,6 +34,8 @@ pub enum StorageInvalidation {
     /// Flow-resolved accesses and logical component observations changed through them.
     /// Alias resolution is complete. Consumers must not reinterpret these as physical roots.
     Observed {
+        /// Mutation confinement established while resolving the actual target identities.
+        scope: StorageMutationScope,
         /// Logical paths whose contents may change, indexed by their checked access.
         accesses: BTreeMap<StorageAccessId, Vec<crate::StoragePath>>,
         /// Exact current observations mapped to their physical representative.
@@ -37,6 +50,15 @@ pub enum StorageInvalidation {
 }
 
 impl StorageInvalidation {
+    /// Returns the confinement established by the owning storage-flow analysis.
+    pub fn mutation_scope(&self) -> StorageMutationScope {
+        match self {
+            Self::Observed { scope, .. } => *scope,
+            Self::All { .. } => StorageMutationScope::Unbounded,
+            Self::Paths(_) => panic!("mutation confinement requires flow-resolved effects"),
+        }
+    }
+
     /// Creates an opaque effect without any established preservation.
     pub fn unknown() -> Self {
         Self::All {
@@ -64,18 +86,21 @@ impl StorageInvalidation {
             (_, Self::All { .. }) | (Self::All { .. }, _) => *self = Self::unknown(),
             (
                 Self::Observed {
+                    scope,
                     accesses: current,
                     snapshots,
                     referents,
                     stable_descriptors,
                 },
                 Self::Observed {
+                    scope: incoming_scope,
                     accesses: incoming,
                     snapshots: incoming_snapshots,
                     referents: incoming_referents,
                     stable_descriptors: incoming_descriptors,
                 },
             ) => {
+                *scope = (*scope).max(*incoming_scope);
                 stable_descriptors.retain(|path| incoming_descriptors.contains(path));
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
@@ -298,6 +323,7 @@ impl CheckedRefinements {
                         snapshots,
                         referents,
                         stable_descriptors,
+                        ..
                     } => {
                         accesses.iter().any(|(access, paths)| {
                             access.unit() != unit
@@ -538,6 +564,7 @@ mod tests {
         let alias = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
 
         let mut left = super::StorageInvalidation::Observed {
+            scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
                 (first.clone(), first.clone()),
@@ -549,6 +576,7 @@ mod tests {
         };
 
         let right = super::StorageInvalidation::Observed {
+            scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
             referents: [second.clone()].into(),
@@ -560,6 +588,7 @@ mod tests {
         assert_eq!(
             left,
             super::StorageInvalidation::Observed {
+                scope: super::StorageMutationScope::Unbounded,
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), first.clone())].into(),
                 stable_descriptors: [first.clone()].into(),

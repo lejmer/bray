@@ -29,7 +29,7 @@ extern func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
 
 extern func null<T>() -> DataPointer<T>;
 
-extern func is_null<T>(pos pointer: DataPointer<T>) -> bool;
+extern const func is_null<T>(pos pointer: DataPointer<T>) -> bool;
 
 extern func offset<T>(pos pointer: DataPointer<T>, elements: isize) -> DataPointer<T>;
 
@@ -79,7 +79,11 @@ extern trusted func copy<T>(pos source: DataPointer<T>, pos destination: DataPoi
     ensures(trusted core.memory.initialized_range_as<T>(pointer = destination, count = count))
     uses(raw_memory, unchecked_init);
 
-extern trusted func copy_overlapping<T>(pos source: DataPointer<T>, pos destination: DataPointer<T>, count: usize) -> unit
+extern trusted func copy_overlapping<T>(
+    pos source: DataPointer<T>,
+    pos destination: DataPointer<T>,
+    count: usize
+) -> unit
     requires(
         trusted core.memory.valid_read<T>(pointer = source, count = count),
         trusted core.memory.valid_write<T>(pointer = destination, count = count),
@@ -96,6 +100,20 @@ trusted func replace_value<T>(pos storage: &mut T, pos value: T) -> T
     let previous: T = trusted read<T>(value_pointer);
 
     trusted write<T>(value_pointer, value);
+
+    return previous;
+}
+
+/// Moves a nullable value out of a slot and leaves the slot empty.
+trusted func take_nullable<T>(pos storage: &mut(T?)) -> T?
+    ensures(storage matches none)
+    executes(total)
+    uses(raw_memory, unchecked_init)
+{
+    let value_pointer: DataPointer<(T?)> = address_of_mut<(T?)>(storage);
+    let previous: T? = trusted read<(T?)>(value_pointer);
+
+    trusted write<(T?)>(value_pointer, none);
 
     return previous;
 }

@@ -175,7 +175,10 @@ trusted internal func configure_spawn_actions(
     return trusted internal configure_child_descriptors(actions, error);
 }
 
-trusted internal func configure_child_descriptors(pos actions: DataPointer<u8>, pos descriptors: ChildDescriptors) -> i32
+trusted internal func configure_child_descriptors(
+    pos actions: DataPointer<u8>,
+    pos descriptors: ChildDescriptors
+) -> i32
 {
     if descriptors.child >= 0
     {

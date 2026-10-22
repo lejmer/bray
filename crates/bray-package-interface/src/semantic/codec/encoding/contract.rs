@@ -49,7 +49,10 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             for relation in &*contract.borrows {
                 encode_dependency_subject(encoder, relation.entry());
                 encode_dependency_subject(encoder, relation.exit());
-                encoder.write_u32(relation.kind().to_wire());
+
+                encoder
+                    .write_u32((relation.kind().to_wire() << 1) | u32::from(relation.is_exact()));
+
                 encoder.write_u32(relation.dereferences());
                 encode_dependency_projections(encoder, relation.target_projections());
             }

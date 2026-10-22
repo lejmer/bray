@@ -44,7 +44,12 @@ impl State {
         self.contents
             .iter()
             .filter(|(_, contents)| contents.exposed)
-            .filter_map(|(target, _)| target.storage_path().map(|path| path.root))
+            .filter_map(|(target, _)| {
+                target
+                    .storage_path()
+                    .map(|path| path.root)
+                    .or_else(|| target.observation_path().map(|path| path.root))
+            })
             .collect()
     }
 

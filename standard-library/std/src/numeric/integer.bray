@@ -1,0 +1,169 @@
+module std.numeric;
+
+impl U8Integer = u8(Integer)
+{
+    func bounds() -> IntegerBounds<u8>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U8_MIN,
+            maximum = U8_MAX
+        };
+    }
+}
+
+impl U16Integer = u16(Integer)
+{
+    func bounds() -> IntegerBounds<u16>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U16_MIN,
+            maximum = U16_MAX
+        };
+    }
+}
+
+impl U32Integer = u32(Integer)
+{
+    func bounds() -> IntegerBounds<u32>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U32_MIN,
+            maximum = U32_MAX
+        };
+    }
+}
+
+impl U64Integer = u64(Integer)
+{
+    func bounds() -> IntegerBounds<u64>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U64_MIN,
+            maximum = U64_MAX
+        };
+    }
+}
+
+impl U128Integer = u128(Integer)
+{
+    func bounds() -> IntegerBounds<u128>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U128_MIN,
+            maximum = U128_MAX
+        };
+    }
+}
+
+impl UsizeInteger = usize(Integer)
+{
+    func bounds() -> IntegerBounds<usize>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = USIZE_MIN,
+            maximum = USIZE_MAX
+        };
+    }
+}
+
+impl I8Integer = i8(Integer)
+{
+    func bounds() -> IntegerBounds<i8>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = I8_MIN + I8_MAX,
+            minimum = I8_MIN,
+            maximum = I8_MAX
+        };
+    }
+}
+
+impl I16Integer = i16(Integer)
+{
+    func bounds() -> IntegerBounds<i16>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = I16_MIN + I16_MAX,
+            minimum = I16_MIN,
+            maximum = I16_MAX
+        };
+    }
+}
+
+impl I32Integer = i32(Integer)
+{
+    func bounds() -> IntegerBounds<i32>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = -1,
+            minimum = I32_MIN,
+            maximum = I32_MAX
+        };
+    }
+}
+
+impl I64Integer = i64(Integer)
+{
+    func bounds() -> IntegerBounds<i64>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = I64_MIN + I64_MAX,
+            minimum = I64_MIN,
+            maximum = I64_MAX
+        };
+    }
+}
+
+impl I128Integer = i128(Integer)
+{
+    func bounds() -> IntegerBounds<i128>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = I128_MIN + I128_MAX,
+            minimum = I128_MIN,
+            maximum = I128_MAX
+        };
+    }
+}
+
+impl IsizeInteger = isize(Integer)
+{
+    func bounds() -> IntegerBounds<isize>
+    {
+        return
+        {
+            zero = 0,
+            negative_one = ISIZE_MIN + ISIZE_MAX,
+            minimum = ISIZE_MIN,
+            maximum = ISIZE_MAX
+        };
+    }
+}

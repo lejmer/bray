@@ -1,10 +1,6 @@
 use super::core::UnitTranslator;
-use super::support::{
-    extract_value, int_value, integer_constant, llvm, pointer_value,
-};
-use bray_codegen::{
-    CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
-};
+use super::support::{extract_value, int_value, integer_constant, llvm, pointer_value};
+use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{MirBlockId, MirOperand, MirPatternPredicate, MirTerminatorKind};
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue, StructValue};
 use inkwell::{FloatPredicate, IntPredicate};

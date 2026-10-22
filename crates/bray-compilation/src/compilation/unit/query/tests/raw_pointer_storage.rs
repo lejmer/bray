@@ -150,14 +150,15 @@ fn standard_memory_compilation(source: &str) -> Compilation {
     let request = CompilationRequest::with_options(
         package,
         crate::test_support::source_inputs(&[
-include_str!("../../../../../../../standard-library/std/src/std.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
-source
-]),
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            source,
+        ]),
         crate::CompilationOptions::new(
             crate::WorkerBudget::serial(),
             bray_symbols::ProductKind::Library,

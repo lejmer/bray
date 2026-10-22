@@ -182,7 +182,9 @@ where
         let selected_implementation = match witnesses {
             [] => None,
             [witness] => Some(*witness),
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+            _ => {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
         };
 
         self.evaluate_call_terms(expression, callable, selected_implementation, arguments, ty)
@@ -362,35 +364,15 @@ where
         &mut self,
         expression: BoundExpressionId,
         diagnostics: &bray_diagnostics::DiagnosticBag,
-    ) -> Result<(), EvaluationFailure> {
-        if diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.primary_span().is_none())
-        {
-            let span = crate::diagnostic::expression_span(self.request, expression);
+    ) {
+        // Preserve the published diagnostics while attaching this caller's source context.
+        let mut anchored = diagnostics.clone();
 
-            let anchored = diagnostics
-                .iter()
-                .map(|diagnostic| {
-                    if diagnostic.primary_span().is_some() {
-                        diagnostic.clone()
-                    } else {
-                        diagnostic.clone().with_primary_span(span).with_label(
-                            bray_diagnostics::DiagnosticLabel::primary(
-                                bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
-                                span,
-                            ),
-                        )
-                    }
-                })
-                .collect();
+        super::super::diagnostic::anchor_diagnostics(&mut anchored, || {
+            Some(crate::diagnostic::expression_span(self.request, expression))
+        });
 
-            self.diagnostics = self.diagnostics.merged(&anchored);
-        } else {
-            self.diagnostics = self.diagnostics.merged(diagnostics);
-        }
-
-        Ok(())
+        self.diagnostics = self.diagnostics.merged(&anchored);
     }
 
     pub(super) fn evaluate_call_values(
@@ -467,7 +449,7 @@ where
                     );
                 }
 
-                self.merge_call_diagnostics(expression, result.diagnostics())?;
+                self.merge_call_diagnostics(expression, result.diagnostics());
 
                 Ok(value)
             }
@@ -477,7 +459,7 @@ where
             }),
             Ok(ConstantCallResolution::Ineligible(diagnostics)) => {
                 if diagnostics.has_errors() {
-                    self.merge_call_diagnostics(expression, &diagnostics)?;
+                    self.merge_call_diagnostics(expression, &diagnostics);
 
                     return Ok(self.recovery_value(result_type));
                 }

@@ -157,6 +157,7 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_subject(relation.entry())?;
         self.dependency_subject(relation.exit())?;
         self.digest.write_u32(relation.dereferences());
+        self.boolean(relation.is_exact());
         self.dependency_projections(relation.target_projections())?;
 
         self.tag(match relation.kind() {

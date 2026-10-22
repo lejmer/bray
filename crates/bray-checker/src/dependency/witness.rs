@@ -349,9 +349,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                 } => {
                     let key = match requirement {
                         Some(requirement) => {
-                            let Some((selected, context)) = request
+                            let Some((selected, context, _)) = request
                                 .context()
-                                .result_witness_callable(*callable, *requirement)?
+                                .witness_callable(*callable, *requirement)?
                             else {
                                 // The enclosing contract retains the unresolved selection.
                                 result.push(item.clone());

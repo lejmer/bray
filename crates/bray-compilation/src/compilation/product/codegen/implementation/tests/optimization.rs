@@ -199,7 +199,8 @@ fn numeric_constant_branch_removes_its_native_dependency() {
         )
         .unwrap();
 
-    assert_eq!(none.graph().instances().len(), 2);
+    // Checking already establishes that this source branch is unreachable.
+    assert_eq!(none.graph().instances().len(), 1);
     assert_eq!(basic.graph().instances().len(), 1);
     assert_eq!(full.graph().instances().len(), 1);
 

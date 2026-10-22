@@ -2,6 +2,7 @@
 trusted module std.process;
 
 using std.memory;
+using std.numeric;
 using std.os.windows;
 using internal std.platform;
 
@@ -201,7 +202,7 @@ trusted internal func valid_windows_handle(pos handle: DataPointer<u8>) -> bool
 {
     let value: u64 = trusted internal std.platform.pointer_handle(handle);
 
-    return value != 0 && value != 18_446_744_073_709_551_615;
+    return value != 0 && value != std.numeric.U64_MAX;
 }
 
 trusted internal func windows_handle(pos handle: DataPointer<u8>) -> u64

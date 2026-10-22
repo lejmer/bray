@@ -511,6 +511,7 @@ impl Lowerer<'_> {
                 if self.input_cleanup_owns(*access, phase, pending_inputs) {
                     continue;
                 }
+
                 steps.push(AbnormalCleanupStep {
                     occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
                     operation: AbnormalCleanupOperation::Access {

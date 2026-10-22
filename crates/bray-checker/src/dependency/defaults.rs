@@ -19,11 +19,19 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut defaults = std::collections::BTreeMap::new();
 
-    for input in selection.inputs().filter(|input| input.default_provider().is_some()) {
-        let ordinal = selection.input_ordinal(input.root()).expect("default input has its ordinal");
+    for input in selection
+        .inputs()
+        .filter(|input| input.default_provider().is_some())
+    {
+        let ordinal = selection
+            .input_ordinal(input.root())
+            .expect("default input has its ordinal");
+
         let provider = super::call::selected_input_template(request, selection, ordinal)?;
+
         defaults.insert(input.root(), provider);
     }
+
     let mut expanded = expand(request, selection, template, &defaults)?;
 
     for (completion, requirements) in [
@@ -60,10 +68,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     Ok(expanded)
 }
 
-type Defaults = std::collections::BTreeMap<
-    DependencySubjectRoot,
-    DependencyContractTemplateData,
->;
+type Defaults = std::collections::BTreeMap<DependencySubjectRoot, DependencyContractTemplateData>;
 
 fn expand<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -92,14 +97,11 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             let definitions = definitions
                 .iter()
                 .map(|definition| {
-                    expand_witness_input_defaults(
-                        request, selection, definition, defaults,
-                    )
+                    expand_witness_input_defaults(request, selection, definition, defaults)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let roots =
-                expand_witness_input_defaults(request, selection, &roots, defaults)?;
+            let roots = expand_witness_input_defaults(request, selection, &roots, defaults)?;
 
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
@@ -158,10 +160,12 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         }
 
         let root = subject.subject_root();
+
         let Some(default) = defaults.get(&root) else {
             result.push(requirement);
             continue;
         };
+
         if !visited.insert(root) {
             continue;
         }
@@ -175,12 +179,26 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         );
     }
 
+    let omitted_origins = template
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            selection
+                .input_ordinal(relation.entry().subject_root())
+                .and_then(|ordinal| selection.input(ordinal))
+                .and_then(|input| input.expression())
+                .is_none()
+        })
+        .map(|relation| relation.exit().clone())
+        .collect::<std::collections::BTreeSet<_>>();
+
     Ok(CallResultDependencies {
         template: template.with_requirements(result).with_borrows(
-            template.borrows().iter().filter(|relation| {
-                selection.input_ordinal(relation.entry().subject_root())
-                    .and_then(|ordinal| selection.input(ordinal)).and_then(|input| input.expression()).is_some()
-            }).cloned(),
+            template
+                .borrows()
+                .iter()
+                .filter(|relation| !omitted_origins.contains(relation.exit()))
+                .cloned(),
         ),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
@@ -197,18 +215,8 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
         .map(|input| {
             Ok(bray_symbols::DependencyCallInput::new(
                 input.root(),
-                expand_witness_input_defaults(
-                    request,
-                    selection,
-                    input.values(),
-                    defaults,
-                )?,
-                expand_witness_input_defaults(
-                    request,
-                    selection,
-                    input.storage(),
-                    defaults,
-                )?,
+                expand_witness_input_defaults(request, selection, input.values(), defaults)?,
+                expand_witness_input_defaults(request, selection, input.storage(), defaults)?,
             ))
         })
         .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
@@ -250,12 +258,20 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
         return Ok(true);
     }
 
-    let Some(input) = selection.input_ordinal(root).and_then(|ordinal| selection.input(ordinal)) else {
+    let Some(input) = selection
+        .input_ordinal(root)
+        .and_then(|ordinal| selection.input(ordinal))
+    else {
         return Ok(false);
     };
+
     let mut ty = input.ty(request.semantic_values());
+
     if let bray_bound_tree::SelectedInput::Receiver(receiver) = input
-        && !matches!(receiver.mode(), bray_symbols::ReceiverMode::Consuming | bray_symbols::ReceiverMode::ConsumingMutable)
+        && !matches!(
+            receiver.mode(),
+            bray_symbols::ReceiverMode::Consuming | bray_symbols::ReceiverMode::ConsumingMutable
+        )
     {
         return Ok(false);
     }

@@ -16,7 +16,8 @@ impl Compilation {
         use bray_bound_tree::SelectedOperation;
 
         if let SelectedOperation::Construction(construction) = operation
-            && let Some(contract) = self.trusted_storage_formation(owner, construction, cancellation)?
+            && let Some(contract) =
+                self.trusted_storage_formation(owner, construction, cancellation)?
         {
             return Ok(Some(contract));
         }
@@ -37,23 +38,53 @@ impl Compilation {
 
         let operands = match operation {
             SelectedOperation::Construction(construction) => {
-                let staged = construction.inputs().iter().any(|input| matches!(input,
-                    bray_bound_tree::SelectedConstructionInput::Default { .. }));
-                construction.inputs().iter().map(|input| {
-                    let (bray_bound_tree::SelectedConstructionInput::Explicit { ordinal, .. }
-                        | bray_bound_tree::SelectedConstructionInput::Default { ordinal, .. }) = input;
-                    let site = if staged {
-                        bray_bound_tree::BoundExecutionSite::CallInput { expression: owner, ordinal: bray_symbols::SymbolOrdinal::new(*ordinal) }
-                    } else {
-                        let bray_bound_tree::SelectedConstructionInput::Explicit { expression, .. } = input else {
-                            unreachable!("unstaged constructor has explicit inputs");
+                let staged = construction.inputs().iter().any(|input| {
+                    matches!(
+                        input,
+                        bray_bound_tree::SelectedConstructionInput::Default { .. }
+                    )
+                });
+
+                construction
+                    .inputs()
+                    .iter()
+                    .map(|input| {
+                        let (bray_bound_tree::SelectedConstructionInput::Explicit {
+                            ordinal, ..
+                        }
+                        | bray_bound_tree::SelectedConstructionInput::Default {
+                            ordinal, ..
+                        }) = input;
+
+                        let site = if staged {
+                            bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: owner,
+                                ordinal: bray_symbols::SymbolOrdinal::new(*ordinal),
+                            }
+                        } else {
+                            let bray_bound_tree::SelectedConstructionInput::Explicit {
+                                expression,
+                                ..
+                            } = input
+                            else {
+                                unreachable!("unstaged constructor has explicit inputs");
+                            };
+
+                            (*expression).into()
                         };
-                        (*expression).into()
-                    };
-                    (usize::try_from(*ordinal).expect("input ordinal fits host"), site)
-                }).collect::<Vec<_>>()
+
+                        (
+                            usize::try_from(*ordinal).expect("input ordinal fits host"),
+                            site,
+                        )
+                    })
+                    .collect::<Vec<_>>()
             }
-            _ => expression.child_expressions().enumerate().map(|(ordinal, expression)| (ordinal, expression.into())).collect(),
+            _ => expression
+                .child_expressions()
+                .enumerate()
+                .map(|(ordinal, expression)| (ordinal, expression.into()))
+                .collect(),
         };
 
         let arguments = operands
@@ -74,31 +105,67 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(), FactQueryError> {
         use bray_bound_tree::{BoundExecutionSite as Site, SemanticSelection};
+
         match selection {
             SemanticSelection::ScopedUse(scoped) => {
                 for (site, selected, source) in [
-                    (Site::ScopedEnter(scoped.expression()), scoped.enter(), scoped.initializer().into()),
-                    (Site::ScopedExit(scoped.expression()), scoped.exit(), Site::ScopedEnter(scoped.expression())),
+                    (
+                        Site::ScopedEnter(scoped.expression()),
+                        scoped.enter(),
+                        scoped.initializer().into(),
+                    ),
+                    (
+                        Site::ScopedExit(scoped.expression()),
+                        scoped.exit(),
+                        Site::ScopedEnter(scoped.expression()),
+                    ),
                 ] {
-                    self.add_implicit_invocation(site, selected.0, &selected.1, source,
-                        inputs, cancellation, diagnostics)?;
+                    self.add_implicit_invocation(
+                        site,
+                        selected.0,
+                        &selected.1,
+                        source,
+                        inputs,
+                        cancellation,
+                        diagnostics,
+                    )?;
                 }
             }
             SemanticSelection::Iteration(iteration) => {
                 let context = self.binding_context(cancellation)?;
+
                 for (site, target, source) in [
-                    (Site::Iterate(iteration.expression()), iteration.iterate(), iteration.source().into()),
-                    (Site::Next(iteration.expression()), iteration.next(), Site::Iterate(iteration.expression())),
+                    (
+                        Site::Iterate(iteration.expression()),
+                        iteration.iterate(),
+                        iteration.source().into(),
+                    ),
+                    (
+                        Site::Next(iteration.expression()),
+                        iteration.next(),
+                        Site::Iterate(iteration.expression()),
+                    ),
                 ] {
-                    let Some(signature) = self.resolve_callable_instance_signature(&context, target, diagnostics)? else {
+                    let Some(signature) =
+                        self.resolve_callable_instance_signature(&context, target, diagnostics)?
+                    else {
                         continue;
                     };
-                    self.add_implicit_invocation(site, target, &signature, source,
-                        inputs, cancellation, diagnostics)?;
+
+                    self.add_implicit_invocation(
+                        site,
+                        target,
+                        &signature,
+                        source,
+                        inputs,
+                        cancellation,
+                        diagnostics,
+                    )?;
                 }
             }
             _ => unreachable!("implicit contracts require a selected protocol"),
         }
+
         Ok(())
     }
 
@@ -113,18 +180,35 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(), FactQueryError> {
         let formal = if let Some(receiver) = signature.receiver() {
-            assert!(signature.parameters().is_empty(), "implicit receiver invocation has one input");
+            assert!(
+                signature.parameters().is_empty(),
+                "implicit receiver invocation has one input"
+            );
+
             receiver.parameter().into()
         } else {
-            assert_eq!(signature.parameters().len(), 1, "implicit invocation has one input");
+            assert_eq!(
+                signature.parameters().len(),
+                1,
+                "implicit invocation has one input"
+            );
+
             signature.parameters()[0].parameter().into()
         };
-        if let Some(contract) = self.trusted_invocation_contract(target, signature,
-            std::collections::BTreeMap::from([(bray_bound_tree::BoundReferenceTarget::Surface(formal), source)]),
-            cancellation, diagnostics)?
-        {
+
+        if let Some(contract) = self.trusted_invocation_contract(
+            target,
+            signature,
+            std::collections::BTreeMap::from([(
+                bray_bound_tree::BoundReferenceTarget::Surface(formal),
+                source,
+            )]),
+            cancellation,
+            diagnostics,
+        )? {
             inputs.calls.insert(site, contract);
         }
+
         Ok(())
     }
 
@@ -246,13 +330,11 @@ impl Compilation {
                 execution_requirements.push(condition.clone());
             }
 
-            let conditions = if predicate.is_trusted() {
-                &mut requirements
+            if predicate.is_trusted() {
+                requirements.push(condition);
             } else {
-                &mut preconditions
-            };
-
-            conditions.push(condition);
+                preconditions.push((condition, predicate.domain()));
+            }
         }
 
         let mut guarantees = Vec::new();

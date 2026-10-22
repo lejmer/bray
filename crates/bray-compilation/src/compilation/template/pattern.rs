@@ -18,7 +18,18 @@ impl SourceTemplateBuilder<'_, '_, '_> {
     ) -> Result<(), FactQueryError> {
         let bindings = self.pattern_binding_values(pattern, subject)?;
 
-        self.local_values.extend(bindings);
+        for (reference, value) in bindings {
+            let binding = bray_bound_tree::StorageBindingTarget::from_reference_target(reference)
+                .and_then(|target| self.storage.binding(target));
+
+            if let Some(bray_bound_tree::StorageBinding::Identity(root)) = binding {
+                let value = self.materialize(value);
+
+                self.introduce_state(root, value);
+            } else {
+                self.bindings.insert(reference, value);
+            }
+        }
 
         Ok(())
     }
@@ -71,6 +82,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                             condition,
                             when_true: selected,
                             when_false: *previous,
+                            state_outputs: Default::default(),
                         },
                         ty,
                     )
@@ -228,135 +240,19 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             .pattern(pattern)
             .expect("checked pattern retains its semantics");
 
-        let operation = match checked.projection() {
-            None => {
-                self.pattern_values.insert(pattern, subject);
+        let Some(projection) = checked.projection() else {
+            self.pattern_values.insert(pattern, subject);
 
-                return Ok(subject);
-            }
-            Some(PatternProjection::ProductField(field)) => CheckedTemplateOperation::Project {
-                subject,
-                member: self.symbol_key(field.into())?,
-            },
-            Some(PatternProjection::TupleElement(index)) => {
-                CheckedTemplateOperation::TupleElement { subject, index }
-            }
-            Some(PatternProjection::ActiveUnionPayloadField { field, .. }) => {
-                CheckedTemplateOperation::Project {
-                    subject,
-                    member: self.symbol_key(field.into())?,
-                }
-            }
-            Some(PatternProjection::NullableValue) => {
-                CheckedTemplateOperation::NullableValue { subject }
-            }
-            Some(
-                projection @ (PatternProjection::ElementFromStart(_)
-                | PatternProjection::ElementFromEnd(_)),
-            ) => {
-                let (PatternProjection::ElementFromStart(index)
-                | PatternProjection::ElementFromEnd(index)) = projection
-                else {
-                    unreachable!()
-                };
-
-                let ty = self
-                    .context
-                    .compilation()
-                    .target_property_type(bray_target::TargetPropertyKind::ScalarUsize)?;
-
-                let value = self.context.semantic_values().intern_constant_value(
-                    ConstantValueData::new(
-                        ty,
-                        ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(
-                            u64::from(index.raw()),
-                        )),
-                    ),
-                )?;
-
-                let term = self
-                    .context
-                    .semantic_values()
-                    .intern_constant_term(ConstantTermData::Value(value))?;
-
-                let mut index = self.push_node(
-                    CheckedTemplateOperation::Constant {
-                        term,
-                        usage: Default::default(),
-                    },
-                    ty,
-                );
-
-                if matches!(projection, PatternProjection::ElementFromEnd(_)) {
-                    let source_type =
-                        self.nodes[usize::try_from(subject.raw()).expect("subject node fits")].ty();
-
-                    let source_type = self.context.semantic_values().unborrowed_type(source_type);
-                    let data = self.context.semantic_values().type_data(source_type);
-
-                    let bray_symbols::TypeData::Array { length, .. } = data.as_ref() else {
-                        panic!("checked finite constant array pattern retains its length");
-                    };
-
-                    let length = self.push_node(
-                        CheckedTemplateOperation::Constant {
-                            term: *length,
-                            usage: Default::default(),
-                        },
-                        ty,
-                    );
-
-                    let remaining = self.push_node(
-                        CheckedTemplateOperation::Binary {
-                            operation: ConstantBinaryOperation::Subtract,
-                            left: length,
-                            right: index,
-                        },
-                        ty,
-                    );
-
-                    let one = self.context.semantic_values().intern_constant_value(
-                        ConstantValueData::new(
-                            ty,
-                            ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(1)),
-                        ),
-                    )?;
-
-                    let term = self
-                        .context
-                        .semantic_values()
-                        .intern_constant_term(ConstantTermData::Value(one))?;
-
-                    let one = self.push_node(
-                        CheckedTemplateOperation::Constant {
-                            term,
-                            usage: Default::default(),
-                        },
-                        ty,
-                    );
-
-                    index = self.push_node(
-                        CheckedTemplateOperation::Binary {
-                            operation: ConstantBinaryOperation::Subtract,
-                            left: remaining,
-                            right: one,
-                        },
-                        ty,
-                    );
-                }
-
-                CheckedTemplateOperation::Index {
-                    call: None,
-                    subject,
-                    index,
-                }
-            }
-            Some(PatternProjection::OwnedTarget) => {
-                return Err(super::build::incomplete(
-                    "unsupported const pattern projection",
-                ));
-            }
+            return Ok(subject);
         };
+
+        if projection == PatternProjection::OwnedTarget {
+            return Err(super::build::incomplete(
+                "unsupported const pattern projection",
+            ));
+        }
+
+        let operation = self.value_projection(subject, projection.into())?;
 
         let value = self.push_node(operation, checked.input_type());
 

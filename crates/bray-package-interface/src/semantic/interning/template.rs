@@ -96,7 +96,9 @@ impl InternState {
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
             builder
-                .push_input(CheckedTemplateInput::new(kind, ty))
+                .push_input(
+                    CheckedTemplateInput::new(kind, ty).with_state_output(input.state_output()),
+                )
                 .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
         }
 
@@ -121,7 +123,10 @@ impl InternState {
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
             builder
-                .push_node(CheckedTemplateNode::new(operation, ty).with_unsigned_integer_bits(node.unsigned_integer_bits()))
+                .push_node(
+                    CheckedTemplateNode::new(operation, ty)
+                        .with_unsigned_integer_bits(node.unsigned_integer_bits()),
+                )
                 .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
         }
 
@@ -144,12 +149,8 @@ fn push_temporary(
         .type_id(temporary.ty())
         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
-    let dependency = state
-        .dependency_contract_id(temporary.dependency_contract())
-        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
     builder
-        .push_temporary(temporary.initializer(), ty, dependency)
+        .push_temporary(temporary.initializer(), ty)
         .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
 
     Ok(())

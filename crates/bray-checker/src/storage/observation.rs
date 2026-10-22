@@ -49,7 +49,9 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
         Observation::Scalar
     } else if matches!(
         role,
-        RepresentationRole::RawPointer | RepresentationRole::FunctionPointer | RepresentationRole::DevicePointer
+        RepresentationRole::RawPointer
+            | RepresentationRole::FunctionPointer
+            | RepresentationRole::DevicePointer
     ) {
         Observation::Address
     } else {
@@ -232,6 +234,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     Ok(Footprint {
         references,
         atomic: StorageInvalidation::Observed {
+            scope: bray_bound_tree::StorageMutationScope::Unbounded,
             accesses,
             snapshots: BTreeMap::new(),
             referents: BTreeSet::new(),
@@ -468,6 +471,7 @@ pub(crate) fn restrict(
             referents,
             snapshots,
             stable_descriptors,
+            ..
         } => (accesses, referents, snapshots, stable_descriptors),
         StorageInvalidation::All {
             stable_values,
@@ -484,6 +488,7 @@ pub(crate) fn restrict(
             stable_descriptors.extend(descriptors.iter().cloned());
 
             return StorageInvalidation::Observed {
+                scope: bray_bound_tree::StorageMutationScope::Unbounded,
                 accesses,
                 referents: BTreeSet::new(),
                 snapshots: BTreeMap::new(),
@@ -525,6 +530,7 @@ pub(crate) fn restrict(
     stable_descriptors.extend(descriptors.iter().cloned());
 
     StorageInvalidation::Observed {
+        scope: bray_bound_tree::StorageMutationScope::Unbounded,
         accesses,
         referents,
         snapshots,

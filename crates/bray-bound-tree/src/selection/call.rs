@@ -210,16 +210,21 @@ impl SelectedCall {
         &self.phase_behaviors
     }
 
-    /// Whether the selected callee can enter current-run cancellation after input evaluation.
-    /// Indirect and trait dispatch stay conservative.
+    /// Whether the selected surface can propagate current-run cancellation.
+    /// Only unconditional totality supplies this guarantee before body behavior is checked.
     pub fn may_enter_current_run_cancellation(&self) -> bool {
-        !matches!(self.target(), BoundCallableTarget::Declaration(_))
-            || self.resolution().trait_dispatch().is_some()
-            || self
-                .phase_behaviors()
-                .invocation()
-                .current_run_cancellation()
-                == bray_symbols::CurrentRunCancellation::MayEnter
+        self.abi() == CallableAbi::Bray
+            && !matches!(
+                self.resolution().result(),
+                crate::BoundCallResult::LazyFuture(_)
+            )
+            && (!matches!(self.target(), BoundCallableTarget::Declaration(_))
+                || self.resolution().trait_dispatch().is_some()
+                || !self
+                    .phase_behaviors()
+                    .invocation()
+                    .execution_properties()
+                    .contains(&bray_symbols::ExecutionProperty::Total))
     }
 
     /// Returns the checked receiver mapping for an instance call.
@@ -255,33 +260,58 @@ impl SelectedCall {
     }
 
     /// Returns the receiver-first ordinal of a formal input.
-    pub fn input_ordinal(&self, root: bray_symbols::DependencySubjectRoot) -> Option<SymbolOrdinal> {
+    pub fn input_ordinal(
+        &self,
+        root: bray_symbols::DependencySubjectRoot,
+    ) -> Option<SymbolOrdinal> {
         match root {
             bray_symbols::DependencySubjectRoot::Receiver if self.receiver.is_some() => {
                 Some(SymbolOrdinal::new(0))
             }
             bray_symbols::DependencySubjectRoot::Parameter(ordinal) => {
                 let offset = u32::from(self.receiver.is_some());
-                Some(SymbolOrdinal::new(ordinal.raw().checked_add(offset)
-                    .expect("selected input ordinal fits receiver-first order")))
+
+                Some(SymbolOrdinal::new(
+                    ordinal
+                        .raw()
+                        .checked_add(offset)
+                        .expect("selected input ordinal fits receiver-first order"),
+                ))
             }
             _ => None,
         }
     }
 
     /// Returns the evaluated value supplying one formal input.
-    pub fn input_site(&self, expression: BoundExpressionId, root: bray_symbols::DependencySubjectRoot) -> Option<crate::BoundExecutionSite> {
+    pub fn input_site(
+        &self,
+        expression: BoundExpressionId,
+        root: bray_symbols::DependencySubjectRoot,
+    ) -> Option<crate::BoundExecutionSite> {
         if self.evaluates_defaults() {
-            return self.input_ordinal(root).map(|ordinal| crate::BoundExecutionSite::CallInput { expression, ordinal });
+            return self
+                .input_ordinal(root)
+                .map(|ordinal| crate::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                });
         }
+
         match root {
-            bray_symbols::DependencySubjectRoot::Receiver => self.receiver.as_ref().map(|receiver| receiver.expression().into()),
-            bray_symbols::DependencySubjectRoot::Parameter(ordinal) => self.arguments.iter().find_map(|argument| {
-                match argument {
-                    SelectedArgument::Explicit { expression, ordinal: actual, .. } if *actual == ordinal.raw() => Some((*expression).into()),
+            bray_symbols::DependencySubjectRoot::Receiver => self
+                .receiver
+                .as_ref()
+                .map(|receiver| receiver.expression().into()),
+            bray_symbols::DependencySubjectRoot::Parameter(ordinal) => {
+                self.arguments.iter().find_map(|argument| match argument {
+                    SelectedArgument::Explicit {
+                        expression,
+                        ordinal: actual,
+                        ..
+                    } if *actual == ordinal.raw() => Some((*expression).into()),
                     _ => None,
-                }
-            }),
+                })
+            }
             _ => None,
         }
     }

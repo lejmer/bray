@@ -118,6 +118,10 @@ impl ConstantDiagnostic {
             DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
         };
 
+        if let Self::InvalidExpression(Some(category)) = self {
+            return Ok(invalid_expression_diagnostic(id, span, category));
+        }
+
         let mut diagnostic = Diagnostic::new(id, self.kind(), SeverityKind::Error);
 
         let span = if matches!(self, Self::Precondition { .. }) {
@@ -145,10 +149,8 @@ impl ConstantDiagnostic {
 
                 Some(DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements)
             }
-            Self::InvalidExpression(Some(category)) => {
-                diagnostic = diagnostic.with_arg(DiagnosticArg::expression_category(category));
-
-                Some(DiagnosticNoteKind::ConstantExpressionMustBeEvaluable)
+            Self::InvalidExpression(Some(_)) => {
+                unreachable!("invalid expression diagnostics use the shared producer")
             }
             Self::NonMaterializable(ty) => {
                 diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(
@@ -263,4 +265,123 @@ pub(super) const fn diagnostic_operation(operation: BoundOperator) -> Diagnostic
         BoundOperator::BitwiseNot => DiagnosticConstantOperation::BitwiseNot,
         BoundOperator::LogicalNot => DiagnosticConstantOperation::LogicalNot,
     }
+}
+
+fn invalid_expression_diagnostic(
+    id: bray_diagnostics::DiagnosticId,
+    span: Option<SourceSpan>,
+    category: bray_diagnostics::DiagnosticExpressionCategory,
+) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        id,
+        DiagnosticKind::CheckingInvalidConstantExpression,
+        bray_diagnostics::SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::expression_category(category))
+    .with_note(bray_diagnostics::DiagnosticNote::new(
+        bray_diagnostics::DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
+    ));
+
+    if let Some(span) = span {
+        diagnostic = diagnostic.with_primary_span(span).with_label(
+            bray_diagnostics::DiagnosticLabel::primary(
+                bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+                span,
+            ),
+        );
+    }
+
+    diagnostic
+}
+
+/// Reports a checked initializer's eligibility failure at its most specific source expression.
+pub fn constant_eligibility_diagnostic(
+    id: bray_diagnostics::DiagnosticId,
+    unit: &bray_bound_tree::BoundUnit,
+    cause: SourceSpan,
+) -> Diagnostic {
+    use bray_bound_tree::{AnyBoundNodeId, BoundWalkControl, BoundWalkEvent};
+
+    let mut expression = None;
+
+    let _outcome = bray_bound_tree::walk_bound_unit_view(unit.view(), unit.root(), |event| {
+        if let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(id)) = event {
+            let value = unit
+                .view()
+                .expression(id)
+                .expect("walked constant expression exists");
+
+            let anchor = value.origin().source_anchor().syntax();
+
+            if anchor.source_id() == cause.source_id()
+                && anchor.full_range().contains_range(cause.range())
+                && expression
+                    .as_ref()
+                    .is_none_or(|(range, _): &(bray_source::TextRange, _)| {
+                        anchor.full_range().len() < range.len()
+                    })
+            {
+                expression = Some((
+                    anchor.full_range(),
+                    crate::diagnostic::expression_category(value),
+                ));
+            }
+        }
+
+        BoundWalkControl::Continue
+    });
+
+    let root = unit.key().source().syntax();
+
+    let (span, category) = expression.map_or(
+        (
+            SourceSpan::new(root.source_id(), root.full_range()),
+            bray_diagnostics::DiagnosticExpressionCategory::Block,
+        ),
+        |(_, category)| (cause, category),
+    );
+
+    let mut diagnostic = invalid_expression_diagnostic(id, Some(span), category);
+
+    if span != cause {
+        diagnostic = diagnostic.with_label(bray_diagnostics::DiagnosticLabel::secondary(
+            bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+            cause,
+        ));
+    }
+
+    diagnostic
+}
+
+/// Adds caller context only to nested constant diagnostics that lack a source location.
+pub(super) fn anchor_diagnostics(
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    source: impl FnOnce() -> Option<SourceSpan>,
+) {
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.primary_span().is_none())
+    {
+        return;
+    }
+
+    let Some(span) = source() else {
+        return;
+    };
+
+    *diagnostics = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            if diagnostic.primary_span().is_some() {
+                diagnostic.clone()
+            } else {
+                diagnostic.clone().with_primary_span(span).with_label(
+                    bray_diagnostics::DiagnosticLabel::primary(
+                        bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+                        span,
+                    ),
+                )
+            }
+        })
+        .collect();
 }

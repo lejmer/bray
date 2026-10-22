@@ -24,8 +24,8 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OperationEffects {
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
-    result_regions: BTreeSet<BoundExpressionId>,
-    operation_result_definitions: BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
+    operation_result_definitions:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -55,11 +55,6 @@ impl OperationEffects {
         C: CheckerRequestContext + ?Sized,
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
-        effects.result_regions.extend(graph.operations().iter().filter_map(|operation| {
-            if let AnalysisOperationKind::Result {
-                expression, phase: crate::analysis::model::AnalysisResultPhase::Begin,
-            } = operation.kind() { Some(expression) } else { None }
-        }));
         let selections = semantics.selections();
 
         effects.value_inputs = value_inputs;
@@ -107,18 +102,40 @@ impl OperationEffects {
         }
 
         for (borrow, capability) in storage.borrow_capability_entries() {
-            if let Some(bray_bound_tree::BoundExecutionSite::Node(
-                bray_bound_tree::AnyBoundNodeId::Expression(expression))) = capability.occurrence()
-                && semantics.types().expression(expression).is_some_and(|ty| {
-                    matches!(
-                        request.semantic_values().type_data(ty.ty()).as_ref(),
-                        bray_symbols::TypeData::Borrow { .. }
-                    )
-                })
-            {
+            let Some(occurrence) = capability.occurrence() else {
+                continue;
+            };
+
+            let ty = match occurrence {
+                bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
+                    expression,
+                )) => semantics
+                    .types()
+                    .expression(expression)
+                    .map(|entry| entry.ty()),
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                } => Some(
+                    selections
+                        .expression(expression)
+                        .expect("staged borrow retains its selected invocation")
+                        .input(ordinal)
+                        .expect("staged borrow retains its selected input")
+                        .ty(request.semantic_values()),
+                ),
+                _ => None,
+            };
+
+            if ty.is_some_and(|ty| {
+                matches!(
+                    request.semantic_values().type_data(ty).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                )
+            }) {
                 effects
                     .owner_dependencies
-                    .entry(expression.into())
+                    .entry(occurrence)
                     .or_default()
                     .extend(borrow_capability_subjects(storage, borrow));
             }
@@ -160,6 +177,7 @@ impl OperationEffects {
             let Some(occurrence) = provenance.definition_occurrence() else {
                 continue;
             };
+
             effects
                 .by_occurrence
                 .entry(occurrence)
@@ -184,6 +202,14 @@ impl OperationEffects {
             effect.uses.insert(subject);
             effect.definitions.insert(subject);
             effects.universe.insert(subject);
+
+            if storage.access_is_produced_at(plan.access(), plan.occurrence()) {
+                effects
+                    .operation_result_definitions
+                    .entry(plan.occurrence())
+                    .or_default()
+                    .insert(subject);
+            }
 
             let access = storage
                 .access(plan.access())
@@ -232,6 +258,14 @@ impl OperationEffects {
             }
 
             effect.uses.remove(&subject);
+
+            if storage.access_is_produced_at(planned.access(), occurrence) {
+                effects
+                    .operation_result_definitions
+                    .entry(occurrence)
+                    .or_default()
+                    .insert(subject);
+            }
         }
 
         let input_uses = unit
@@ -464,11 +498,6 @@ impl OperationEffects {
     ) -> Option<OperationEffectView<'_>> {
         use crate::analysis::model::AnalysisSuspensionKind;
 
-        if matches!(operation.kind(), AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
-            if self.result_regions.contains(&expression))
-        {
-            return None;
-        }
         let phase = match operation.kind() {
             AnalysisOperationKind::Result {
                 phase: crate::analysis::model::AnalysisResultPhase::Begin,
@@ -501,7 +530,9 @@ impl OperationEffects {
         // The index is sparse: literals and operations without storage uses have no entry.
         let effect = self.by_occurrence.get(&operation.kind().occurrence())?;
 
-        let result_definitions = self.operation_result_definitions.get(&operation.kind().occurrence());
+        let result_definitions = self
+            .operation_result_definitions
+            .get(&operation.kind().occurrence());
 
         Some(OperationEffectView {
             effect,
@@ -558,6 +589,41 @@ impl<'a> OperationEffectView<'a> {
                 Some(AnalysisCallPhase::Completion) => is_result,
                 None => true,
             }
+        })
+    }
+
+    fn lifetime_subjects(self) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+        self.effect
+            .uses
+            .iter()
+            .chain(&self.effect.definitions)
+            .filter(|subject| {
+                matches!(
+                    subject,
+                    BoundDependencySubject::Storage(_)
+                        | BoundDependencySubject::BorrowCapability(_)
+                )
+            })
+    }
+
+    pub(in crate::analysis::liveness) fn retirement_subjects(
+        self,
+    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+        self.lifetime_subjects().filter(move |_| {
+            !matches!(
+                self.phase,
+                Some(AnalysisCallPhase::Input | AnalysisCallPhase::Attempt)
+            )
+        })
+    }
+
+    pub(in crate::analysis::liveness) fn failed_invocation_subjects(
+        self,
+    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
+        self.lifetime_subjects().filter(move |subject| {
+            !self
+                .result_definitions
+                .is_some_and(|definitions| definitions.contains(subject))
         })
     }
 

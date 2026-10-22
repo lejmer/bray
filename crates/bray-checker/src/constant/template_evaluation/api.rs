@@ -38,6 +38,7 @@ where
         limits,
         budget: &mut budget,
         values: vec![None; template.nodes().len()],
+        outputs: Default::default(),
         checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
@@ -69,9 +70,44 @@ where
             )
         });
 
+    super::super::diagnostic::anchor_diagnostics(&mut evaluator.diagnostics, || diagnostic_span);
+
+    let mut states = Vec::new();
+
+    let evaluated = evaluated.and_then(|value| {
+        if request.is_observation() && !evaluator.diagnostics.has_errors() {
+            let mut ordinal = 0;
+
+            for input in template.inputs() {
+                if !matches!(
+                    input.kind(),
+                    bray_bound_tree::CheckedTemplateInputKind::Receiver
+                        | bray_bound_tree::CheckedTemplateInputKind::Parameter(_)
+                ) {
+                    continue;
+                }
+
+                if let Some(output) = input.state_output() {
+                    states.push((ordinal, evaluator.evaluate_node(output)?));
+                }
+
+                ordinal += 1;
+            }
+        }
+
+        Ok(value)
+    });
+
     match evaluated {
         Ok(value) => CheckerOutcome::complete(
-            EvaluatedConstantCall::new(value, evaluator.budget.usage(limits)),
+            EvaluatedConstantCall::new(value, evaluator.budget.usage(limits)).with_states(states),
+            evaluator.diagnostics,
+        ),
+        Err(TemplateEvaluationFailure::Diagnosed) => CheckerOutcome::complete(
+            EvaluatedConstantCall::new(
+                recovery_value(context.semantic_values(), request.result_type()),
+                evaluator.budget.usage(limits),
+            ),
             evaluator.diagnostics,
         ),
         Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
@@ -127,7 +163,7 @@ where
         crate::ConstantEvaluationLimits::default(),
     ) {
         CheckerOutcome::Complete(result) => CheckerOutcome::Complete(
-            result.map(|evaluated| evaluated.map(EvaluatedConstantCall::value)),
+            result.map(|evaluated| evaluated.map(|evaluated| evaluated.value())),
         ),
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
@@ -224,6 +260,7 @@ where
         limits,
         budget: &mut budget,
         values: vec![None; template.nodes().len()],
+        outputs: Default::default(),
         checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
@@ -231,6 +268,8 @@ where
     };
 
     let evaluated = evaluator.evaluate_result(kind, result_type);
+
+    super::super::diagnostic::anchor_diagnostics(&mut evaluator.diagnostics, || diagnostic_span);
 
     match evaluated {
         Ok(value) => CheckerOutcome::complete(
@@ -240,6 +279,9 @@ where
             )),
             evaluator.diagnostics,
         ),
+        Err(TemplateEvaluationFailure::Diagnosed) => {
+            CheckerOutcome::complete(None, evaluator.diagnostics)
+        }
         Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
             let diagnostic =
                 match template_failure_diagnostic(context, result_type, problem, diagnostic_span) {
@@ -453,12 +495,14 @@ mod tests {
         };
 
         let ordered = evaluate_sequence(ConstantEvaluationLimits::default());
+
         assert!(ordered.diagnostics().is_empty());
         assert_eq!(ordered.value().value(), value);
         assert_eq!(ordered.value().usage().literal_bytes(), 5);
         assert_eq!(ordered.value().usage().expansions(), 5);
 
         let first_failure = evaluate_sequence(ConstantEvaluationLimits::new(16, 1, 1));
+
         assert_goal_state_diagnostic_kind(
             first_failure.diagnostics(),
             bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
@@ -916,6 +960,7 @@ mod tests {
 
         let result = outcome
             .value()
+            .as_ref()
             .unwrap_or_else(|| panic!("product evaluation must produce a value"));
 
         let data = values.constant_value_data(result.value());

@@ -764,7 +764,16 @@ fn callback_reconstruction_requires_the_actual_callable_address_evidence() {
 
 using std.memory;
 
- callable Callback = @abi(c) func() -> u32; func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback {requirement} executes(pure, total) uses(layout_reinterpret) {{ return trusted std.memory.callable_from_pointer<Callback>(pointer); }}"#
+callable Callback = @abi(c) func() -> u32;
+
+func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
+    {requirement}
+    executes(pure, total)
+    uses(layout_reinterpret)
+{{
+    return trusted std.memory.callable_from_pointer<Callback>(pointer);
+}}
+"#
         );
 
         let compilation = production_host_compilation(&source);
@@ -1533,9 +1542,22 @@ fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
             false,
         ),
     ] {
+        let body = body
+            .replace("values", "selected")
+            .replace("selected = other;", "selected = &other[..];");
+
         let caller = format!(
-            r#"module app;
-            func production_probe(pos mut values: &[u64], pos other: &[u64], pos mut index: usize) -> u64 executes(total) {{ {body} }}"#
+            r#"
+            module app;
+
+            func production_probe(pos values: &[u64], pos other: &[u64], pos mut index: usize) -> u64
+                executes(total)
+            {{
+                let mut selected = &values[..];
+
+                {body}
+            }}
+            "#
         );
 
         let compilation = production_host_compilation(&caller);
@@ -1652,9 +1674,10 @@ fn total_record_scans_require_a_bounded_unaliased_counter() {
             "index < count",
             "let alias = &mut index;",
             "index += 1;",
-            false,
+            true,
         ),
-        ("index < count", "count += 1;", "index += 1;", false),
+        // Index advances without wrapping on every back edge, even if count changes.
+        ("index < count", "count += 1;", "index += 1;", true),
         (
             "index < count",
             "while index < count { index += 1; }",
@@ -1708,16 +1731,18 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../standard-library/std/src/platform.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/protocol.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/bridge/address.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/owner.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment.bray"),
@@ -1739,6 +1764,7 @@ include_str!("../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/tickets.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
         include_str!("../../../../../runtime/bootstrap/src/thread.bray"),
@@ -1754,6 +1780,7 @@ include_str!("../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../standard-library/std/src/thread/darwin.bray"),
         include_str!("../../../../../standard-library/std/src/platform/status.bray"),
         include_str!("../../../../../standard-library/std/src/platform/representation.bray"),
+        include_str!("../../../../../standard-library/std/src/time/units.bray"),
         include_str!("../../../../../standard-library/std/src/platform/linux.bray"),
         include_str!("../../../../../standard-library/std/src/platform/darwin.bray"),
         include_str!("../../../../../standard-library/std/src/platform/windows.bray"),
@@ -2373,10 +2400,10 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
             using core.memory;
             trusted func production_probe(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
-                pos callback: DataPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-                pos ready: DataPointer<bray.runtime.bootstrap.activation.callback.Ready>,
-                pos other_ready: DataPointer<bray.runtime.bootstrap.activation.callback.Ready>,
-                pos other: DataPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+                pos other_ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+                pos other: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
                 pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
                 pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>,
@@ -2711,8 +2738,8 @@ fn activation_retirement_requires_retained_native_destinations() {
             trusted func production_probe(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
-                pos callback: DataPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-                pos ready: DataPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+                pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+                pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
                 pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos other_output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
                 pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
@@ -3008,7 +3035,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                 pos other_token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos state: u32, pos other_state: u32, pos origin: u64, pos other_origin: u64,
                 pos destination: usize, pos other_destination: usize,
-                pos ready: DataPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+                pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
             ) -> usize
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),

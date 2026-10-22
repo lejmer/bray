@@ -1,9 +1,9 @@
 //! Typed storage-plan inspection records.
 
 use bray_bound_tree::{
-    BorrowCapabilityOrigin, BoundExecutionSite, PlannedBorrowCapability, StorageAccess, StorageAccessPlan,
-    StorageAccessRoot, StorageAlternative, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StoragePlan, StorageProjection,
+    BorrowCapabilityOrigin, BoundExecutionSite, PlannedBorrowCapability, StorageAccess,
+    StorageAccessPlan, StorageAccessRoot, StorageAlternative, StorageBinding, StorageBindingTarget,
+    StorageIdentity, StoragePlan, StorageProjection,
 };
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
@@ -238,7 +238,10 @@ impl InspectionStorageProvenance {
             StorageIdentity::InvocationResult(occurrence) => Ok(Self::InvocationResult {
                 occurrence: occurrence.into(),
             }),
-            StorageIdentity::InvocationInput { expression, ordinal } => Ok(Self::InvocationInput {
+            StorageIdentity::InvocationInput {
+                expression,
+                ordinal,
+            } => Ok(Self::InvocationInput {
                 expression: expression.ordinal(),
                 ordinal: ordinal.raw(),
             }),
@@ -665,7 +668,10 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             StorageBindingTarget::InvocationResult(occurrence) => Self::InvocationResult {
                 occurrence: occurrence.into(),
             },
-            StorageBindingTarget::InvocationInput { expression, ordinal } => Self::InvocationInput {
+            StorageBindingTarget::InvocationInput {
+                expression,
+                ordinal,
+            } => Self::InvocationInput {
                 expression: expression.ordinal(),
                 ordinal: ordinal.raw(),
             },
@@ -710,16 +716,26 @@ impl From<BoundExecutionSite> for InspectionExecutionSite {
     fn from(site: BoundExecutionSite) -> Self {
         match site {
             BoundExecutionSite::Node(node) => Self::Node {
-                node_kind: node.kind().as_str(), node: node.ordinal(),
+                node_kind: node.kind().as_str(),
+                node: node.ordinal(),
             },
             BoundExecutionSite::Cleanup(node) => Self::Cleanup {
-                node_kind: node.kind().as_str(), node: node.ordinal(),
+                node_kind: node.kind().as_str(),
+                node: node.ordinal(),
             },
-            BoundExecutionSite::CallInput { expression, ordinal } => Self::CallInput {
-                expression: expression.ordinal(), ordinal: ordinal.raw(),
+            BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            } => Self::CallInput {
+                expression: expression.ordinal(),
+                ordinal: ordinal.raw(),
             },
-            BoundExecutionSite::Iterate(expression) => Self::Iterate { expression: expression.ordinal() },
-            BoundExecutionSite::Next(expression) => Self::Next { expression: expression.ordinal() },
+            BoundExecutionSite::Iterate(expression) => Self::Iterate {
+                expression: expression.ordinal(),
+            },
+            BoundExecutionSite::Next(expression) => Self::Next {
+                expression: expression.ordinal(),
+            },
             BoundExecutionSite::ScopedEnter(expression) => Self::ScopedEnter {
                 expression: expression.ordinal(),
             },
@@ -734,7 +750,10 @@ impl InspectionExecutionSite {
     fn node(&self) -> (&'static str, u32) {
         match *self {
             Self::Node { node_kind, node } | Self::Cleanup { node_kind, node } => (node_kind, node),
-            Self::CallInput { expression, .. } | Self::Iterate { expression } | Self::Next { expression } | Self::ScopedEnter { expression }
+            Self::CallInput { expression, .. }
+            | Self::Iterate { expression }
+            | Self::Next { expression }
+            | Self::ScopedEnter { expression }
             | Self::ScopedExit { expression } => ("expression", expression),
         }
     }

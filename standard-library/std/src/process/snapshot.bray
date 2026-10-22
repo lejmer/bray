@@ -27,7 +27,16 @@ internal struct ProcessContext
     directory: std.memory.RawBuffer<u8>;
 }
 
-internal static PROCESS_CONTEXT: std.sync.Once<ProcessContext> = std.sync.Once<ProcessContext>.empty();
+internal static PROCESS_CONTEXT: std.sync.Once<ProcessContext> =
+{
+    let prepared = std.sync.Once<ProcessContext>.prepare();
+
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
 
 internal func create_process_context() -> ProcessContext
 {

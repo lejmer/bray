@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using std.numeric;
 using core.target;
 using core.atomic;
 using std.memory;
@@ -73,7 +74,7 @@ trusted internal func enter_attachment_locked(
 
     if identity == 0
     {
-        if next == ~0
+        if next == std.numeric.U64_MAX
         {
             return Ok(unavailable);
         }
@@ -100,7 +101,7 @@ trusted internal func enter_attachment_locked(
         {
             case ?entry
             {
-                if entry.closing || entry.native_thread != native_thread || entry.depth == ~0
+                if entry.closing || entry.native_thread != native_thread || entry.depth == std.numeric.USIZE_MAX
                 {
                     return Ok(unavailable);
                 }
@@ -114,7 +115,7 @@ trusted internal func enter_attachment_locked(
         return Ok(unavailable);
     }
 
-    if storage.active == ~0
+    if storage.active == std.numeric.USIZE_MAX
     {
         return Ok(unavailable);
     }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::{SymbolQueryProvider, semantic_unit_context};
-use bray_bound_tree::{BoundCallableTarget, BoundUnitKey};
+use bray_bound_tree::{BoundCallableTarget, BoundUnitKey, UnwindBehavior};
 use bray_checker::{CheckerUnitView, UnwindCandidate, check_unwind_candidate};
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -74,7 +74,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<bool>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<UnwindBehavior>>, FactQueryError> {
         self.unit_query(
             &self.state.unwind_behavior,
             CompilationFactKey::UnwindBehavior(key.clone()),
@@ -84,7 +84,7 @@ impl Compilation {
                 let mut pending = vec![key.clone()];
                 let mut visited = BTreeSet::new();
                 let mut diagnostics = DiagnosticBag::new();
-                let mut may_unwind = false;
+                let mut behavior = UnwindBehavior::NONE;
 
                 while let Some(key) = pending.pop() {
                     cancellation.check()?;
@@ -97,24 +97,27 @@ impl Compilation {
 
                     diagnostics = diagnostics.merged(candidate.result().diagnostics());
 
-                    may_unwind |= candidate.result().diagnostics().has_errors()
-                        || candidate.result().value().may_unwind();
+                    behavior = behavior.merge(if candidate.result().diagnostics().has_errors() {
+                        UnwindBehavior::ANY
+                    } else {
+                        candidate.result().value().behavior()
+                    });
 
-                    if may_unwind {
+                    if behavior == UnwindBehavior::ANY {
                         break;
                     }
 
                     for target in candidate.result().value().dependencies() {
-                        may_unwind |= self.queue_unwind_dependency(
+                        behavior = behavior.merge(self.queue_unwind_dependency(
                             *target,
                             candidate.result().value().entry_conditions(),
                             &mut pending,
                             cancellation,
-                        )?;
+                        )?);
                     }
                 }
 
-                Ok((DiagnosticResult::new(may_unwind, diagnostics), Box::new([])))
+                Ok((DiagnosticResult::new(behavior, diagnostics), Box::new([])))
             },
         )
     }
@@ -141,20 +144,14 @@ impl Compilation {
 
         let entry = inputs
             .into_iter()
-            .filter_map(|(condition, trusted, _)| {
-                let bray_checker::ExecutionCondition::Predicate(predicate, _, arguments) =
-                    &condition
+            .filter_map(|(condition, domain, _)| {
+                let bray_checker::ExecutionCondition::Predicate(_, _, arguments) = &condition
                 else {
                     return None;
                 };
 
-                (!trusted
-                    && arguments.is_empty()
-                    && self
-                        .available_compiler_known_symbols()
-                        .symbol_implementation(predicate.into_any())
-                        .is_some_and(ImplementationHook::is_execution_requirement))
-                .then_some(condition)
+                (domain == bray_symbols::PredicateDomain::Execution && arguments.is_empty())
+                    .then_some(condition)
             })
             .collect();
 
@@ -167,9 +164,32 @@ impl Compilation {
         entry: &BTreeSet<bray_checker::ExecutionCondition>,
         pending: &mut Vec<BoundUnitKey>,
         cancellation: &CancellationToken,
-    ) -> Result<bool, FactQueryError> {
+    ) -> Result<UnwindBehavior, FactQueryError> {
         let target = match target {
             bray_checker::ExecutionDependencyTarget::Callable(target) => target,
+            bray_checker::ExecutionDependencyTarget::Requirement { callable, dispatch } => {
+                let binding = self.binding_context(cancellation)?;
+
+                let requirement =
+                    crate::compilation::implementation::dispatch_requirement(&binding, dispatch)
+                        .map_err(FactQueryError::from)?;
+
+                let callable = self
+                    .semantic_value_store()?
+                    .intern_callable_instance(callable)?;
+
+                let Some((callable, _, _)) = crate::compilation::implementation::witness_callable(
+                    &binding,
+                    callable,
+                    requirement,
+                )
+                .map_err(FactQueryError::from)?
+                else {
+                    return Ok(UnwindBehavior::ANY);
+                };
+
+                BoundCallableTarget::Declaration(callable)
+            }
             bray_checker::ExecutionDependencyTarget::Default(provider) => {
                 if let Some(body) = self.declared_unit_key(
                     provider.symbol(),
@@ -177,21 +197,49 @@ impl Compilation {
                 )? {
                     pending.push(body);
 
-                    return Ok(false);
+                    return Ok(UnwindBehavior::NONE);
                 }
 
                 let imported = self.checked_default_template(provider, cancellation)?;
 
-                return Ok(imported.diagnostics().has_errors()
-                    || imported
-                        .value()
-                        .as_ref()
-                        .is_none_or(|template| template.behavior().execution().may_unwind()));
+                return Ok(imported
+                    .value()
+                    .as_ref()
+                    .filter(|_| !imported.diagnostics().has_errors())
+                    .map_or(UnwindBehavior::ANY, |template| {
+                        let execution = template.behavior().execution();
+
+                        UnwindBehavior::new(
+                            execution.may_unwind(),
+                            execution.current_run_cancellation(),
+                        )
+                    }));
             }
         };
 
         let BoundCallableTarget::Declaration(instance) = target else {
-            return Ok(true);
+            if let BoundCallableTarget::Indirect(ty) = target {
+                let values = self.semantic_value_store()?;
+                let data = values.type_data(ty);
+
+                let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+                    panic!("checked indirect invocation retains its callable type");
+                };
+
+                if callable.abi() != bray_symbols::CallableAbi::Bray
+                    || callable.constness() == bray_symbols::CallableConstness::Constant
+                    || callable
+                        .phase_behaviors()
+                        .invocation()
+                        .execution_properties()
+                        .contains(&bray_symbols::ExecutionProperty::Total)
+                {
+                    // Argument admission can still panic before this non-cancelling body.
+                    return Ok(UnwindBehavior::PANIC);
+                }
+            }
+
+            return Ok(UnwindBehavior::ANY);
         };
 
         let hook = self
@@ -232,30 +280,38 @@ impl Compilation {
             unproved_requirement |= condition.is_none_or(|condition| !entry.contains(&condition));
         }
 
-        if unproved_requirement {
-            return Ok(true);
-        }
+        let entry = if unproved_requirement {
+            UnwindBehavior::PANIC
+        } else {
+            UnwindBehavior::NONE
+        };
 
         if let Some(hook) = hook.filter(|hook| *hook != ImplementationHook::AtomicWait) {
-            return Ok(matches!(
+            let cancellation = if matches!(
                 hook,
                 ImplementationHook::CurrentRunCancellationPropagation
-                    | ImplementationHook::TestingFail
                     | ImplementationHook::TaskYield
                     | ImplementationHook::TaskEventWait
-            ) || bray_checker::implementation_hook_may_propagate_synchronous_panic(
-                Some(hook),
-            ));
+            ) {
+                bray_symbols::CurrentRunCancellation::MayEnter
+            } else {
+                bray_symbols::CurrentRunCancellation::NotEntered
+            };
+
+            let may_unwind = hook == ImplementationHook::TestingFail
+                || bray_checker::implementation_hook_may_propagate_synchronous_panic(Some(hook));
+
+            return Ok(entry.merge(UnwindBehavior::new(may_unwind, cancellation)));
         }
 
         if hook == Some(ImplementationHook::AtomicWait) {
-            return Ok(false);
+            return Ok(entry);
         }
 
         if let Some(body) = self.callable_body_key(instance.definition())? {
             pending.push(body);
 
-            return Ok(false);
+            return Ok(entry);
         }
 
         let contract = context
@@ -264,8 +320,13 @@ impl Compilation {
             >::new(instance.definition().callable_symbol()))
             .map_err(crate::compilation::binder::binding_query_error)?;
 
-        Ok(contract.diagnostics().has_errors()
-            || contract.value().phase_behaviors().invocation().may_unwind())
+        Ok(entry.merge(if contract.diagnostics().has_errors() {
+            UnwindBehavior::ANY
+        } else {
+            let behavior = contract.value().phase_behaviors().invocation();
+
+            UnwindBehavior::new(behavior.may_unwind(), behavior.current_run_cancellation())
+        }))
     }
 
     pub(in crate::compilation) fn checked_unwind(
@@ -291,12 +352,12 @@ impl Compilation {
         }
 
         let candidate = candidate.result().value();
-        let mut targets = BTreeSet::new();
+        let mut behaviors = std::collections::BTreeMap::new();
 
         for target in candidate.dependencies() {
             let mut pending = Vec::new();
 
-            let mut may_unwind = self.queue_unwind_dependency(
+            let mut behavior = self.queue_unwind_dependency(
                 *target,
                 candidate.entry_conditions(),
                 &mut pending,
@@ -304,33 +365,64 @@ impl Compilation {
             )?;
 
             for key in pending {
-                let behavior = self.unwind_behavior(key, cancellation)?;
+                let dependency = self.unwind_behavior(key, cancellation)?;
 
-                may_unwind |=
-                    *behavior.result().value() || behavior.result().diagnostics().has_errors();
+                behavior = behavior.merge(if dependency.result().diagnostics().has_errors() {
+                    UnwindBehavior::ANY
+                } else {
+                    *dependency.result().value()
+                });
             }
 
-            if !may_unwind {
-                targets.insert(*target);
-            }
+            behaviors.insert(*target, behavior);
         }
 
         let calls = candidate
             .calls()
             .iter()
-            .filter(|(_, dependencies)| dependencies.iter().all(|target| targets.contains(target)))
+            .filter(|(_, call)| {
+                call.locally_non_unwinding()
+                    && call
+                        .dependencies()
+                        .iter()
+                        .all(|target| !behaviors[target].may_unwind())
+            })
             .map(|(expression, _)| *expression)
             .collect();
+
+        let non_cancelling = candidate
+            .calls()
+            .iter()
+            .filter(|(_, call)| {
+                call.dependencies().iter().all(|target| {
+                    behaviors[target].current_run_cancellation()
+                        == bray_symbols::CurrentRunCancellation::NotEntered
+                })
+            })
+            .map(|(expression, _)| *expression)
+            .collect();
+
+        let targets = behaviors
+            .into_iter()
+            .filter_map(|(target, behavior)| (!behavior.may_unwind()).then_some(target))
+            .collect::<BTreeSet<_>>();
 
         let targets = targets
             .into_iter()
             .filter_map(|target| match target {
                 bray_checker::ExecutionDependencyTarget::Callable(target) => Some(target),
+                bray_checker::ExecutionDependencyTarget::Requirement { callable, .. } => {
+                    Some(BoundCallableTarget::Declaration(callable))
+                }
                 bray_checker::ExecutionDependencyTarget::Default(_) => None,
             })
             .collect();
 
-        Ok(bray_bound_tree::CheckedUnwind::new(calls, targets))
+        Ok(bray_bound_tree::CheckedUnwind::new(
+            calls,
+            targets,
+            non_cancelling,
+        ))
     }
 }
 
@@ -340,14 +432,52 @@ mod tests {
 
     #[test]
     fn unwind_inference_separates_nontermination_from_failure() {
-        for (body, expected) in [
-            ("while true {}", false),
-            ("root();", false),
-            ("panic(\"stop\");", true),
-            ("let x = divide(2);", true),
+        for (body, expected, cancellation) in [
+            (
+                "while true {}",
+                false,
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            (
+                "root();",
+                false,
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            (
+                "if false { let outcome: RunResult<unit> = Cancelled; try outcome; }",
+                false,
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            (
+                "panic(\"stop\");",
+                true,
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            (
+                "let x = divide(2);",
+                true,
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            (
+                "let outcome: RunResult<unit> = Cancelled; try outcome;",
+                true,
+                bray_symbols::CurrentRunCancellation::MayEnter,
+            ),
         ] {
             let compilation = compilation(&format!(
-                "module example; func divide(pos divisor: i32) -> i32 {{ return 1 / divisor; }} trusted func root() {{ {body} }}"
+                r#"
+                module example;
+
+                func divide(pos divisor: i32) -> i32
+                {{
+                    return 1 / divisor;
+                }}
+
+                trusted func root()
+                {{
+                    {body}
+                }}
+                "#
             ));
 
             let key = source_function_body_key(&compilation, "root");
@@ -362,7 +492,13 @@ mod tests {
                 result.result().diagnostics()
             );
 
-            assert_eq!(*result.result().value(), expected, "{body}");
+            assert_eq!(result.result().value().may_unwind(), expected, "{body}");
+
+            assert_eq!(
+                result.result().value().current_run_cancellation(),
+                cancellation,
+                "{body}"
+            );
 
             assert_eq!(
                 compilation.state.body_semantics.is_published(&key),
@@ -403,7 +539,7 @@ mod tests {
                 result.result().diagnostics()
             );
 
-            assert_eq!(*result.result().value(), expected, "{source}");
+            assert_eq!(result.result().value().may_unwind(), expected, "{source}");
         }
     }
 
@@ -448,7 +584,7 @@ mod tests {
                 result.result().diagnostics()
             );
 
-            assert_eq!(*result.result().value(), expected, "{source}");
+            assert_eq!(result.result().value().may_unwind(), expected, "{source}");
         }
     }
 
@@ -512,7 +648,11 @@ mod tests {
                 result.result().diagnostics()
             );
 
-            assert_eq!(*result.result().value(), expected, "{declarations}");
+            assert_eq!(
+                result.result().value().may_unwind(),
+                expected,
+                "{declarations}"
+            );
         }
     }
 }

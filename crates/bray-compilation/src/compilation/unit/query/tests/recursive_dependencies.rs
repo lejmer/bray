@@ -621,6 +621,7 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
         let origins = dependencies
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })

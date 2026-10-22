@@ -8,9 +8,7 @@ use bray_bound_tree::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureQuery;
 
-use super::call::{
-    selected_call_contracts, selected_implicit_contracts,
-};
+use super::call::{selected_call_contracts, selected_implicit_contracts};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::unit::assert_unit_inputs;
 use crate::{
@@ -18,6 +16,7 @@ use crate::{
     CheckerUnitView,
 };
 
+// rust-style: allow(function-too-large, reason = "dependency collection publishes source access, invocation, and lifetime requirements as one coherent contract graph")
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     prepared: &crate::PreparedBodyAnalysis,
@@ -122,17 +121,26 @@ where
                     Ok(Some((contracts, escaping))) => {
                         if entry.selection().evaluates_defaults() {
                             let inputs = match super::call::selected_input_contracts(
-                                request, storage, entry.expression(), entry.selection(),
+                                request,
+                                storage,
+                                entry.expression(),
+                                entry.selection(),
+                                value_inputs,
                             ) {
                                 Ok(inputs) => inputs,
                                 Err(error) => return failed_contract(error, entry.expression()),
                             };
+
                             for (site, input) in inputs {
-                                expression_requirements.entry(site).or_insert_with(Vec::new)
+                                expression_requirements
+                                    .entry(site)
+                                    .or_insert_with(Vec::new)
                                     .extend(input.invocation().requirements().iter().cloned());
+
                                 calls.insert(site, input);
                             }
                         }
+
                         if let Some(root) = escaping.first().copied() {
                             diagnostics.add(super::defaults::escaping_evaluation_diagnostic(
                                 request,
@@ -177,22 +185,34 @@ where
                     ],
                     _ => unreachable!("implicit invocation selection was matched above"),
                 };
+
                 for occurrence in sites {
                     match selected_implicit_contracts(
-                        request, storage, entry.selection(), occurrence, value_inputs,
+                        request,
+                        storage,
+                        entry.selection(),
+                        occurrence,
+                        value_inputs,
                     ) {
                         Ok(contracts) => {
-                            expression_requirements.entry(occurrence).or_insert_with(Vec::new)
+                            expression_requirements
+                                .entry(occurrence)
+                                .or_insert_with(Vec::new)
                                 .extend(contracts.invocation().requirements().iter().cloned());
+
                             if let Some(deferred) = contracts.deferred() {
-                                deferred_expression_requirements.entry(occurrence).or_insert_with(Vec::new)
+                                deferred_expression_requirements
+                                    .entry(occurrence)
+                                    .or_insert_with(Vec::new)
                                     .extend(deferred.requirements().iter().cloned());
                             }
+
                             calls.insert(occurrence, contracts);
                         }
                         Err(error) => return failed_contract(error, entry.expression()),
                     }
                 }
+
                 continue;
             }
             SemanticSelection::Reference(_)

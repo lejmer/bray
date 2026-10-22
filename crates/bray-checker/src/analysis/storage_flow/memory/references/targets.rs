@@ -169,6 +169,7 @@ impl State {
     ) -> bool {
         !references.unknown
             && !references.displaced
+            && !references.inexact
             && !references.targets.is_empty()
             && references.targets.iter().all(|target| {
                 target.is_exact()
@@ -321,7 +322,7 @@ impl State {
 
 #[cfg(test)]
 fn located_storage(references: References) -> Option<Vec<Place>> {
-    if references.unknown || references.displaced {
+    if references.unknown || references.displaced || references.inexact {
         return None;
     }
 

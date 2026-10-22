@@ -4,6 +4,7 @@ using core.atomic;
 using core.memory;
 using std.memory;
 using internal std.sync.mutex;
+using internal std.sync.tickets;
 
 struct MutexGuard<T>
 {
@@ -34,7 +35,7 @@ struct MutexGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
 
         core.atomic.notify_all<u32>(&state.tickets);
     }

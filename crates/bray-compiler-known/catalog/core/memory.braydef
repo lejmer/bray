@@ -51,7 +51,7 @@ scope CoreMemory at core.memory {
         availability RawMemory;
         implementation RawPointerIsNull;
 
-        surface { func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
+        surface { const func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
     }
 
     declaration RawPointerOffset {

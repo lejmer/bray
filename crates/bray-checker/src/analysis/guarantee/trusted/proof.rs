@@ -236,9 +236,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let proven = ranges
                 .get(&(predicate, substitution, pointer))
                 .is_some_and(|extents| {
-                    extents
-                        .iter()
-                        .any(|extent| range_count_follows(count, extent, &ordinary, lower_bounds))
+                    extents.iter().any(|extent| {
+                        range_count_follows(count, extent, &ordinary, lower_bounds, &|value| {
+                            self.unsigned_value(value)
+                        })
+                    })
                 });
 
             proven
@@ -292,15 +294,17 @@ fn range_count_follows(
     extent: &ExecutionCondition,
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
     lower_bounds: &std::collections::BTreeMap<&ExecutionCondition, u64>,
+    unsigned: &impl Fn(&ExecutionCondition) -> bool,
 ) -> bool {
     use bray_bound_tree::BoundOperator;
 
-    if ExecutionCondition::operation(
+    let bound = ExecutionCondition::operation(
         BoundOperator::LessEqual,
         vec![count.clone(), extent.clone()],
-    )
-    .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-        == Some(true)
+    );
+
+    if bound.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
+        || super::super::integer::unsigned_arithmetic_is_bounded(&bound, assumptions, unsigned)
     {
         return true;
     }
@@ -338,7 +342,7 @@ fn range_count_follows(
             bray_symbols::ConstantValueData::new(left.ty(), value),
         ));
 
-        return range_count_follows(&count, extent, assumptions, lower_bounds);
+        return range_count_follows(&count, extent, assumptions, lower_bounds, unsigned);
     }
 
     if let ExecutionCondition::Operation(BoundOperator::Add, operands) = count

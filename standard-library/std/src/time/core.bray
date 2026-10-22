@@ -5,8 +5,6 @@ using std.memory;
 using std.numeric;
 using internal std.platform;
 
-const NANOSECONDS_PER_SECOND: u32 = 1000000000;
-
 internal struct DurationState
 {
     seconds: i64;

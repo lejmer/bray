@@ -13,7 +13,6 @@ trusted internal func open_dynamic_library_path(
     policy: LoadPolicy,
 ) -> Result<u64, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut handle: u64 = 0;
 
@@ -33,7 +32,6 @@ trusted internal func open_dynamic_library_system(
     policy: LoadPolicy,
 ) -> Result<u64, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut handle: u64 = 0;
 
@@ -56,7 +54,6 @@ trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) 
         executes(pure, total)
         ensures(result matches Ok(_))
     }
-    uses(foreign_call)
 {
     if !library.is_owned_value
     {
@@ -152,12 +149,8 @@ trusted internal func platform_dynamic_library_symbol(
     )
     uses(raw_memory, unchecked_init)
 {
-    let prepared: Result<DataPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_symbol(
-        handle,
-        name,
-        length,
-        address,
-    );
+    let prepared: Result<DataPointer<u8>, std.platform.PlatformStatus> =
+        trusted internal prepare_dynamic_library_symbol(handle, name, length, address);
 
     match consume prepared
     {

@@ -31,7 +31,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             panic!("checked built-in indexing retains its structured expression");
         };
 
-        let mut ranges = super::predicate::IntegerRanges::new();
+        let mut ranges = super::integer::IntegerRanges::new();
 
         if index.operands().iter().skip(1).any(|operand| {
             self.integer_range(state, *operand, &mut ranges, &mut {

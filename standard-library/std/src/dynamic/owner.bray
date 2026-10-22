@@ -114,7 +114,6 @@ struct DynamicLibrary
     /// loader cannot find the name. Returns `ForeignErrorKind.IncompatibleAbi` when the loader returns a null address.
     trusted func symbol<T>(pos name: &[u8]) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
         requires(blocking_execution())
-        uses(foreign_call, layout_reinterpret)
     {
         return trusted resolve_dynamic_symbol<T>(&self, name);
     }

@@ -121,18 +121,40 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::BoundExecutionSite::Node(
                 bray_bound_tree::AnyBoundNodeId::Expression(expression),
             ) => self.value(state, expression),
-            bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
-                let access = self.storage.invocation_input(expression, ordinal)
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            } => {
+                let access = self
+                    .storage
+                    .invocation_input(expression, ordinal)
                     .expect("input value has its planned slot");
-                let place = self.storage.logical_path(access).and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path))
+
+                let place = self
+                    .storage
+                    .logical_path(access)
+                    .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path))
                     .expect("input slot has an execution place");
-                place.value_in(&state.current).unwrap_or(ExecutionCondition::Unknown)
+
+                place
+                    .value_in(&state.current)
+                    .unwrap_or(ExecutionCondition::Unknown)
             }
-            bray_bound_tree::BoundExecutionSite::Iterate(_) | bray_bound_tree::BoundExecutionSite::Next(_) => {
-                let place = self.input_place(invocation)
+            bray_bound_tree::BoundExecutionSite::Iterate(_)
+            | bray_bound_tree::BoundExecutionSite::Next(_) => {
+                let place = self
+                    .input_place(invocation)
                     .expect("implicit invocation result has an execution place");
-                place.value_in(&state.current).unwrap_or_else(||
-                    ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), place))
+
+                place
+                    .value_in(&state.current)
+                    .filter(|value| *value != ExecutionCondition::Unknown)
+                    .unwrap_or_else(|| {
+                        ExecutionCondition::PostState(
+                            bray_bound_tree::StorageMutation::Operation(invocation),
+                            place,
+                        )
+                    })
             }
             bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
                 ExecutionCondition::ScopedCapability(expression)
@@ -152,14 +174,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         match value {
             ExecutionCondition::Input(place)
             | ExecutionCondition::Joined(_, _, place)
-            | ExecutionCondition::PostState(_, place) => self.observed_types.get(place).copied().flatten()
+            | ExecutionCondition::PostState(_, place) => self
+                .observed_types
+                .get(place)
+                .copied()
+                .flatten()
                 .or_else(|| match place.root {
                     crate::execution_guarantees::ExecutionInput::Storage(identity)
-                        if place.projections.is_empty() => self.storage.identity_type(identity),
+                        if place.projections.is_empty() =>
+                    {
+                        self.storage.identity_type(identity)
+                    }
                     _ => None,
                 }),
-            ExecutionCondition::Expression(expression) => self.semantics.types()
-                .expression(*expression).map(|entry| entry.ty()),
+            ExecutionCondition::Expression(expression) => self
+                .semantics
+                .types()
+                .expression(*expression)
+                .map(|entry| entry.ty()),
             ExecutionCondition::Literal(value) => Some(value.ty()),
             _ => None,
         }
@@ -284,5 +316,105 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         value
+    }
+    pub(super) fn complete_memory_write(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+    ) {
+        let Some(target) = self
+            .checked_body
+            .and_then(|body| body.storage_flow().memory_write_target(expression))
+            .filter(|target| target.is_exact())
+        else {
+            return;
+        };
+
+        let Some(path) = target.observation_path() else {
+            return;
+        };
+
+        let Some(place) = crate::ExecutionPlace::storage_path(self.storage, &path) else {
+            return;
+        };
+
+        let Some(value) = state.entries.get(&expression.into()).and_then(|entry| {
+            crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1))
+                .value_in(&entry.arguments)
+        }) else {
+            return;
+        };
+
+        state.assign(place, value);
+    }
+
+    pub(in crate::analysis) fn task_effect_source(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        let bray_bound_tree::SemanticSelection::Call(call) =
+            self.semantics.selections().expression(expression)?
+        else {
+            return None;
+        };
+
+        crate::analysis::AnalysisTaskOperationKind::from_implementation_hook(
+            call.implementation_hook()?,
+        )?;
+
+        let value = if call.evaluates_defaults() {
+            self.invocation_value(
+                state,
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal: bray_symbols::SymbolOrdinal::new(0),
+                },
+            )
+        } else {
+            self.value(state, call.receiver()?.expression())
+        };
+
+        if let Some(source) = state.deferred_invocations.get(&value) {
+            return Some(*source);
+        }
+
+        let ExecutionCondition::Expression(source) = value else {
+            return None;
+        };
+
+        let source = source.into();
+
+        self.dependencies
+            .calls()
+            .get(&source)?
+            .deferred_effects()
+            .map(|_| source)
+    }
+
+    pub(in crate::analysis) fn awaited_invocation(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        let bray_bound_tree::BoundExpression::Await(awaited) =
+            self.request.view().expression(expression)?
+        else {
+            return None;
+        };
+
+        let observed = self.value(state, awaited.operand());
+
+        let ExecutionCondition::Expression(source) = observed else {
+            return None;
+        };
+
+        let site = source.into();
+
+        self.dependencies
+            .calls()
+            .get(&site)?
+            .deferred_effects()
+            .map(|_| site)
     }
 }

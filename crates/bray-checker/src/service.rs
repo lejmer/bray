@@ -16,11 +16,10 @@ use crate::{
     OperationSelectionRequest, PatternCheckInput, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
-    BodyBehaviorContributions, CheckedBodySemantics, CheckedControlFlow,
-    CheckedExpressionSemantics, CheckedExpressionTypes, CheckedLiteralValues,
-    CheckedMemoryOperations, CheckedPatterns, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, SelectedCall, SelectedIterationSource, SelectedOperation,
-    StoragePlan,
+    BodyBehaviorContributions, CheckedBodySemantics, CheckedExpressionSemantics,
+    CheckedExpressionTypes, CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, SelectedCall, SelectedIterationSource,
+    SelectedOperation, StoragePlan,
 };
 use bray_symbols::{
     CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,
@@ -204,10 +203,9 @@ where
     fn collect_selected_behavior(
         &self,
         request: CheckerUnitView<'_, C>,
-        control_flow: &CheckedControlFlow,
         selections: &CheckedSemanticSelections,
     ) -> CheckerOutcome<BodyBehaviorContributions, C::UpstreamError> {
-        collect_selected_behavior(request, control_flow, selections).with_upstream()
+        collect_selected_behavior(request, selections).with_upstream()
     }
 }
 

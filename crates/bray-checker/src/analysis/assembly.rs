@@ -116,12 +116,19 @@ impl ControlFlowGraphAssembler {
         self.push_edge(current, entered, AnalysisEdgeKind::ScopeExit, None);
 
         let mut scoped_attempt = None;
+
         let completed = if let Some((expression, result)) = scoped {
-            self.push_call(entered, bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                AnalysisCallPhase::Input);
+            self.push_call(
+                entered,
+                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                AnalysisCallPhase::Input,
+            );
+
             let attempt = self.push_block();
+
             scoped_attempt = Some(attempt);
             self.push_edge(entered, attempt, AnalysisEdgeKind::Sequential, None);
+
             self.push_call(
                 attempt,
                 bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
@@ -189,9 +196,15 @@ impl ControlFlowGraphAssembler {
 
             if !preserves_exit_value {
                 // A failing exit still resolves the remaining cleanup, without its normal guarantees.
-                self.push_edge(entered, cancellation, AnalysisEdgeKind::Sequential,
+                self.push_edge(
+                    entered,
+                    cancellation,
+                    AnalysisEdgeKind::Sequential,
                     Some(AnalysisRefinement::PreconditionFailure(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression))));
+                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
+                    )),
+                );
+
                 self.push_edge(
                     scoped_attempt.expect("selected scope exit retains its admitted attempt"),
                     cancellation,
@@ -413,7 +426,10 @@ mod tests {
                         for operation in block.operations() {
                             match graph.operation(*operation).unwrap().kind() {
                                 AnalysisOperationKind::Call { phase, .. } => {
-                                    if phase == AnalysisCallPhase::Input { continue; }
+                                    if phase == AnalysisCallPhase::Input {
+                                        continue;
+                                    }
+
                                     events.push(match phase {
                                         AnalysisCallPhase::Input => unreachable!(),
                                         AnalysisCallPhase::Attempt => "exit attempt",
@@ -454,14 +470,29 @@ mod tests {
                             )
                         });
 
+                        let admission_failure =
+                            successors.iter().any(|edge| {
+                                matches!(
+                            edge.refinement(),
+                            Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(_))
+                        )
+                            });
+
                         if failure.is_some() {
                             assert!(!preserves_exit_value);
+                            assert!(!admission_failure);
+                            assert_eq!(successors.len(), 2);
+                        } else if admission_failure {
                             assert_eq!(successors.len(), 2);
                         } else {
                             assert!(successors.len() <= 1);
                         }
 
-                        let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(edge.refinement(), Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_))))) else { break; };
+                        let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(
+                            edge.refinement(),
+                            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_)
+                                | crate::analysis::model::AnalysisRefinement::PreconditionFailure(_))
+                        ))) else { break; };
 
                         cursor = edge.target();
                     }

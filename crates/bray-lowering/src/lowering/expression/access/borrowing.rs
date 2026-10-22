@@ -133,7 +133,7 @@ impl Lowerer<'_> {
         result_type: TypeId,
         source: bray_ir::MirSourceAnchor,
     ) -> Result<LoweredExpression, LoweringError> {
-        let decision = self.storage_decision(access_expression, |purpose| {
+        let decision = self.storage_decision(access_expression.into(), |purpose| {
             purpose == StorageAccessPurpose::Borrow(kind)
         });
 

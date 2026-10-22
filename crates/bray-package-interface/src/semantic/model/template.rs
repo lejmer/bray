@@ -32,12 +32,29 @@ pub enum InterfaceCheckedTemplateInputKind {
 pub struct InterfaceCheckedTemplateInput {
     kind: InterfaceCheckedTemplateInputKind,
     ty: InterfaceTypeId,
+    state_output: Option<CheckedTemplateNodeId>,
 }
 
 impl InterfaceCheckedTemplateInput {
     /// Creates one explicit typed template input.
     pub const fn new(kind: InterfaceCheckedTemplateInputKind, ty: InterfaceTypeId) -> Self {
-        Self { kind, ty }
+        Self {
+            kind,
+            ty,
+            state_output: None,
+        }
+    }
+
+    /// Retains the final value of a formal mutable referent interpreted as a value snapshot.
+    pub const fn with_state_output(mut self, output: Option<CheckedTemplateNodeId>) -> Self {
+        self.state_output = output;
+
+        self
+    }
+
+    /// Returns the final value of this mutable input frame, when present.
+    pub const fn state_output(&self) -> Option<CheckedTemplateNodeId> {
+        self.state_output
     }
 
     /// Returns the input's stable semantic role.
@@ -240,13 +257,24 @@ pub struct InterfaceCheckedTemplateNode {
 impl InterfaceCheckedTemplateNode {
     /// Creates one typed interface-template operation.
     pub const fn new(operation: InterfaceCheckedTemplateOperation, ty: InterfaceTypeId) -> Self {
-        Self { operation, ty, unsigned_integer_bits: None }
+        Self {
+            operation,
+            ty,
+            unsigned_integer_bits: None,
+        }
     }
 
     /// Retains the owning analysis's unsigned value-width proof without changing the declared type.
     pub const fn with_unsigned_integer_bits(mut self, bits: Option<std::num::NonZeroU8>) -> Self {
-        if let Some(bits) = bits { assert!(bits.get() <= 64, "u64 value bounds require at most 64 unsigned bits"); }
+        if let Some(bits) = bits {
+            assert!(
+                bits.get() <= 64,
+                "u64 value bounds require at most 64 unsigned bits"
+            );
+        }
+
         self.unsigned_integer_bits = bits;
+
         self
     }
 
@@ -271,21 +299,12 @@ impl InterfaceCheckedTemplateNode {
 pub struct InterfaceCheckedTemplateTemporary {
     initializer: CheckedTemplateNodeId,
     ty: InterfaceTypeId,
-    dependency_contract: InterfaceDependencyContractId,
 }
 
 impl InterfaceCheckedTemplateTemporary {
     /// Creates one typed temporary initialized by an earlier template node.
-    pub const fn new(
-        initializer: CheckedTemplateNodeId,
-        ty: InterfaceTypeId,
-        dependency_contract: InterfaceDependencyContractId,
-    ) -> Self {
-        Self {
-            initializer,
-            ty,
-            dependency_contract,
-        }
+    pub const fn new(initializer: CheckedTemplateNodeId, ty: InterfaceTypeId) -> Self {
+        Self { initializer, ty }
     }
 
     /// Returns the node whose value initializes this temporary.
@@ -296,11 +315,6 @@ impl InterfaceCheckedTemplateTemporary {
     /// Returns the checked temporary type.
     pub const fn ty(self) -> InterfaceTypeId {
         self.ty
-    }
-
-    /// Returns the dependencies carried by the stored value.
-    pub const fn dependency_contract(self) -> InterfaceDependencyContractId {
-        self.dependency_contract
     }
 }
 
@@ -350,7 +364,7 @@ impl InterfaceCheckedTemplate {
         &self.nodes
     }
 
-    /// Returns temporaries in allocation order with nondecreasing initializer nodes.
+    /// Returns explicitly materialized temporaries in deterministic allocation order.
     pub fn temporaries(&self) -> &[InterfaceCheckedTemplateTemporary] {
         &self.temporaries
     }

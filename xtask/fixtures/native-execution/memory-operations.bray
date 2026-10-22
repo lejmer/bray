@@ -154,7 +154,10 @@ trusted func overlap_pointers(pos pointer: DataPointer<u8>) -> (DataPointer<u8>,
 }
 
 // The exclusive destination borrow excludes overlap with the readable source.
-trusted func separate_pointers(pos source: &[u8; 2], pos destination: &mut [u8; 3]) -> (DataPointer<u8>, DataPointer<u8>)
+trusted func separate_pointers(
+    pos source: &[u8; 2],
+    pos destination: &mut [u8; 3]
+) -> (DataPointer<u8>, DataPointer<u8>)
     ensures(
         trusted core.memory.valid_read<u8>(pointer = result.0, count = 2),
         trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = 2),

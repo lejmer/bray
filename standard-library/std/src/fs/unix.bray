@@ -107,7 +107,7 @@ trusted internal func prepare_file_seek(
     {
         case 0
         {
-            if offset_bits > 9_223_372_036_854_775_807
+            if offset_bits > (std.numeric.U64_MAX >> 1)
             {
                 return Error(internal std.platform.invalid_input_status());
             }
@@ -441,7 +441,6 @@ trusted internal func platform_directory_next(
     pos state: &mut [u64],
     pos first: &mut u8,
 ) -> Result<DirectoryEntry?, std.io.IoError>
-    uses(foreign_call)
 {
     let directory: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
     let descriptor: i32 = trusted std.os.unix.directory_descriptor(directory);
@@ -599,7 +598,7 @@ trusted internal func unix_metadata(pos storage: &[u64]) -> Result<FileMetadata,
         internal unix_status_value(storage, offset = std.os.unix.FILE_STATUS_MODIFIED_NANOSECONDS_OFFSET, bytes = 8)
     );
 
-    if nanoseconds < 0 || 1_000_000_000 <= nanoseconds
+    if nanoseconds < 0 || (std.time.NANOSECONDS_PER_SECOND as i64) <= nanoseconds
     {
         return Error(internal std.io.invalid_transfer_error());
     }

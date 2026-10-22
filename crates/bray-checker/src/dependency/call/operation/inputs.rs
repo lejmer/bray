@@ -28,20 +28,32 @@ impl OperationInput {
         )
     }
 
-    pub(crate) fn access(self, storage: &bray_bound_tree::StoragePlan) -> Option<bray_bound_tree::StorageAccessId> {
+    pub(crate) fn access(
+        self,
+        storage: &bray_bound_tree::StoragePlan,
+    ) -> Option<bray_bound_tree::StorageAccessId> {
         match self {
             Self::Borrow(_, _) => self.borrow_plan(storage).map(|plan| plan.access()),
-            Self::Value(bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal }) =>
-                Some(storage.invocation_input(expression, ordinal).expect("staged operation input has its slot")),
-            _ => self.expression().map(|expression|
+            Self::Value(bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            }) => Some(
+                storage
+                    .invocation_input(expression, ordinal)
+                    .expect("staged operation input has its slot"),
+            ),
+            _ => self.expression().map(|expression| {
                 super::super::instantiation::expression_access(storage, expression)
-                    .expect("selected operation input has its source access")),
+                    .expect("selected operation input has its source access")
+            }),
         }
     }
 
     pub(crate) fn expression(self) -> Option<BoundExpressionId> {
         match self {
-            Self::Value(bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)))
+            Self::Value(bray_bound_tree::BoundExecutionSite::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+            ))
             | Self::Borrow(expression, _) => Some(expression),
             Self::Value(bray_bound_tree::BoundExecutionSite::CallInput { .. }) => None,
             Self::Value(other) => panic!("operation value has an evaluated value site: {other:?}"),
@@ -114,21 +126,39 @@ pub(crate) fn operation_inputs(
     }
 
     if let SelectedOperation::Construction(construction) = operation {
-        let staged = construction.inputs().iter().any(|input| matches!(input, SelectedConstructionInput::Default { .. }));
-        return construction.inputs().iter().filter_map(|input| {
-            let (SelectedConstructionInput::Explicit { ordinal, .. }
+        let staged = construction
+            .inputs()
+            .iter()
+            .any(|input| matches!(input, SelectedConstructionInput::Default { .. }));
+
+        return construction
+            .inputs()
+            .iter()
+            .filter_map(|input| {
+                let (SelectedConstructionInput::Explicit { ordinal, .. }
                 | SelectedConstructionInput::Default { ordinal, .. }) = input;
-            let ordinal = SymbolOrdinal::new(*ordinal);
-            let source = if staged {
-                bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal }
-            } else {
-                let SelectedConstructionInput::Explicit { expression, .. } = input else {
-                    unreachable!("unstaged construction has no defaults");
+
+                let ordinal = SymbolOrdinal::new(*ordinal);
+
+                let source = if staged {
+                    bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression,
+                        ordinal,
+                    }
+                } else {
+                    let SelectedConstructionInput::Explicit { expression, .. } = input else {
+                        unreachable!("unstaged construction has no defaults");
+                    };
+
+                    (*expression).into()
                 };
-                (*expression).into()
-            };
-            Some((DependencySubjectRoot::Parameter(ordinal), OperationInput::Value(source)))
-        }).collect();
+
+                Some((
+                    DependencySubjectRoot::Parameter(ordinal),
+                    OperationInput::Value(source),
+                ))
+            })
+            .collect();
     }
 
     node.child_expressions()

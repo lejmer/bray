@@ -20,7 +20,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 type PortableObligation = CallableExecutionObligation<SymbolOrdinal>;
 type SourceProofs = BTreeMap<
     (bray_declarations::SyntaxAnchor, ExecutionObligation),
-    BTreeSet<(BoundCallableTarget, ExecutionObligation)>,
+    BTreeSet<(bray_checker::ExecutionDependencyTarget, ExecutionObligation)>,
 >;
 
 impl Compilation {
@@ -64,6 +64,28 @@ impl Compilation {
                 },
             );
 
+            let mut mapping = mapping;
+
+            for internal in [
+                ExecutionObligation::Observation,
+                ExecutionObligation::Termination,
+                ExecutionObligation::FiniteIteration,
+            ] {
+                if demanded.contains(&internal) {
+                    mapping.insert(
+                        internal,
+                        match internal {
+                            ExecutionObligation::Observation => PortableObligation::Observation,
+                            ExecutionObligation::Termination => PortableObligation::Termination,
+                            ExecutionObligation::FiniteIteration => {
+                                PortableObligation::FiniteIteration
+                            }
+                            _ => unreachable!("internal proof role is selected above"),
+                        },
+                    );
+                }
+            }
+
             mappings.insert(*anchor, (mapping, inferred));
         }
 
@@ -93,7 +115,9 @@ impl Compilation {
 
                 for (target, required) in dependencies {
                     match target {
-                        BoundCallableTarget::Declaration(callable) => {
+                        bray_checker::ExecutionDependencyTarget::Callable(
+                            BoundCallableTarget::Declaration(callable),
+                        ) => {
                             let target_anchor =
                                 graph.declaration_syntax_anchor(callable.definition().symbol());
 
@@ -113,10 +137,35 @@ impl Compilation {
 
                             targets.push((CallableExecutionTarget::Callable(callable), required));
                         }
-                        BoundCallableTarget::Indirect(ty) => targets.push((
+                        bray_checker::ExecutionDependencyTarget::Callable(
+                            BoundCallableTarget::Indirect(ty),
+                        ) => targets.push((
                             CallableExecutionTarget::Indirect(*ty),
                             PortableObligation::Property(ExecutionProperty::Pure, None),
                         )),
+                        bray_checker::ExecutionDependencyTarget::Requirement {
+                            callable,
+                            dispatch,
+                        } => {
+                            let binding = self.binding_context(cancellation)?;
+
+                            let requirement =
+                                crate::compilation::implementation::dispatch_requirement(
+                                    &binding, *dispatch,
+                                )
+                                .map_err(FactQueryError::from)?;
+
+                            let required = super::imported::portable_imported_obligation(*required)
+                                .expect("selected implementation premise retains an internal proof role");
+
+                            targets.push((
+                                CallableExecutionTarget::Requirement {
+                                    callable: values.intern_callable_instance(*callable)?,
+                                    requirement,
+                                },
+                                required,
+                            ));
+                        }
                         _ => panic!(
                             "checked execution proof of {symbol:?} contains unsupported target {target:?}"
                         ),
@@ -181,23 +230,73 @@ impl Compilation {
 
             source_symbols.insert(anchor, symbol);
 
+            if self.callable_body_key(definition)?.is_none() {
+                let context = self.checker_context(cancellation)?;
+
+                if bray_checker::CheckerRequestContext::implementation_hook(&context, symbol)?
+                    .is_some_and(|hook| {
+                        hook.is_available()
+                            && (hook.hook().is_value_observation()
+                                || hook.hook().is_range_iteration())
+                    })
+                {
+                    origins.insert(anchor, CallableExecutionOrigin::CompilerIntrinsic);
+                }
+            }
+
             let declared = self.execution_declaration(anchor)?;
 
             diagnostics.add_range(declared.diagnostics().iter().cloned());
 
+            let protocol = self.observational_protocol(symbol, diagnostics, cancellation)?;
+
             if declared.value().clauses().is_empty()
+                && protocol.is_none()
                 && !self.declares_constant_callable(definition, cancellation)?
             {
                 continue;
             }
 
             if let Some(body) = self.callable_body_key(definition)? {
-                let certificate = self.certified_execution_with_cancellation(body, cancellation)?;
+                let certificate =
+                    self.certified_execution_with_cancellation(body.clone(), cancellation)?;
 
                 diagnostics.add_range(certificate.result().diagnostics().iter().cloned());
 
                 if certificate.result().diagnostics().has_errors() {
                     continue;
+                }
+
+                if let Some(protocol) = protocol {
+                    let roles = [
+                        ExecutionObligation::Observation,
+                        ExecutionObligation::Termination,
+                    ]
+                    .into_iter()
+                    .chain(
+                        (protocol == bray_compiler_known::CompilerKnownIterationRole::IteratorNext)
+                            .then_some(ExecutionObligation::FiniteIteration),
+                    );
+
+                    for role in roles {
+                        let mut local_diagnostics = DiagnosticBag::new();
+
+                        let (failure, _, dependencies) = self.certify_execution_obligation(
+                            &body,
+                            role,
+                            &mut local_diagnostics,
+                            false,
+                            cancellation,
+                        )?;
+
+                        if failure.is_some() {
+                            continue;
+                        }
+
+                        diagnostics.add_range(local_diagnostics.iter().cloned());
+                        proofs.entry((anchor, role)).or_default();
+                        record_proof_dependencies(graph, dependencies, &mut proofs);
+                    }
                 }
 
                 let certificate = certificate.result().value();
@@ -225,19 +324,11 @@ impl Compilation {
                     proofs.entry((anchor, obligation)).or_default();
                 }
 
-                for (owner, obligation, target, required) in &certificate.dependencies {
-                    proofs
-                        .entry((*owner, *obligation))
-                        .or_default()
-                        .insert((*target, *required));
-
-                    if let BoundCallableTarget::Declaration(callable) = target
-                        && let Some(target_anchor) =
-                            graph.declaration_syntax_anchor(callable.definition().symbol())
-                    {
-                        proofs.entry((target_anchor, *required)).or_default();
-                    }
-                }
+                record_proof_dependencies(
+                    graph,
+                    certificate.dependencies.iter().copied(),
+                    &mut proofs,
+                );
             } else {
                 let origin =
                     if matches!(graph.containing_symbol(symbol), Some(AnySymbolId::Trait(_))) {
@@ -270,6 +361,16 @@ impl Compilation {
 
                 origins.insert(anchor, origin);
 
+                if origin == CallableExecutionOrigin::CompilerIntrinsic
+                    && self.declares_constant_callable(definition, cancellation)?
+                {
+                    for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
+                        proofs
+                            .entry((anchor, ExecutionObligation::Property(property, None)))
+                            .or_default();
+                    }
+                }
+
                 for domain in declared.value().domains() {
                     for property in &domain.properties {
                         proofs
@@ -283,7 +384,13 @@ impl Compilation {
                             .or_default();
                     }
 
-                    for post in &domain.postconditions {
+                    // Checked memory semantics own intrinsic output witnesses. This export
+                    // certifies execution properties, not arbitrary source postconditions.
+                    for post in domain
+                        .postconditions
+                        .iter()
+                        .filter(|_| origin != CallableExecutionOrigin::CompilerIntrinsic)
+                    {
                         proofs
                             .entry((
                                 anchor,
@@ -302,6 +409,66 @@ impl Compilation {
         }
 
         Ok((proofs, origins, source_symbols))
+    }
+
+    fn observational_protocol(
+        &self,
+        symbol: AnySymbolId,
+        diagnostics: &mut DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_compiler_known::CompilerKnownIterationRole>, FactQueryError> {
+        let Some(protocol) = self.available_compiler_known_symbols().iteration_protocol() else {
+            return Ok(None);
+        };
+
+        let AnySymbolId::TraitCallableFulfillment(fulfillment) = symbol else {
+            return Ok(None);
+        };
+
+        let graph = self.symbol_graph()?;
+        let name = graph.member_name(symbol);
+
+        let matches_protocol_name = [protocol.iterator_next(), protocol.iterable_iterate()]
+            .iter()
+            .any(|member| name.is_some() && graph.member_name((*member).into()) == name);
+
+        if !matches_protocol_name {
+            return Ok(None);
+        }
+
+        let implementation = graph
+            .containing_symbol(symbol)
+            .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
+            .expect("checked trait fulfillment retains its implementation");
+
+        let conformance =
+            self.trait_implementation_conformance_with_cancellation(implementation, cancellation)?;
+
+        diagnostics.add_range(conformance.diagnostics().iter().cloned());
+
+        Ok(conformance.value().requirements().iter().find_map(|entry| {
+            if entry.resolution()
+                != bray_symbols::TraitRequirementResolution::Explicit(
+                    bray_symbols::TraitMemberFulfillmentId::Callable(fulfillment),
+                )
+            {
+                return None;
+            }
+
+            match entry.requirement() {
+                bray_symbols::TraitMemberRequirementId::Callable(member)
+                    if member == protocol.iterator_next() =>
+                {
+                    Some(bray_compiler_known::CompilerKnownIterationRole::IteratorNext)
+                }
+                bray_symbols::TraitMemberRequirementId::Callable(member)
+                    if member == protocol.iterable_iterate() =>
+                {
+                    Some(bray_compiler_known::CompilerKnownIterationRole::IterableIterate)
+                }
+                _ => None,
+            }
+        }))
     }
 
     fn portable_execution_domains(
@@ -377,8 +544,18 @@ impl Compilation {
 
             let entry = self.execution_condition_inputs(&owner, &anchors, cancellation)?;
 
-            let posts =
-                self.execution_condition_inputs(&owner, &domain.postconditions, cancellation)?;
+            let posts = domain
+                .postconditions
+                .iter()
+                .copied()
+                .filter(|post| {
+                    demanded.contains(&ExecutionObligation::Postcondition(
+                        bray_source::SourceSpan::new(post.source_id(), post.full_range()).into(),
+                    ))
+                })
+                .collect::<Vec<_>>();
+
+            let posts = self.execution_condition_inputs(&owner, &posts, cancellation)?;
 
             diagnostics.add_range(entry.diagnostics().iter().cloned());
             diagnostics.add_range(posts.diagnostics().iter().cloned());
@@ -480,7 +657,7 @@ impl Compilation {
                     (mapping.get(source) == Some(&total))
                         .then(|| candidates.result().value().get(source))
                         .flatten()
-                        .and_then(bray_checker::ExecutionCandidate::result_variant)
+                        .and_then(|candidate| candidate.result_variant())
                 })
             });
 
@@ -573,4 +750,32 @@ fn evidence_ordinal(symbol: AnySymbolId, index: usize) -> Result<SymbolOrdinal, 
         )
         .into()
     })
+}
+
+fn record_proof_dependencies(
+    graph: &bray_symbols::SymbolGraph,
+    dependencies: impl IntoIterator<
+        Item = (
+            bray_declarations::SyntaxAnchor,
+            ExecutionObligation,
+            bray_checker::ExecutionDependencyTarget,
+            ExecutionObligation,
+        ),
+    >,
+    proofs: &mut SourceProofs,
+) {
+    for (owner, obligation, target, required) in dependencies {
+        proofs
+            .entry((owner, obligation))
+            .or_default()
+            .insert((target, required));
+
+        if let bray_checker::ExecutionDependencyTarget::Callable(BoundCallableTarget::Declaration(
+            callable,
+        )) = target
+            && let Some(anchor) = graph.declaration_syntax_anchor(callable.definition().symbol())
+        {
+            proofs.entry((anchor, required)).or_default();
+        }
+    }
 }

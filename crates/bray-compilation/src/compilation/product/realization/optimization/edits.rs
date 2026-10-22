@@ -219,7 +219,8 @@ fn dead_scalar_is_pure(kind: &MirOperationKind) -> bool {
         && !matches!(
             kind,
             MirOperationKind::Binary {
-                operator: MirBinaryOperator::Divide
+                operator: MirBinaryOperator::Exponentiate
+                    | MirBinaryOperator::Divide
                     | MirBinaryOperator::Remainder
                     | MirBinaryOperator::ShiftLeft
                     | MirBinaryOperator::ShiftRight,

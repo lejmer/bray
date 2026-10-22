@@ -2,7 +2,6 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
-    GenericConstParameterSymbolId,
 };
 use bray_syntax::{ExpressionSyntax, GenericArgumentSyntax, SourceSyntaxNode};
 
@@ -22,13 +21,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         ))
     }
 
-    pub(super) fn bind_generic_constant_argument(
+    pub(super) fn bind_constant_argument(
         &self,
         argument: &GenericArgumentSyntax,
-        parameter: GenericConstParameterSymbolId,
+        expected: ConstantExpressionExpectedType,
     ) -> BindingQueryResult<ConstantExpressionOccurrence, Upstream> {
-        let expected = ConstantExpressionExpectedType::GenericParameter(parameter);
-
         if let Some(expression) = argument.expressions().next() {
             return Ok(self.constant_expression_occurrence(&expression, expected));
         }

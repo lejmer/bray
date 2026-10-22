@@ -82,7 +82,7 @@ trusted internal func read(
         yield header.context;
     };
 
-    let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
+    let callback = trusted std.memory.function.from_data<Query>(descriptor.state);
 
     let invoke = trusted lambda(
         pos token: &bray.runtime.bootstrap.activation.Inactive,

@@ -10,22 +10,34 @@ struct Once<T>
     instance: std.sync.once.Marker;
     storage: Uninit<std.sync.once.State<T>>;
 
-    static trusted const func empty() -> Self
+    static trusted func empty() -> Self
         ensures(trusted std.sync.once.valid(&result.instance))
     {
+        let prepared = Once<T>.prepare();
+
         return
         {
-            instance = std.sync.once.Marker
+            instance = prepared.0,
+            storage = prepared.1,
+        };
+    }
+
+    /// Prepares initialized fields for ownership formation, including static materialization.
+    static trusted const func prepare() -> (std.sync.once.Marker, Uninit<std.sync.once.State<T>>)
+        ensures(trusted std.sync.once.valid(marker = &result.0))
+    {
+        return (
+            std.sync.once.Marker
             {
             },
-            storage = std.memory.uninit_from<std.sync.once.State<T>>(
+            std.memory.uninit_from<std.sync.once.State<T>>(
                 {
                     phase = core.atomic.initialize<u32>(std.sync.once.EMPTY),
                     owner = core.atomic.initialize<usize>(0),
                     value = std.memory.uninit<T>(),
                 }
             ),
-        };
+        );
     }
 
     trusted destruct()

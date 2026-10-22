@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.report.sink;
 
+using std.numeric;
 using core.target;
 using core.memory;
 using std.memory;
@@ -97,7 +98,7 @@ trusted internal func append(
     )
     uses(intrinsic)
 {
-    if state.next_ordinal == ~0 || state.pending_count == ~0
+    if state.next_ordinal == std.numeric.U64_MAX || state.pending_count == std.numeric.USIZE_MAX
     {
         trusted core.target.abort();
     }

@@ -6,7 +6,9 @@ mod control;
 mod conversion;
 mod index;
 mod inputs;
+mod iteration;
 mod pattern;
+mod projection;
 mod query;
 mod state;
 

@@ -28,8 +28,10 @@ trusted internal predicate native_primary_slot_callbacks(pointer: DataPointer<Re
 
 trusted internal predicate native_report_slot_callbacks(pointer: DataPointer<PanicReportData>);
 
-internal callable ReportConsumer = @abi(c) trusted func(pos pointer: DataPointer<PanicReportData>, pos reporting: u32) ->
-    u32
+internal callable ReportConsumer = @abi(c) trusted func(
+    pos pointer: DataPointer<PanicReportData>,
+    pos reporting: u32
+) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
@@ -168,7 +170,7 @@ trusted internal func release_primary(
     pos callback: PanicMessageRelease?
 ) -> (u32, PanicReportData)
     ensures(trusted native_report_callbacks(report = &result.1))
-    uses(layout_reinterpret)
+    uses(layout_reinterpret, foreign_call)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let mut outcome: ReportOutcome =

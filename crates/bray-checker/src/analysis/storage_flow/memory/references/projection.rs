@@ -2,7 +2,6 @@ use super::super::model::{Origin, Place, References, State, Target};
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
 
-
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
@@ -50,19 +49,47 @@ impl State {
             && !path.projections.contains(&StorageProjection::OwnedTarget)
     }
 
+    pub(super) fn returned_input_regions(
+        &self,
+        reference: &Place,
+    ) -> &std::collections::BTreeSet<Target> {
+        self.returned_inputs.get(reference).unwrap_or_else(|| {
+            panic!("returned reference {reference:?} has no complete input-region bound")
+        })
+    }
+
     pub(super) fn reachable_inline_roots(
         &self,
         target: &Target,
     ) -> impl Iterator<Item = StorageIdentityId> + '_ {
         let (storage, returned) = match &target.origin {
             Origin::Storage(path) => (Some(path.root), None),
-            Origin::Returned { reference, .. } => (None, self.returned_roots.get(reference)),
+            Origin::Returned { reference, .. } => {
+                (None, Some(self.returned_input_regions(reference)))
+            }
             Origin::Entry { .. } | Origin::Allocation(_) => (None, None),
         };
 
-        storage
-            .into_iter()
-            .chain(returned.into_iter().flatten().copied())
+        storage.into_iter().chain(
+            returned
+                .into_iter()
+                .flatten()
+                .filter_map(|target| target.storage_path().map(|path| path.root)),
+        )
+    }
+
+    pub(in crate::analysis::storage_flow) fn escape_origins<'a>(
+        &'a self,
+        target: &'a Target,
+    ) -> impl Iterator<Item = &'a Target> {
+        let returned = match &target.origin {
+            Origin::Returned { reference, .. } => Some(self.returned_input_regions(reference)),
+            _ => None,
+        };
+
+        std::iter::once(target)
+            .filter(|target| !matches!(target.origin, Origin::Returned { .. }))
+            .chain(returned.into_iter().flatten())
     }
 
     pub(in crate::analysis::storage_flow) fn target_relationship(
@@ -81,9 +108,14 @@ impl State {
         if let Some((reference, slot)) = returned_slot
             && self.is_owned_inline_storage(slot)
             && !self
-                .returned_roots
-                .get(reference)
-                .is_some_and(|roots| roots.contains(&slot.root))
+                .contents
+                .get(&Target::storage(Place::root(slot.root)))
+                .is_some_and(|contents| contents.escaped)
+            && !self.returned_input_regions(reference).iter().any(|target| {
+                target
+                    .storage_path()
+                    .is_some_and(|path| path.root == slot.root)
+            })
         {
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
@@ -154,8 +186,16 @@ impl State {
 
         (!references.unknown
             && !references.displaced
+            && !references.inexact
             && references.targets.iter().all(Target::is_exact))
         .then(|| references.targets.iter().cloned().collect())
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_regions(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<Vec<Target>> {
+        self.borrows.get(&capability)?.regions()
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_targets(
@@ -166,8 +206,26 @@ impl State {
 
         (!references.unknown
             && !references.displaced
+            && !references.inexact
             && references.targets.iter().all(Target::is_exact))
         .then(|| references.targets.iter().cloned().collect())
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_observation(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<Place> {
+        let references = self.borrows.get(&capability)?;
+
+        if !references.is_exact() {
+            return None;
+        }
+
+        references
+            .targets
+            .first()
+            .expect("exact borrow has one target")
+            .observation_path()
     }
 
     pub(in crate::analysis::storage_flow) fn entry_reference_at(
@@ -275,7 +333,6 @@ impl State {
         self.borrows.insert(capability, References::one(target));
     }
 }
-
 
 impl References {
     pub(super) fn regions(&self) -> Option<Vec<Target>> {

@@ -29,7 +29,7 @@ internal struct PendingValue<T>
     mut func take() -> T
         ensures(self.storage matches none)
     {
-        let stored: T? = std.memory.replace_value(&mut self.storage, none);
+        let stored: T? = std.memory.take_nullable<T>(&mut self.storage);
 
         return match consume stored
         {
@@ -192,21 +192,13 @@ trusted internal func withdraw_waiter<T>(pos shared: &ChannelCore<T>, pos ticket
     trusted internal notify_channel<T>(shared);
 }
 
-trusted internal async func wait_for_channel_change<T>(pos owner: std.channel.owner.Owner<T>, pos generation: u32)
-    requires(blocking_execution(), trusted std.channel.owner.live(&owner.instance))
+trusted internal async func wait_for_channel_change(pos word: &core.atomic.Atomic<u32>, pos generation: u32)
+    requires(blocking_execution())
 {
-    let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
-        ensures(trusted std.channel.owner.access(marker))
-        executes(pure, total) {};
-
-    authorize(&owner.instance);
-
-    let shared: &ChannelCore<T> = trusted internal channel_core<T>(&owner);
-
-    if core.atomic.load<u32, 0>(&shared.generation) == generation
+    if core.atomic.load<u32, 0>(word) == generation
     {
         trusted internal std.atomic.platform_wait_word_for(
-            &shared.generation,
+            word,
             expected = generation,
             timeout_milliseconds = WAIT_TIMEOUT_MILLISECONDS,
         );

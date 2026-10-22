@@ -873,7 +873,7 @@ mod tests {
         let provider = build_provider();
 
         let bool_key = declaration_key("Bool");
-        let raw_pointer_key = declaration_key("RawPointer");
+        let raw_pointer_key = declaration_key("DataPointer");
         let memory_copy_key = declaration_key("MemoryCopy");
 
         let bool_id = struct_id(&provider, &bool_key);

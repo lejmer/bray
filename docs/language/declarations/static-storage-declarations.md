@@ -74,9 +74,19 @@ through an explicit source operation.
 ```bray
 using std.sync;
 
-static STATE: std.sync.Once<State> = std.sync.Once<State>.empty();
+static STATE: std.sync.Once<State> =
+{
+    let prepared = std.sync.Once<State>.prepare();
+
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
 
 func state() -> &State
+    requires(blocking_execution())
 {
     return STATE.get_or_init(create_state);
 }

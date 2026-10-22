@@ -121,10 +121,11 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -141,10 +142,11 @@ fn raw_addresses_do_not_extend_borrows_or_retain_local_storage() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             module app;
 
@@ -221,10 +223,11 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -242,10 +245,11 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -295,10 +299,11 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -377,10 +382,11 @@ func conflict<S>(pos pair: &mut Pair<S>)
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         source,
     ]);
 
@@ -407,11 +413,13 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/tickets.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
@@ -437,8 +445,12 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
-        "{:#?}",
+        "{:#?}. Source: {:?}",
         compilation.check_diagnostics(),
+        crate::test_support::diagnostic_source_fragments(
+            &compilation,
+            compilation.check_diagnostics()
+        ),
     );
 
     for (source, kind) in [
@@ -492,10 +504,11 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/collection/hash_table.bray"),
     ];
 
@@ -561,10 +574,11 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         r#"
             trusted module app;
@@ -750,10 +764,13 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
                 include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
                 include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+                include_str!(
+                    "../../../../../../../standard-library/std/src/memory/allocation.bray"
+                ),
+                include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
                 &declarations,
                 &source,
             ]);
@@ -896,6 +913,7 @@ using core.memory;
 using std.memory;
 using std.os.linux;
 using std.os.unix;
+using std.numeric;
 {}
 {}
 {}
@@ -1067,11 +1085,24 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
                     include_str!(
                         "../../../../../../../standard-library/std/src/numeric/policy.bray"
                     ),
-                    include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/memory/pointer.bray"
+                    ),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/memory/storage.bray"
+                    ),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/memory/allocation.bray"
+                    ),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/numeric/limits.bray"
+                    ),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/memory/buffer.bray"
+                    ),
+                    include_str!(
+                        "../../../../../../../standard-library/std/src/memory/function.bray"
+                    ),
                     native,
                     &platform,
                 ],
@@ -1159,10 +1190,11 @@ using internal std.thread;
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &thread,
             &source,
         ]);
@@ -1210,10 +1242,11 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1273,10 +1306,13 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
                 include_str!("../../../../../../../standard-library/std/src/std.bray"),
                 include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
                 include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+                include_str!(
+                    "../../../../../../../standard-library/std/src/memory/allocation.bray"
+                ),
+                include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+                include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
                 &source,
             ]);
 
@@ -1298,10 +1334,11 @@ fn standard_runtime_text_storage_has_complete_contracts() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/runtime/text.bray"),
     ]);
 
@@ -1318,10 +1355,11 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
     ];
 
     for (guard, valid) in [
@@ -1387,7 +1425,11 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
             trusted internal fill_widened_count(byte_pointer, length = count as u64);
         }
 
-        internal struct ByteSpan { address: DataPointer<u8>; count: usize; }
+        internal struct ByteSpan
+        {
+            address: DataPointer<u8>;
+            count: usize;
+        }
 
         internal func returned_bytes(pos source: &[u8]) -> &[u8] executes(pure, total) {
             return source;
@@ -1444,7 +1486,7 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
             let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
 
-            while index < count && index != 18_446_744_073_709_551_615 {
+            while index < count && index != std.numeric.USIZE_MAX {
                 let _: u8 = trusted internal byte_buffer_read(byte_pointer, index = index);
                 index += 1;
             }
@@ -1471,7 +1513,11 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
             return destination;
         }
 
-        trusted internal func copy_slice_to_fresh_buffer(pos source: &[u8]) -> Result<RawBuffer<u8>, MemoryLayoutError> uses(manual_alloc, unchecked_init) {
+        trusted internal func copy_slice_to_fresh_buffer(
+            pos source: &[u8],
+        ) -> Result<RawBuffer<u8>, MemoryLayoutError>
+            uses(unchecked_init)
+        {
             let count: usize = source.length();
             let created: Result<RawBuffer<u8>, MemoryLayoutError> = trusted RawBuffer<u8>(capacity = count);
 
@@ -1516,12 +1562,14 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
     for source in [
         r#"
         module std.memory;
+
+        using std.numeric;
         internal func read_after_changing_guarded_index(pos bytes: &[u8]) {
             let count: usize = bytes.length();
             let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
 
-            while index < count && index != 18_446_744_073_709_551_615 {
+            while index < count && index != std.numeric.USIZE_MAX {
                 index = count;
                 let _: u8 = trusted internal byte_buffer_read(byte_pointer, index = index);
             }
@@ -1551,13 +1599,15 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
         r#"
         module std.memory;
 
+        using std.numeric;
+
         using core.memory;
         internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 0),
                 trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 0),
             ) {
-            return trusted internal byte_buffer_read(pointer, index = 18_446_744_073_709_551_615);
+            return trusted internal byte_buffer_read(pointer, index = std.numeric.USIZE_MAX);
         }
         "#,
     ] {
@@ -1629,10 +1679,11 @@ fn copying_raw_reads_preserve_initialization() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1697,10 +1748,11 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1750,10 +1802,11 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1803,10 +1856,11 @@ func duplicate()
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1823,10 +1877,11 @@ fn raw_allocation_address_copies_preserve_whole_owner_transfer() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1881,10 +1936,11 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -1901,10 +1957,11 @@ fn raw_allocation_field_construction_requires_ownership() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1929,10 +1986,11 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -1960,16 +2018,22 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             module app;
 
             using core.memory;
 
-            struct RawBuffer { pointer: DataPointer<u8>; capacity: usize; initialized: usize; }
+            struct RawBuffer
+            {
+                pointer: DataPointer<u8>;
+                capacity: usize;
+                initialized: usize;
+            }
 
             func ordinary() -> RawBuffer {
                 return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 1 };
@@ -1990,10 +2054,11 @@ fn raw_allocation_field_construction_transfers_ownership_once() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
             trusted module app;
 
@@ -2021,10 +2086,11 @@ fn standard_memory_surface_exports_uninitialized_storage() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
     ]);
 
     let source_graph = compilation
@@ -2121,10 +2187,11 @@ fn standard_memory_api_fixture_checks() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/tests/api/memory.bray"),
     ]);
 
@@ -2390,6 +2457,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         include_str!("../../../../../../../standard-library/std/src/character.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/checked.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/integer.bray"),
         include_str!("../../../../../../../standard-library/std/src/format/options.bray"),
         include_str!("../../../../../../../standard-library/std/src/format/argument.bray"),
         include_str!("../../../../../../../standard-library/std/src/format/sink.bray"),
@@ -2855,6 +2923,65 @@ where
     }
 }
 
+#[test]
+fn numeric_const_truncation_uses_selected_integer_representations() {
+    let sources = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+    ];
+
+    let provider = standard_library_compilation(sources);
+
+    for (input, valid) in [("u16", true), ("r64", false)] {
+        let mut source = format!(
+            r#"
+            module app;
+
+            using std.numeric;
+
+            const func selected(pos value: {input}) -> u8
+            {{
+                return std.numeric.truncate_to<u8>(value);
+            }}
+        "#
+        );
+
+        if valid {
+            source.push_str(
+                r#"
+                const SOURCE: u16 = 257;
+                const VALUE: u8 = std.numeric.truncate_to<u8>(SOURCE);
+            "#,
+            );
+        }
+
+        let local = standard_library_compilation(sources.into_iter().chain([source.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &source);
+
+        for compilation in [&local, &imported] {
+            if valid {
+                assert_eq!(
+                    super::fixtures::source_constant_value(compilation, "VALUE").kind(),
+                    &bray_symbols::ConstantValueKind::Integer(
+                        bray_symbols::IntegerConstant::from_u64(1)
+                    )
+                );
+            }
+
+            assert_eq!(
+                !compilation.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:#?}",
+                compilation.check_diagnostics()
+            );
+        }
+
+        if valid {
+            let _ = export(&local);
+        }
+    }
+}
+
 fn standard_library_compilation(sources: impl IntoIterator<Item = impl AsRef<str>>) -> Compilation {
     standard_library_compilation_with_options(sources, CompilationOptions::default())
 }
@@ -2889,10 +3016,11 @@ fn empty_raw_copies_preserve_deallocation_authority() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             &source,
         ]);
 
@@ -2953,6 +3081,8 @@ fn thread_storage_load_only_initializes_successful_outputs() {
             r#"
             trusted internal module std.thread;
 
+            using std.numeric;
+
             using core.memory;
             using std.memory;
             trusted internal func load_uninitialized_slot(pos pointer: DataPointer<DataPointer<u8>>) -> DataPointer<u8>
@@ -2961,7 +3091,7 @@ fn thread_storage_load_only_initializes_successful_outputs() {
                     trusted core.memory.valid_write<DataPointer<u8>>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<DataPointer<u8>>(pointer = pointer),
                 ) {{
-                let status = trusted platform_thread_storage_load(18_446_744_073_709_551_615, pointer);
+                let status = trusted platform_thread_storage_load(std.numeric.U64_MAX, pointer);
                 {}
                 need_initialized(pointer);
                 return std.memory.null<u8>();
@@ -2978,10 +3108,11 @@ fn thread_storage_load_only_initializes_successful_outputs() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
             platform,
             &preparation,
@@ -3182,10 +3313,11 @@ fn unix_native_outputs_remain_in_typed_storage() {
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             include_str!("../../../../../../../standard-library/std/src/os/unix/thread.bray"),
             "module std.os {}",
             &native,
@@ -3211,7 +3343,23 @@ using std.os;
 using std.memory;
 using std.memory.function;
 
- trusted func forged_output(pos output: DataPointer<{}>, pos entry: ThreadStartRoutine) uses(foreign_call) {{ let native_entry = trusted std.memory.callable_from_pointer(trusted std.memory.function.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(trusted std.memory.function_address(entry))); let _ = trusted std.os.{system}.pthread_create(output, attributes = std.memory.null<std.os.{system}.PThreadAttribute>(), entry = native_entry, context = std.memory.null<u8>()); }}"#,
+ trusted func forged_output(pos output: DataPointer<{}>, pos entry: ThreadStartRoutine)
+                    uses(foreign_call)
+                {{
+                    let native_entry = trusted std.memory.callable_from_pointer(
+                        trusted std.memory.function.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(
+                            trusted std.memory.function_address(entry)
+                        )
+                    );
+
+                    let _ = trusted std.os.{system}.pthread_create(
+                        output,
+                        attributes = std.memory.null<std.os.{system}.PThreadAttribute>(),
+                        entry = native_entry,
+                        context = std.memory.null<u8>(),
+                    );
+                }}
+            "#,
             if darwin { "DataPointer<u8>" } else { "u64" }
         );
 
@@ -3280,10 +3428,11 @@ fn production_path_view_preserves_its_borrowed_storage() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/path.bray"),
@@ -3319,11 +3468,13 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../../standard-library/std/src/sync/tickets.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
         include_str!("../../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
@@ -3333,7 +3484,12 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
         trusted module app;
         using std.sync;
         using internal std.sync.spin_lock;
-        static LOCK: std.sync.SpinLock<u32> = std.sync.spin_lock.initialize<u32>(0);
+        static LOCK: std.sync.SpinLock<u32> =
+        {
+            let prepared = std.sync.SpinLock<u32>.prepare(0);
+
+            yield { instance = prepared.0, storage = prepared.1 };
+        };
         trusted func acquire() -> std.sync.SpinLockGuard<u32>
             ensures(trusted std.sync.spin_lock.acquired(&result.acquisition)) { return LOCK.lock(); }
         func static_caller(pos callback: func() -> unit) {
@@ -3380,5 +3536,124 @@ include_str!("../../../../../../../standard-library/std/src/memory/function.bray
             "{name}: {:?}",
             checked.diagnostics()
         );
+    }
+}
+
+#[test]
+fn imported_nested_integer_truncation_retains_compiler_operation_proofs() {
+    let provider = standard_library_compilation([
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+        r"
+        module api;
+
+        using std.numeric;
+
+        func narrow(pos value: u64) -> u32
+            executes(pure, total)
+        {
+            return std.numeric.truncate_to<u32>(value);
+        }
+        ",
+    ]);
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = super::fixtures::execution_consumer(
+        &provider,
+        r"
+        module app;
+
+        using std.api;
+
+        func caller(pos value: u64) -> u32
+            executes(pure, total)
+        {
+            return std.api.narrow(value);
+        }
+    ",
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
+    let declarations = format!(
+        r#"
+        module std.memory;
+
+        {}
+    "#,
+        standard_library_source_section(
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            "extern const func size_of<T>()",
+            "extern const func layout_of<T>",
+        )
+    );
+
+    let sources = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        declarations.as_str(),
+    ];
+
+    let provider = standard_library_compilation(sources);
+
+    for query in ["size_of", "align_of", "stride_of"] {
+        let source = format!(
+            r#"
+            module app;
+
+            using std.memory;
+
+            struct Record
+            {{
+                prefix: u8;
+                payload: u64;
+            }}
+
+            func selected(pos value: usize)
+                requires(value == std.memory.{query}<Record>())
+            {{
+            }}
+
+            func caller(pos value: usize)
+            {{
+                selected(value);
+            }}
+
+            func main()
+            {{
+                caller(16);
+            }}
+        "#
+        );
+
+        let local = standard_library_compilation(sources.into_iter().chain([source.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &source);
+
+        for compilation in [&local, &imported] {
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{query}: {:#?}",
+                compilation.check_diagnostics()
+            );
+
+            let helpers = compilation
+                .codegen_instance_count_for_test(|key| {
+                    matches!(key, bray_ir::MirUnitKey::Predicate(_))
+                })
+                .expect("checked layout queries lower to native memory operations");
+
+            assert!(helpers > 0, "{query} must retain a runtime requirement");
+        }
     }
 }

@@ -1,4 +1,5 @@
-use bray_bound_tree::BoundUnitKey;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey};
 use bray_checker::ExecutionCondition;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -189,14 +190,229 @@ impl Compilation {
         Ok(DiagnosticResult::new(conditions, diagnostics))
     }
 
+    pub(super) fn clause_entry_conditions(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<ExecutionCondition>>, FactQueryError> {
+        let mut diagnostics = DiagnosticBag::new();
+
+        if key.declared_owner().source_declaration_id().is_none() {
+            return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+        }
+
+        let anchor = if let Some(header) = key.callable_type_header() {
+            header.syntax()
+        } else {
+            let symbols = self.symbol_graph()?;
+
+            let symbol = symbols
+                .symbol_for_key(key.declared_owner())
+                .expect("source clause retains its declared symbol identity");
+
+            symbols
+                .declaration_syntax_anchor(symbol)
+                .expect("source clause owner retains its declaration syntax")
+        };
+
+        let parent = self.execution_declaration(anchor)?;
+        let anchor = key.source().syntax();
+
+        let domain = parent.value().domains().iter().find(|domain| {
+            domain.postconditions.contains(&anchor) || domain.guards.contains(&anchor)
+        });
+
+        let post = domain.is_some_and(|domain| domain.postconditions.contains(&anchor));
+
+        if domain.is_none() && !parent.value().requirements().contains(&anchor) {
+            // A nested callable owns its own entry context, independently of its lexical owner.
+            return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+        }
+
+        let mut anchors = parent
+            .value()
+            .requirements()
+            .iter()
+            .copied()
+            .filter(|requirement| {
+                *requirement != anchor
+                    && (post || requirement.full_range().start() < anchor.full_range().start())
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(domain) = domain {
+            anchors.extend(
+                domain
+                    .guards
+                    .iter()
+                    .copied()
+                    .take_while(|guard| *guard != anchor),
+            );
+        }
+
+        if anchors.is_empty() {
+            return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+        }
+
+        let conditions = self.predicate_condition_inputs(key, &anchors, cancellation)?;
+
+        diagnostics.add_range(parent.diagnostics().iter().cloned());
+        diagnostics.add_range(conditions.diagnostics().iter().cloned());
+
+        let stable = if post {
+            let stable = self.immutable_scalar_inputs(key, cancellation)?;
+
+            diagnostics.add_range(stable.diagnostics().iter().cloned());
+
+            stable.into_parts().0
+        } else {
+            Default::default()
+        };
+
+        let conditions = conditions
+            .into_parts()
+            .0
+            .into_iter()
+            .filter_map(|(condition, domain, _)| {
+                // Borrowed storage and mutable parameter bindings can change before completion.
+                // Ordinary predicates over immutable scalar values retain their entry meaning.
+                (!post
+                    || domain == bray_symbols::PredicateDomain::Value
+                        && condition
+                            .inputs()
+                            .iter()
+                            .all(|place| stable.contains(*place)))
+                .then_some(condition)
+            })
+            .collect();
+
+        Ok(DiagnosticResult::new(conditions, diagnostics))
+    }
+
+    fn immutable_scalar_inputs(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        DiagnosticResult<std::collections::BTreeSet<bray_checker::ExecutionPlace>>,
+        FactQueryError,
+    > {
+        let context = self.binding_context(cancellation)?;
+        let values = self.semantic_value_store()?;
+
+        let stable = |input, shape: &bray_symbols::CallableParameterData| {
+            if shape.mode() != bray_symbols::CallableParameterMode::Immutable {
+                return None;
+            }
+
+            let data = values.type_data(shape.ty());
+
+            let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
+                return None;
+            };
+
+            let role =
+                crate::compilation::foreign::compiler_known_representation(self, *definition)?;
+
+            (role.numeric_kind().is_some()
+                || matches!(
+                    role,
+                    bray_compiler_known::RepresentationRole::ScalarBool
+                        | bray_compiler_known::RepresentationRole::ScalarChar
+                ))
+            .then(|| bray_checker::ExecutionPlace::from(input))
+        };
+
+        if key.callable_type_header().is_some() {
+            let header = crate::compilation::binder::callable_clause_header(&context, key)
+                .map_err(crate::compilation::binder::binding_query_error)?;
+
+            let inputs = self.execution_unit_inputs(key, cancellation)?;
+
+            let result = inputs
+                .into_iter()
+                .zip(header.value().parameters())
+                .filter_map(|(input, shape)| stable(input, shape))
+                .collect();
+
+            return Ok(DiagnosticResult::new(result, header.into_parts().1));
+        }
+
+        let symbol = context
+            .symbols()
+            .symbol_for_key(key.declared_owner())
+            .expect("source clause retains its declaration symbol");
+
+        let Some(callable) = bray_symbols::CallableSymbolId::try_from_any(symbol) else {
+            return Ok(DiagnosticResult::new(
+                Default::default(),
+                DiagnosticBag::new(),
+            ));
+        };
+
+        let signature = context
+            .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                bray_symbols::CallableSignatureQuery,
+            >::new(callable))
+            .map_err(crate::compilation::binder::binding_query_error)?;
+
+        let constants = self.checked_constant_terms_for_templates_with_cancellation(
+            [signature.value().callable_type()],
+            cancellation,
+        )?;
+
+        let diagnostics =
+            DiagnosticBag::merged_all([signature.diagnostics(), constants.diagnostics()]);
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(Default::default(), diagnostics));
+        }
+
+        let ty = bray_checker::resolve_type_expression_template(
+            values,
+            signature.value().callable_type(),
+            constants.value(),
+        )
+        .expect("checked signature has its demanded type constants");
+
+        let data = values.type_data(ty);
+
+        let bray_symbols::TypeData::Callable(callable_type) = data.as_ref() else {
+            panic!("checked callable signature retains its callable type");
+        };
+
+        let result = signature
+            .value()
+            .parameters()
+            .iter()
+            .zip(callable_type.parameters())
+            .filter_map(|(parameter, shape)| {
+                stable(BoundReferenceTarget::Surface((*parameter).into()), shape)
+            })
+            .collect();
+
+        Ok(DiagnosticResult::new(result, diagnostics))
+    }
+
     pub(in crate::compilation) fn predicate_condition_inputs(
         &self,
         owner: &BoundUnitKey,
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, bool, SourceSpan)>>, FactQueryError> {
-        if owner.kind() == bray_bound_tree::BoundUnitKind::AnonymousCallable {
-            return self.anonymous_predicate_condition_inputs(owner, anchors, cancellation);
+    ) -> Result<
+        DiagnosticResult<
+            Vec<(
+                ExecutionCondition,
+                bray_symbols::PredicateDomain,
+                SourceSpan,
+            )>,
+        >,
+        FactQueryError,
+    > {
+        if owner.kind() == bray_bound_tree::BoundUnitKind::AnonymousCallable
+            || owner.callable_type_header().is_some()
+        {
+            return self.callable_predicate_condition_inputs(owner, anchors, cancellation);
         }
 
         let mut conditions = Vec::new();
@@ -260,15 +476,17 @@ impl Compilation {
             )?;
 
             if clause_diagnostics.has_errors() {
-                conditions.push((ExecutionCondition::Unknown, true, span));
+                conditions.push((
+                    ExecutionCondition::Unknown,
+                    bray_symbols::PredicateDomain::Value,
+                    span,
+                ));
             } else {
-                conditions.extend(normalized.into_iter().map(|(_, condition, domain)| {
-                    (
-                        condition,
-                        domain == bray_symbols::PredicateDomain::Trusted,
-                        span,
-                    )
-                }));
+                conditions.extend(
+                    normalized
+                        .into_iter()
+                        .map(|(_, condition, domain)| (condition, domain, span)),
+                );
             }
 
             diagnostics.add_range(clause_diagnostics);
