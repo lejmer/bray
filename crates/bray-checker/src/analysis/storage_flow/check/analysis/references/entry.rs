@@ -68,7 +68,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
         Self::close_entry_demands(request, &mut demands, parents)?;
 
-        self.install_entry_references(request, storage, &demands)
+        self.install_reference_paths(request, storage, &demands)
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
@@ -137,30 +137,20 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         Ok(())
     }
 
-    fn install_entry_references<C: CheckerRequestContext + ?Sized>(
+    fn install_reference_paths<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            let temporary = matches!(
+            let entry = matches!(
                 source,
-                bray_bound_tree::StorageIdentity::Temporary(_)
-                    | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                bray_bound_tree::StorageIdentity::Parameter(_)
+                    | bray_bound_tree::StorageIdentity::Receiver(_)
+                    | bray_bound_tree::StorageIdentity::ContractParameter(_)
+                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
             );
-
-            if !temporary
-                && !matches!(
-                    source,
-                    bray_bound_tree::StorageIdentity::Parameter(_)
-                        | bray_bound_tree::StorageIdentity::Receiver(_)
-                        | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                        | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-                )
-            {
-                continue;
-            }
 
             let Some(ty) = storage.storage_type(identity) else {
                 continue;
@@ -179,40 +169,40 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     continue;
                 };
 
-                if temporary {
-                    let reference = prepared
-                        .borrows()
-                        .first()
-                        .map(|(index, target)| {
-                            (
-                                Place {
-                                    root: identity,
-                                    projections: projections[..*index].into(),
-                                },
-                                *target,
-                            )
-                        })
-                        .or_else(|| {
-                            crate::representation::reference_target_type(request, reached).map(
-                                |target| {
-                                    (
-                                        Place {
-                                            root: identity,
-                                            projections: Arc::clone(projections),
-                                        },
-                                        target,
-                                    )
-                                },
-                            )
-                        });
+                let reference = prepared
+                    .borrows()
+                    .first()
+                    .map(|(index, target)| {
+                        (
+                            Place {
+                                root: identity,
+                                projections: projections[..*index].into(),
+                            },
+                            *target,
+                        )
+                    })
+                    .or_else(|| {
+                        crate::representation::reference_target_type(request, reached).map(
+                            |target| {
+                                (
+                                    Place {
+                                        root: identity,
+                                        projections: Arc::clone(projections),
+                                    },
+                                    target,
+                                )
+                            },
+                        )
+                    });
 
-                    if let Some((path, target)) = reference {
-                        self.returned_references
-                            .entry(identity)
-                            .or_default()
-                            .insert(path, target);
-                    }
+                if let Some((path, target)) = reference {
+                    self.value_references
+                        .entry(identity)
+                        .or_default()
+                        .insert(path, target);
+                }
 
+                if !entry {
                     continue;
                 }
 

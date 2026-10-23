@@ -1046,7 +1046,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     let cancellation = CancellationToken::new();
     let mut requirements = Vec::new();
 
-    for operation in generated.operations() {
+    for (operation_id, operation) in generated.operations_with_ids() {
         if matches!(operation.kind(), MirOperationKind::Call(call) if call.target() == &MirCallTarget::Direct(*producer))
             || matches!(
                 operation.kind(),
@@ -1057,6 +1057,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                 compilation
                     .operation_outgoing_requirements(
                         &owner,
+                        operation_id,
                         operation.kind(),
                         &target,
                         &cancellation,

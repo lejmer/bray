@@ -75,10 +75,15 @@ fn infer_reachable_results(
         return Ok(result);
     }
 
+    // A declaration without a body has explicit arguments and an explicit receiver.
+    // Unlike an opaque callable value, it has no hidden captured environment.
     let empty = context
         .semantic_values()
-        .empty_dependency_contract_template()
-        .expect("empty result dependency template satisfies the semantic store contract");
+        .intern_dependency_contract_template(
+            bray_symbols::DependencyContractTemplateData::new([])
+                .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call()),
+        )
+        .expect("declared result dependency template satisfies the semantic store contract");
 
     Ok(DiagnosticResult::new(empty, DiagnosticBag::new()))
 }

@@ -980,8 +980,8 @@ mod tests {
     fn recovered_flow_retains_requirements_without_establishing_authority() {
         use bray_symbols::{
             DependencyBorrowRelation, DependencyContractTemplateData, DependencyReferenceKind,
-            DependencyRequirement, DependencyRequirementKind, DependencyStorageEffect,
-            DependencySubject, DependencySubjectRoot,
+            DependencyRequirement, DependencyRequirementKind, DependencySubject,
+            DependencySubjectRoot,
         };
 
         let receiver = DependencySubject::root(DependencySubjectRoot::Receiver);
@@ -992,7 +992,7 @@ mod tests {
         );
 
         let relation = DependencyBorrowRelation::new(
-            receiver,
+            Some(receiver),
             DependencySubject::root(DependencySubjectRoot::Result),
             DependencyReferenceKind::Borrow,
         );
@@ -1019,10 +1019,7 @@ mod tests {
 
         assert_eq!(
             flow.dependencies().effects(),
-            &[
-                DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape
-            ]
+            &bray_symbols::DependencyStorageEffect::opaque_call()
         );
     }
 

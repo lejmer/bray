@@ -46,9 +46,12 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
+    pub(in crate::analysis::storage_flow) complete_reference_types: BTreeSet<bray_symbols::TypeId>,
+    pub(in crate::analysis::storage_flow) raw_buffers:
+        BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
-    pub(in crate::analysis::storage_flow) returned_references: BTreeMap<
+    pub(in crate::analysis::storage_flow) value_references: BTreeMap<
         StorageIdentityId,
         BTreeMap<crate::analysis::storage_flow::memory::Place, bray_symbols::TypeId>,
     >,
@@ -80,6 +83,7 @@ impl StorageFlowInput {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         values: &crate::dependency::ValueInputs,
         selections: &bray_bound_tree::CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
         memory: &bray_bound_tree::CheckedMemoryOperations,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
@@ -164,20 +168,10 @@ impl StorageFlowInput {
         let discriminants = footprint.discriminants;
         let scalar_values = footprint.scalars;
 
-        let reference_descriptors = storage
+        let owned_descriptors = storage
             .identity_entries()
             .filter_map(|(root, identity)| {
-                let ty = storage.identity_type(root)?;
-
-                (identity.is_invocation_owned(storage.kind())
-                    && matches!(
-                        crate::representation::reference_kind(request, ty),
-                        Some(
-                            bray_symbols::DependencyReferenceKind::Address
-                                | bray_symbols::DependencyReferenceKind::Borrow
-                        )
-                    ))
-                .then_some(root)
+                identity.is_invocation_owned(storage.kind()).then_some(root)
             })
             .map(bray_bound_tree::StoragePath::root);
 
@@ -189,7 +183,7 @@ impl StorageFlowInput {
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        let opaque_candidates = reference_descriptors
+        let opaque_candidates = owned_descriptors
             .chain(
                 stable_identities
                     .keys()
@@ -214,6 +208,7 @@ impl StorageFlowInput {
             .collect();
 
         let mut input = Self {
+            complete_reference_types: footprint.complete_reference_types,
             atomic_observations,
             opaque_values,
             opaque_candidates,
@@ -249,6 +244,31 @@ impl StorageFlowInput {
         for (ty, paths) in lifecycle_demands {
             demands.entry(ty).or_default().extend(paths);
         }
+
+        let buffer_types = storage
+            .identity_entries()
+            .filter_map(|(identity, _)| storage.storage_type(identity))
+            .chain(
+                storage
+                    .access_entries()
+                    .map(|(_, access)| access.reached_type()),
+            )
+            .chain(cleanup.opaque_types())
+            .chain(
+                memory
+                    .operations()
+                    .iter()
+                    .flat_map(|operation| {
+                        operation
+                            .arguments()
+                            .iter()
+                            .copied()
+                            .chain([operation.expression()])
+                    })
+                    .filter_map(|expression| types.expression(expression).map(|ty| ty.ty())),
+            );
+
+        input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
 
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 

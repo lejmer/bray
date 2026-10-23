@@ -375,21 +375,56 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.value(state, call.receiver()?.expression())
         };
 
-        if let Some(source) = state.deferred_invocations.get(&value) {
+        self.deferred_effect_source(state, &value)
+    }
+
+    pub(in crate::analysis) fn task_cleanup_source(
+        &self,
+        state: &ExecutionState,
+        ty: bray_symbols::TypeId,
+        path: &bray_bound_tree::StoragePath,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        if crate::representation::type_representation(self.request, ty)
+            != Some(bray_compiler_known::RepresentationRole::Task)
+        {
+            return None;
+        }
+
+        let value = self.storage_path_value(state, path);
+
+        self.deferred_effect_source(state, &value)
+    }
+
+    fn deferred_effect_source(
+        &self,
+        state: &ExecutionState,
+        value: &ExecutionCondition,
+    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+        let value = value.owner_identity();
+
+        if let Some(source) = state.deferred_invocations.get(value) {
             return Some(*source);
         }
 
-        let ExecutionCondition::Expression(source) = value else {
+        let source = self.deferred_invocation(value)?;
+
+        // Cancellation destroys captures before the first poll or the retained
+        // result after completion. Reuse the owning cleanup classification for both.
+        (self.disposal.plan.inert_futures.get(&source)
+            == Some(&bray_bound_tree::AsyncStorageCleanupRequirement::None))
+        .then(|| source.into())
+    }
+
+    fn deferred_invocation(&self, value: &ExecutionCondition) -> Option<BoundExpressionId> {
+        let ExecutionCondition::Expression(source) = value.owner_identity() else {
             return None;
         };
 
-        let source = source.into();
-
         self.dependencies
             .calls()
-            .get(&source)?
+            .get(&(*source).into())?
             .deferred_effects()
-            .map(|_| source)
+            .map(|_| *source)
     }
 
     pub(in crate::analysis) fn awaited_invocation(
@@ -405,16 +440,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let observed = self.value(state, awaited.operand());
 
-        let ExecutionCondition::Expression(source) = observed else {
-            return None;
-        };
-
-        let site = source.into();
-
-        self.dependencies
-            .calls()
-            .get(&site)?
-            .deferred_effects()
-            .map(|_| site)
+        self.deferred_invocation(&observed).map(Into::into)
     }
 }

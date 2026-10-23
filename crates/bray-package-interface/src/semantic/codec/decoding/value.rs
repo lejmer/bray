@@ -628,6 +628,8 @@ mod tests {
         );
 
         let effects = [
+            DependencyStorageEffect::Ambient,
+            DependencyStorageEffect::Unknown,
             DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
             DependencyStorageEffect::Escape,
             DependencyStorageEffect::Direct {
@@ -690,7 +692,7 @@ mod tests {
         let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 10);
+        assert_eq!(template.effects().len(), 12);
 
         assert_eq!(
             store
@@ -1288,6 +1290,44 @@ mod tests {
                 actual: 2,
                 maximum: 1,
             })
+        );
+    }
+
+    #[test]
+    fn independent_reference_origins_round_trip_with_input_alternatives() {
+        let surface = interface_surface(package_identity(), [], []);
+
+        let result = crate::InterfaceDependencySubject::new(
+            crate::InterfaceDependencySubjectRoot::Result,
+            [],
+        );
+
+        let contract = crate::InterfaceDependencyContract::new([]).with_borrows([
+            bray_symbols::DependencyBorrowRelation::new(
+                None,
+                result.clone(),
+                bray_symbols::DependencyReferenceKind::Address,
+            ),
+            bray_symbols::DependencyBorrowRelation::new(
+                Some(crate::InterfaceDependencySubject::new(
+                    crate::InterfaceDependencySubjectRoot::Parameter(
+                        bray_symbols::SymbolOrdinal::new(0),
+                    ),
+                    [],
+                )),
+                result,
+                bray_symbols::DependencyReferenceKind::Address,
+            )
+            .with_exactness(false),
+        ]);
+
+        let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        assert_eq!(
+            decode_semantics(&encoded_section_views(&sections), &surface, limits),
+            Ok(semantics)
         );
     }
 

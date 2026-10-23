@@ -69,6 +69,7 @@ where
         dependencies,
         values,
         execution.semantics.selections(),
+        execution.semantics.types(),
         execution.disposal.plan,
         memory,
     ) {
@@ -750,6 +751,7 @@ where
 
         if !completing {
             self.record_operation_effects(
+                &state.memory,
                 kind,
                 call_effects.as_deref(),
                 assignment.as_ref(),
@@ -1246,6 +1248,13 @@ where
                     .as_ref()
                     .and_then(|execution| self.execution.awaited_invocation(execution, expression))
                 {
+                    if let Some(frame) = source
+                        .expression()
+                        .and_then(|id| self.expression_result_storage(id))
+                    {
+                        state.memory.clear(&frame);
+                    }
+
                     state.memory.complete_transition(source);
 
                     if let Some(source) = source

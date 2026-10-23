@@ -11,6 +11,7 @@ pub(in crate::analysis::storage_flow) use bray_bound_tree::{
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Effect {
     Unknown,
+    Ambient,
     Escape,
     Atomic,
     Mutation(Target, bray_symbols::DependencyMutationKind),
@@ -45,7 +46,7 @@ impl Effect {
                     })
             }
             Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
-            Self::Atomic => false,
+            Self::Ambient | Self::Atomic => false,
         }
     }
 
@@ -55,7 +56,7 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
         }
     }
 }
@@ -413,6 +414,15 @@ fn merge_references<K: Clone + Ord>(
 
     for (slot, references) in target.iter_mut() {
         match incoming.get(slot) {
+            Some(incoming) if target_absent(slot) => {
+                if references != incoming {
+                    // The inactive predecessor contributes no address alternative.
+                    // Each value owns its alternatives and shares immutable target paths.
+                    *references = incoming.clone();
+                    changed = true;
+                }
+            }
+            Some(_) if incoming_absent(slot) => {}
             Some(incoming) => {
                 let nullable = references.targets.is_empty() != incoming.targets.is_empty();
                 let inexact = references.inexact;

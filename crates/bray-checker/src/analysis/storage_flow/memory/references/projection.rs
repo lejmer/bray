@@ -78,7 +78,7 @@ impl State {
         )
     }
 
-    pub(in crate::analysis::storage_flow) fn escape_origins<'a>(
+    pub(in crate::analysis::storage_flow) fn effect_origins<'a>(
         &'a self,
         target: &'a Target,
     ) -> impl Iterator<Item = &'a Target> {
@@ -112,9 +112,9 @@ impl State {
                 .get(&Target::storage(Place::root(slot.root)))
                 .is_some_and(|contents| contents.escaped)
             && !self.returned_input_regions(reference).iter().any(|target| {
-                target
-                    .storage_path()
-                    .is_some_and(|path| path.root == slot.root)
+                target.storage_path().is_some_and(|path| {
+                    path.root == slot.root && self.is_owned_inline_storage(path)
+                })
             })
         {
             return bray_bound_tree::StorageRelationship::Disjoint;

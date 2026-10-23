@@ -2,6 +2,105 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
+    pub(in crate::analysis::storage_flow) fn reference_slots<'a>(
+        &'a self,
+        payload: &'a Place,
+    ) -> impl Iterator<Item = Place> + 'a {
+        std::iter::once(payload.clone()).chain(
+            self.value_references
+                .get(&payload.root)
+                .into_iter()
+                .flat_map(|paths| paths.keys())
+                .filter(move |path| *path != payload && payload.contains(path))
+                .cloned(),
+        )
+    }
+
+    pub(in crate::analysis::storage_flow) fn has_complete_references(
+        &self,
+        storage: &bray_bound_tree::StoragePlan,
+        value: &Place,
+    ) -> bool {
+        let ty = if value.projections.is_empty() {
+            storage.storage_type(value.root)
+        } else {
+            value
+                .access_id(storage)
+                .and_then(|access| storage.access(access).map(|access| access.reached_type()))
+        };
+
+        ty.is_some_and(|ty| self.complete_reference_types.contains(&ty))
+    }
+
+    pub(in crate::analysis::storage_flow) fn inline_regions(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        storage: &bray_bound_tree::StoragePlan,
+        value: &Place,
+    ) -> Option<Vec<crate::analysis::storage_flow::memory::Target>> {
+        if !value.projections.is_empty() || !self.has_complete_references(storage, value) {
+            return None;
+        }
+
+        // The owning shape walk identifies every inline reference. Reuse its prepared paths.
+        // Missing or unresolved fields retain the opaque fallback, never an empty origin bound.
+        self.value_references
+            .get(&value.root)
+            .into_iter()
+            .flat_map(|paths| paths.keys())
+            .try_fold(Vec::new(), |mut targets, path| {
+                targets.extend(memory.referenced_regions(
+                    &crate::analysis::storage_flow::memory::Target::storage(path.clone()),
+                )?);
+
+                Some(targets)
+            })
+    }
+
+    pub(in crate::analysis::storage_flow) fn prepare_buffer_fields<
+        C: CheckerRequestContext + ?Sized,
+    >(
+        &mut self,
+        request: crate::CheckerUnitView<'_, C>,
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+        types: impl Iterator<Item = bray_symbols::TypeId>,
+        demands: &mut super::entry::Demands,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        let types = types
+            .map(|ty| request.semantic_values().unborrowed_type(ty))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for ty in types {
+            let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? else {
+                continue;
+            };
+
+            let pointer_type = crate::storage::projected_value_type(
+                request,
+                ty,
+                bray_symbols::DependencyProjection::ProductField(fields.pointer),
+            )?;
+
+            let pointer_type = pointer_type
+                .value()
+                .expect("recognized buffer pointer has its checked type");
+
+            demands.entry(ty).or_default().insert((
+                std::sync::Arc::from([bray_bound_tree::StorageProjection::ProductField(
+                    fields.pointer,
+                )]),
+                pointer_type,
+            ));
+
+            let cleanup = cleanup_shapes.requirement(fields.element)?
+                != bray_bound_tree::AsyncStorageCleanupRequirement::None;
+
+            self.raw_buffers.insert(ty, (fields, cleanup));
+        }
+
+        Ok(())
+    }
+
     pub(in crate::analysis::storage_flow) fn prepare_lifecycle_references<
         C: CheckerRequestContext + ?Sized,
     >(
@@ -60,7 +159,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             for relation in
                 dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows()
             {
-                if let Some(ty) = types.get(relation.entry())
+                if let Some(ty) = types.get(relation.entry().unwrap_or_else(|| relation.exit()))
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {

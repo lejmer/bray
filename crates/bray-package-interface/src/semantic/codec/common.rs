@@ -22,6 +22,10 @@ use crate::{
 pub(in crate::semantic) const DECLARATION_SEMANTICS_FORMAT_VERSION: u32 = 1;
 pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
+pub(in crate::semantic::codec) const REFERENCE_EXACT: u32 = 1;
+pub(in crate::semantic::codec) const REFERENCE_INPUT_ABSENT: u32 = 2;
+pub(in crate::semantic::codec) const REFERENCE_KIND_SHIFT: u32 = 2;
+
 pub(crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,
     reference: &InterfaceSymbolReference,

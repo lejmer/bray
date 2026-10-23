@@ -161,6 +161,23 @@ where
                 )
             });
 
+        let result_type =
+            expressions
+                .types()
+                .callable_result_type()
+                .or_else(|| match request.root() {
+                    CheckerUnitRoot::Expression(expression) => {
+                        expressions.types().expression(expression).map(|ty| ty.ty())
+                    }
+                    _ => None,
+                });
+
+        if let Some(ty) = result_type {
+            builder
+                .set_identity_type(result_storage, ty)
+                .expect("checked result storage retains its declared type");
+        }
+
         builder
             .bind(
                 StorageBindingTarget::Result,

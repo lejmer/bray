@@ -2013,7 +2013,7 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
 }
 
 #[test]
-fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
+fn raw_buffer_origins_require_recognition_and_survive_prefix_writes() {
     let compilation = standard_library_compilation([
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
@@ -2027,6 +2027,7 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
             module app;
 
             using core.memory;
+            using internal std.memory;
 
             struct RawBuffer
             {
@@ -2038,6 +2039,35 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
             func ordinary() -> RawBuffer {
                 return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 1 };
             }
+
+            trusted func filled_buffer(pos value: u8, pos unused: &u8) -> std.memory.RawBuffer<u8>
+            {
+                let mut storage: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = 1)
+                {
+                    case Ok(buffer) { yield buffer; }
+                    case Error(_) { panic("buffer layout failed"); }
+                };
+                trusted internal std.memory.initialize_spare<u8>(&mut storage, value);
+                return storage;
+            }
+
+            trusted func drop_filled(pos unused: &u8)
+            {
+                let storage = filled_buffer(1, unused);
+            }
+
+            trusted func choose_buffer(pos input: std.memory.RawBuffer<u8>, pos reuse: bool) -> std.memory.RawBuffer<u8>
+            {
+                if reuse { return input; }
+                let value: u8 = 1;
+                return filled_buffer(value, &value);
+            }
+
+            trusted func drop_selected(pos input: std.memory.RawBuffer<u8>, pos reuse: bool)
+            {
+                let storage = choose_buffer(input, reuse);
+            }
+
         "#,
     ]);
 
@@ -2046,6 +2076,60 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
         "{:#?}",
         compilation.check_diagnostics()
     );
+
+    let filled = crate::compilation::result_dependencies::source_function_dependencies(
+        &compilation,
+        "filled_buffer",
+    );
+
+    assert!(
+        filled
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()
+                && relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result),
+        "the real allocated pointer retains its independent origin after filling: {filled:#?}"
+    );
+
+    let append = crate::compilation::result_dependencies::source_function_dependencies(
+        &compilation,
+        "initialize_spare",
+    );
+
+    assert!(
+        !append
+            .effects()
+            .contains(&bray_symbols::DependencyStorageEffect::Unknown),
+        "the checked intrinsic retains its finite header and backing transitions: {append:#?}"
+    );
+
+    for name in ["drop_filled", "drop_selected"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &compilation,
+            name,
+        );
+
+        assert!(
+            !summary
+                .effects()
+                .contains(&bray_symbols::DependencyStorageEffect::Unknown),
+            "{name}: {summary:#?}"
+        );
+
+        assert!(
+            summary
+                .effects()
+                .contains(&bray_symbols::DependencyStorageEffect::Ambient),
+            "{name}: {summary:#?}"
+        );
+
+        if name == "drop_selected" {
+            assert!(summary.effects().iter().any(|effect| matches!(effect,
+                bray_symbols::DependencyStorageEffect::Indirect { reference, kind: bray_symbols::DependencyMutationKind::Retire, .. }
+                    if reference.subject_root() == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)))),
+                "the input alternative must retain its retirement effect: {summary:#?}");
+        }
+    }
 }
 
 #[test]
@@ -3654,6 +3738,83 @@ fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
                 .expect("checked layout queries lower to native memory operations");
 
             assert!(helpers > 0, "{query} must retain a runtime requirement");
+        }
+    }
+}
+
+#[test]
+fn raw_buffer_reachability_preserves_reference_bearing_payload_dependencies() {
+    let sources = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+    ];
+
+    for (element, value, valid) in [("u8", "1", true), ("(&mut Owner)", "anchor", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            using internal std.memory;
+
+            struct Owner {{ mut value: u8; }}
+            trusted predicate live(value: &Owner);
+            trusted func make() -> Owner ensures(trusted live(&result))
+            {{
+                return {{ value = 0 }};
+            }}
+            extern trusted func accept(pos buffer: std.memory.RawBuffer<{element}>);
+            extern trusted func opaque();
+            func inspect(pos owner: &Owner) requires(trusted live(owner)) executes(pure, total) {{}}
+
+            trusted func create_buffer(pos anchor: &mut Owner) -> std.memory.RawBuffer<{element}>
+            {{
+                let mut storage: std.memory.RawBuffer<{element}> = match trusted std.memory.RawBuffer<{element}>(capacity = 1)
+                {{
+                    case Ok(buffer) {{ yield buffer; }}
+                    case Error(_) {{ panic("buffer layout failed"); }}
+                }};
+                trusted internal std.memory.initialize_spare<{element}>(&mut storage, {value});
+                return storage;
+            }}
+
+            trusted func caller()
+            {{
+                let mut owner = make();
+                accept(create_buffer(&mut owner));
+                opaque();
+                inspect(&owner);
+            }}
+        "#
+        );
+
+        let compilation =
+            standard_library_compilation(sources.into_iter().chain([source.as_str()]));
+
+        let diagnostics = compilation.check_diagnostics();
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &compilation,
+            "create_buffer",
+        );
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "element={element}: {diagnostics:#?}, summary={summary:#?}"
+        );
+
+        if !valid {
+            assert!(
+                diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                    == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+                "{diagnostics:#?}"
+            );
         }
     }
 }

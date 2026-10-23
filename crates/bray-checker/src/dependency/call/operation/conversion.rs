@@ -196,6 +196,7 @@ fn project_effect(
             .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind)),
         DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
+        | DependencyStorageEffect::Ambient
         | DependencyStorageEffect::Unknown
         | DependencyStorageEffect::Cleanup(_) => effect.clone(),
     }

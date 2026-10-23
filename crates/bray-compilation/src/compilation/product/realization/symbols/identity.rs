@@ -106,6 +106,30 @@ impl Compilation {
         binary_symbol_name(target, linkage, "instance", hasher.finalize())
     }
 
+    pub(in crate::compilation::product::realization) fn cleanup_storage_identity(
+        &self,
+        realization: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<[u8; 32], CodegenPreparationError> {
+        let callable = realization
+            .callable_instance()
+            .expect("cleanup storage belongs to its selected callable");
+
+        let binding_context = self.binding_context(cancellation)?;
+
+        let definition =
+            self.portable_codegen_symbol_key(&binding_context, callable.definition().symbol())?;
+
+        let mut hasher = StableDigestHasher::new();
+
+        // Owners cross package boundaries while their source and imported MIR keys differ.
+        hasher.write(b"bray.codegen-cleanup-storage");
+        definition.hash(&mut hasher);
+        hash_specialization(realization, &mut hasher);
+
+        Ok(hasher.finalize())
+    }
+
     pub(in crate::compilation::product::realization) fn codegen_runtime_default_provider(
         &self,
         instance: &bray_codegen::CodegenInstanceKey,

@@ -109,10 +109,7 @@ impl State {
                     })
                     .map(|(target, _)| {
                         // Native address arithmetic can reach other fields of the allocation.
-                        target.storage_path().map_or_else(
-                            || target.clone(),
-                            |path| Target::storage(Place::root(path.root)),
-                        )
+                        exposure_region(target)
                     }),
             )
             .chain(
@@ -146,10 +143,7 @@ impl State {
             .into_iter()
             .map(|target| {
                 // A native recipient can use address arithmetic within the allocation.
-                target.storage_path().map_or_else(
-                    || target.clone(),
-                    |path| Target::storage(Place::root(path.root)),
-                )
+                exposure_region(&target)
             })
             .collect()
     }
@@ -226,7 +220,23 @@ impl State {
                     slot.root == result
                         || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
                 })
-                .map(|(slot, references)| (slot.clone(), references.clone()))
+                .map(|(slot, references)| {
+                    let mut exported = references.clone();
+
+                    for target in &references.targets {
+                        if let Origin::Returned { reference, .. } = &target.origin {
+                            // Returned origins include the independent alternative and every
+                            // input region, without claiming an exact forwarded address.
+                            exported.inexact = true;
+
+                            exported
+                                .targets
+                                .extend(self.returned_input_regions(reference).iter().cloned());
+                        }
+                    }
+
+                    (slot.clone(), exported)
+                })
                 .collect(),
             absent: absent
                 .iter()
@@ -501,5 +511,16 @@ pub(super) fn take_subtree<'a, V>(
             .expect("captured subtree key is present");
 
         (key, value)
+    })
+}
+
+fn exposure_region(target: &Target) -> Target {
+    target.allocation_region().unwrap_or_else(|| {
+        // An inline local has one enclosing allocation. Keep symbolic entry
+        // references unchanged when their allocation boundary is not established.
+        target.storage_path().map_or_else(
+            || target.clone(),
+            |path| Target::storage(Place::root(path.root)),
+        )
     })
 }

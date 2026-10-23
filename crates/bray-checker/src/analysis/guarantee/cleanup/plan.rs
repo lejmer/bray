@@ -21,7 +21,10 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
-    pub(in crate::analysis::guarantee) inert_futures: BTreeSet<bray_bound_tree::BoundExpressionId>,
+    pub(in crate::analysis::guarantee) inert_futures: BTreeMap<
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::AsyncStorageCleanupRequirement,
+    >,
     pub(crate) scoped_error_quiescence:
         BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
@@ -86,6 +89,13 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
+    pub(in crate::analysis) fn opaque_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.steps.values().flatten().filter_map(|step| match step {
+            Step::Opaque { ty, .. } => Some(*ty),
+            Step::Lifecycle { .. } => None,
+        })
+    }
+
     pub(crate) fn finalizer(&self, ty: TypeId) -> Option<bray_bound_tree::LifecycleCallable> {
         self.lifecycles
             .get(&(ty, TypeAssociatedLifecycleSlot::Finalizer))
@@ -285,7 +295,7 @@ impl Plan {
                             (relation.is_exact()
                                 && relation.dereferences() == 0
                                 && relation.target_projections().is_empty()
-                                && relation.entry() == relation.exit()
+                                && relation.entry() == Some(relation.exit())
                                 && relation.exit().subject_root()
                                     == bray_symbols::DependencySubjectRoot::Receiver)
                                 .then(|| {

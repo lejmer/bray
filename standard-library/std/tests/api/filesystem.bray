@@ -1,7 +1,5 @@
 module bray.standard_library_tests.filesystem;
 
-using std.os.windows;
-using internal std.platform;
 using std.bytes;
 using std.fs;
 using internal std.fs.FileReader;
@@ -30,14 +28,17 @@ func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<un
     let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
         std.fs.File.open(&path, options = options),
     );
+
     let source: bytes = b"ABC";
     let mut destination: bytes<5> = [0; 5];
     let empty_read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[0..0]));
     let empty_write: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[0..0]));
     let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[..]));
+
     let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
         file.seek(offset = 0, origin = std.io.SeekOrigin.Start),
     );
+
     let read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
     let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
 
@@ -83,15 +84,14 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     let mut traversal: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
         std.fs.Directory.open(&directory),
     );
+
     let first: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(traversal.next());
-    let second: std.fs.DirectoryEntry? = std.testing.assert_ok<
-        std.fs.DirectoryEntry?, std.io.IoError,
-    >(
+
+    let second: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
         traversal.next(),
     );
-    let exhausted: std.fs.DirectoryEntry? = std.testing.assert_ok<
-        std.fs.DirectoryEntry?, std.io.IoError,
-    >(
+
+    let exhausted: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
         traversal.next(),
     );
 
@@ -109,7 +109,6 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(traversal.next());
     std.testing.assert_ok<unit, std.io.IoError>(traversal.close());
     assert(traversal.is_complete());
-
 
     std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&alpha));
     std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&zeta));
@@ -134,11 +133,11 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     let opened: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
         std.fs.File.open(&path, options = options),
     );
+
     let mut writer: std.io.BufferedWriter<std.fs.File> = std.testing.assert_ok<
-        std.io.BufferedWriter<std.fs.File>, std.io.IoError,
-    >(
-        std.io.BufferedWriter<std.fs.File>(opened, capacity = 2),
-    );
+        std.io.BufferedWriter<std.fs.File>,
+        std.io.IoError,
+    >(std.io.BufferedWriter<std.fs.File>(opened, capacity = 2));
 
     let first: bytes = b"AB";
     let second: bytes = b"C";
@@ -150,6 +149,7 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     assert(second_written == 1);
 
     let mut writable: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(writer.into_sink());
+
     let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
         writable.seek(offset = 0, origin = std.io.SeekOrigin.Start),
     );
@@ -157,18 +157,20 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     assert(position == 0);
 
     let mut reader: std.io.BufferedReader<std.fs.File> = std.testing.assert_ok<
-        std.io.BufferedReader<std.fs.File>, std.io.IoError,
-    >(
-        std.io.BufferedReader<std.fs.File>(writable, capacity = 2),
-    );
+        std.io.BufferedReader<std.fs.File>,
+        std.io.IoError,
+    >(std.io.BufferedReader<std.fs.File>(writable, capacity = 2));
+
     let mut destination: bytes<3> = [0; 3];
 
     let first_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
         reader(std.io.Reader).read(&mut destination[0..1]),
     );
+
     let second_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
         reader(std.io.Reader).read(&mut destination[1..3]),
     );
+
     let third_read: usize = std.testing.assert_ok<usize, std.io.IoError>(
         reader(std.io.Reader).read(&mut destination[2..3]),
     );
@@ -208,6 +210,7 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
     let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
         std.fs.File.open(&source, options = options),
     );
+
     let bytes: bytes = b"XY";
     let written: usize = std.testing.assert_ok<usize, std.io.IoError>(await file.write_async(&bytes[..]));
 
@@ -278,6 +281,7 @@ func create_or_truncate_replaces_existing_contents() -> Result<unit, std.io.IoEr
     let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
         std.fs.File.open(&path, options = options),
     );
+
     let metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(file.metadata());
 
     assert(metadata.bytes == 0);
@@ -305,6 +309,7 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
     let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
         std.fs.File.open(path, options = options),
     );
+
     let bytes: bytes<1> = [value];
     let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&bytes[..]));
 
@@ -369,30 +374,52 @@ func discard_existing_directory(pos path: &std.path.Path)
 }
 
 @target(target.identity.SYSTEM == "windows")
-@test(serial)
-trusted func failed_file_close_retains_the_native_handle_for_retry()
-    requires(blocking_execution())
-    uses(foreign_call)
+module bray.standard_library_tests.filesystem
 {
-    let path: std.path.Path = test_path("bray-close-retry-conformance");
+    using std.fs;
+    using std.io;
+    using std.os.windows;
+    using std.path;
+    using internal std.platform;
+    using std.testing;
 
-    discard_existing_file(&path);
+    const HANDLE_FLAG_PROTECT_FROM_CLOSE: u32 = 2;
 
-    let options = std.fs.OpenOptions(
-        access = std.fs.FileAccess.ReadWrite,
-        creation = std.fs.FileCreation.CreateNew,
-    );
+    @test(serial)
+    trusted func failed_file_close_retains_the_native_handle_for_retry()
+        requires(blocking_execution())
+        uses(foreign_call)
+    {
+        let path: std.path.Path = test_path("bray-close-retry-conformance");
 
-    let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(std.fs.File.open(&path, options = options));
-    let handle = trusted internal std.platform.handle_pointer(internal file.handle);
+        discard_existing_file(&path);
 
-    // HANDLE_FLAG_PROTECT_FROM_CLOSE forces CloseHandle to fail while retaining the resource.
-    assert(trusted std.os.windows.set_handle_information(handle, mask = 2, flags = 2) != 0);
-    std.testing.assert_error<unit, std.io.IoError>(file.close());
-    assert(!file.is_complete());
-    assert(trusted std.os.windows.set_handle_information(handle, mask = 2, flags = 0) != 0);
+        let options = std.fs.OpenOptions(
+            access = std.fs.FileAccess.ReadWrite,
+            creation = std.fs.FileCreation.CreateNew,
+        );
 
-    std.testing.assert_ok<unit, std.io.IoError>(file.close());
-    assert(file.is_complete());
-    std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
+        let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(std.fs.File.open(&path, options = options));
+        let handle = trusted internal std.platform.handle_pointer(internal file.handle);
+
+        // HANDLE_FLAG_PROTECT_FROM_CLOSE forces CloseHandle to fail while retaining the resource.
+        assert(
+            trusted std.os.windows.set_handle_information(
+                handle,
+                mask = HANDLE_FLAG_PROTECT_FROM_CLOSE,
+                flags = HANDLE_FLAG_PROTECT_FROM_CLOSE
+            ) != 0
+        );
+
+        std.testing.assert_error<unit, std.io.IoError>(file.close());
+        assert(!file.is_complete());
+
+        assert(
+            trusted std.os.windows.set_handle_information(handle, mask = HANDLE_FLAG_PROTECT_FROM_CLOSE, flags = 0) != 0
+        );
+
+        std.testing.assert_ok<unit, std.io.IoError>(file.close());
+        assert(file.is_complete());
+        std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
+    }
 }

@@ -52,6 +52,58 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
     }
 }
 
+/// Field identities of one authoritatively recognized, substituted buffer representation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RawBufferFields {
+    pub(crate) element: TypeId,
+    pub(crate) pointer: bray_symbols::StructFieldSymbolId,
+    pub(crate) capacity: bray_symbols::StructFieldSymbolId,
+    pub(crate) initialized: bray_symbols::StructFieldSymbolId,
+}
+
+pub(crate) fn raw_buffer_fields<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<Option<RawBufferFields>, CheckerQueryError<C::UpstreamError>> {
+    let data = request.semantic_values().type_data(ty);
+
+    let TypeData::Named {
+        definition,
+        substitution,
+    } = *data
+    else {
+        return Ok(None);
+    };
+
+    let Some(element) = request
+        .context()
+        .raw_buffer_element(definition, substitution)?
+    else {
+        return Ok(None);
+    };
+
+    let NamedTypeSymbolId::Struct(structure) = definition else {
+        panic!("recognized raw buffer {ty:?} has a struct representation");
+    };
+
+    let field = |name| {
+        let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
+            request.lookup_member(structure.into(), name)?
+        else {
+            panic!("recognized buffer {structure:?} requires its {name} field");
+        };
+
+        Ok::<_, CheckerQueryError<C::UpstreamError>>(field)
+    };
+
+    Ok(Some(RawBufferFields {
+        element,
+        pointer: field("pointer")?,
+        capacity: field("capacity")?,
+        initialized: field("initialized")?,
+    }))
+}
+
 pub(crate) fn type_supports_complete_fixed_layout<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,

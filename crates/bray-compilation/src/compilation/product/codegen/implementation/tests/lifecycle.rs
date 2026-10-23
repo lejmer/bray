@@ -647,8 +647,8 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
                             assert!(instance.mir().operations().iter().any(|operation| matches!(
                                 operation.kind(),
                                 MirOperationKind::AdmitOutgoing {
-                                    owner: bray_ir::MirOutgoingOwner::Invocation { callable, result }, ..
-                                } if callable == reference && *result == call.result()
+                                    owner: bray_ir::MirOutgoingOwner::Invocation { selection, result }, ..
+                                } if selection.reference() == *reference && *result == call.result()
                             )), "selected exit owns admission before it can run");
                         }
                     }
@@ -704,4 +704,40 @@ fn moving_aligned_union_values_does_not_clear_dead_payload_bytes() {
         }),
         "{text}"
     );
+}
+
+#[test]
+fn constrained_async_admission_realizes_the_selected_implementation() {
+    let source = r#"
+        module app;
+
+        trait Worker
+        {
+            async func run() -> u32;
+        }
+
+        struct Value { number: u32; }
+
+        impl ValueWorker = Value(Worker)
+        {
+            async func run() -> u32 { return self.number; }
+        }
+
+        async func run_generic<T>(pos value: &T) -> u32
+            with(T: Worker)
+        {
+            return await value.run();
+        }
+
+        async func main()
+        {
+            let value: Value = { number = 7 };
+            let observed: u32 = await run_generic<Value>(&value);
+            assert(observed == 7);
+        }
+    "#;
+
+    let (_, plan) = runtime_native_plan(source);
+
+    assert!(!plan.units().is_empty());
 }

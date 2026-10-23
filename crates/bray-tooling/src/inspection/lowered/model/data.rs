@@ -845,8 +845,8 @@ fn operation_parts(
                     parts.operand("factory", callee, context)?
                 }
                 bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
-                bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
-                    callable_reference("callable", *callable, parts, context);
+                bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
+                    callable_reference("callable", selection.reference(), parts, context);
                     parts.r#type("result", result.ty(), context)?;
                 }
             }

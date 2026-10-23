@@ -154,7 +154,7 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     let mut incomplete = std::collections::BTreeSet::new();
 
     for relation in template.borrows() {
-        if let Some((ty, _)) = inputs.get(relation.entry())
+        if let Some((ty, _)) = inputs.get(relation.entry().unwrap_or_else(|| relation.exit()))
             && let Some(reference) = prepare_reference(request, relation, *ty)?
         {
             references.push(reference);
@@ -180,6 +180,11 @@ pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     relation: &bray_symbols::DependencyBorrowRelation,
     mut ty: bray_symbols::TypeId,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    if relation.entry().is_none() {
+        return Ok(crate::representation::reference_target_type(request, ty)
+            .map(|target| BoundCallReference::new(relation.clone(), false, Some(target))));
+    }
+
     for _ in 0..relation.dereferences() {
         let bray_symbols::TypeData::Borrow { target, .. } =
             *request.semantic_values().type_data(ty)
@@ -253,7 +258,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
         }
         bray_symbols::DependencySubjectRoot::Result => match call.resolution().result() {
             bray_bound_tree::BoundCallResult::Immediate(ty) => Some(ty),
-            bray_bound_tree::BoundCallResult::LazyFuture(_) => None,
+            bray_bound_tree::BoundCallResult::LazyFuture(future) => Some(future.completion_type()),
         },
         _ => None,
     };

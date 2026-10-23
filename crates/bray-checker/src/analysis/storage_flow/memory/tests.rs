@@ -2901,7 +2901,149 @@ fn returned_pointers_can_reach_published_local_storage_without_current_inputs() 
     );
 
     assert!(
-        state.escape_origins(&pointer).next().is_none(),
+        state.effect_origins(&pointer).next().is_none(),
         "external reachability does not imply this call received a local input"
     );
+}
+
+#[test]
+fn native_escape_of_owned_payload_does_not_publish_the_owner_header() {
+    let ([owner, ..], _) = places();
+
+    let mut state = State {
+        owned_storage: [owner.root].into(),
+        ..State::default()
+    };
+
+    let header = Target::storage(owner.clone());
+    let payload = header.project(&[StorageProjection::OwnedTarget]);
+
+    let element = payload.project(&[StorageProjection::TupleElement(
+        bray_symbols::SymbolOrdinal::new(1),
+    )]);
+
+    state.escape_targets([element]);
+
+    let reached = state.reachable_targets([]);
+
+    assert!(reached.contains(&payload));
+    assert!(!reached.contains(&header));
+
+    assert_eq!(
+        state
+            .unexposed_storage(&[owner.clone()], [])
+            .collect::<Vec<_>>(),
+        vec![&owner]
+    );
+}
+
+#[test]
+fn returned_pointer_bounds_do_not_merge_owned_payloads_with_their_headers() {
+    let ([owner, result, ..], origins) = places();
+
+    let call = origins[0].into();
+
+    let mut state = State {
+        owned_storage: [owner.root, result.root].into(),
+        ..State::default()
+    };
+
+    let header = Target::storage(owner.clone());
+    let payload = header.project(&[StorageProjection::OwnedTarget]);
+
+    state.stage_returned_references(call, [(result.clone(), error_type())], [payload.clone()]);
+    state.complete_transition(call);
+
+    let pointer = state
+        .value_target(&Target::storage(result), error_type())
+        .unwrap();
+
+    assert_eq!(
+        state.target_relationship(&pointer, &header),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    state.escape_targets([pointer]);
+
+    assert_eq!(
+        state
+            .unexposed_storage(&[owner.clone()], [])
+            .collect::<Vec<_>>(),
+        vec![&owner]
+    );
+
+    assert!(state.reachable_targets([]).iter().any(|target| {
+        state.target_relationship(target, &payload)
+            != bray_bound_tree::StorageRelationship::Disjoint
+    }));
+}
+
+#[test]
+fn independent_returned_references_may_alias_and_merge_with_input_alternatives() {
+    let ([owner, first, second, ..], origins) = places();
+
+    let call = origins[0].into();
+    let mut state = State::default();
+
+    state.stage_returned_reference(
+        call,
+        Target::storage(first.clone()),
+        first.clone(),
+        error_type(),
+        [],
+    );
+
+    state.stage_returned_reference(
+        call,
+        Target::storage(second.clone()),
+        second.clone(),
+        error_type(),
+        [],
+    );
+
+    state.complete_transition(call);
+
+    let first_target = state
+        .value_target(&Target::storage(first.clone()), error_type())
+        .unwrap();
+
+    let second_target = state
+        .value_target(&Target::storage(second), error_type())
+        .unwrap();
+
+    assert_ne!(
+        state.target_relationship(&first_target, &second_target),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    state.stage_returned_reference(
+        call,
+        Target::storage(first.clone()),
+        first.clone(),
+        error_type(),
+        [],
+    );
+
+    state.stage_address(
+        call,
+        Target::storage(owner.clone()),
+        Target::storage(first.clone()),
+        error_type(),
+        bray_symbols::DependencyReferenceKind::Address,
+    );
+
+    state.complete_transition(call);
+
+    let alternatives = state.value_targets(&Target::storage(first)).unwrap();
+
+    assert!(
+        alternatives
+            .iter()
+            .any(|target| target == &Target::storage(owner.clone()))
+    );
+
+    assert!(alternatives.iter().any(|target| matches!(
+        target.origin,
+        bray_bound_tree::StorageOrigin::Returned { .. }
+    )));
 }

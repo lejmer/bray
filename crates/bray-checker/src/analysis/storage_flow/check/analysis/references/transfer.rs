@@ -320,17 +320,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         // Pending joins compare exact slots. An absent aggregate must carry emptiness
         // for every prepared reference it contains, without making result storage live.
-        memory.stage_null(occurrence, Target::storage(absent.clone()));
-
-        for path in self
-            .input
-            .returned_references
-            .get(&absent.root)
-            .into_iter()
-            .flat_map(|paths| paths.keys())
-            .filter(|path| *path != absent && absent.contains(path))
-        {
-            memory.stage_null(occurrence, Target::storage(path.clone()));
+        for path in self.input.reference_slots(absent) {
+            memory.stage_null(occurrence, Target::storage(path));
         }
     }
 
@@ -387,10 +378,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     && value.clone().matches_variant(*variant)
                         == crate::ExecutionCondition::Boolean(false)
                 {
-                    state.definitely_absent.insert(
-                        payload.clone(),
-                        crate::analysis::storage_flow::model::StorageAbsence::NoPayload,
-                    );
+                    self.mark_absent_references(state, payload);
                 }
             }
         }
@@ -400,8 +388,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .as_ref()
             .is_some_and(|execution| self.nullable_is_absent(execution, expression, target))
         {
-            state.definitely_absent.insert(
-                Place {
+            self.mark_absent_references(
+                state,
+                &Place {
                     root: destination.root,
                     projections: destination
                         .projections
@@ -410,13 +399,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .chain([bray_bound_tree::StorageProjection::NullableValue])
                         .collect(),
                 },
-                crate::analysis::storage_flow::model::StorageAbsence::NoPayload,
             );
 
             return true;
         }
 
         false
+    }
+
+    fn mark_absent_references(&self, state: &mut StorageFlowState, absent: &Place) {
+        state.definitely_absent.insert(
+            absent.clone(),
+            crate::analysis::storage_flow::model::StorageAbsence::NoPayload,
+        );
+
+        // Empty reference values move and stage with the containing inactive payload.
+        for path in self.input.reference_slots(absent) {
+            state.memory.null(path);
+        }
     }
 
     fn transfer_reference_value(
@@ -426,11 +426,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         destination: Place,
         target: bray_symbols::TypeId,
     ) {
-        if self.observe_transferred_payloads(state, expression, &destination, target) {
-            state.memory.clear(&destination);
-            return;
-        }
-
         // The transfer owns its converted destination path.
         if let Some(projections) = self.reference_wrapping(expression, target)
             && let Some(source) = self.expression_reference(state, expression)
@@ -450,6 +445,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         } else {
             state.memory.clear(&destination);
         }
+
+        self.observe_transferred_payloads(state, expression, &destination, target);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_assignment_reference(
@@ -570,7 +567,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        for reference in contracts.references() {
+        // Seed independent alternatives before merging reference transfers from inputs.
+        for reference in contracts
+            .references()
+            .iter()
+            .filter(|reference| reference.relation().entry().is_none())
+            .chain(
+                contracts
+                    .references()
+                    .iter()
+                    .filter(|reference| reference.relation().entry().is_some()),
+            )
+        {
             let relation = reference.relation();
 
             let output = if relation.exit().subject_root() == DependencySubjectRoot::Result {
@@ -598,16 +606,43 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let sources = if relation.entry().projections().is_empty()
+            let Some(entry) = relation.entry() else {
+                let mut logical = self
+                    .invocation_place(occurrence, relation.exit().subject_root())
+                    .expect("prepared reference output retains its logical storage");
+
+                logical.projections = logical
+                    .projections
+                    .iter()
+                    .copied()
+                    .chain(
+                        storage_projections(self.dependencies, relation.exit().projections())
+                            .expect("prepared reference output retains its projections"),
+                    )
+                    .collect();
+
+                state.memory.stage_returned_reference(
+                    occurrence,
+                    destination,
+                    logical,
+                    reference
+                        .addressed_type()
+                        .expect("independent reference retains its target type"),
+                    [],
+                );
+
+                continue;
+            };
+
+            let sources = if entry.projections().is_empty()
                 && (reference.addressed_type().is_none()
                     || !relation.target_projections().is_empty())
             {
-                self.invocation_reference(state, occurrence, relation.entry().subject_root())
+                self.invocation_reference(state, occurrence, entry.subject_root())
                     .into_iter()
                     .collect::<Vec<_>>()
             } else {
-                let Some(targets) = self.invocation_locations(state, occurrence, relation.entry())
-                else {
+                let Some(targets) = self.invocation_locations(state, occurrence, entry) else {
                     state.memory.stage_unknown(occurrence, destination);
                     continue;
                 };
@@ -641,7 +676,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .and_then(|ty| crate::representation::reference_target_type(self.request, ty))
                 .map(|target| (destination.clone(), target));
 
-            let contained = self.input.returned_references.get(&destination.root);
+            let contained = self.input.value_references.get(&destination.root);
 
             if root.is_some() || contained.is_some_and(|paths| !paths.is_empty()) {
                 let inputs = self.invocation_roots(state, occurrence);

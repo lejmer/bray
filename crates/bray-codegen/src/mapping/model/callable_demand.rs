@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use bray_ir::{
-    MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirFrameInitializer,
-    MirOperationKind, MirTerminatorKind,
+    MirAsyncOperation, MirCall, MirCallableReference, MirFrameInitializer, MirOperationKind,
+    MirTerminatorKind,
 };
 use bray_symbols::ImplementationInstanceId;
 
@@ -13,13 +12,15 @@ use crate::{CodegenCallSite, CodegenInstanceKey, CodegenUnit};
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DemandedCallableInstance {
     site: CodegenCallSite,
-    reference: MirCallableReference,
-    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
-    intrinsic: Option<bray_ir::MirCallIntrinsic>,
-    witnesses: Arc<[ImplementationInstanceId]>,
+    selection: bray_ir::MirCallableSelection,
 }
 
 impl DemandedCallableInstance {
+    /// Associates one checked selection with its exact native demand site.
+    pub fn new(site: CodegenCallSite, selection: bray_ir::MirCallableSelection) -> Self {
+        Self { site, selection }
+    }
+
     /// Returns the exact MIR occurrence containing the call.
     pub const fn site(&self) -> CodegenCallSite {
         self.site
@@ -27,22 +28,22 @@ impl DemandedCallableInstance {
 
     /// Returns the selected callable reference.
     pub const fn reference(&self) -> MirCallableReference {
-        self.reference
+        self.selection.reference()
     }
 
     /// Returns the generic constraint supplying callable dispatch.
     pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
-        self.trait_dispatch
+        self.selection.trait_dispatch()
     }
 
     /// Returns the compiler-defined realization available after concrete specialization.
     pub const fn intrinsic(&self) -> Option<bray_ir::MirCallIntrinsic> {
-        self.intrinsic
+        self.selection.intrinsic()
     }
 
     /// Returns selected implementation witnesses in canonical semantic order.
     pub fn witnesses(&self) -> &[ImplementationInstanceId] {
-        &self.witnesses
+        self.selection.witnesses()
     }
 }
 
@@ -87,12 +88,24 @@ fn operation_callable_instances(
                     operation: operation_id,
                     symbol,
                 },
-                reference,
-                trait_dispatch: None,
-                intrinsic: None,
-                witnesses: Arc::from([]),
+                selection: bray_ir::MirCallableSelection::new(reference, None, None, []),
             })
             .collect();
+    }
+
+    if let MirOperationKind::AdmitOutgoing {
+        owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+        ..
+    }
+    | MirOperationKind::DischargeOutgoing {
+        owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+        ..
+    } = operation
+    {
+        return vec![DemandedCallableInstance::new(
+            CodegenCallSite::Operation(operation_id),
+            selection.clone(),
+        )];
     }
 
     let call = match operation {
@@ -136,23 +149,8 @@ pub fn demanded_callable_instance_for_call(
     site: CodegenCallSite,
     call: &MirCall,
 ) -> Option<DemandedCallableInstance> {
-    let MirCallTarget::Direct(reference) = call.target() else {
-        return None;
-    };
-
-    let mut witnesses = call.dispatch_witnesses().to_vec();
-
-    witnesses.extend(call.witnesses().iter().map(|selection| selection.witness()));
-    witnesses.sort_unstable();
-    witnesses.dedup();
-
-    Some(DemandedCallableInstance {
-        site,
-        reference: *reference,
-        trait_dispatch: call.trait_dispatch(),
-        intrinsic: call.intrinsic(),
-        witnesses: witnesses.into(),
-    })
+    call.callable_selection()
+        .map(|selection| DemandedCallableInstance::new(site, selection))
 }
 
 fn terminator_callable_instances(
@@ -167,10 +165,7 @@ fn terminator_callable_instances(
             .enumerate()
             .map(|(symbol, reference)| DemandedCallableInstance {
                 site: CodegenCallSite::InlineAssemblyTerminator { block, symbol },
-                reference,
-                trait_dispatch: None,
-                intrinsic: None,
-                witnesses: Arc::from([]),
+                selection: bray_ir::MirCallableSelection::new(reference, None, None, []),
             })
             .collect(),
         _ => Vec::new(),

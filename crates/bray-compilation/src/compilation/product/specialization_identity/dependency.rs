@@ -154,7 +154,12 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         relation: &bray_symbols::DependencyBorrowRelation,
     ) -> Result<(), FactQueryError> {
-        self.dependency_subject(relation.entry())?;
+        self.boolean(relation.entry().is_some());
+
+        if let Some(entry) = relation.entry() {
+            self.dependency_subject(entry)?;
+        }
+
         self.dependency_subject(relation.exit())?;
         self.digest.write_u32(relation.dereferences());
         self.boolean(relation.is_exact());
@@ -196,6 +201,11 @@ impl StructuralValueEncoder<'_, '_> {
             }
             DependencyStorageEffect::Escape => {
                 self.tag(5);
+
+                return Ok(());
+            }
+            DependencyStorageEffect::Ambient => {
+                self.tag(6);
 
                 return Ok(());
             }

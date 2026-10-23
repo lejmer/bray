@@ -1,6 +1,6 @@
 use bray_codegen::{CodegenCleanupRequirement, CodegenTarget};
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirCallTarget, MirCleanupPhase, MirHelperReference, MirOperationKind};
+use bray_ir::{MirCleanupPhase, MirHelperReference, MirOperationKind};
 use bray_symbols::{CallableExecution, CallableInstanceData, TypeId};
 
 use super::super::specialization::ConcreteCodegenInstance;
@@ -11,6 +11,7 @@ impl Compilation {
     pub(super) fn operation_outgoing_requirements(
         &self,
         owner: &ConcreteCodegenInstance,
+        operation_id: bray_ir::MirOperationId,
         operation: &MirOperationKind,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -34,14 +35,21 @@ impl Compilation {
                 self.owner_outgoing_requirements(ty, cancellation).map(Some)
             }
             MirOperationKind::AdmitOutgoing {
-                owner: bray_ir::MirOutgoingOwner::Invocation { callable, result },
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, result },
                 ..
             }
             | MirOperationKind::DischargeOutgoing {
-                owner: bray_ir::MirOutgoingOwner::Invocation { callable, result },
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, result },
                 ..
             } => self
-                .invocation_outgoing_requirements(owner, *callable, *result, target, cancellation)
+                .invocation_outgoing_requirements(
+                    owner,
+                    operation_id,
+                    selection,
+                    *result,
+                    target,
+                    cancellation,
+                )
                 .map(Some),
             MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
                 producer,
@@ -50,24 +58,26 @@ impl Compilation {
             }) => self
                 .invocation_outgoing_requirements(
                     owner,
-                    *producer,
+                    operation_id,
+                    &bray_ir::MirCallableSelection::new(*producer, None, None, []),
                     *invocation,
                     target,
                     cancellation,
                 )
                 .map(Some),
             MirOperationKind::Call(call) if call.is_cleanup() => {
-                let MirCallTarget::Direct(reference) = call.target() else {
+                let selection = call.callable_selection().unwrap_or_else(|| {
                     panic!(
-                        "checked cleanup call in {:?} must retain its selected direct target, got {:?}",
+                        "checked cleanup call in {:?} retains its direct selection, got {:?}",
                         owner.key(),
                         call.target()
-                    );
-                };
+                    )
+                });
 
                 self.invocation_outgoing_requirements(
                     owner,
-                    *reference,
+                    operation_id,
+                    &selection,
                     call.result(),
                     target,
                     cancellation,
@@ -81,17 +91,25 @@ impl Compilation {
     fn invocation_outgoing_requirements(
         &self,
         owner: &ConcreteCodegenInstance,
-        reference: bray_ir::MirCallableReference,
+        operation_id: bray_ir::MirOperationId,
+        selection: &bray_ir::MirCallableSelection,
         result: bray_bound_tree::BoundCallResult,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenCleanupRequirement>, CodegenPreparationError> {
-        let callee = self.concrete_codegen_callable_data(
-            owner,
-            &reference.instance(),
-            target,
-            cancellation,
-        )?;
+        let demand = bray_codegen::DemandedCallableInstance::new(
+            bray_codegen::CodegenCallSite::Operation(operation_id),
+            selection.clone(),
+        );
+
+        let callee = self.concrete_codegen_callee(owner, &demand, target, cancellation)?;
+
+        let super::super::specialization::ConcreteCodegenCallee::Instance(callee) = callee else {
+            panic!(
+                "outgoing lifecycle invocation in {:?} selects an executable body, got {selection:?}",
+                owner.key()
+            );
+        };
 
         let callable = callee
             .callable_instance()
@@ -107,19 +125,21 @@ impl Compilation {
             return Ok(Vec::new());
         }
 
-        Ok(vec![outgoing_requirement((callee, result, execution))])
+        Ok(vec![self.outgoing_requirement(
+            (callee, result, execution),
+            cancellation,
+        )?])
     }
 
-    pub(super) fn owner_outgoing_requirements(
+    pub(in crate::compilation) fn owner_outgoing_requirements(
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenCleanupRequirement>, CodegenPreparationError> {
-        Ok(self
-            .owner_outgoing_calls(ty, cancellation)?
+        self.owner_outgoing_calls(ty, cancellation)?
             .into_iter()
-            .map(outgoing_requirement)
-            .collect())
+            .map(|call| self.outgoing_requirement(call, cancellation))
+            .collect()
     }
 
     pub(super) fn owner_outgoing_calls(
@@ -197,6 +217,19 @@ impl Compilation {
             )?))
     }
 
+    pub(super) fn outgoing_requirement(
+        &self,
+        (callee, result, execution): (ConcreteCodegenInstance, TypeId, CallableExecution),
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenCleanupRequirement, CodegenPreparationError> {
+        Ok(CodegenCleanupRequirement::new(
+            self.cleanup_storage_identity(&callee, cancellation)?,
+            callee.key().clone(),
+            result,
+            execution,
+        ))
+    }
+
     #[cfg(test)]
     pub(super) fn owner_outgoing_capacity(
         &self,
@@ -208,17 +241,6 @@ impl Compilation {
                 .expect("local cleanup requirement count must fit its native descriptor"),
         )
     }
-}
-
-pub(super) fn outgoing_requirement(
-    (callee, result, execution): (ConcreteCodegenInstance, TypeId, CallableExecution),
-) -> CodegenCleanupRequirement {
-    CodegenCleanupRequirement::new(
-        super::names::generated_identity("cleanup_storage", callee.key()),
-        callee.key().clone(),
-        result,
-        execution,
-    )
 }
 
 #[cfg(test)]

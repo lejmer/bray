@@ -101,10 +101,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
                 };
 
+                let task_path = match &mutation {
+                    CleanupMutation::Opaque { path, .. } => *path,
+                    _ => None,
+                };
+
+                let task_source = match &mutation {
+                    CleanupMutation::Opaque { ty, .. } => {
+                        task_path.and_then(|path| domain.task_cleanup_source(execution, *ty, path))
+                    }
+                    _ => None,
+                };
+
                 let effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
-                    CleanupMutation::Opaque { ty, .. } => Some(vec![Effect::Cleanup(ty)]),
+                    CleanupMutation::Opaque { ty, .. } => Some(
+                        super::effects::task_effects(&memory, task_source)
+                            .or_else(|| {
+                                self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
+                            })
+                            .unwrap_or_else(|| vec![Effect::Cleanup(ty)]),
+                    ),
                     CleanupMutation::Lifecycle(ref call) => {
                         self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
                     }
@@ -173,6 +191,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }),
                 };
 
+                if task_source.is_some()
+                    && let Some(path) = task_path
+                    && let Some(effects) = &effects
+                {
+                    preserve_task_descriptor(&memory, path, effects, &mut invalidation);
+                }
+
                 self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
 
                 if let Some(call) = &invocation
@@ -182,7 +207,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if let Some(effects) = &effects {
-                    self.record_resolved_effects(effects, self.on_normal_path);
+                    self.record_resolved_effects(&memory, effects, self.on_normal_path);
                 } else {
                     self.record_effects(
                         &StorageInvalidation::unknown(),
@@ -258,9 +283,43 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 memory.reference_location(receiver.clone(), path, None)
             };
 
-            let (Some(source), Some(destination)) =
-                (location(relation.entry()), location(relation.exit()))
-            else {
+            let Some(destination) = location(relation.exit()) else {
+                continue;
+            };
+
+            let Some(entry) = relation.entry() else {
+                let mut logical = call
+                    .path
+                    .expect("cleanup receiver has its logical path")
+                    .clone();
+
+                logical.projections = logical
+                    .projections
+                    .iter()
+                    .copied()
+                    .chain(
+                        crate::storage::storage_projections(
+                            self.dependencies,
+                            relation.exit().projections(),
+                        )
+                        .expect("prepared lifecycle reference retains its projections"),
+                    )
+                    .collect();
+
+                memory.stage_returned_reference(
+                    occurrence,
+                    destination,
+                    logical,
+                    reference
+                        .addressed_type()
+                        .expect("independent reference retains its target type"),
+                    [],
+                );
+
+                continue;
+            };
+
+            let Some(source) = location(entry) else {
                 continue;
             };
 
@@ -272,6 +331,32 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference,
             );
         }
+    }
+
+    fn buffer_cleanup_effects(
+        &self,
+        memory: &State,
+        receiver: &Target,
+        ty: bray_symbols::TypeId,
+    ) -> Option<Vec<Effect>> {
+        let (fields, elements) = self.input.raw_buffers.get(&ty)?;
+
+        let pointer = receiver.project(&[bray_bound_tree::StorageProjection::ProductField(
+            fields.pointer,
+        )]);
+
+        let targets = memory.referenced_regions(&pointer)?;
+
+        let mut effects = targets
+            .into_iter()
+            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire))
+            .collect::<Vec<_>>();
+
+        if *elements {
+            effects.push(Effect::Cleanup(fields.element));
+        }
+
+        Some(effects)
     }
 
     fn cleanup_receiver(
@@ -313,7 +398,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
                 || relation.exit().subject_root() != DependencySubjectRoot::Receiver
-                || (!call.completes && relation.entry() != relation.exit())
+                || (!call.completes && relation.entry() != Some(relation.exit()))
             {
                 continue;
             }
@@ -347,7 +432,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 call.access,
                 observed,
                 &location,
-                call.completes && relation.entry() != relation.exit(),
+                call.completes && relation.entry() != Some(relation.exit()),
             );
         }
     }
@@ -387,5 +472,42 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }),
         )
+    }
+}
+
+fn preserve_task_descriptor(
+    memory: &State,
+    path: &StoragePath,
+    effects: &[Effect],
+    invalidation: &mut StorageInvalidation,
+) {
+    let StorageInvalidation::All {
+        stable_descriptors, ..
+    } = invalidation
+    else {
+        return;
+    };
+
+    if effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Cleanup(_) | Effect::Escape))
+    {
+        return;
+    }
+
+    if memory
+        .unexposed_storage(
+            std::slice::from_ref(path),
+            effects
+                .iter()
+                .filter_map(Effect::mutation)
+                .map(|(target, _)| target.clone()),
+        )
+        .next()
+        .is_some()
+    {
+        // Cancellation changes the task's frame, not its unexposed handle.
+        // The lifecycle phase must retain the same computation identity.
+        stable_descriptors.insert(path.clone());
     }
 }

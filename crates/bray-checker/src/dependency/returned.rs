@@ -241,8 +241,7 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         )?;
 
         if parts.value().is_empty() {
-            resolved.push(DependencyStorageEffect::Unknown);
-            resolved.push(DependencyStorageEffect::Escape);
+            resolved.extend(DependencyStorageEffect::opaque_call());
             continue;
         }
 
@@ -302,10 +301,7 @@ fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
             TypeData::Named { .. }
         )
     {
-        effects.extend([
-            DependencyStorageEffect::Unknown,
-            DependencyStorageEffect::Escape,
-        ]);
+        effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
 
         return Ok(());
     }
@@ -317,10 +313,7 @@ fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         let selected = request.context().lifecycle_callable(ty, slot)?;
 
         if selected.diagnostics().has_errors() {
-            effects.extend([
-                DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape,
-            ]);
+            effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
 
             return Ok(());
         }
@@ -425,7 +418,8 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
-        .filter_map(|relation| call.input_site(expression, relation.entry().subject_root()))
+        .filter_map(|relation| relation.entry())
+        .filter_map(|entry| call.input_site(expression, entry.subject_root()))
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut pending = template.requirements().iter().collect::<Vec<_>>();

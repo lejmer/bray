@@ -301,12 +301,12 @@ impl Lowerer<'_> {
                 initializer: MirFrameInitializer::Callable(call),
                 ..
             }) => match call.target() {
-                bray_ir::MirCallTarget::Direct(callable) => {
-                    Some(bray_ir::MirOutgoingOwner::Invocation {
-                        callable: *callable,
-                        result: call.result(),
-                    })
-                }
+                bray_ir::MirCallTarget::Direct(_) => Some(bray_ir::MirOutgoingOwner::Invocation {
+                    selection: call
+                        .callable_selection()
+                        .expect("direct factory retains its checked selection"),
+                    result: call.result(),
+                }),
                 bray_ir::MirCallTarget::Indirect { callee, .. } => {
                     Some(bray_ir::MirOutgoingOwner::FrameFactory(callee.clone()))
                 }

@@ -228,7 +228,7 @@ impl StorageTarget {
         match &mut region.origin {
             StorageOrigin::Returned {
                 projections: path, ..
-            } => *path = std::sync::Arc::from([]),
+            } => *path = projections[..boundary.unwrap_or(0)].into(),
             StorageOrigin::Allocation(place) => {
                 place.projections = projections[..boundary.unwrap_or(0)].into()
             }
@@ -486,5 +486,48 @@ mod tests {
             returned.relationship(&StorageTarget::storage(slot(0))),
             StorageRelationship::PotentiallyOverlapping
         );
+    }
+
+    #[test]
+    fn allocation_regions_preserve_owned_boundaries_for_every_origin() {
+        let path = slot(0);
+
+        let origins = [
+            StorageOrigin::Storage(path.clone()),
+            StorageOrigin::Allocation(path.clone()),
+            StorageOrigin::entry(path.clone()),
+            StorageOrigin::Returned {
+                reference: path,
+                projections: [].into(),
+            },
+        ];
+
+        for origin in origins {
+            for previous in [false, true] {
+                let header = StorageTarget {
+                    origin: origin.clone(),
+                    previous,
+                };
+
+                let payload = header.project(&[
+                    StorageProjection::OwnedTarget,
+                    StorageProjection::TupleElement(SymbolOrdinal::new(1)),
+                ]);
+
+                let region = payload.allocation_region().unwrap();
+
+                assert_eq!(region, header.project(&[StorageProjection::OwnedTarget]));
+                assert_eq!(region.previous, previous);
+
+                assert_eq!(
+                    region.relationship(&header),
+                    if previous && matches!(region.origin, StorageOrigin::Returned { .. }) {
+                        StorageRelationship::PotentiallyOverlapping
+                    } else {
+                        StorageRelationship::Disjoint
+                    }
+                );
+            }
+        }
     }
 }

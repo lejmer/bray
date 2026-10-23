@@ -1407,8 +1407,8 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     assert_eq!(
         template.borrows(),
         &[bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(1)
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             bray_symbols::DependencyReferenceKind::Borrow,
@@ -1464,11 +1464,16 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         });
 
     assert_eq!(
-        relation.entry().subject_root(),
+        relation.entry().expect("input origin").subject_root(),
         bray_symbols::DependencySubjectRoot::Receiver
     );
 
-    assert_eq!(relation.entry().projections().len(), 1, "{relation:#?}");
+    assert_eq!(
+        relation.entry().expect("input origin").projections().len(),
+        1,
+        "{relation:#?}"
+    );
+
     assert_eq!(relation.target_projections().len(), 4, "{relation:#?}");
 
     assert_eq!(
@@ -3796,6 +3801,16 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
             std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(path));
             return Ok(unit);
         }
+        func completed_directory_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+            requires(blocking_execution()) {
+            let mut directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+                std.fs.Directory.open(path));
+            let first = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
+                directory.next());
+            std.testing.assert_ok<unit, std.io.IoError>(directory.close());
+            assert(directory.is_complete());
+            return Ok(unit);
+        }
         async func worker(pos lock: &std.sync.Mutex<u32>)
             requires(blocking_execution(), trusted std.sync.mutex.valid(&lock.instance))
             ensures(trusted std.sync.mutex.valid(&lock.instance)) {
@@ -3827,6 +3842,7 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         "static_once_case",
         "channel_wait_case",
         "completed_file_case",
+        "completed_directory_case",
     ]
     .into_iter()
     .filter_map(|name| {

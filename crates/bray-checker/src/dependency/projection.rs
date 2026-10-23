@@ -363,7 +363,10 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         for reference in call.references() {
             let relation = reference.relation();
 
-            retain(relation.entry().projections());
+            if let Some(entry) = relation.entry() {
+                retain(entry.projections());
+            }
+
             retain(relation.exit().projections());
             retain(relation.target_projections());
         }

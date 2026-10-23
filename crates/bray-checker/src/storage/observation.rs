@@ -18,13 +18,23 @@ enum Observation {
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
     complete_value: bool,
+    complete_references: bool,
 }
 
 impl Shape {
+    fn is_reference_free(&self) -> bool {
+        self.complete_references
+            && !self
+                .observations
+                .iter()
+                .any(|(_, observation)| matches!(observation, Observation::Reference(_)))
+    }
+
     fn unknown() -> Self {
         Self {
             observations: vec![(Vec::new(), Observation::Mutable)],
             complete_value: false,
+            complete_references: false,
         }
     }
 }
@@ -36,6 +46,7 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
         return Shape {
             observations: Vec::new(),
             complete_value: !reference,
+            complete_references: true,
         };
     }
 
@@ -61,12 +72,14 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
     Shape {
         observations: vec![(Vec::new(), observation)],
         complete_value: scalar && !reference,
+        complete_references: scalar || matches!(observation, Observation::Address),
     }
 }
 
 pub(crate) struct Footprint {
     pub(crate) atomic: StorageInvalidation,
     pub(crate) references: Vec<(StoragePath, TypeId)>,
+    pub(crate) complete_reference_types: BTreeSet<TypeId>,
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) borrowed_identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
@@ -82,6 +95,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     let mut accesses = BTreeMap::new();
     let mut references = Vec::new();
     let mut shapes = BTreeMap::new();
+    let mut complete_reference_types = BTreeSet::new();
     let mut stable_descriptors = BTreeSet::new();
     let mut identities = BTreeMap::new();
     let mut scalars = BTreeMap::new();
@@ -105,12 +119,13 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     }
 
     for (root, identity) in storage.identity_entries() {
-        let Some(access) = storage.root_access(root) else {
-            continue;
-        };
+        let access = storage.root_access(root);
 
         let Some(ty) = storage.storage_type(root) else {
-            accesses.insert(access, vec![StoragePath::root(root)]);
+            if let Some(access) = access {
+                accesses.insert(access, vec![StoragePath::root(root)]);
+            }
+
             continue;
         };
 
@@ -125,7 +140,15 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         let ty = shared.unwrap_or(ty);
 
         if !shapes.contains_key(&ty) {
-            shapes.insert(ty, paths(request, ty, &mut BTreeSet::new())?);
+            shapes.insert(
+                ty,
+                paths(
+                    request,
+                    ty,
+                    &mut BTreeSet::new(),
+                    &mut complete_reference_types,
+                )?,
+            );
         }
 
         let mut observations = shapes[&ty]
@@ -140,7 +163,15 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         // only when every selected storage shape proves that same observation.
         for ty in static_types.get(&root).into_iter().flatten() {
             if !shapes.contains_key(ty) {
-                shapes.insert(*ty, paths(request, *ty, &mut BTreeSet::new())?);
+                shapes.insert(
+                    *ty,
+                    paths(
+                        request,
+                        *ty,
+                        &mut BTreeSet::new(),
+                        &mut complete_reference_types,
+                    )?,
+                );
             }
 
             complete_value &= shapes[ty].complete_value;
@@ -226,13 +257,16 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             })
             .collect();
 
-        if !paths.is_empty() {
+        if !paths.is_empty()
+            && let Some(access) = access
+        {
             accesses.insert(access, paths);
         }
     }
 
     Ok(Footprint {
         references,
+        complete_reference_types,
         atomic: StorageInvalidation::Observed {
             scope: bray_bound_tree::StorageMutationScope::Unbounded,
             accesses,
@@ -251,8 +285,9 @@ fn paths<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     visiting: &mut BTreeSet<NamedTypeSymbolId>,
+    complete_reference_types: &mut BTreeSet<TypeId>,
 ) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
-    let mut shape = value_paths(request, ty, visiting)?;
+    let mut shape = value_paths(request, ty, visiting, complete_reference_types)?;
 
     // Record the slot even when its referent has no observable fields. Terminal
     // ownership includes retained dependencies that the body never names.
@@ -260,6 +295,13 @@ fn paths<C: CheckerRequestContext + ?Sized>(
         shape
             .observations
             .push((Vec::new(), Observation::Reference(ty)));
+
+        // A reference value has one explicit pointer slot, independently of its pointee shape.
+        shape.complete_references = true;
+    }
+
+    if shape.complete_references {
+        complete_reference_types.insert(ty);
     }
 
     Ok(shape)
@@ -269,6 +311,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     visiting: &mut BTreeSet<NamedTypeSymbolId>,
+    complete_reference_types: &mut BTreeSet<TypeId>,
 ) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
     if request.is_cancelled() {
         return Err(CheckerQueryError::Cancelled);
@@ -290,6 +333,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let ty = request.semantic_values().unborrowed_type(ty);
     let data = request.semantic_values().type_data(ty);
     let mut fields = Vec::new();
+    let mut complete_references = true;
 
     let definition = match data.as_ref() {
         TypeData::Named {
@@ -313,12 +357,27 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 return Ok(known_shape(role, reference));
             }
 
+            let buffer_element = request
+                .context()
+                .raw_buffer_element(*definition, *substitution)?;
+
             // A recursive reference widens only that component, not its siblings.
             if !visiting.insert(*definition) {
                 return Ok(Shape::unknown());
             }
 
+            if let Some(element) = buffer_element {
+                // Inline pointer fields cover backing with no embedded references.
+                // Reference-bearing or opaque elements still require the retained-loan bound.
+                let element = paths(request, element, visiting, complete_reference_types)?;
+
+                complete_references = element.is_reference_free();
+            }
+
             let representation = request.declared_type_representation(*definition)?;
+
+            complete_references &= !representation.value().is_recovered()
+                && !representation.diagnostics().has_errors();
 
             let members: Vec<_> = match representation.value().storage() {
                 DeclaredStorageShape::Structure(members) => members
@@ -369,6 +428,15 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             Some(*definition)
         }
+        TypeData::Array { element, .. } => {
+            let element = paths(request, *element, visiting, complete_reference_types)?;
+            let mut shape = Shape::unknown();
+
+            // Element shape proves this without enumerating the array extent.
+            shape.complete_references = element.is_reference_free();
+
+            return Ok(shape);
+        }
         TypeData::Nullable(element) => {
             fields.push((StorageProjection::NullableValue, *element));
 
@@ -417,9 +485,10 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
             .any(|(_, observation)| *observation == Observation::Discriminant);
 
     for (field, ty) in fields {
-        let shape = paths(request, ty, visiting)?;
+        let shape = paths(request, ty, visiting, complete_reference_types)?;
 
         complete_value &= shape.complete_value;
+        complete_references &= shape.complete_references;
 
         result.extend(
             shape.observations.into_iter().map(|(path, descriptor)| {
@@ -448,6 +517,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     Ok(Shape {
         observations: result,
         complete_value,
+        complete_references,
     })
 }
 

@@ -252,10 +252,13 @@ fn remap_dependency_contract(
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
-            let mut entry = relation.entry().clone();
+            let mut entry = relation.entry().cloned();
             let mut exit = relation.exit().clone();
 
-            remap_dependency_subject(&mut entry, maps)?;
+            if let Some(entry) = &mut entry {
+                remap_dependency_subject(entry, maps)?;
+            }
+
             remap_dependency_subject(&mut exit, maps)?;
 
             let mut projections = relation.target_projections().to_vec();
@@ -308,6 +311,7 @@ fn remap_dependency_contract(
 
         match effect {
             DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {

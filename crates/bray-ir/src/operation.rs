@@ -660,8 +660,8 @@ pub enum MirOutgoingOwner {
     Value(TypeId),
     /// One concrete invocation, independent of represented child obligations.
     Invocation {
-        /// Selected callable declaration and substitutions.
-        callable: crate::MirCallableReference,
+        /// Complete checked direct selection, including trait dispatch and witnesses.
+        selection: crate::MirCallableSelection,
         /// Immediate result or inactive asynchronous frame.
         result: bray_bound_tree::BoundCallResult,
     },

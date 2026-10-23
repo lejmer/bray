@@ -110,7 +110,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .any(|effect| matches!(effect, Effect::Escape))
             });
 
-        let mut targets = effects
+        let targets = effects
             .into_iter()
             .flatten()
             .filter_map(|effect| match effect {
@@ -121,24 +121,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .cloned()
             .collect::<Vec<_>>();
 
-        for target in targets
-            .iter()
-            .flat_map(|target| memory.escape_origins(target))
-        {
-            self.record_target_effect(target, DependencyMutationKind::Escape, normal_effects);
+        let mut escaped = memory.escaped_regions(targets);
+
+        for target in &escaped {
+            self.record_target_effect(
+                memory,
+                target,
+                DependencyMutationKind::Escape,
+                normal_effects,
+            );
         }
 
         // Generic cleanup retains its conditional effect in the exported summary.
         // Do not turn it into an unconditional escape before instantiation.
-        if effects.is_some_and(|effects| {
-            effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::Cleanup(_)))
-        }) {
-            targets.extend(roots.iter().cloned());
+        if !all_inputs
+            && effects.is_some_and(|effects| {
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Cleanup(_)))
+            })
+        {
+            escaped.extend(memory.escaped_regions(roots.iter().cloned()));
         }
 
-        memory.escaped_regions(targets)
+        escaped
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
@@ -259,6 +265,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 DependencySubjectRoot::Receiver,
             );
 
+            let callee = match expression {
+                bray_bound_tree::BoundExpression::Call(call) => Some(call.callee()),
+                bray_bound_tree::BoundExpression::ErrorCall(call) => Some(call.callee()),
+                _ => None,
+            };
+
             for argument in expression.child_expressions().chain(receiver) {
                 // An implicit receiver borrow already names its physical target. Its
                 // retained lifetime anchor can be a different object, such as a guard.
@@ -271,7 +283,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.append_reference_roots(
                     state,
                     argument.into(),
-                    self.argument_storage(argument),
+                    // Invocation can reach a callee's captures, not its descriptor's storage.
+                    (callee != Some(argument))
+                        .then(|| self.argument_storage(argument))
+                        .flatten(),
                     source,
                     &mut roots,
                 );
@@ -319,16 +334,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         source: Option<Source>,
         roots: &mut Vec<Target>,
     ) {
-        if let Some(place) = place {
+        let regions = source.and_then(|source| source.regions(&state.memory));
+
+        if regions.is_none()
+            && let Some(regions) = place.as_ref().and_then(|place| {
+                self.input
+                    .inline_regions(&state.memory, self.storage, place)
+            })
+        {
+            roots.extend(regions);
+            return;
+        }
+
+        if let Some(place) = &place {
             roots.extend(
                 state
                     .memory
-                    .contained_regions(&Target::storage(place))
+                    .contained_regions(&Target::storage(place.clone()))
                     .cloned(),
             );
-        }
 
-        let regions = source.and_then(|source| source.regions(&state.memory));
+            if regions.is_none() && !self.input.has_complete_references(self.storage, place) {
+                // Unknown value contents remain symbolic entry values until instantiation.
+                roots.push(Target::storage(place.clone()));
+            }
+        }
 
         if let Some(regions) = regions {
             // The physical target is authoritative. Its lifetime anchor need

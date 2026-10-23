@@ -112,7 +112,10 @@ impl InterfaceSemantics {
             }
 
             for relation in &*contract.borrows {
-                self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
+                if let Some(entry) = relation.entry() {
+                    self.validate_dependency_subject(entry, symbol_count, dependency_count)?;
+                }
+
                 self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
 
                 self.validate_dependency_projections(
@@ -134,6 +137,7 @@ impl InterfaceSemantics {
 
                 match effect {
                     DependencyStorageEffect::Atomic
+                    | DependencyStorageEffect::Ambient
                     | DependencyStorageEffect::Unknown
                     | DependencyStorageEffect::Escape => {}
                     DependencyStorageEffect::Cleanup(ty) => {

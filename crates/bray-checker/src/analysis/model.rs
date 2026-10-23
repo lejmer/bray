@@ -57,6 +57,7 @@ impl AnalysisOperationKind {
         match self {
             Self::Call { invocation, .. } => invocation,
             Self::Suspension { occurrence, .. } => occurrence,
+            Self::ScopeExit { exit, .. } => bray_bound_tree::BoundExecutionSite::Cleanup(exit),
             _ => bray_bound_tree::BoundExecutionSite::Node(self.node()),
         }
     }
@@ -171,14 +172,8 @@ impl AnalysisOperation {
     }
 
     pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
-        self.cleanup_suspension.then(|| {
-            let node = match self.kind {
-                AnalysisOperationKind::ScopeExit { exit, .. } => exit,
-                _ => self.kind.node(),
-            };
-
-            bray_bound_tree::BoundExecutionSite::Cleanup(node)
-        })
+        self.cleanup_suspension
+            .then(|| bray_bound_tree::BoundExecutionSite::Cleanup(self.kind.occurrence().node()))
     }
 
     pub(crate) fn suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {

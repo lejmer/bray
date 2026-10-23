@@ -59,8 +59,8 @@ pub(super) fn implementation_borrow(
 
     Some(
         bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                SymbolOrdinal::new(parameter),
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter)),
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             kind,

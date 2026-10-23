@@ -179,6 +179,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 )
                 | Effect::Escape
                 | Effect::Unknown
+                | Effect::Ambient
                 | Effect::Cleanup(_) => true,
                 _ => false,
             })
@@ -224,12 +225,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
+                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::Cleanup(_)
+                )
+            })
+        });
+
+        let inputs = effects.is_none_or(|effects| {
+            effects.iter().any(|effect| {
+                matches!(
+                    effect,
                     Effect::Unknown | Effect::Escape | Effect::Cleanup(_)
                 )
             })
         });
 
-        let reached = memory.reachable_targets(roots);
+        let reached = memory.reachable_targets(roots.into_iter().filter(|_| inputs));
 
         let unproved = effects.into_iter().flatten().any(|effect| {
             matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape) if overlaps(target))

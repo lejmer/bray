@@ -1,7 +1,8 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
-    read_symbol_references, read_u32,
+    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT, SemanticDecodeContext,
+    map_wire_error, read_count, read_optional_u32, read_symbol_reference, read_symbol_references,
+    read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -99,16 +100,43 @@ pub(super) fn decode_dependency_contract(
     let mut borrows = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
-        let entry = decode_dependency_subject(reader, limits, context)?;
-        let exit = decode_dependency_subject(reader, limits, context)?;
-        let kind = read_u32(reader)?;
+        let attributes = read_u32(reader)?;
+        let independent = attributes & REFERENCE_INPUT_ABSENT != 0;
+        let exact = attributes & REFERENCE_EXACT != 0;
 
-        borrows.push(
-            bray_symbols::DependencyBorrowRelation::new(entry, exit, decode_tag(kind >> 1)?)
-                .with_exactness(kind & 1 != 0)
+        if independent && exact {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Discriminant,
+                attributes,
+            ));
+        }
+
+        let kind = decode_tag(attributes >> REFERENCE_KIND_SHIFT)?;
+
+        if independent && kind != bray_symbols::DependencyReferenceKind::Address {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Dependency,
+            ));
+        }
+
+        let entry = if independent {
+            None
+        } else {
+            Some(decode_dependency_subject(reader, limits, context)?)
+        };
+
+        let exit = decode_dependency_subject(reader, limits, context)?;
+
+        let mut relation =
+            bray_symbols::DependencyBorrowRelation::new(entry, exit, kind).with_exactness(exact);
+
+        if !independent {
+            relation = relation
                 .with_dereferences(read_u32(reader)?)
-                .with_target_projections(decode_dependency_projections(reader, limits, context)?),
-        );
+                .with_target_projections(decode_dependency_projections(reader, limits, context)?);
+        }
+
+        borrows.push(relation);
     }
 
     let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
@@ -134,6 +162,7 @@ pub(super) fn decode_dependency_contract(
 
         effects.push(match raw {
             0 => DependencyStorageEffect::Unknown,
+            6 => DependencyStorageEffect::Ambient,
             5 => DependencyStorageEffect::Escape,
             4 => DependencyStorageEffect::Atomic,
             3 => DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
@@ -646,6 +675,28 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
 
     #[test]
+    fn independent_reference_origins_cannot_claim_exact_input_identity() {
+        use crate::semantic::codec::common::{
+            REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT,
+        };
+
+        let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
+        let mut words = vec![1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
+        let limits = InterfaceValidationLimits::default();
+        let contract = decode_words(&words, limits).unwrap();
+
+        assert_eq!(contract.borrows.len(), 1);
+        assert!(contract.borrows[0].entry().is_none());
+        assert!(!contract.borrows[0].is_exact());
+        words[6] |= REFERENCE_EXACT;
+        assert!(decode_words(&words, limits).is_err());
+
+        // A raw-address origin bound cannot supply an ordinary borrow lifetime.
+        words[6] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
+        assert!(decode_words(&words, limits).is_err());
+    }
+
+    #[test]
     fn predicate_checking_domains_decode_and_reject_unknown_tags() {
         for (tag, domain) in [
             (0u32, bray_symbols::PredicateDomain::Value),
@@ -729,7 +780,7 @@ mod tests {
             1, 1, 8, 0, 1, // Evaluation-owned storage.
             0, 0, // No normal or abnormal report output.
             0, 0, 0, 0, 2, 0,
-            5, // No reference relations, returned input, result observation or carriers. Unknown effects and escapes.
+            5, // No reference relations, returned input, result observation or carriers. Unknown effects and input escapes.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();

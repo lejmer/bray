@@ -318,7 +318,10 @@ pub(super) fn validate_dependency_template_data(
     }
 
     for relation in data.borrows() {
-        validate_dependency_subject(tables, store, relation.entry());
+        if let Some(entry) = relation.entry() {
+            validate_dependency_subject(tables, store, entry);
+        }
+
         validate_dependency_subject(tables, store, relation.exit());
         validate_dependency_projections(tables, store, relation.target_projections());
     }
@@ -340,6 +343,7 @@ pub(super) fn validate_dependency_template_data(
 
         match effect {
             DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {

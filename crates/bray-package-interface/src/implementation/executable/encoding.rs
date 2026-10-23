@@ -905,10 +905,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(0);
                 self.ty(*ty)?;
             }
-            bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
+            bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
                 self.wire.write_u32(1);
-                self.callable_instance(callable.instance())?;
-                self.callable_abi(callable.abi());
+                self.callable_selection(selection)?;
                 self.call_result(*result)?;
             }
         }
@@ -1009,7 +1008,23 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
-        match call.intrinsic() {
+        self.call_intrinsic(call.intrinsic())?;
+
+        write_count(&mut self.wire, call.witnesses().len());
+
+        for witness in call.witnesses() {
+            self.implementation_requirement(witness.requirement())?;
+            self.implementation(witness.witness())?;
+        }
+
+        Ok(())
+    }
+
+    fn call_intrinsic(
+        &mut self,
+        intrinsic: Option<bray_ir::MirCallIntrinsic>,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match intrinsic {
             Some(bray_ir::MirCallIntrinsic::Unary(operator)) => {
                 self.wire.write_u32(1);
                 self.unary_operator(operator);
@@ -1035,11 +1050,29 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
-        write_count(&mut self.wire, call.witnesses().len());
+        Ok(())
+    }
 
-        for witness in call.witnesses() {
-            self.implementation_requirement(witness.requirement())?;
-            self.implementation(witness.witness())?;
+    fn callable_selection(
+        &mut self,
+        selection: &bray_ir::MirCallableSelection,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.callable_instance(selection.reference().instance())?;
+        self.callable_abi(selection.reference().abi());
+
+        match selection.trait_dispatch() {
+            Some(dispatch) => {
+                self.wire.write_u32(1);
+                self.trait_dispatch(dispatch)?;
+            }
+            None => self.wire.write_u32(0),
+        }
+
+        self.call_intrinsic(selection.intrinsic())?;
+        write_count(&mut self.wire, selection.witnesses().len());
+
+        for witness in selection.witnesses() {
+            self.implementation(*witness)?;
         }
 
         Ok(())

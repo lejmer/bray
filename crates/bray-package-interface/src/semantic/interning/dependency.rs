@@ -55,10 +55,18 @@ impl InternState {
             let mut borrows = Vec::with_capacity(input.borrows.len());
 
             for relation in input.borrows.iter() {
-                let (Some(entry), Some(exit)) = (
-                    self.convert_dependency_subject(relation.entry(), symbols)?,
-                    self.convert_dependency_subject(relation.exit(), symbols)?,
-                ) else {
+                let entry = match relation.entry() {
+                    Some(entry) => {
+                        let Some(entry) = self.convert_dependency_subject(entry, symbols)? else {
+                            break;
+                        };
+
+                        Some(entry)
+                    }
+                    None => None,
+                };
+
+                let Some(exit) = self.convert_dependency_subject(relation.exit(), symbols)? else {
                     break;
                 };
 
@@ -368,6 +376,7 @@ impl InternState {
         for effect in input {
             effects.push(match effect {
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                 DependencyStorageEffect::Cleanup(ty) => {

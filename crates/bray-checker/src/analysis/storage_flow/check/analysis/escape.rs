@@ -111,7 +111,7 @@ where
             return;
         };
 
-        let Some(ty) = self.result_type() else {
+        let Some(ty) = self.storage.identity_type(result) else {
             return;
         };
 

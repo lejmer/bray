@@ -86,7 +86,7 @@ impl Lowerer<'_> {
 
                 let entry_owner = matches!(invocation_result, BoundCallResult::LazyFuture(_))
                     .then_some(bray_ir::MirOutgoingOwner::Invocation {
-                        callable,
+                        selection: bray_ir::MirCallableSelection::new(callable, None, None, []),
                         result: invocation_result,
                     });
 

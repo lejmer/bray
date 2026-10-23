@@ -642,8 +642,8 @@ mod tests {
         );
 
         let relation = bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(0),
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             bray_symbols::DependencyReferenceKind::Borrow,

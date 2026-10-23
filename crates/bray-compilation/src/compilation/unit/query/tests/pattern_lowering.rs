@@ -236,7 +236,7 @@ fn literal_string_cleanup_publishes_its_proven_empty_effect() {
     for plan in cleanup.value().scope_exits() {
         for access in plan.lifecycle_resolution() {
             let mutation = bray_bound_tree::StorageMutation::Cleanup {
-                occurrence: bray_bound_tree::BoundExecutionSite::Node(plan.scope().into()),
+                occurrence: bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()),
                 access: *access,
                 part: 0,
             };

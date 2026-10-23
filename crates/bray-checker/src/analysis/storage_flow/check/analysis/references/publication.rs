@@ -50,39 +50,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut relations = Vec::new();
         let mut unbounded = std::collections::BTreeSet::new();
         let summary = std::mem::take(&mut self.results).summary();
-        let mut requirements = summary.requirements().to_vec();
 
         for (slot, target, exact, bounded) in self
             .references
             .iter()
             .flat_map(|references| references.targets())
         {
-            let Some(root) = self.formal_root(slot.root) else {
+            if self.formal_root(slot.root).is_none() {
                 continue;
-            };
+            }
 
-            let ty = if root == DependencySubjectRoot::Result {
-                self.result_type()
-            } else {
-                self.storage.identity_type(slot.root)
-            };
-
-            let Some(ty) = ty else {
+            let Some(ty) = self.storage.identity_type(slot.root) else {
                 continue;
             };
 
             if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
-                if root == DependencySubjectRoot::Result
-                    && relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
-                {
-                    // Every possible returned reference retains its input, even when no exact origin holds.
-                    requirements.push(bray_symbols::DependencyRequirement::direct(
-                        relation.entry().clone(),
-                        bray_symbols::DependencyRequirementKind::ValueDependencies,
-                    ));
-                }
-
                 if bounded {
+                    let exact = exact && relation.entry().is_some();
+
                     relations.push((slot.clone(), relation.with_exactness(exact)));
                 } else {
                     unbounded.insert(slot.clone());
@@ -92,36 +77,41 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        let relations = relations
+            .into_iter()
+            .filter_map(|(slot, relation)| (!unbounded.contains(&slot)).then_some(relation))
+            .collect::<Vec<_>>();
+
+        let mut requirements = summary.requirements().to_vec();
+
+        // Complete borrow origins retain references installed by mutation. Raw-address
+        // bounds carry no lifetime requirement, and incomplete origins add no certificate.
+        requirements.extend(
+            relations
+                .iter()
+                .filter(|relation| {
+                    relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                        && relation.exit().subject_root() == DependencySubjectRoot::Result
+                })
+                .map(|relation| {
+                    bray_symbols::DependencyRequirement::direct(
+                        relation
+                            .entry()
+                            .expect("complete borrow origin has its input")
+                            .clone(),
+                        bray_symbols::DependencyRequirementKind::ValueDependencies,
+                    )
+                }),
+        );
+
         Ok(summary
             .with_requirements(requirements)
-            .with_borrows(
-                relations.into_iter().filter_map(|(slot, relation)| {
-                    (!unbounded.contains(&slot)).then_some(relation)
-                }),
-            )
+            .with_borrows(relations)
             .with_normal_completion(self.references.is_some())
             .with_carriers(carriers)
             .with_returned_input(returned_input)
             .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn result_type(
-        &self,
-    ) -> Option<bray_symbols::TypeId> {
-        self.execution
-            .semantics
-            .types()
-            .callable_result_type()
-            .or_else(|| match self.request.root() {
-                crate::CheckerUnitRoot::Expression(expression) => self
-                    .execution
-                    .semantics
-                    .types()
-                    .expression(expression)
-                    .map(|ty| ty.ty()),
-                _ => None,
-            })
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn reference_kind(
@@ -186,7 +176,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference: path, ..
             } => (path, true),
             Origin::Storage(path) => (path, false),
-            Origin::Allocation(_) | Origin::Returned { .. } => return Ok(None),
+            Origin::Allocation(_) | Origin::Returned { .. } => {
+                let Some(exit) = dependency_projections(&slot.projections) else {
+                    return Ok(None);
+                };
+
+                // Coarse call-input bounds describe raw addresses. They cannot replace
+                // the ordinary borrow origin/lifetime contract, including deferred selection.
+                let kind = self.reference_kind(slot, ty)?;
+
+                return Ok(kind
+                    .filter(|kind| *kind == bray_symbols::DependencyReferenceKind::Address)
+                    .map(|kind| {
+                        bray_symbols::DependencyBorrowRelation::new(
+                            None,
+                            bray_symbols::DependencySubject::new(
+                                self.formal_root(slot.root)
+                                    .expect("reference exit has a formal root"),
+                                exit,
+                            ),
+                            kind,
+                        )
+                    }));
+            }
         };
 
         let Some(root) = self.formal_root(target.root) else {
@@ -262,7 +274,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         Ok(Some(
             bray_symbols::DependencyBorrowRelation::new(
-                bray_symbols::DependencySubject::new(root, entry),
+                Some(bray_symbols::DependencySubject::new(root, entry)),
                 bray_symbols::DependencySubject::new(
                     self.formal_root(slot.root)
                         .expect("reference exit has a formal root"),

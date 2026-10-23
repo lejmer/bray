@@ -2267,3 +2267,199 @@ fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
         }
     }
 }
+
+#[test]
+fn imported_async_admission_retains_the_checked_trait_selection() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        trait Worker
+        {
+            async func run() -> u32;
+        }
+
+        async func run_generic<T>(pos value: &T) -> u32
+            with(T: Worker)
+        {
+            return await value.run();
+        }
+    "#,
+    );
+
+    let bundle = export(&provider);
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app;",
+        [super::fixtures::implementation_dependency(bundle)],
+    );
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+
+    let function = skeleton
+        .functions()
+        .iter()
+        .find(|function| {
+            skeleton
+                .member_name(function.id().into())
+                .is_some_and(|name| name.as_str() == "run_generic")
+        })
+        .unwrap();
+
+    let template = bundle
+        .executable_templates()
+        .iter()
+        .find(|template| {
+            function
+                .imported_semantic_key()
+                .is_some_and(|key| key.symbol() == template.owner())
+        })
+        .unwrap();
+
+    let address = crate::fact::ImportedExecutableTemplateAddress::new(
+        skeleton
+            .imported_semantic_address(function.id().into())
+            .unwrap(),
+        template.identity(),
+    );
+
+    let decoded = consumer
+        .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
+        .unwrap();
+
+    assert!(
+        !decoded.diagnostics().has_errors(),
+        "{:?}",
+        decoded.diagnostics()
+    );
+
+    let mir = decoded.value().as_deref().unwrap();
+
+    let selections = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) if call.trait_dispatch().is_some() => call.callable_selection(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(selections.len(), 1);
+
+    let owners = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::AdmitOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+                ..
+            }
+            | MirOperationKind::DischargeOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+                ..
+            } => Some(selection),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(owners.len(), 2);
+    assert!(owners.iter().all(|selection| **selection == selections[0]));
+
+    let demands = bray_codegen::demanded_callable_instances_for_mir(mir);
+
+    assert_eq!(
+        demands
+            .iter()
+            .filter(|demand| demand.trait_dispatch().is_some())
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn imported_owners_keep_their_admitted_cleanup_storage_identity() {
+    let provider = compilation(
+        r#"
+                    module api;
+                    struct Owner
+                    {
+                        marker: u32;
+
+                        finalize() {}
+
+                        destruct() {}
+                    }
+
+                    func dispose(pos owner: Owner) {}
+                    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+            module app;
+            using example.package.api;
+            func unrelated() -> u32
+            {
+                return 9;
+            }
+
+            func dispose(pos owner: example.package.api.Owner) {}
+            "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    let requirements = |compilation: &crate::Compilation| {
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                compilation,
+                "dispose",
+            ))
+            .unwrap();
+
+        assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+        let ty = lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+            .unwrap()
+            .ty();
+
+        compilation
+            .owner_outgoing_requirements(ty, &crate::CancellationToken::new())
+            .unwrap()
+    };
+
+    let admitted = requirements(&provider);
+    let released = requirements(&consumer);
+
+    assert_eq!(admitted.len(), 2);
+
+    assert_eq!(
+        admitted
+            .iter()
+            .map(|requirement| requirement.identity())
+            .collect::<Vec<_>>(),
+        released
+            .iter()
+            .map(|requirement| requirement.identity())
+            .collect::<Vec<_>>()
+    );
+
+    assert_ne!(
+        admitted[0].callable(),
+        released[0].callable(),
+        "reservation identity must not depend on source versus imported MIR keys"
+    );
+}

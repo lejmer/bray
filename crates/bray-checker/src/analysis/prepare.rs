@@ -306,39 +306,18 @@ impl PreparedBodyAnalysis {
             let fields = if let Some(fields) = types.get(ty) {
                 *fields
             } else {
-                let fields = match request.semantic_values().type_data(*ty).as_ref() {
-                    bray_symbols::TypeData::Named {
-                        definition: definition @ bray_symbols::NamedTypeSymbolId::Struct(structure),
-                        substitution,
-                    } if request
-                        .context()
-                        .raw_buffer_element(*definition, *substitution)?
-                        .is_some() =>
-                    {
-                        let field = |name| {
-                            let bray_symbols::MemberLookupResult::Found(
-                                bray_symbols::AnySymbolId::StructField(field),
-                            ) = request.lookup_member((*structure).into(), name)?
-                            else {
-                                panic!("recognized buffer {structure:?} requires its {name} field");
-                            };
-
-                            Ok::<_, crate::CheckerQueryError<C::UpstreamError>>(field)
-                        };
-
-                        Some((field("capacity")?, field("initialized")?))
-                    }
-                    _ => None,
-                };
+                let fields = crate::representation::raw_buffer_fields(request, *ty)?;
 
                 types.insert(*ty, fields);
 
                 fields
             };
 
-            let Some((capacity, initialized)) = fields else {
+            let Some(fields) = fields else {
                 continue;
             };
+
+            let (capacity, initialized) = (fields.capacity, fields.initialized);
 
             let field = |field| {
                 crate::ExecutionCondition::Input(

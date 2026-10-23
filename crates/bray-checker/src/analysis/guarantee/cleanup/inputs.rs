@@ -82,7 +82,10 @@ impl Plan {
             }
 
             if inert {
-                self.inert_futures.insert(entry.expression());
+                self.inert_futures.insert(
+                    entry.expression(),
+                    cleanup_shapes.requirement(call.resolution().result().completion_type())?,
+                );
             }
         }
 

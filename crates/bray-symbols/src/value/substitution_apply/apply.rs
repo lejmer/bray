@@ -929,7 +929,9 @@ mod tests {
 
         let projected_reference = |index| {
             crate::DependencyBorrowRelation::new(
-                DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))),
+                Some(DependencySubject::root(DependencySubjectRoot::Parameter(
+                    SymbolOrdinal::new(0),
+                ))),
                 DependencySubject::root(DependencySubjectRoot::Result),
                 crate::DependencyReferenceKind::Borrow,
             )

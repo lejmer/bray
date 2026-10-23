@@ -1084,18 +1084,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        let intrinsic = match read_u32(&mut self.reader)? {
-            0 => None,
-            1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
-            2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
-            3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
-            4 => Some(bray_ir::MirCallIntrinsic::Comparison {
-                less: self.exact_symbol()?,
-                equal: self.exact_symbol()?,
-                greater: self.exact_symbol()?,
-            }),
-            _ => return Err(ExecutableTemplateDecodeError::Malformed),
-        };
+        let intrinsic = self.call_intrinsic()?;
 
         let witness_count = self.count()?;
         let mut witnesses = self.items(witness_count)?;
@@ -1119,6 +1108,47 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         )
         .with_cleanup(cleanup)
         .with_invocation(invocation))
+    }
+
+    fn call_intrinsic(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCallIntrinsic>, ExecutableTemplateDecodeError> {
+        Ok(match read_u32(&mut self.reader)? {
+            0 => None,
+            1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
+            2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
+            3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
+            4 => Some(bray_ir::MirCallIntrinsic::Comparison {
+                less: self.exact_symbol()?,
+                equal: self.exact_symbol()?,
+                greater: self.exact_symbol()?,
+            }),
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        })
+    }
+
+    fn callable_selection(
+        &mut self,
+    ) -> Result<bray_ir::MirCallableSelection, ExecutableTemplateDecodeError> {
+        let reference = MirCallableReference::new(self.callable_instance()?, self.callable_abi()?);
+
+        let dispatch = match read_u32(&mut self.reader)? {
+            0 => None,
+            1 => Some(self.trait_dispatch()?),
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
+        let intrinsic = self.call_intrinsic()?;
+        let count = self.count()?;
+        let mut witnesses = self.items(count)?;
+
+        for _ in 0..count {
+            witnesses.push(self.implementation()?);
+        }
+
+        Ok(bray_ir::MirCallableSelection::new(
+            reference, dispatch, intrinsic, witnesses,
+        ))
     }
 
     fn phase_behaviors(
@@ -1226,10 +1256,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         match read_u32(&mut self.reader)? {
             0 => Ok(bray_ir::MirOutgoingOwner::Value(self.ty()?)),
             1 => Ok(bray_ir::MirOutgoingOwner::Invocation {
-                callable: MirCallableReference::new(
-                    self.callable_instance()?,
-                    self.callable_abi()?,
-                ),
+                selection: self.callable_selection()?,
                 result: self.call_result()?,
             }),
             2 => Ok(bray_ir::MirOutgoingOwner::FrameFactory(self.operand()?)),

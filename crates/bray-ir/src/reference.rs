@@ -66,6 +66,52 @@ impl MirCallableReference {
     }
 }
 
+/// The complete checked selection of one direct call, independent of its evaluated inputs.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MirCallableSelection {
+    reference: MirCallableReference,
+    trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+    intrinsic: Option<MirCallIntrinsic>,
+    witnesses: Arc<[ImplementationInstanceId]>,
+}
+
+impl MirCallableSelection {
+    /// Retains every selected dispatch input in deterministic witness order.
+    pub fn new(
+        reference: MirCallableReference,
+        trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+        intrinsic: Option<MirCallIntrinsic>,
+        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+    ) -> Self {
+        Self {
+            reference,
+            trait_dispatch,
+            intrinsic,
+            witnesses: sorted_unique_shared_slice(witnesses),
+        }
+    }
+
+    /// Returns the declaration reference before concrete trait realization.
+    pub const fn reference(&self) -> MirCallableReference {
+        self.reference
+    }
+
+    /// Returns the checked generic dispatch relationship.
+    pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
+        self.trait_dispatch
+    }
+
+    /// Returns the checked intrinsic alternative for concrete specialization.
+    pub const fn intrinsic(&self) -> Option<MirCallIntrinsic> {
+        self.intrinsic
+    }
+
+    /// Returns every selected implementation witness.
+    pub fn witnesses(&self) -> &[ImplementationInstanceId] {
+        &self.witnesses
+    }
+}
+
 /// One exact private runtime ABI requirement selected during lowering.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MirRuntimeReference {
@@ -420,6 +466,23 @@ impl MirCall {
     /// Returns the exact selected call target.
     pub const fn target(&self) -> &MirCallTarget {
         &self.target
+    }
+
+    /// Projects the complete direct selection without retaining evaluated argument operands.
+    pub fn callable_selection(&self) -> Option<MirCallableSelection> {
+        let MirCallTarget::Direct(reference) = self.target() else {
+            return None;
+        };
+
+        Some(MirCallableSelection::new(
+            *reference,
+            self.trait_dispatch,
+            self.intrinsic,
+            self.dispatch_witnesses
+                .iter()
+                .copied()
+                .chain(self.witnesses.iter().map(|selection| selection.witness())),
+        ))
     }
 
     /// Returns whether invocation executes immediately or creates a lazy future.

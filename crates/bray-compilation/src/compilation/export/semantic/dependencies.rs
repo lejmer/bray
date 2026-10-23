@@ -39,7 +39,10 @@ impl<'a> SemanticExporter<'a> {
             .into_iter()
             .map(|relation| {
                 Ok(bray_symbols::DependencyBorrowRelation::new(
-                    self.dependency_subject(relation.entry())?,
+                    relation
+                        .entry()
+                        .map(|entry| self.dependency_subject(entry))
+                        .transpose()?,
                     self.dependency_subject(relation.exit())?,
                     relation.kind(),
                 )
@@ -82,6 +85,7 @@ impl<'a> SemanticExporter<'a> {
 
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                     DependencyStorageEffect::Cleanup(ty) => {
@@ -538,7 +542,7 @@ mod tests {
                     ));
 
                     borrows.push(DependencyBorrowRelation::new(
-                        subject,
+                        Some(subject),
                         DependencySubject::root(DependencySubjectRoot::Result),
                         DependencyReferenceKind::Borrow,
                     ));

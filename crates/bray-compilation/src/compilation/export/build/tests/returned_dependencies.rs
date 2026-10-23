@@ -740,7 +740,7 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
             .unwrap_or_else(|| panic!("imported origin must retain {kind:?}: {template:#?}"));
 
         assert_eq!(
-            relation.entry().subject_root(),
+            relation.entry().expect("input origin").subject_root(),
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                 parameter
             ))
@@ -931,6 +931,20 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
             replace(&mut result, second);
             return result;
         }
+        func choose<T>(pos first: &T, pos second: &T, pos select: bool) -> Holder<T> {
+            let mut result: Holder<T> = { reference = first };
+            if select { replace(&mut result, second); }
+            return result;
+        }
+        func set_choice<T>(pos target: &mut Holder<T>, pos first: &T, pos second: &T, pos select: bool) {
+            if select { target.reference = first; }
+            else { target.reference = second; }
+        }
+        func forward_choice<T>(pos first: &T, pos second: &T, pos select: bool) -> Holder<T> {
+            let mut result: Holder<T> = { reference = first };
+            set_choice(&mut result, first, second, select);
+            return result;
+        }
     "#,
     );
 
@@ -960,7 +974,7 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
             .iter()
             .any(|relation| relation.exit().subject_root()
                 == bray_symbols::DependencySubjectRoot::Result
-                && relation.entry().subject_root()
+                && relation.entry().expect("input origin").subject_root()
                     == bray_symbols::DependencySubjectRoot::Parameter(
                         bray_symbols::SymbolOrdinal::new(1)
                     )),
@@ -983,6 +997,26 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
         escaping.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
     );
+
+    for function in ["choose", "forward_choice"] {
+        let caller = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func bad(pos caller: &bool, pos select: bool) -> example.package.api.Holder<bool> {{
+                let local = true;
+                return example.package.api.{function}(caller, &local, select);
+            }}
+        "#
+        );
+
+        let escaping = execution_consumer(&provider, &caller);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            escaping.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
 }
 #[test]
 fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
@@ -1021,7 +1055,14 @@ fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
         .collect::<Vec<_>>();
 
     assert_eq!(references.len(), 1, "{references:?}");
-    assert!(references[0].entry().projections().is_empty());
+
+    assert!(
+        references[0]
+            .entry()
+            .expect("input origin")
+            .projections()
+            .is_empty()
+    );
 
     assert!(matches!(
         references[0].target_projections(),
@@ -1152,7 +1193,10 @@ fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
     assert_eq!(good.borrows().len(), 1, "{good:#?}");
 
     assert_eq!(
-        good.borrows()[0].entry().subject_root(),
+        good.borrows()[0]
+            .entry()
+            .expect("input origin")
+            .subject_root(),
         bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
     );
 
@@ -1563,7 +1607,7 @@ fn imported_unknown_call_effects_do_not_claim_only_retirement() {
         flow.value()
             .dependencies()
             .effects()
-            .contains(&bray_symbols::DependencyStorageEffect::Unknown)
+            .contains(&bray_symbols::DependencyStorageEffect::Ambient)
     );
 
     assert!(
@@ -2018,7 +2062,7 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
                 );
 
                 assert_eq!(
-                    relation.entry().projections(),
+                    relation.entry().expect("input origin").projections(),
                     relation.exit().projections()
                 );
             }
@@ -2088,7 +2132,7 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
         dependencies
             .effects()
             .iter()
-            .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Unknown)),
+            .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Ambient)),
         "the operator's opaque effects must survive its scalar-only replacement: {dependencies:#?}"
     );
 
@@ -2232,6 +2276,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         struct Metadata
         {
             value: bool;
+            namespace: [u64; 4];
         }
 
         extern func expose(pos value: &bool);
@@ -2244,6 +2289,13 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         func aggregate(pos value: Metadata)
         {
             expose(&value.value);
+        }
+
+        extern func accept(pos value: Metadata);
+
+        func forwarded(pos value: Metadata)
+        {
+            accept(value);
         }
 
         func reference(pos value: &Metadata)
@@ -2261,6 +2313,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         for (name, argument) in [
             ("scalar", "value.value"),
             ("aggregate", "value"),
+            ("forwarded", "value"),
             ("reference", "&value"),
         ] {
             let body = format!(
@@ -2802,7 +2855,7 @@ fn recursive_nullable_pointer_bounds_include_every_normal_origin() {
         let origins = summary
             .borrows()
             .iter()
-            .map(|relation| relation.entry().subject_root())
+            .map(|relation| relation.entry().expect("input origin").subject_root())
             .collect::<std::collections::BTreeSet<_>>();
 
         assert_eq!(
@@ -2922,6 +2975,26 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
             publish(core.memory.address_of<Owner>(owner));
         }
 
+        struct Guard
+        {
+            owner: &Owner;
+
+            destruct()
+            {
+                publish(core.memory.address_of<Owner>(self.owner));
+            }
+        }
+
+        async func retained_result(pos owner: &Owner) -> Guard
+        {
+            return { owner = owner };
+        }
+
+        async func retained_input(pos guard: Guard) -> Guard
+        {
+            return guard;
+        }
+
         func inspect(pos owner: &Owner)
             requires(trusted live(&owner.marker))
             executes(pure, total)
@@ -2944,8 +3017,22 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
             "let task = api.work(&owner).start(); await task.cancel();",
             true,
         ),
+        (
+            "{ let task = api.work(&owner).start(); await api.work(&owner); }",
+            true,
+        ),
+        (
+            "let task = api.work(&owner).start(); await api.work(&owner); try await task.join();",
+            true,
+        ),
         ("{ let future = api.work(&owner); }", true),
         ("api.work(&owner);", true),
+        ("api.retained_result(&owner);", true),
+        ("{ let task = api.retained_result(&owner).start(); }", false),
+        (
+            "let guard = api.Guard { owner = &owner }; { let task = api.retained_input(guard).start(); }",
+            false,
+        ),
         (
             "let task = api.escaping(&owner).start(); try await task.join();",
             false,
@@ -2984,6 +3071,257 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
                 !diagnostics.has_errors(),
                 valid,
                 "imported={imported}, {body}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn independent_pointer_origins_survive_calls_without_publishing_other_inputs() {
+    let source = r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        trusted predicate live(value: &Marker);
+        extern trusted func opaque();
+        extern trusted func external() -> DataPointer<Owner>;
+        extern trusted func publish(pos pointer: DataPointer<Owner>);
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+        func independent(pos anchor: &Owner) -> DataPointer<Owner>
+        {
+            return external();
+        }
+        func direct(pos owner: &Owner) -> DataPointer<Owner>
+        {
+            return core.memory.address_of<Owner>(owner);
+        }
+        func mixed(pos owner: &Owner, pos choose_input: bool) -> DataPointer<Owner>
+        {
+            if choose_input { return direct(owner); }
+            return independent(owner);
+        }
+        async func independent_async(pos anchor: &Owner) -> DataPointer<Owner>
+        {
+            return independent(anchor);
+        }
+        async func mixed_async(pos owner: &Owner, pos choose_input: bool) -> DataPointer<Owner>
+        {
+            return mixed(owner, choose_input);
+        }
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    for (pointer, valid) in [
+        ("api.independent(&owner)", true),
+        ("api.direct(&owner)", false),
+        ("api.mixed(&owner, choose_input)", false),
+        ("await api.independent_async(&owner)", true),
+        ("await api.mixed_async(&owner, choose_input)", false),
+    ] {
+        let caller = format!(
+            r#"
+            trusted module app;
+            using api;
+            async func caller(pos choose_input: bool)
+            {{
+                let owner = api.make();
+                api.publish({pointer});
+                api.opaque();
+                api.inspect(&owner);
+            }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &caller
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([source, &caller])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "imported={imported}, {pointer}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+
+    let contract =
+        crate::compilation::result_dependencies::source_function_dependencies(&provider, "mixed");
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()),
+        "{contract:#?}"
+    );
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_some()),
+        "{contract:#?}"
+    );
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .all(|relation| !relation.is_exact()),
+        "{contract:#?}"
+    );
+}
+
+#[test]
+fn completed_composite_values_drop_only_the_obsolete_frame_capture() {
+    let source = r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        struct View { pointer: DataPointer<Owner>; }
+        struct DeferredView { pointer: DataPointer<Owner>; computation: Future<View>; }
+        trusted predicate live(value: &Marker);
+        extern trusted func opaque();
+        extern trusted func external() -> DataPointer<Owner>;
+        extern trusted func publish(pos value: View);
+        extern trusted func publish_deferred(pos value: DeferredView);
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+        func independent(pos anchor: &mut Owner) -> View
+        {
+            return { pointer = external() };
+        }
+        func direct(pos owner: &mut Owner) -> View
+        {
+            return { pointer = core.memory.address_of_mut<Owner>(owner) };
+        }
+        async func independent_async(pos anchor: &mut Owner) -> View
+        {
+            return independent(anchor);
+        }
+        async func direct_async(pos owner: &mut Owner) -> View
+        {
+            return direct(owner);
+        }
+        func deferred(pos owner: &mut Owner) -> Future<View>
+        {
+            return direct_async(owner);
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let completion = crate::compilation::result_dependencies::source_function_dependencies(
+        &provider,
+        "independent_async",
+    );
+
+    assert!(
+        completion
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()),
+        "the body publishes the independent nested result origin: {completion:#?}"
+    );
+
+    for (body, valid) in [
+        ("api.publish(api.independent(&mut owner));", true),
+        ("api.publish(api.direct(&mut owner));", false),
+        (
+            "api.publish(await api.independent_async(&mut owner));",
+            true,
+        ),
+        ("api.publish(await api.direct_async(&mut owner));", false),
+        (
+            "let pending = api.independent_async(&mut owner); let moved = pending; api.publish(await moved);",
+            true,
+        ),
+        (
+            "let pending = api.direct_async(&mut owner); let moved = pending; api.publish(await moved);",
+            false,
+        ),
+        (
+            "api.publish_deferred(api.DeferredView { pointer = api.external(), computation = api.deferred(&mut owner) });",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted module app;
+            using api;
+            async func caller()
+            {{
+                let mut owner = api.make();
+                {body}
+                api.opaque();
+                api.inspect(&owner);
+            }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &caller
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([source, &caller])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "imported={imported}, {body}: {diagnostics:#?}, completion={completion:#?}"
             );
 
             if !valid {

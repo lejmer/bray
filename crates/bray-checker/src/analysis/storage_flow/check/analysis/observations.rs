@@ -240,6 +240,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return self.opaque_observations(memory, roots);
         }
 
+        if effects.contains(&Effect::Ambient) {
+            // Resolve the union once. Merging an opaque observation with precise
+            // observations would discard its established preservation frame.
+            let inputs = effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Escape | Effect::Atomic));
+
+            let escaped = effects.iter().filter_map(|effect| match effect {
+                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape) => {
+                    Some(target.clone())
+                }
+                _ => None,
+            });
+
+            let roots = roots
+                .into_iter()
+                .filter(|_| inputs)
+                .chain(memory.escaped_regions(escaped))
+                .chain(
+                    effects
+                        .iter()
+                        .filter_map(Effect::mutation)
+                        .map(|(target, _)| target.clone()),
+                );
+
+            return self.opaque_observations(memory, roots);
+        }
+
         let atomic = effects.iter().any(|effect| {
             matches!(
                 effect,
@@ -281,10 +309,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 crate::storage::observation::restrict(targets, frame)
             }
         } else {
-            return self.target_observations(memory, ordinary);
+            self.target_observations(memory, ordinary.clone())
         };
 
-        if ordinary.clone().next().is_some() {
+        if atomic && ordinary.clone().next().is_some() {
             invalidation.merge(&self.target_observations(memory, ordinary));
         }
 
@@ -298,13 +326,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &[Effect],
         roots: &[Target],
     ) -> StorageInvalidation {
-        if effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
-        {
-            return self.opaque_observations(&state.memory, roots.iter().cloned());
-        }
-
         let mut invalidation =
             self.resolved_observations(&state.memory, effects, roots.iter().cloned());
 
@@ -321,19 +342,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if !relation.is_exact()
                 || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
-                || relation.entry() != relation.exit()
+                || relation.entry() != Some(relation.exit())
                 || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
             {
                 continue;
             }
 
-            let Some(prepared) = contracts.reference_path(relation.entry()) else {
+            let entry = relation
+                .entry()
+                .expect("exact reference has an input origin");
+
+            let Some(prepared) = contracts.reference_path(entry) else {
                 continue;
             };
 
-            let Some(locations) = self.invocation_locations(state, occurrence, relation.entry())
-            else {
+            let Some(locations) = self.invocation_locations(state, occurrence, entry) else {
                 continue;
             };
 
@@ -341,8 +365,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(base) = self.invocation_place(occurrence, relation.entry().subject_root())
-            else {
+            let Some(base) = self.invocation_place(occurrence, entry.subject_root()) else {
                 continue;
             };
 

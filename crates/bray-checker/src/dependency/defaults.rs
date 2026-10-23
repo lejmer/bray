@@ -183,11 +183,13 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         .borrows()
         .iter()
         .filter(|relation| {
-            selection
-                .input_ordinal(relation.entry().subject_root())
-                .and_then(|ordinal| selection.input(ordinal))
-                .and_then(|input| input.expression())
-                .is_none()
+            relation.entry().is_some_and(|entry| {
+                selection
+                    .input_ordinal(entry.subject_root())
+                    .and_then(|ordinal| selection.input(ordinal))
+                    .and_then(|input| input.expression())
+                    .is_none()
+            })
         })
         .map(|relation| relation.exit().clone())
         .collect::<std::collections::BTreeSet<_>>();
