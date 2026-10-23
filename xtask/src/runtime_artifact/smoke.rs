@@ -11,6 +11,10 @@ use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
 const SYNC_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-sync-smoke.rs");
+const ALLOCATION_PROBE_SMOKE_SOURCE: &str = concat!(
+    include_str!("../../fixtures/runtime-allocation-probe.c"),
+    include_str!("../../fixtures/runtime-allocation-probe-smoke.c"),
+);
 const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-allocation-probe.c"),
     include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
@@ -21,6 +25,27 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    let executable = compile_c_smoke(
+        ALLOCATION_PROBE_SMOKE_SOURCE,
+        "allocation-probe-smoke",
+        &[],
+        target,
+        directory,
+        &directory.join("allocation-probe-smoke.map"),
+        &[],
+    )?;
+
+    let output = crate::validation_process::success(
+        Exec::cmd(&executable),
+        crate::validation_process::TIMEOUT,
+    )
+    .map_err(|error| CommandError::SmokeExecution {
+        name: "allocation probe",
+        error,
+    })?;
+
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+
     let archives = component_archives(
         package,
         &[
