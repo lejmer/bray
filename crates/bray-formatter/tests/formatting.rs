@@ -788,6 +788,7 @@ func choose<T>(pos values: &[T], ready: bool, enabled: bool)
         case _ { return; }
     }
 }
+
 "#;
 
     for rule in FormatterRule::ALL {
@@ -805,7 +806,11 @@ func choose<T>(pos values: &[T], ready: bool, enabled: bool)
                 output.text(),
             );
 
-            assert!(output.text().contains("// Preserve the selection boundary."));
+            assert!(
+                output
+                    .text()
+                    .contains("// Preserve the selection boundary.")
+            );
 
             assert_eq!(
                 formatted_with_configuration(output.text(), &configuration).text(),
@@ -813,6 +818,123 @@ func choose<T>(pos values: &[T], ready: bool, enabled: bool)
                 "{}={enabled} must be idempotent",
                 rule.as_str(),
             );
+        }
+    }
+}
+
+#[test]
+fn pattern_boundary_spacing_is_independent_of_wrapping() {
+    for (pattern, gap, expected_prefix) in [
+        ("?(_, 0)", " ", "?"),
+        (".Variant", "", ".Variant"),
+        (".Variant(_)", "", ".Variant"),
+        ("Variant(_)", " ", "Variant"),
+        ("(0, _)", " ", "("),
+        ("[_, ..]", " ", "["),
+        ("box(_)", " ", "box"),
+        ("_", " ", "_"),
+    ] {
+        let source = format!(
+            r#"
+module app;
+
+func check()
+{{
+    assert(value matches{gap}{pattern});
+}}
+"#,
+        );
+
+        for wrapping in [false, true] {
+            for operators in [false, true] {
+                for words in [false, true] {
+                    let configuration = FormatterConfiguration::default()
+                        .with_rule(FormatterRule::LineWrapping, wrapping)
+                        .with_rule(FormatterRule::OperatorSpacing, operators)
+                        .with_rule(FormatterRule::WordSpacing, words);
+
+                    let output = formatted_with_configuration(&source, &configuration);
+
+                    let expected_gap = if gap.is_empty() && !words { "" } else { " " };
+
+                    assert!(
+                        output
+                            .text()
+                            .contains(&format!("matches{expected_gap}{expected_prefix}")),
+                        "pattern={pattern}, wrapping={wrapping}, operators={operators}, words={words}: {}",
+                        output.text(),
+                    );
+
+                    assert_eq!(syntax_tokens(&source), syntax_tokens(output.text()));
+
+                    assert_eq!(
+                        formatted_with_configuration(output.text(), &configuration).text(),
+                        output.text(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn leading_dot_operands_use_their_enclosing_boundary_spacing() {
+    let source = r#"
+module app;
+
+func build()
+{
+    let selected: Value = .Variant;
+    inspect(.Variant,.Variant);
+    let values = [.Variant,.Variant];
+
+    return.Variant;
+}
+"#;
+
+    let _ = syntax_tokens(source);
+
+    for wrapping in [false, true] {
+        for operators in [false, true] {
+            for words in [false, true] {
+                for members in [false, true] {
+                    let configuration = FormatterConfiguration::default()
+                        .with_rule(FormatterRule::LineWrapping, wrapping)
+                        .with_rule(FormatterRule::OperatorSpacing, operators)
+                        .with_rule(FormatterRule::WordSpacing, words)
+                        .with_rule(FormatterRule::MemberAccessSpacing, members);
+
+                    let output = formatted_with_configuration(source, &configuration);
+                    let word_gap = if words { " " } else { "" };
+
+                    assert!(output.text().contains("= .Variant"), "{}", output.text());
+
+                    assert!(
+                        output.text().contains("inspect(.Variant, .Variant)"),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert!(
+                        output.text().contains("[.Variant, .Variant]"),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert!(
+                        output.text().contains(&format!("return{word_gap}.Variant")),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert_eq!(syntax_tokens(source), syntax_tokens(output.text()));
+
+                    assert_eq!(
+                        formatted_with_configuration(output.text(), &configuration).text(),
+                        output.text()
+                    );
+                }
+            }
         }
     }
 }

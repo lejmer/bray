@@ -40,7 +40,10 @@ impl BlockParagraphs {
     ) -> bool {
         self.enabled
             && line_breaks >= 2
-            && !matches!(current, SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken)
+            && !matches!(
+                current,
+                SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken
+            )
             && previous != Some(SyntaxKind::OpenBraceToken)
             && nodes.iter().copied().any(is_block_expression)
             && !(nodes.last() == Some(&SyntaxKind::MatchBody)

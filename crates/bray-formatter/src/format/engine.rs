@@ -640,8 +640,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 && self.configuration.is_enabled(FormatterRule::LineWrapping) =>
             {
                 self.writer.request_fill_break(
-                    self.configuration
-                        .is_enabled(FormatterRule::OperatorSpacing),
+                    false,
                     u8::from(self.configuration.is_enabled(FormatterRule::Indentation)),
                 );
             }
@@ -714,9 +713,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     }
 
     fn enabled_list_layout(&self, parent: Option<SyntaxKind>) -> bool {
-        list_layout_rule(parent).is_some_and(|(rule, decision)| {
-            self.configuration.applies_to(rule, decision)
-        })
+        list_layout_rule(parent)
+            .is_some_and(|(rule, decision)| self.configuration.applies_to(rule, decision))
     }
 
     fn close_callable_header_group(&mut self) {

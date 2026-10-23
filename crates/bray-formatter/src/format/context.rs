@@ -42,30 +42,29 @@ pub(super) fn token_spacing(
                 || previous == SyntaxKind::SemicolonToken,
         });
 
-    let member = (previous == SyntaxKind::DotToken || current == SyntaxKind::DotToken).then_some(
-        if current == SyntaxKind::DotToken
-            && matches!(
-                previous,
-                SyntaxKind::CaseKeyword | SyntaxKind::LetKeyword | SyntaxKind::MatchesKeyword
-            )
-        {
-            space(FormatterRule::WordSpacing)
-        } else {
-            no_space(FormatterRule::MemberAccessSpacing)
-        },
-    );
+    let leading_dot_pattern = current == SyntaxKind::DotToken
+        && matches!(
+            previous,
+            SyntaxKind::CaseKeyword | SyntaxKind::LetKeyword | SyntaxKind::MatchesKeyword
+        );
+
+    let member = (previous == SyntaxKind::DotToken
+        || current == SyntaxKind::DotToken
+            && (can_end_expression(previous) || previous_was_generic_delimiter))
+        .then_some(no_space(FormatterRule::MemberAccessSpacing));
 
     let directive = (previous == SyntaxKind::AtToken)
         .then_some(no_space(FormatterRule::DirectiveMarkerSpacing));
 
-    let previous_operator = is_operator(previous).then_some(TokenSpacing {
-        rule: if previous_operator_was_prefix {
-            FormatterRule::PrefixOperatorSpacing
-        } else {
-            FormatterRule::OperatorSpacing
-        },
-        uses_space: !previous_operator_was_prefix,
-    });
+    let previous_operator =
+        (is_operator(previous) && !leading_dot_pattern).then_some(TokenSpacing {
+            rule: if previous_operator_was_prefix {
+                FormatterRule::PrefixOperatorSpacing
+            } else {
+                FormatterRule::OperatorSpacing
+            },
+            uses_space: !previous_operator_was_prefix,
+        });
 
     let uses_space = !current_operator_is_prefix
         || is_word(previous)
@@ -159,17 +158,26 @@ pub(super) const fn list_layout_rule(
             | SyntaxKind::BooleanFoldExpression
             | SyntaxKind::TupleExpression
             | SyntaxKind::TypeExpression,
-        ) => Some((FormatterRule::ParenthesizedListLayout, FormatterDecision::ParenthesizedListBreaks)),
+        ) => Some((
+            FormatterRule::ParenthesizedListLayout,
+            FormatterDecision::ParenthesizedListBreaks,
+        )),
         Some(
             SyntaxKind::ArrayExpression
             | SyntaxKind::ElementIndexOperation
             | SyntaxKind::SliceIndexOperation,
-        ) => Some((FormatterRule::BracketedListLayout, FormatterDecision::BracketedListBreaks)),
+        ) => Some((
+            FormatterRule::BracketedListLayout,
+            FormatterDecision::BracketedListBreaks,
+        )),
         Some(
             SyntaxKind::GenericParameterList
             | SyntaxKind::GenericArgumentList
             | SyntaxKind::TypeFormArgumentList,
-        ) => Some((FormatterRule::GenericListLayout, FormatterDecision::GenericListBreaks)),
+        ) => Some((
+            FormatterRule::GenericListLayout,
+            FormatterDecision::GenericListBreaks,
+        )),
         _ => None,
     }
 }
@@ -330,7 +338,10 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         {
             Some(space(FormatterRule::WordSpacing))
         }
-        SyntaxKind::QuestionToken => Some(no_space(FormatterRule::MemberAccessSpacing)),
+        // Prefix nullable patterns use their enclosing boundary's spacing.
+        SyntaxKind::QuestionToken if can_end_expression(previous) => {
+            Some(no_space(FormatterRule::MemberAccessSpacing))
+        }
         _ => match previous {
             SyntaxKind::OpenParenToken => Some(no_space(FormatterRule::ParenthesizedListLayout)),
             SyntaxKind::OpenBracketToken => Some(no_space(FormatterRule::BracketedListLayout)),
