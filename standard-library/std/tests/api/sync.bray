@@ -270,13 +270,7 @@ async func concurrency_stress_barrier_reuses_its_generation_across_contended_rou
 
 static REENTERED_ONCE: std.sync.Once<i32> =
 {
-    let prepared = std.sync.Once<i32>.prepare();
-
-    yield
-    {
-        instance = prepared.0,
-        storage = prepared.1,
-    };
+    prepared = std.sync.Once<i32>.prepare()
 };
 
 internal func catch_once_reentry() -> i32

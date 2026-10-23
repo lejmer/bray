@@ -187,10 +187,11 @@ because it consumes an owned value and commits initialization as one checked ope
 `move_initialized` remain trusted and require the matching initialization state. `borrow_from` and `borrow_mut_from`
 remain trusted and require explicit owner or scoped-capability authority in addition to the raw memory predicates.
 
-Internal hash-table accessors validate bounds and occupancy against the same table that owns the item storage.
-Their trusted pointer and initialized-slot guarantees depend on that table remaining live and its occupied slot
-remaining unchanged. Only the private write and removal operations change occupancy, alongside writing or moving
-the corresponding item. These helpers preserve the separate compact state array and require no native hooks.
+Sparse collections store owned nullable elements in initialized raw buffers. Access and removal inspect the actual
+nullable payload before borrowing or moving an element. Hash-table bucket words and ordered-tree links describe the
+search structure and do not establish initialization authority over a separate buffer. Ordinary field construction or
+replacement therefore cannot turn absent storage into a usable element. Remaining present elements retain ordinary
+buffer ownership and cleanup even when search metadata is inconsistent or an earlier element's cleanup panics.
 
 The result of an anchored borrow retains the exact authority argument as a dependency. The compiler does not recognize
 synchronization guard, mapped region, output wrapper, or foreign owner names. Ordinary library products build safe

@@ -76,13 +76,7 @@ using std.sync;
 
 static STATE: std.sync.Once<State> =
 {
-    let prepared = std.sync.Once<State>.prepare();
-
-    yield
-    {
-        instance = prepared.0,
-        storage = prepared.1,
-    };
+    prepared = std.sync.Once<State>.prepare(),
 };
 
 func state() -> &State

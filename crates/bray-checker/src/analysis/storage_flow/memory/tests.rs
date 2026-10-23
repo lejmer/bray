@@ -3047,3 +3047,111 @@ fn independent_returned_references_may_alias_and_merge_with_input_alternatives()
         bray_bound_tree::StorageOrigin::Returned { .. }
     )));
 }
+
+#[test]
+fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_region() {
+    let ([owner, pointer, ..], origins) = places();
+
+    let region_type = error_type();
+    let view_type = crate::test_support::nullable_type(region_type);
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+
+    state.owned_region(owner.clone(), pointer.clone(), region_type);
+    state.offset(&Target::storage(pointer.clone()), pointer.clone());
+    state.expose_address(&pointer, view_type, origins[0]);
+
+    let region = state.owned_regions(&owner).unwrap().pop().unwrap();
+    let contents = state.contents.get(&region).unwrap();
+
+    assert_eq!(contents.storage_type, Some(region_type));
+    assert!(!contents.initialized.contains(&view_type));
+    assert!(contents.exposed);
+    assert!(contents.pending[&view_type].contains(&origins[0]));
+}
+
+#[test]
+#[should_panic(expected = "exact address formation preserves the declared storage type")]
+fn exact_address_views_reject_a_conflicting_declared_storage_type() {
+    let ([owner, pointer, ..], origins) = places();
+
+    let region_type = error_type();
+    let view_type = crate::test_support::nullable_type(region_type);
+    let mut state = State::default();
+
+    state.owned_region(Target::storage(owner), pointer.clone(), region_type);
+    state.expose_address(&pointer, view_type, origins[0]);
+}
+
+#[test]
+fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
+    let ([owner, result, ..], origins) = places();
+
+    let call = origins[0].into();
+    let region_type = error_type();
+    let view_type = crate::test_support::nullable_type(region_type);
+    let payload = Target::storage(owner.clone()).project(&[StorageProjection::OwnedTarget]);
+    let destination = Target::storage(result.clone());
+
+    let mut state = State {
+        owned_storage: [owner.root, result.root].into(),
+        ..State::default()
+    };
+
+    state.stage_address(
+        call,
+        payload.clone(),
+        destination.clone(),
+        region_type,
+        bray_symbols::DependencyReferenceKind::Borrow,
+    );
+
+    state.bound_staged_reference(call, &destination);
+    state.stage_returned_references(call, [(result, view_type)], [payload.clone()]);
+    state.complete_transition(call);
+
+    let target = state
+        .value_target(&destination, view_type)
+        .expect("a bounded returned cell retains its declared view type");
+
+    assert_eq!(
+        state.effect_origins(&target).collect::<Vec<_>>(),
+        vec![&payload]
+    );
+
+    assert_eq!(
+        state.target_relationship(&target, &Target::storage(owner)),
+        bray_bound_tree::StorageRelationship::Disjoint,
+    );
+
+    assert!(!state.initialized(&destination, view_type));
+
+    let exported = state.exit_references(
+        destination.storage_path().unwrap().root,
+        &Default::default(),
+    );
+
+    assert_eq!(
+        exported.slots[destination.storage_path().unwrap()].targets,
+        BTreeSet::from([payload])
+    );
+
+    assert!(!exported.slots[destination.storage_path().unwrap()].is_exact());
+}
+
+#[test]
+fn returned_null_does_not_invent_an_outside_origin() {
+    let ([result, ..], origins) = places();
+
+    let call = origins[0].into();
+    let mut state = State::default();
+
+    state.stage_null(call, Target::storage(result.clone()));
+    state.stage_returned_references(call, [(result.clone(), error_type())], []);
+    state.complete_transition(call);
+
+    assert_eq!(
+        state.value_targets(&Target::storage(result)),
+        Some(Vec::new())
+    );
+}

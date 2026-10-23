@@ -1,6 +1,7 @@
 module std.collection;
 
 using std.memory;
+using internal std.collection.slot;
 
 internal struct OrderedSetItem<Value>
 {
@@ -131,14 +132,13 @@ struct OrderedSet<Value>
         {
             case ?index
             {
-                let item: OrderedSetItem<Value> = trusted ordered_tree_take_item<OrderedSetItem<Value>>(
-                    &mut self.tree.nodes,
+                let item: OrderedSetItem<Value> = trusted internal std.collection.slot.take<OrderedSetItem<Value>>(
                     &mut self.tree.items,
                     index = index,
                 );
 
-                trusted ordered_tree_write_item<OrderedSetItem<Value>>(
-                    &mut self.tree,
+                trusted internal std.collection.slot.write<OrderedSetItem<Value>>(
+                    &mut self.tree.items,
                     {
                         value = value,
                     },

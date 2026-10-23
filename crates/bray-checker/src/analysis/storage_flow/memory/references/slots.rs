@@ -225,13 +225,17 @@ impl State {
 
                     for target in &references.targets {
                         if let Origin::Returned { reference, .. } = &target.origin {
-                            // Returned origins include the independent alternative and every
-                            // input region, without claiming an exact forwarded address.
+                            // Expand established origins without turning a region bound into
+                            // exact forwarding or inventing an independent alternative.
                             exported.inexact = true;
 
-                            exported
-                                .targets
-                                .extend(self.returned_input_regions(reference).iter().cloned());
+                            let bounds = self.returned_reference_bounds(reference);
+
+                            if !bounds.unknown {
+                                exported.targets.remove(target);
+                            }
+
+                            exported.targets.extend(bounds.targets.iter().cloned());
                         }
                     }
 

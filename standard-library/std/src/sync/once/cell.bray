@@ -7,46 +7,43 @@ using internal std.sync.once;
 
 struct Once<T>
 {
-    instance: std.sync.once.Marker;
-    storage: Uninit<std.sync.once.State<T>>;
+    prepared: std.sync.once.Prepared<T>;
 
     static trusted func empty() -> Self
-        ensures(trusted std.sync.once.valid(&result.instance))
+        ensures(trusted std.sync.once.valid(&result.prepared.instance))
     {
-        let prepared = Once<T>.prepare();
-
         return
         {
-            instance = prepared.0,
-            storage = prepared.1,
+            prepared = Once<T>.prepare()
         };
     }
 
-    /// Prepares initialized fields for ownership formation, including static materialization.
-    static trusted const func prepare() -> (std.sync.once.Marker, Uninit<std.sync.once.State<T>>)
-        ensures(trusted std.sync.once.valid(marker = &result.0))
+    /// Prepares an immutable witness and storage carrier for ownership formation.
+    static trusted const func prepare() -> std.sync.once.Prepared<T>
+        ensures(trusted std.sync.once.valid(marker = &result.instance))
     {
-        return (
-            std.sync.once.Marker
+        return
+        {
+            instance = std.sync.once.Marker
             {
             },
-            std.memory.uninit_from<std.sync.once.State<T>>(
+            storage = std.memory.uninit_from<std.sync.once.State<T>>(
                 {
                     phase = core.atomic.initialize<u32>(std.sync.once.EMPTY),
                     owner = core.atomic.initialize<usize>(0),
                     value = std.memory.uninit<T>(),
                 }
             ),
-        );
+        };
     }
 
     trusted destruct()
-        requires(trusted std.sync.once.valid(&self.instance))
+        requires(trusted std.sync.once.valid(&self.prepared.instance))
         uses(raw_memory, unchecked_alias)
     {
         let state =
         {
-            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.storage);
+            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.prepared.storage);
 
             let authorize = trusted lambda(pos pointer: DataPointer<std.sync.once.State<T>>)
                 ensures(
@@ -89,8 +86,8 @@ struct Once<T>
     }
 
     func get_or_init(pos initializer: func() -> T) -> &T
-        requires(blocking_execution(), trusted std.sync.once.valid(&self.instance))
-        ensures(trusted std.sync.once.valid(&self.instance))
+        requires(blocking_execution(), trusted std.sync.once.valid(&self.prepared.instance))
+        ensures(trusted std.sync.once.valid(&self.prepared.instance))
     {
         match consume self.claim()
         {
@@ -105,8 +102,8 @@ struct Once<T>
     }
 
     func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<(&T), E>
-        requires(blocking_execution(), trusted std.sync.once.valid(&self.instance))
-        ensures(trusted std.sync.once.valid(&self.instance))
+        requires(blocking_execution(), trusted std.sync.once.valid(&self.prepared.instance))
+        ensures(trusted std.sync.once.valid(&self.prepared.instance))
     {
         match consume self.claim()
         {
@@ -123,13 +120,16 @@ struct Once<T>
     }
 
     internal trusted func value() -> &T
-        requires(trusted std.sync.once.valid(&self.instance), trusted std.sync.once.ready(&self.instance))
+        requires(
+            trusted std.sync.once.valid(&self.prepared.instance),
+            trusted std.sync.once.ready(&self.prepared.instance)
+        )
         executes(pure, total)
         uses(raw_memory, unchecked_alias)
     {
         let state =
         {
-            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.storage);
+            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.prepared.storage);
 
             let authorize = trusted lambda(pos pointer: DataPointer<std.sync.once.State<T>>)
                 ensures(

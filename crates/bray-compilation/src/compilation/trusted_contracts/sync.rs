@@ -1474,17 +1474,27 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         "{relation:#?}"
     );
 
-    assert_eq!(relation.target_projections().len(), 4, "{relation:#?}");
+    let [
+        bray_symbols::DependencyProjection::ProductField(prepared),
+        bray_symbols::DependencyProjection::ProductField(storage),
+        bray_symbols::DependencyProjection::UninitPayload,
+        bray_symbols::DependencyProjection::ProductField(value),
+        bray_symbols::DependencyProjection::UninitPayload,
+    ] = relation.target_projections()
+    else {
+        panic!("guard origin must reach its prepared storage and actual payload: {relation:#?}");
+    };
 
-    assert_eq!(
-        relation.target_projections()[1],
-        bray_symbols::DependencyProjection::UninitPayload
-    );
-
-    assert_eq!(
-        relation.target_projections()[3],
-        bray_symbols::DependencyProjection::UninitPayload
-    );
+    for (field, expected) in [
+        (prepared, "prepared"),
+        (storage, "storage"),
+        (value, "value"),
+    ] {
+        assert_eq!(
+            symbols.member_name((*field).into()).unwrap().as_str(),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -2025,7 +2035,7 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
 fn production_spin_lock_rejects_detached_authority() {
     for (body, expected) in [
         (
-            "let marker = lock.instance;",
+            "let marker = lock.prepared.instance;",
             DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
         ),
         (
@@ -2041,11 +2051,11 @@ fn production_spin_lock_rejects_detached_authority() {
             DiagnosticKind::CheckingMissingMutationAuthority,
         ),
         (
-            "let mut original = lock; original.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();",
+            "let mut original = lock; original.prepared.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();",
             DiagnosticKind::CheckingMissingMutationAuthority,
         ),
         (
-            "let forged: std.sync.SpinLock<u32> = { instance = internal std.sync.spin_lock.Marker {}, storage = std.memory.uninit_from<std.sync.spin_lock.State<u32>>({ tickets = core.atomic.initialize<u32>(0), value = 8 }) }; let guard = forged.lock();",
+            "let forged: std.sync.SpinLock<u32> = { prepared = { instance = internal std.sync.spin_lock.Marker {}, storage = std.memory.uninit_from<std.sync.spin_lock.State<u32>>({ tickets = core.atomic.initialize<u32>(0), value = std.memory.uninit_from<u32>(8) }) } }; let guard = forged.lock();",
             DiagnosticKind::CheckingTrustedObligationNotProven,
         ),
     ] {
@@ -2672,7 +2682,7 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
 #[test]
 fn production_once_rejects_fabricated_instance_and_attempt_authority() {
     for body in [
-        "let once: std.sync.Once<u32> = { instance = std.sync.once.Marker {}, storage = std.memory.uninit<std.sync.once.State<u32>>() }; let value = once.get_or_init(callback);",
+        "let once: std.sync.Once<u32> = { prepared = { instance = std.sync.once.Marker {}, storage = std.memory.uninit<std.sync.once.State<u32>>() } }; let value = once.get_or_init(callback);",
         "let once = std.sync.Once<u32>.empty(); let attempt: std.sync.once.Attempt<u32> = { once = &once, thread = &std.sync.once.CURRENT, acquisition = std.sync.once.Marker {} }; let value = attempt.publish(7);",
     ] {
         let source = format!(
@@ -2900,16 +2910,7 @@ fn static_once_keeps_initializer_authority() {
         module app;
 
         using std.sync;
-        static CELL: std.sync.Once<u32> =
-        {
-            let prepared = std.sync.Once<u32>.prepare();
-
-            yield
-            {
-                instance = prepared.0,
-                storage = prepared.1,
-            };
-        };
+        static CELL: std.sync.Once<u32> = { prepared = std.sync.Once<u32>.prepare() };
         func caller(pos callback: func() -> u32) requires(blocking_execution()) {
             let value = CELL.get_or_init(callback);
         }
@@ -3517,7 +3518,7 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
             extern trusted func take<T>(pos pending: &mut Pending<T>) -> T;
             extern trusted async func suspend();
             async func production_probe<T>(pos lock: &std.sync.SpinLock<Payload<T>>, pos mut pending: Pending<T>)
-                requires(trusted std.sync.spin_lock.valid(&lock.instance)) {{
+                requires(trusted std.sync.spin_lock.valid(&lock.prepared.instance)) {{
                 while true {{
                     let generation: u32 = {{
                         let mut guard = lock.lock();
@@ -3750,16 +3751,7 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         using std.path;
         using std.sync;
         using std.testing;
-        static ONCE: std.sync.Once<u32> =
-        {
-            let prepared = std.sync.Once<u32>.prepare();
-
-            yield
-            {
-                instance = prepared.0,
-                storage = prepared.1,
-            };
-        };
+        static ONCE: std.sync.Once<u32> = { prepared = std.sync.Once<u32>.prepare() };
         func initialized_value() -> u32 { return 37; }
         func static_once_case() requires(blocking_execution()) {
             let _ = catch { let _ = ONCE.get_or_init(initialized_value); };
@@ -4157,6 +4149,86 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
                 diagnostics,
                 DiagnosticKind::CheckingConflictingBorrow,
             );
+        }
+    }
+}
+
+#[test]
+fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication() {
+    for (owner, preparation, state, use_owner) in [
+        (
+            "SpinLock",
+            "std.sync.SpinLock<u32>.prepare(7)",
+            "spin_lock",
+            "let _ = moved.lock();",
+        ),
+        (
+            "Once",
+            "std.sync.Once<u32>.prepare()",
+            "once",
+            "let _ = moved.get_or_init(callback);",
+        ),
+    ] {
+        let replacement =
+            format!("owner.prepared.storage = std.memory.uninit<std.sync.{state}.State<u32>>();");
+
+        let fabricated = format!(
+            "let owner: std.sync.{owner}<u32> = {{ prepared = {{ instance = std.sync.{state}.Marker {{}}, storage = std.memory.uninit<std.sync.{state}.State<u32>>() }} }};"
+        );
+
+        let reconstructed = format!(
+            "let original = {preparation}; let owner: std.sync.{owner}<u32> = {{ prepared = {{ instance = original.instance, storage = std.memory.uninit<std.sync.{state}.State<u32>>() }} }};"
+        );
+
+        for (change, expected) in [
+            (String::new(), None),
+            (
+                replacement,
+                Some(DiagnosticKind::CheckingMissingMutationAuthority),
+            ),
+            (
+                fabricated,
+                Some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            ),
+            (
+                reconstructed,
+                Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                using std.memory;
+                using internal std.sync;
+
+                func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
+                    let prepared = {preparation};
+                    let transported = prepared;
+                    let mut owner: std.sync.{owner}<u32> = {{ prepared = transported }};
+                    {change}
+                    let moved = owner;
+                    {use_owner}
+                }}
+                "#
+            );
+
+            let application = production_sync_compilation(&source);
+
+            let checked = application
+                .lowered_unit(source_function_body_key(&application, "production_probe"))
+                .unwrap();
+
+            match expected {
+                Some(kind) => {
+                    bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), kind)
+                }
+                None => assert!(
+                    !checked.diagnostics().has_errors(),
+                    "{source}: {:?}",
+                    checked.diagnostics()
+                ),
+            }
         }
     }
 }
