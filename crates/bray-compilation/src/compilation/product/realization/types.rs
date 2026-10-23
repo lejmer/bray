@@ -379,7 +379,10 @@ impl Compilation {
         cancellation.check()?;
 
         if !pending.insert(ty) {
-            return Err(CodegenPreparationError::RecursiveValueType(ty));
+            panic!(
+                "checked native RecursiveValueType contract failed: {:?}",
+                ty
+            );
         }
 
         let values = self.semantic_value_store()?;
@@ -440,7 +443,12 @@ impl Compilation {
                 let element_layout = mappings
                     .get(element)
                     .and_then(CodegenTypeMapping::layout)
-                    .ok_or(CodegenPreparationError::UnsizedTypeByValue(*element))?;
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "checked native UnsizedTypeByValue contract failed: {:?}",
+                            *element
+                        )
+                    });
 
                 CodegenTypeMapping::new(
                     ty,
@@ -459,7 +467,10 @@ impl Compilation {
                 )
             }
             TypeData::FlexibleArray(_) => {
-                return Err(CodegenPreparationError::UnsizedTypeByValue(ty));
+                panic!(
+                    "checked native UnsizedTypeByValue contract failed: {:?}",
+                    ty
+                );
             }
             TypeData::Borrow {
                 kind,
@@ -495,12 +506,18 @@ impl Compilation {
                 } else {
                     self.codegen_type(*storage, target, cancellation, mappings, pending)?;
 
-                    let policy = mappings
-                        .get(storage)
-                        .ok_or(CodegenPreparationError::UnresolvedType(*storage))?;
+                    let policy = mappings.get(storage).unwrap_or_else(|| {
+                        panic!(
+                            "checked native UnresolvedType contract failed: {:?}",
+                            *storage
+                        )
+                    });
 
                     if policy.layout().is_none() {
-                        return Err(CodegenPreparationError::UnsizedTypeByValue(*storage));
+                        panic!(
+                            "checked native UnsizedTypeByValue contract failed: {:?}",
+                            *storage
+                        );
                     }
 
                     policy.representation_for(ty)
@@ -555,15 +572,14 @@ impl Compilation {
 
                 let mut candidates = candidates.into_iter();
 
-                let mapping = candidates
-                    .next()
-                    .cloned()
-                    .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+                let mapping = candidates.next().cloned().unwrap_or_else(|| {
+                    panic!("checked native UnresolvedType contract failed: {:?}", ty)
+                });
 
                 if candidates.any(|candidate| {
                     candidate.layout() != mapping.layout() || candidate.kind() != mapping.kind()
                 }) {
-                    return Err(CodegenPreparationError::UnresolvedType(ty));
+                    panic!("checked native UnresolvedType contract failed: {:?}", ty);
                 }
 
                 mapping.representation_for(ty).with_backend_type(ty)
@@ -574,7 +590,7 @@ impl Compilation {
                 SelfTypeContext::Trait(_) | SelfTypeContext::Implementation(_),
             )
             | TypeData::TypeValuedMemberProjection { .. } => {
-                return Err(CodegenPreparationError::UnresolvedType(ty));
+                panic!("checked native UnresolvedType contract failed: {:?}", ty);
             }
         };
 
@@ -638,7 +654,7 @@ impl Compilation {
                 let bray_symbols::DeclaredStorageShape::Structure(storage) =
                     representation.value().storage()
                 else {
-                    return Err(CodegenPreparationError::UnresolvedType(ty));
+                    panic!("checked native UnresolvedType contract failed: {:?}", ty);
                 };
 
                 if representation.value().is_incomplete() {
@@ -650,7 +666,9 @@ impl Compilation {
                         .value()
                         .alignment()
                         .and_then(NonZeroU64::new)
-                        .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+                        .unwrap_or_else(|| {
+                            panic!("checked native UnresolvedType contract failed: {:?}", ty)
+                        });
 
                     return Ok(CodegenTypeMapping::new(
                         ty,

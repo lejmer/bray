@@ -1,11 +1,6 @@
-use bray_codegen::{
-    CodegenInstanceBuildError, CodegenPartitionError, CodegenReachabilityBuildError,
-    CodegenTargetBuildError, CodegenUnitBuildError,
-};
 use bray_diagnostics::DiagnosticBag;
 use bray_ir::MirCapacityError;
-use bray_linker::LinkTargetBuildError;
-use bray_runtime_interface::{ExecutableHostContractBuildError, RuntimeArtifactSelectionError};
+use bray_runtime_interface::RuntimeArtifactSelectionError;
 use bray_symbols::ProductIdentity;
 
 use crate::fact::{BatchCompletionError, FactQueryError};
@@ -33,34 +28,16 @@ pub enum NativeProductPlanningError {
     CodegenUnavailable,
     /// The selected backend could not form its native bitcode target contract.
     BitcodeTargetContract(bray_codegen::CodegenFailure),
-    /// The selected product has no executable code root.
-    MissingProductRoot,
-    /// The checked executable entry result is inconsistent with product semantics.
-    InvalidEntryResult,
     /// An asynchronous product has no selected runtime artifact.
     MissingRuntime,
     /// A configured native link input is invalid.
     InvalidNativeLinkInput(NativeLinkInputPlanningError),
     /// A lazy compilation plan could not be evaluated.
     Query(FactQueryError),
-    /// The selected code generation target is invalid.
-    InvalidCodegenTarget(CodegenTargetBuildError),
-    /// Code generation reachability is inconsistent.
-    InvalidReachability(CodegenReachabilityBuildError),
-    /// One concrete code generation instance is invalid.
-    InvalidCodegenInstance(CodegenInstanceBuildError),
-    /// One code generation unit is invalid.
-    InvalidCodegenUnit(CodegenUnitBuildError),
-    /// Reachable definitions cannot be partitioned under the selected policy.
-    InvalidCodegenPartition(CodegenPartitionError),
     /// A MIR identity table exceeded its compact representation.
     MirCapacity(MirCapacityError),
-    /// The compiler-generated executable host contract is invalid.
-    InvalidExecutableHost(ExecutableHostContractBuildError),
     /// Runtime metadata cannot supply an exact physical component selection.
     InvalidRuntimeSelection(RuntimeArtifactSelectionError),
-    /// The selected linker target is invalid.
-    InvalidLinkTarget(LinkTargetBuildError),
     /// Two selected artifacts disagree about the same library's native publication.
     ConflictingNativeArtifacts {
         /// First candidate artifact.

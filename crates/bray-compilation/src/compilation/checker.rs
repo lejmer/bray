@@ -977,33 +977,9 @@ fn checker_syntax_source(
 pub(in crate::compilation) fn checker_binder_error(
     error: BindingQueryError<FactQueryError>,
 ) -> CheckerQueryError {
-    match error {
-        BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
-        BindingQueryError::SemanticValue(error) => CheckerQueryError::Upstream(error.into()),
-        BindingQueryError::DependencyUnavailable => {
-            CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
-        }
-        error @ (BindingQueryError::MissingSyntax { .. }
-        | BindingQueryError::MissingOwner { .. }
-        | BindingQueryError::MissingModule { .. }
-        | BindingQueryError::InvalidSurfaceName { .. }) => {
-            CheckerQueryError::Upstream(super::binder::binding_query_error(error))
-        }
-        BindingQueryError::Construction(error) => {
-            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
-                FactQueryError,
-            >::Construction(
-                error
-            )))
-        }
-        BindingQueryError::Binding(error) => {
-            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
-                FactQueryError,
-            >::Binding(
-                error
-            )))
-        }
-        BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
+    match super::binder::binding_query_error(error) {
+        FactQueryError::Cancelled => CheckerQueryError::Cancelled,
+        error => CheckerQueryError::Upstream(error),
     }
 }
 
@@ -1183,7 +1159,7 @@ mod tests {
 
     #[test]
     fn checker_boundaries_preserve_exact_compilation_failures() {
-        let error = FactQueryError::Binding(bray_binder::BoundUnitBindingError::InvalidUnitKey);
+        let error = FactQueryError::SymbolCapacity { index: 7 };
 
         assert_eq!(
             checker_query_error(error.clone()),

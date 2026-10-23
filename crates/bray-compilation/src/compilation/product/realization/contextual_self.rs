@@ -97,21 +97,17 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
                     )
                 })?;
 
-            let trait_definition = TraitSymbolId::try_from_any(container).ok_or_else(|| {
-                ProductQueryFailure::UnexpectedSymbolKind {
-                    symbol: container,
-                    expected: bray_symbols::SymbolKind::Trait,
-                    actual: container.kind(),
-                }
-            })?;
+            let trait_definition = TraitSymbolId::try_from_any(container).unwrap_or_else(|| {
+                panic!("product UnexpectedSymbolKind construction failed: symbol={:?}, expected={:?}, actual={:?}", container, bray_symbols::SymbolKind::Trait, container.kind())
+            });
 
             if trait_definition != application.definition() {
-                return Err(ProductQueryFailure::TraitDefinitionMismatch {
-                    context: ProductQueryContext::Instance(instance.key().clone()),
-                    expected: application.definition(),
-                    actual: trait_definition,
-                }
-                .into());
+                panic!(
+                    "product TraitDefinitionMismatch construction failed: context={:?}, expected={:?}, actual={:?}",
+                    instance.key(),
+                    application.definition(),
+                    trait_definition
+                );
             }
         }
 

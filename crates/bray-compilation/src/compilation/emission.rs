@@ -69,8 +69,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
-        let inputs = CodegenUnitLookup::try_new(units, mappings)
-            .map_err(|kind| EmissionCodegenError::new(kind, DiagnosticBag::new()))?;
+        let inputs = CodegenUnitLookup::new(units, mappings);
 
         let outcomes = self
             .state
@@ -78,17 +77,16 @@ impl Compilation {
             .map_indexed(requests.len(), |index| {
                 let request = &requests[index];
 
-                let Some(unit) = inputs.unit(request.unit()) else {
-                    return Err(EmissionCodegenErrorKind::MissingUnit(
-                        request.unit().clone(),
-                    ));
-                };
+                let unit = inputs.unit(request.unit()).unwrap_or_else(|| {
+                    panic!("emission plan must retain unit for {:?}", request.unit())
+                });
 
-                let Some(mappings) = inputs.mappings(request.unit()) else {
-                    return Err(EmissionCodegenErrorKind::MissingMappings(
-                        request.unit().clone(),
-                    ));
-                };
+                let mappings = inputs.mappings(request.unit()).unwrap_or_else(|| {
+                    panic!(
+                        "emission plan must retain mappings for {:?}",
+                        request.unit()
+                    )
+                });
 
                 self.codegen_artifact_with_cancellation(
                     unit,
@@ -148,14 +146,6 @@ impl EmissionCodegenError {
 /// Structured reason planned backend contributions could not be obtained.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionCodegenErrorKind {
-    /// The supplied inputs contain the same code generation unit more than once.
-    DuplicateUnit(CodegenUnitKey),
-    /// The supplied inputs contain mappings for the same code generation unit more than once.
-    DuplicateMappings(CodegenUnitKey),
-    /// The plan names a code generation unit absent from the supplied inputs.
-    MissingUnit(CodegenUnitKey),
-    /// The plan names a code generation unit without realization mappings.
-    MissingMappings(CodegenUnitKey),
     /// One exact code generation input request could not be formed or evaluated.
     Request {
         /// Unit whose input request failed.
@@ -183,10 +173,7 @@ struct CodegenUnitLookup<'inputs> {
 }
 
 impl<'inputs> CodegenUnitLookup<'inputs> {
-    fn try_new(
-        units: &'inputs [CodegenUnit],
-        mappings: &'inputs [CodegenMappings],
-    ) -> Result<Self, EmissionCodegenErrorKind> {
+    fn new(units: &'inputs [CodegenUnit], mappings: &'inputs [CodegenMappings]) -> Self {
         let mut entries = BTreeMap::new();
 
         for unit in units {
@@ -194,10 +181,11 @@ impl<'inputs> CodegenUnitLookup<'inputs> {
                 .entry(unit.key())
                 .or_insert_with(CodegenUnitEntry::default);
 
-            if entry.unit.is_some() {
-                // The error must retain the structural unit identity after the lookup is discarded.
-                return Err(EmissionCodegenErrorKind::DuplicateUnit(unit.key().clone()));
-            }
+            assert!(
+                entry.unit.is_none(),
+                "emission inputs repeat unit {:?}",
+                unit.key()
+            );
 
             entry.unit = Some(unit);
         }
@@ -207,17 +195,16 @@ impl<'inputs> CodegenUnitLookup<'inputs> {
                 .entry(mappings.unit())
                 .or_insert_with(CodegenUnitEntry::default);
 
-            if entry.mappings.is_some() {
-                // The error must retain the structural unit identity after the lookup is discarded.
-                return Err(EmissionCodegenErrorKind::DuplicateMappings(
-                    mappings.unit().clone(),
-                ));
-            }
+            assert!(
+                entry.mappings.is_none(),
+                "emission inputs repeat mappings for {:?}",
+                mappings.unit()
+            );
 
             entry.mappings = Some(mappings);
         }
 
-        Ok(Self { entries })
+        Self { entries }
     }
 
     fn unit(&self, key: &CodegenUnitKey) -> Option<&'inputs CodegenUnit> {
@@ -316,7 +303,7 @@ mod tests {
     use bray_symbols::{ProductIdentity, ProductKind};
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
 
-    use super::{CodegenUnitLookup, Compilation, EmissionCodegenErrorKind};
+    use super::{CodegenUnitLookup, Compilation};
     use crate::test_support::{package_identity, source_input};
     use crate::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 
@@ -407,26 +394,28 @@ mod tests {
             fixture.request().unit().clone(),
         ];
 
-        let duplicate_units = CodegenUnitLookup::try_new(&units, &[]);
+        let panic = std::panic::catch_unwind(|| CodegenUnitLookup::new(&units, &[]))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            duplicate_units,
-            Err(EmissionCodegenErrorKind::DuplicateUnit(unit))
-                if unit == *fixture.request().unit().key()
-        ));
+        assert!(
+            bray_testing::panic_payload_text(panic.as_ref())
+                .contains("emission inputs repeat unit")
+        );
 
         let mappings = [
             fixture.request().mappings().clone(),
             fixture.request().mappings().clone(),
         ];
 
-        let duplicate_mappings = CodegenUnitLookup::try_new(&[], &mappings);
+        let panic = std::panic::catch_unwind(|| CodegenUnitLookup::new(&[], &mappings))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            duplicate_mappings,
-            Err(EmissionCodegenErrorKind::DuplicateMappings(unit))
-                if unit == *fixture.request().unit().key()
-        ));
+        assert!(
+            bray_testing::panic_payload_text(panic.as_ref())
+                .contains("emission inputs repeat mappings")
+        );
     }
 
     fn emission_plan(

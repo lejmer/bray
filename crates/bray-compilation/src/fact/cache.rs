@@ -8,7 +8,7 @@ use std::fmt;
 
 use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
-    FactRuntimeFailure, FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
+    FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
     SynchronizationComponent,
 };
 use crate::profile::CompilationProfileOutcome;
@@ -148,11 +148,11 @@ impl<T> FactCell<T> {
     }
 
     pub(super) fn is_vacant(&self) -> bool {
-        // Retention is best effort and cannot return a query error. A poisoned cell remains
-        // retained while fallible publication paths report the poison.
-        let Ok(state) = self.storage.state.lock() else {
-            return false;
-        };
+        let state = self
+            .storage
+            .state
+            .lock()
+            .expect("retained fact state must remain unpoisoned");
 
         matches!(*state, FactCellState::Vacant)
     }
@@ -309,13 +309,9 @@ impl<T> FactCell<T> {
         loop {
             cancellation.check()?;
 
-            let mut state = self.storage.state.lock().map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::FactCell,
-                    fact: Some(key.clone()),
-                    task: None,
-                }
-            })?;
+            let mut state = self.storage.state.lock().unwrap_or_else(|_| {
+                panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}", SynchronizationComponent::FactCell, Some(&key))
+            });
 
             match &*state {
                 FactCellState::Ready => {
@@ -355,11 +351,10 @@ impl<T> FactCell<T> {
                     self.observe(FactCellTestEvent::Computing)?;
 
                     let Some(compute) = compute.take() else {
-                        return Err(FactRuntimeFailure::AbandonedComputation {
-                            task,
-                            fact: key.clone(),
-                        }
-                        .into());
+                        panic!(
+                            "query runtime AbandonedComputation contract failed: task={:?}, fact={:?}",
+                            task, key
+                        );
                     };
 
                     let value = runtime.run_demand(&shared_priority, || {
@@ -379,8 +374,7 @@ impl<T> FactCell<T> {
                         value
                     });
 
-                    let value =
-                        preserve_shared_cancellation_failure(value, shared_cancellation.token())?;
+                    let value = value?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
@@ -443,13 +437,9 @@ impl<T> FactCell<T> {
                         profile.start_query(crate::profile::ProfileOperation::DependencyWait, &key)
                     });
 
-                    let state = self.storage.state.lock().map_err(|_| {
-                        FactRuntimeFailure::SynchronizationPoisoned {
-                            component: SynchronizationComponent::FactCell,
-                            fact: Some(key.clone()),
-                            task: Some(task),
-                        }
-                    })?;
+                    let state = self.storage.state.lock().unwrap_or_else(|_| {
+                        panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}, task={:?}", SynchronizationComponent::FactCell, Some(&key), Some(task))
+                    });
 
                     let same_evaluation = matches!(
                         &*state,
@@ -465,11 +455,7 @@ impl<T> FactCell<T> {
                             .storage
                             .changed
                             .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
-                            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                                component: SynchronizationComponent::FactCell,
-                                fact: Some(key.clone()),
-                                task: Some(task),
-                            })?;
+                            .unwrap_or_else(|_| panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}, task={:?}", SynchronizationComponent::FactCell, Some(&key), Some(task)));
 
                         drop(waited);
                     } else {
@@ -498,11 +484,7 @@ impl<T> FactCell<T> {
             self.storage
                 .state
                 .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::FactCell,
-                    fact: Some(key.as_ref().clone()),
-                    task: Some(task),
-                })?;
+                .unwrap_or_else(|_| panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}, task={:?}", SynchronizationComponent::FactCell, Some(key.as_ref()), Some(task)));
 
         assert!(
             matches!(
@@ -548,13 +530,12 @@ impl<T> FactCell<T> {
         &self,
         observer: FactCellTestObserver,
     ) -> Result<(), FactQueryError> {
-        let mut current = self.storage.observer.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::FactCell,
-                fact: None,
-                task: None,
-            }
-        })?;
+        let mut current = self.storage.observer.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::FactCell
+            )
+        });
 
         *current = Some(observer);
 
@@ -567,11 +548,12 @@ impl<T> FactCell<T> {
             .storage
             .observer
             .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::FactCell,
-                fact: None,
-                task: None,
-            })?
+            .unwrap_or_else(|_| {
+                panic!(
+                    "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                    SynchronizationComponent::FactCell
+                )
+            })
             .clone();
 
         if let Some(observer) = observer {
@@ -582,8 +564,13 @@ impl<T> FactCell<T> {
     }
 
     fn abandon(&self, task: FactTaskIdentity, key: &CompilationFactKey) {
-        // Publication-guard cleanup is best effort because Drop cannot report a poisoned cell.
+        // Preserve an existing unwind if publication cleanup also encounters poisoned state.
         let Ok(mut state) = self.storage.state.lock() else {
+            assert!(
+                std::thread::panicking(),
+                "query guard state must remain unpoisoned"
+            );
+
             return;
         };
 
@@ -607,17 +594,6 @@ impl<T> FactCell<T> {
 
         self.storage.changed.notify_all();
     }
-}
-
-fn preserve_shared_cancellation_failure<T>(
-    result: Result<T, FactQueryError>,
-    cancellation: &CancellationToken,
-) -> Result<T, FactQueryError> {
-    if matches!(result, Err(FactQueryError::Cancelled)) {
-        cancellation.check()?;
-    }
-
-    result
 }
 
 fn record_cache_outcome(
@@ -705,8 +681,7 @@ mod tests {
     };
     use crate::fact::task::FactTaskContext;
     use crate::fact::{
-        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactRuntimeFailure,
-        FactTaskIdentity, SynchronizationComponent,
+        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactTaskIdentity,
     };
     use crate::test_support::FactTestGate;
     use crate::{
@@ -1350,17 +1325,13 @@ mod tests {
 
                     let parent_waiting = parent_waiting_receiver
                         .lock()
-                        .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                            component: SynchronizationComponent::FactCell,
-                            fact: Some(parent_key.clone()),
-                            task: None,
-                        })?
+                        .expect("test parent waiting channel must remain unpoisoned")
                         .recv_timeout(Duration::from_secs(1));
 
                     if parent_waiting.is_err() {
                         cancellation.cancel();
 
-                        return Err(FactQueryError::BindingDependencyUnavailable);
+                        return Err(FactQueryError::SymbolCapacity { index: 0 });
                     }
 
                     let (result_sender, result_receiver) = mpsc::sync_channel(1);
@@ -1386,7 +1357,7 @@ mod tests {
                             Err(_) => {
                                 cancellation.cancel();
 
-                                Err(FactQueryError::BindingDependencyUnavailable)
+                                Err(FactQueryError::SymbolCapacity { index: 0 })
                             }
                         }
                     })?;
@@ -1443,15 +1414,15 @@ mod tests {
                 first_context.run(|| {
                     let Some(waiting) = first_runtime.wait_for(&first_child_key, child_identity)?
                     else {
-                        return Err(FactQueryError::BindingDependencyUnavailable);
+                        return Err(FactQueryError::SymbolCapacity { index: 0 });
                     };
 
                     if registered_sender.send(()).is_err() {
-                        return Err(FactQueryError::BindingDependencyUnavailable);
+                        return Err(FactQueryError::SymbolCapacity { index: 0 });
                     }
 
                     if release_receiver.recv().is_err() {
-                        return Err(FactQueryError::BindingDependencyUnavailable);
+                        return Err(FactQueryError::SymbolCapacity { index: 0 });
                     }
 
                     drop(waiting);
@@ -1473,7 +1444,7 @@ mod tests {
                     let Some(waiting) =
                         second_runtime.wait_for(&second_child_key, child_identity)?
                     else {
-                        return Err(FactQueryError::BindingDependencyUnavailable);
+                        return Err(FactQueryError::SymbolCapacity { index: 0 });
                     };
 
                     drop(waiting);
@@ -1487,7 +1458,7 @@ mod tests {
             let cycle =
                 child_context.run(|| match runtime.wait_for(&parent_key, parent_identity) {
                     Err(FactQueryError::Cycle(cycle)) => Ok(cycle),
-                    Ok(_) | Err(_) => Err(FactQueryError::BindingDependencyUnavailable),
+                    Ok(_) | Err(_) => Err(FactQueryError::SymbolCapacity { index: 0 }),
                 });
 
             if release_sender.send(()).is_err() {
@@ -1561,10 +1532,10 @@ mod tests {
             abandoned_dependency
                 .get_or_compute(&runtime, abandoned_key, &cancellation, || Ok(1_u32))?;
 
-            Err(FactQueryError::BindingDependencyUnavailable)
+            Err(FactQueryError::SymbolCapacity { index: 0 })
         });
 
-        assert_eq!(abandoned, Err(FactQueryError::BindingDependencyUnavailable));
+        assert_eq!(abandoned, Err(FactQueryError::SymbolCapacity { index: 0 }));
 
         let retried = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             committed_dependency.get_or_compute(
@@ -1599,9 +1570,9 @@ mod tests {
         let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             assert_eq!(
                 dependency.get_or_compute(&runtime, dependency_key, &cancellation, || Err(
-                    FactQueryError::BindingDependencyUnavailable
+                    FactQueryError::SymbolCapacity { index: 0 }
                 ),),
-                Err(FactQueryError::BindingDependencyUnavailable)
+                Err(FactQueryError::SymbolCapacity { index: 0 })
             );
 
             Ok(3_u32)
@@ -1748,7 +1719,7 @@ mod tests {
         let cell = FactCell::new();
         let key = CompilationFactKey::SyntaxTree;
 
-        let result =
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             cell.get_or_compute_requested(&runtime, key, &cancellation, |shared_cancellation| {
                 shared_cancellation.poison_shared_interests();
 
@@ -1757,20 +1728,14 @@ mod tests {
                 } else {
                     Ok(7_u32)
                 }
-            });
+            })
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            result,
-            Err(FactQueryError::Runtime(error))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::CancellationInterests,
-                        ..
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
+        assert!(message.contains("shared cancellation interests"));
         assert!(cell.get().is_none());
     }
 

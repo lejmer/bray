@@ -72,12 +72,12 @@ impl Compilation {
             substitution,
         } = data.as_ref()
         else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
+            panic!(
+                "product UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
                 ty,
-                expected: crate::compilation::ProductValueKind::NamedType,
-                actual: data.as_ref().clone(),
-            }
-            .into());
+                crate::compilation::ProductValueKind::NamedType,
+                data.as_ref()
+            );
         };
 
         match super::super::super::foreign::compiler_known_representation(self, *definition) {
@@ -121,24 +121,24 @@ impl Compilation {
                 let success = values.type_data(success_type);
 
                 let TypeData::Named { definition, .. } = success.as_ref() else {
-                    return Err(ProductQueryFailure::UnexpectedSemanticType {
-                        ty: success_type,
-                        expected: crate::compilation::ProductValueKind::NamedType,
-                        actual: success.as_ref().clone(),
-                    }
-                    .into());
+                    panic!(
+                        "product UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
+                        success_type,
+                        crate::compilation::ProductValueKind::NamedType,
+                        success.as_ref()
+                    );
                 };
 
                 let actual =
                     super::super::super::foreign::compiler_known_representation(self, *definition);
 
                 if actual != Some(RepresentationRole::Unit) {
-                    return Err(ProductQueryFailure::CompilerKnownRepresentationMismatch {
-                        ty: success_type,
-                        expected: RepresentationRole::Unit,
-                        actual,
-                    }
-                    .into());
+                    panic!(
+                        "product CompilerKnownRepresentationMismatch construction failed: ty={:?}, expected={:?}, actual={:?}",
+                        success_type,
+                        RepresentationRole::Unit,
+                        actual
+                    );
                 }
 
                 let GenericArgument::Type(error) = error.argument() else {
@@ -280,10 +280,10 @@ impl Compilation {
 
         for pair in dependencies.windows(2) {
             if pair[0].key() == pair[1].key() && pair[0].instance() != pair[1].instance() {
-                return Err(ProductQueryFailure::ConflictingConcreteInstance {
-                    key: pair[0].key().clone(),
-                }
-                .into());
+                panic!(
+                    "product ConflictingConcreteInstance construction failed: key={:?}",
+                    pair[0].key()
+                );
             }
         }
 
@@ -674,11 +674,10 @@ impl Compilation {
                 }
                 ExecutableEntryResult::Unit => None,
                 ExecutableEntryResult::I32 => {
-                    return Err(CodegenPreparationError::from(
-                        ProductQueryFailure::UnexpectedEntryResult {
-                            actual: ExecutableEntryResult::I32,
-                        },
-                    ));
+                    panic!(
+                        "product UnexpectedEntryResult construction failed: actual={:?}",
+                        ExecutableEntryResult::I32
+                    );
                 }
             };
 
@@ -699,7 +698,7 @@ impl Compilation {
                 })
                 .transpose()?;
 
-            Ok(ConcreteStaticFinalization {
+            Ok::<_, CodegenPreparationError>(ConcreteStaticFinalization {
                 execution,
                 instance,
                 selected,
@@ -812,8 +811,9 @@ impl Compilation {
                         CodegenStaticRelocation::new(value, realization.key, realization.symbol);
 
                     if relocations.insert(value, relocation).is_some() {
-                        return Err(
-                            ProductQueryFailure::ConflictingStaticRelocation { value }.into()
+                        panic!(
+                            "product ConflictingStaticRelocation construction failed: value={:?}",
+                            value
                         );
                     }
                 }

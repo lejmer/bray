@@ -129,8 +129,6 @@ pub enum DiagnosticNoteKind {
     LinkPlanContext,
     /// Recovery guidance after an external native-link tool reports an unsuccessful exit.
     ExternalToolExitRequiresCorrection,
-    /// Recovery guidance when native product preparation begins before compilation succeeds.
-    NativeProductPreparationRecovery,
     /// Recovery guidance for an unusable selected runtime artifact.
     RuntimeArtifactMustBeUsable,
     /// One exact unavailable state required across an await.
@@ -151,8 +149,6 @@ pub enum DiagnosticNoteKind {
     UniqueTestIdentityRequired,
     /// Visibility requirement for dependencies exposed by public declarations.
     PublicDependencyRequired,
-    /// Guidance for reporting a compiler-owned invariant failure.
-    ReportCompilerDefect,
     /// Supply the declared result on each normal callable exit.
     ReturnRequiredResult,
     /// Complete or transfer the finalization obligation before ownership ends.
@@ -229,7 +225,6 @@ impl DiagnosticNoteKind {
             Self::InterfaceDependencyContext => "interface_dependency_context",
             Self::LinkPlanContext => "link_plan_context",
             Self::ExternalToolExitRequiresCorrection => "external_tool_exit_requires_correction",
-            Self::NativeProductPreparationRecovery => "native_product_preparation_recovery",
             Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
             Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
             Self::EscapingStorageDependencyResolution => "escaping_storage_dependency_resolution",
@@ -242,7 +237,6 @@ impl DiagnosticNoteKind {
             Self::TestDirectiveRequirements => "test_directive_requirements",
             Self::UniqueTestIdentityRequired => "unique_test_identity_required",
             Self::PublicDependencyRequired => "public_dependency_required",
-            Self::ReportCompilerDefect => "report_compiler_defect",
             Self::ReturnRequiredResult => "return_required_result",
             Self::ResolveFinalization => "resolve_finalization",
             Self::TrustedObligationEvidenceRequired => "trusted_obligation_evidence_required",

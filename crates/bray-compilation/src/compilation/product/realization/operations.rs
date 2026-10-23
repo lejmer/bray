@@ -213,7 +213,10 @@ impl Compilation {
             return Ok(CodegenHelperMapping::new(reference, symbol));
         }
 
-        Err(CodegenPreparationError::MissingHelperInstance(reference))
+        panic!(
+            "checked native MissingHelperInstance contract failed: {:?}",
+            reference
+        )
     }
 
     pub(in crate::compilation::product) fn concrete_codegen_helper_dependency(
@@ -338,14 +341,20 @@ impl Compilation {
     ) -> Result<CodegenSymbolKey, CodegenPreparationError> {
         let MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }) = operation
         else {
-            return Err(CodegenPreparationError::MissingHelperInstance(
-                reference.clone(),
-            ));
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference,
+            );
         };
 
         frame_creation_runtime_role(initializer)
             .map(|role| helper_runtime_symbol(owner, role))
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))
+            .ok_or_else(|| {
+                panic!(
+                    "checked native MissingHelperInstance contract failed: {:?}",
+                    reference
+                )
+            })
     }
 
     pub(in crate::compilation) fn codegen_generated_lifecycle_mir(
@@ -377,12 +386,12 @@ impl Compilation {
         let actual_role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference);
 
         if Some(key.role()) != actual_role {
-            return Err(ProductQueryFailure::LifecycleRoleMismatch {
-                instance: instance.clone(),
-                expected: Some(key.role()),
-                actual: actual_role,
-            }
-            .into());
+            panic!(
+                "product LifecycleRoleMismatch construction failed: instance={:?}, expected={:?}, actual={:?}",
+                instance,
+                Some(key.role()),
+                actual_role
+            );
         }
 
         let query = (instance.clone(), unit);

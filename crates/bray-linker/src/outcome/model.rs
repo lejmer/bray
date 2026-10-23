@@ -95,7 +95,7 @@ fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
             failure_diagnostic(DiagnosticKind::LinkerDriverUnavailable)
         }
         LinkFailure::DriverIncompatible => {
-            compiler_defect_diagnostic(DiagnosticKind::LinkerDriverIncompatible)
+            failure_diagnostic(DiagnosticKind::LinkerDriverIncompatible)
         }
         LinkFailure::MissingInput(input) => failure_diagnostic(DiagnosticKind::LinkerInputMissing)
             .with_arg(
@@ -106,9 +106,7 @@ fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
                 .unwrap_or_else(|| unreachable!("u32 link input ordinal must fit usize")),
             ),
         LinkFailure::ResponseFile => failure_diagnostic(DiagnosticKind::LinkerResponseFileFailed),
-        LinkFailure::Invocation => {
-            compiler_defect_diagnostic(DiagnosticKind::LinkerInvocationFailed)
-        }
+        LinkFailure::Invocation => failure_diagnostic(DiagnosticKind::LinkerInvocationFailed),
         LinkFailure::ToolExit(output) => {
             failure_diagnostic(DiagnosticKind::LinkerExternalToolExitedUnsuccessfully)
                 .with_arg(DiagnosticArg::external_tool_exit(
@@ -139,12 +137,6 @@ fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
 
 fn failure_diagnostic(kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
-}
-
-fn compiler_defect_diagnostic(kind: DiagnosticKind) -> Diagnostic {
-    failure_diagnostic(kind).with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
-    ))
 }
 
 fn external_tool_io_diagnostics(
@@ -505,9 +497,6 @@ impl LinkOutcome {
     ) -> Self {
         match failure {
             ExternalToolFailure::Cancelled => Self::cancelled(DiagnosticBag::new()),
-            ExternalToolFailure::ProcessBudgetUnavailable => {
-                failed_outcome(plan, LinkFailure::ResourceExhausted)
-            }
             ExternalToolFailure::ResponseFile {
                 path,
                 operation,
@@ -544,18 +533,6 @@ impl LinkOutcome {
 
                 Self::failed_with_diagnostics(LinkFailure::Invocation, diagnostics)
             }
-            ExternalToolFailure::MissingOutputPipe(stream) => Self::failed_with_diagnostics(
-                LinkFailure::Invocation,
-                external_tool_contract_diagnostics(
-                    plan,
-                    stream_operation(
-                        stream,
-                        DiagnosticExternalToolOperation::StandardOutputPipe,
-                        DiagnosticExternalToolOperation::StandardErrorPipe,
-                    ),
-                    DiagnosticExternalToolFailureKind::MissingOutputPipe,
-                ),
-            ),
             ExternalToolFailure::OutputCapture { stream, kind } => Self::failed_with_diagnostics(
                 LinkFailure::Invocation,
                 external_tool_io_diagnostics(
@@ -566,18 +543,6 @@ impl LinkOutcome {
                         DiagnosticExternalToolOperation::StandardErrorCapture,
                     ),
                     kind,
-                ),
-            ),
-            ExternalToolFailure::OutputReaderTerminated(stream) => Self::failed_with_diagnostics(
-                LinkFailure::Invocation,
-                external_tool_contract_diagnostics(
-                    plan,
-                    stream_operation(
-                        stream,
-                        DiagnosticExternalToolOperation::StandardOutputReader,
-                        DiagnosticExternalToolOperation::StandardErrorReader,
-                    ),
-                    DiagnosticExternalToolFailureKind::OutputReaderTerminated,
                 ),
             ),
         }
@@ -1014,12 +979,15 @@ mod tests {
 
         let pipe = LinkOutcome::from_external_tool_failure(
             &plan,
-            crate::ExternalToolFailure::MissingOutputPipe(crate::ExternalToolStream::StandardError),
+            crate::ExternalToolFailure::OutputCapture {
+                stream: crate::ExternalToolStream::StandardError,
+                kind: std::io::ErrorKind::BrokenPipe,
+            },
         );
 
         assert_goal_state_diagnostic_kind(
             pipe.diagnostics(),
-            DiagnosticKind::LinkerExternalToolContractFailed,
+            DiagnosticKind::LinkerExternalToolIoFailed,
         );
     }
 }

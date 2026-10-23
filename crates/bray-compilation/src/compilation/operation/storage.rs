@@ -180,10 +180,6 @@ mod tests {
     use bray_symbols::{SemanticValueStore, TypeData};
 
     use super::{compiler_known_declaration_unavailable, compiler_known_operation_unavailable};
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::FactQueryError;
 
     #[test]
     fn missing_storage_contract_retains_types_and_operation_role() {
@@ -200,17 +196,15 @@ mod tests {
 
         let role = CompilerKnownOperationRole::BoxConstruction;
 
-        assert_eq!(
-            compiler_known_operation_unavailable(storage, target, role),
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Type(storage),
-                SemanticQueryViolation::CompilerKnownOperationUnavailable {
-                    storage,
-                    target,
-                    role,
-                },
-            ))
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compiler_known_operation_unavailable(storage, target, role)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("CompilerKnownOperationUnavailable"));
     }
 
     #[test]
@@ -220,12 +214,14 @@ mod tests {
             panic!("test compiler-known declaration key must be valid");
         };
 
-        assert_eq!(
-            compiler_known_declaration_unavailable(&key),
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::CompilerKnownDeclaration(key),
-                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-            ))
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compiler_known_declaration_unavailable(&key)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("Missing"));
     }
 }

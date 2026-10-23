@@ -232,12 +232,9 @@ impl super::super::Compilation {
         }
 
         let candidates = if matched.is_empty() {
-            ImplementationCandidateSet::try_new(key, []).map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::ImplementationCandidateSet {
-                    requirement: key,
-                    cause,
-                }
-            })?
+            ImplementationCandidateSet::try_new(key, []).unwrap_or_else(|cause| {
+                panic!("semantic ImplementationCandidateSet construction failed: requirement={:?}, cause={:?}", key, cause)
+            })
         } else {
             let coherence = ImplementationCoherenceEvidence::try_new(
                 key,
@@ -249,12 +246,9 @@ impl super::super::Compilation {
                     )
                 }),
             )
-            .map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::ImplementationCoherenceEvidence {
-                    requirement: key,
-                    cause,
-                }
-            })?;
+            .unwrap_or_else(|cause| {
+                panic!("semantic ImplementationCoherenceEvidence construction failed: requirement={:?}, cause={:?}", key, cause)
+            });
 
             let candidates = matched.into_iter().map(|(header, substitution)| {
                 let implementation = header.implementation();
@@ -268,25 +262,16 @@ impl super::super::Compilation {
                     header.target_dependencies().iter().cloned(),
                     coherence.clone(),
                 )
-                .map_err(|cause| {
-                    crate::compilation::SemanticQueryFailure::ImplementationCandidate {
-                        requirement: key,
-                        implementation,
-                        cause,
-                    }
+                .unwrap_or_else(|cause| {
+                    panic!("semantic ImplementationCandidate construction failed: requirement={:?}, implementation={:?}, cause={:?}", key, implementation, cause)
                 })
             });
 
-            let candidates = candidates
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(FactQueryError::from)?;
+            let candidates = candidates.collect::<Vec<_>>();
 
-            ImplementationCandidateSet::try_new(key, candidates).map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::ImplementationCandidateSet {
-                    requirement: key,
-                    cause,
-                }
-            })?
+            ImplementationCandidateSet::try_new(key, candidates).unwrap_or_else(|cause| {
+                panic!("semantic ImplementationCandidateSet construction failed: requirement={:?}, cause={:?}", key, cause)
+            })
         };
 
         Ok(DiagnosticResult::new(candidates, diagnostics))

@@ -3,8 +3,7 @@ use bray_diagnostics::{
 };
 
 use super::diagnostic_context::{
-    count_field, identity_field, identity_list_field, natural_field, signed_field, text_field,
-    text_list_field,
+    count_field, identity_field, natural_field, signed_field, text_field,
 };
 
 use crate::fact::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
@@ -15,32 +14,6 @@ pub(crate) fn diagnostic_fact_runtime_failure(
     use FactRuntimeFailure as Failure;
 
     let (reason, context) = match error.cause() {
-        Failure::SynchronizationPoisoned {
-            component,
-            fact,
-            task,
-        } => {
-            let mut context = vec![text_field(
-                "component",
-                synchronization_component_key(*component),
-            )];
-
-            push_optional_fact(&mut context, "fact_kind", "fact_identity", fact.as_ref());
-            push_optional_task(&mut context, "task", *task);
-
-            ("synchronization_poisoned", context)
-        }
-        Failure::SchedulerResultStatePoisoned { item } => {
-            let mut context = Vec::new();
-
-            push_optional_natural(&mut context, "item", *item);
-
-            ("scheduler_result_state_poisoned", context)
-        }
-        Failure::UnitIdentityStatePoisoned { unit } => (
-            "unit_identity_state_poisoned",
-            vec![identity_field("unit", unit)],
-        ),
         Failure::CapacityExhausted {
             resource,
             fact,
@@ -58,124 +31,10 @@ pub(crate) fn diagnostic_fact_runtime_failure(
             workers,
             host,
         } => worker_pool_creation_context(*pool, *workers, host.as_ref()),
-        Failure::WorkerTerminated { worker, item } => {
-            let mut context = Vec::new();
-
-            push_optional_natural(&mut context, "worker", *worker);
-            push_optional_natural(&mut context, "item", *item);
-
-            ("worker_terminated", context)
-        }
-        Failure::InvalidTaskState {
-            operation,
-            expected,
-            actual,
-            task,
-            fact,
-        } => {
-            let mut context = vec![
-                text_field("operation", task_operation_key(*operation)),
-                text_field("expected_phase", task_phase_key(*expected)),
-                text_field("actual_phase", task_phase_key(*actual)),
-                task_field("task", *task),
-            ];
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("invalid_task_state", context)
-        }
-        Failure::InvalidSchedulerState {
-            counter,
-            expected_minimum,
-            actual,
-        } => (
-            "invalid_scheduler_state",
-            vec![
-                text_field("counter", scheduler_counter_key(*counter)),
-                natural_field("expected_minimum", *expected_minimum),
-                natural_field("actual", *actual),
-            ],
-        ),
-        Failure::InvalidTaskContext {
-            expected_runtime,
-            actual,
-        } => invalid_task_context(expected_runtime.0, actual),
-        Failure::TaskLocalStateUnavailable { operation, cause } => (
-            "task_local_state_unavailable",
-            vec![
-                text_field("operation", task_local_operation_key(*operation)),
-                text_field("cause", local_state_failure_key(*cause)),
-            ],
-        ),
-        Failure::SchedulerLocalStateUnavailable { operation, cause } => (
-            "scheduler_local_state_unavailable",
-            vec![
-                text_field("operation", scheduler_local_operation_key(*operation)),
-                text_field("cause", local_state_failure_key(*cause)),
-            ],
-        ),
-        Failure::AbandonedComputation { task, fact } => {
-            let mut context = vec![task_field("task", *task)];
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("abandoned_computation", context)
-        }
-        Failure::InvalidWaitGraph {
-            requester,
-            owner,
-            missing_predecessor,
-            requested,
-        } => {
-            let mut context = vec![
-                task_field("requester", *requester),
-                task_field("owner", *owner),
-                task_field("missing_predecessor", *missing_predecessor),
-            ];
-
-            push_fact(
-                &mut context,
-                "requested_fact_kind",
-                "requested_fact_identity",
-                requested,
-            );
-
-            ("invalid_wait_graph", context)
-        }
-        Failure::MissingCycle {
-            runtime,
-            fact,
-            active,
-        } => missing_cycle_context(runtime.0, fact, active),
-        Failure::InvalidCancellationState { expected, actual } => (
-            "invalid_cancellation_state",
-            vec![
-                text_field("expected", cancellation_state_key(*expected)),
-                text_field("actual", cancellation_state_key(*actual)),
-            ],
-        ),
-        Failure::RecursiveCancellationInterest => ("recursive_cancellation_interest", Vec::new()),
-        Failure::InvalidFrozenFact { fact } => {
-            let mut context = Vec::new();
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("invalid_frozen_fact", context)
-        }
-        Failure::InvalidUnitQueryKey { fact, unit } => {
-            let mut context = vec![identity_field("unit", unit)];
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("invalid_unit_query_key", context)
-        }
         Failure::UnitSourceCapacityExhausted { source_count } => (
             "unit_source_capacity_exhausted",
             vec![natural_field("source_count", *source_count)],
         ),
-        Failure::UnknownUnitSource { unit } => {
-            ("unknown_unit_source", vec![identity_field("unit", unit)])
-        }
         Failure::UnitIdentityCapacityExhausted {
             unit,
             source_ordinal,
@@ -184,18 +43,6 @@ pub(crate) fn diagnostic_fact_runtime_failure(
             vec![
                 identity_field("unit", unit),
                 count_field("source_ordinal", u64::from(*source_ordinal)),
-            ],
-        ),
-        Failure::UnitIdentityCollision {
-            identity,
-            expected,
-            actual,
-        } => (
-            "unit_identity_collision",
-            vec![
-                identity_field("identity", identity),
-                identity_field("expected", expected),
-                identity_field("actual", actual),
             ],
         ),
     };
@@ -227,45 +74,6 @@ fn worker_pool_creation_context(
     }
 
     ("worker_pool_creation", context)
-}
-
-fn invalid_task_context(
-    expected_runtime: usize,
-    actual: &crate::fact::TaskContextIdentity,
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    let mut context = vec![
-        natural_field("expected_runtime", expected_runtime),
-        natural_field("actual_runtime", actual.runtime.0),
-        task_field("actual_task", actual.task),
-    ];
-
-    push_fact(
-        &mut context,
-        "actual_fact_kind",
-        "actual_fact_identity",
-        &actual.fact,
-    );
-
-    ("invalid_task_context", context)
-}
-
-fn missing_cycle_context(
-    runtime: usize,
-    fact: &CompilationFactKey,
-    active: &[CompilationFactKey],
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    let mut context = vec![natural_field("runtime", runtime)];
-
-    push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-    context.push(text_list_field(
-        "active_fact_kinds",
-        active.iter().map(compilation_fact_kind),
-    ));
-
-    context.push(identity_list_field("active_fact_identities", active.iter()));
-
-    ("missing_cycle", context)
 }
 
 fn push_fact(
@@ -303,30 +111,6 @@ fn push_optional_task(
     }
 }
 
-fn push_optional_natural(
-    context: &mut Vec<DiagnosticFailureField>,
-    name: &'static str,
-    value: Option<usize>,
-) {
-    if let Some(value) = value {
-        context.push(natural_field(name, value));
-    }
-}
-
-fn synchronization_component_key(value: crate::fact::SynchronizationComponent) -> &'static str {
-    use crate::fact::SynchronizationComponent as Value;
-
-    match value {
-        Value::CancellationInterests => "cancellation_interests",
-        Value::CellMap => "cell_map",
-        Value::EmbeddedConstantExpectations => "embedded_constant_expectations",
-        Value::FactCell => "fact_cell",
-        Value::RuntimeDependencies => "runtime_dependencies",
-        Value::SchedulerSlots => "scheduler_slots",
-        Value::TaskDependencies => "task_dependencies",
-    }
-}
-
 fn capacity_resource_key(value: crate::fact::CapacityResource) -> &'static str {
     use crate::fact::CapacityResource as Value;
 
@@ -346,70 +130,6 @@ fn worker_pool_key(value: crate::fact::WorkerPoolKind) -> &'static str {
     match value {
         crate::fact::WorkerPoolKind::Interactive => "interactive",
         crate::fact::WorkerPoolKind::Ordinary => "ordinary",
-    }
-}
-
-fn task_phase_key(value: crate::fact::FactTaskPhase) -> &'static str {
-    match value {
-        crate::fact::FactTaskPhase::Recording => "recording",
-        crate::fact::FactTaskPhase::Finished => "finished",
-        crate::fact::FactTaskPhase::Discarded => "discarded",
-    }
-}
-
-fn task_operation_key(value: crate::fact::TaskOperation) -> &'static str {
-    use crate::fact::TaskOperation as Value;
-
-    match value {
-        Value::Finish => "finish",
-        Value::RecordFact => "record_fact",
-        Value::RecordFixedInput => "record_fixed_input",
-        Value::RecordFrozenFact => "record_frozen_fact",
-        Value::RecordInput => "record_input",
-    }
-}
-
-fn task_local_operation_key(value: crate::fact::TaskLocalOperation) -> &'static str {
-    use crate::fact::TaskLocalOperation as Value;
-
-    match value {
-        Value::Capture => "capture",
-        Value::Current => "current",
-        Value::Cycle => "cycle",
-        Value::Enter => "enter",
-        Value::Replace => "replace",
-    }
-}
-
-fn scheduler_local_operation_key(value: crate::fact::SchedulerLocalOperation) -> &'static str {
-    use crate::fact::SchedulerLocalOperation as Value;
-
-    match value {
-        Value::CurrentPriority => "current_priority",
-        Value::Enter => "enter",
-        Value::Inspect => "inspect",
-    }
-}
-
-fn scheduler_counter_key(value: crate::fact::SchedulerCounter) -> &'static str {
-    match value {
-        crate::fact::SchedulerCounter::ActiveSlots => "active_slots",
-        crate::fact::SchedulerCounter::InteractiveWaiters => "interactive_waiters",
-        crate::fact::SchedulerCounter::OrdinaryWaiters => "ordinary_waiters",
-    }
-}
-
-fn local_state_failure_key(value: crate::fact::LocalStateFailure) -> &'static str {
-    match value {
-        crate::fact::LocalStateFailure::BorrowConflict => "borrow_conflict",
-        crate::fact::LocalStateFailure::Unavailable => "unavailable",
-    }
-}
-
-fn cancellation_state_key(value: crate::fact::CancellationStateKind) -> &'static str {
-    match value {
-        crate::fact::CancellationStateKind::Request => "request",
-        crate::fact::CancellationStateKind::Shared => "shared",
     }
 }
 

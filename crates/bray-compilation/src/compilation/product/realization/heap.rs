@@ -108,12 +108,12 @@ impl Compilation {
             })?;
 
         let GenericArgument::Type(element) = argument else {
-            return Err(ProductQueryFailure::UnexpectedKind {
-                context: ProductQueryContext::Symbol((*parameter).into()),
-                expected: crate::compilation::ProductValueKind::GenericTypeArgument,
-                actual: crate::compilation::ProductValueKind::ConstantArgument,
-            }
-            .into());
+            panic!(
+                "product UnexpectedKind construction failed: context={:?}, expected={:?}, actual={:?}",
+                ProductQueryContext::Symbol((*parameter).into()),
+                crate::compilation::ProductValueKind::GenericTypeArgument,
+                crate::compilation::ProductValueKind::ConstantArgument
+            );
         };
 
         let signature = self.codegen_instance_signature(instance, cancellation)?;
@@ -124,22 +124,22 @@ impl Compilation {
             },
         ] = signature.parameters()
         else {
-            return Err(ProductQueryFailure::Conflict {
-                context: ProductQueryContext::CallableData(callable),
-                data: ProductDataKind::CallableParameters,
-            }
-            .into());
+            panic!(
+                "product Conflict construction failed: context={:?}, data={:?}",
+                ProductQueryContext::CallableData(callable),
+                ProductDataKind::CallableParameters
+            );
         };
 
         let result = match signature.result() {
             CodegenResultMapping::Direct { ty, .. } => Some(*ty),
             CodegenResultMapping::Void => None,
             CodegenResultMapping::Indirect { .. } => {
-                return Err(ProductQueryFailure::Conflict {
-                    context: ProductQueryContext::CallableData(callable),
-                    data: ProductDataKind::ResultRepresentation,
-                }
-                .into());
+                panic!(
+                    "product Conflict construction failed: context={:?}, data={:?}",
+                    ProductQueryContext::CallableData(callable),
+                    ProductDataKind::ResultRepresentation
+                );
             }
         };
 

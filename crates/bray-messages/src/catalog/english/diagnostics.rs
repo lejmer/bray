@@ -47,8 +47,7 @@ const CODEGEN_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CODEGEN_BACKEND_LIBRARY_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(super::INTERNAL_COMPILER_ERROR),
-    MessageTemplatePart::Text(": native-code generation failed for target "),
+    MessageTemplatePart::Text("native-code generation failed for target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
     MessageTemplatePart::Text(": native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
@@ -97,7 +96,7 @@ const EMISSION_TARGET_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" but the compilation selected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetTriple),
 ];
-const CHECKING_COMPILER_DEFECT: &[MessageTemplatePart] =
+const CHECKING_CAPACITY_EXCEEDED: &[MessageTemplatePart] =
     &[MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure)];
 const EMISSION_PRODUCT_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("cannot emit requested product "),
@@ -1907,20 +1906,10 @@ const NOTE_PUBLIC_DEPENDENCY_REQUIRED: &[MessageTemplatePart] = &[MessageTemplat
     "make the exposed declaration public or remove it from the public declaration's signature or contract",
 )];
 
-const NOTE_REPORT_COMPILER_DEFECT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "report this compiler defect with the command and complete diagnostic output",
-)];
-
 const NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
         "correct the errors reported by the native linker, then build again",
     )];
-
-const NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "fix any earlier errors and build again. If no earlier error appears, report this compiler issue with the command and complete diagnostic output",
-    ),
-];
 
 const NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "provide a type annotation or use the expression where an expected type is known",
@@ -1994,8 +1983,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UnicodeEscapeMustBeScalar
         | DiagnosticNoteKind::InterfaceDependencyContext
         | DiagnosticNoteKind::LinkPlanContext
-        | DiagnosticNoteKind::AwaitDependencyUnavailable
-        | DiagnosticNoteKind::ReportCompilerDefect => RenderedDiagnosticNoteKind::Note,
+        | DiagnosticNoteKind::AwaitDependencyUnavailable => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::ReturnRequiredResult => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::ResolveFinalization => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
@@ -2047,7 +2035,6 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UniqueTestIdentityRequired
         | DiagnosticNoteKind::PublicDependencyRequired
         | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
-        | DiagnosticNoteKind::NativeProductPreparationRecovery
         | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => RenderedDiagnosticNoteKind::Help,
     }
 }
@@ -2209,7 +2196,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
         }
         DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
-        DiagnosticKind::ProjectCompilerDefect => MessageTemplate::new(PROJECT_COMMAND_FAILED),
         DiagnosticKind::ProjectInitializationIdentityInvalid => {
             MessageTemplate::new(PROJECT_INITIALIZATION_IDENTITY_INVALID)
         }
@@ -2348,7 +2334,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingIncompatibleExpressionType => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_EXPRESSION_TYPE)
         }
-        DiagnosticKind::CheckingCompilerDefect => MessageTemplate::new(CHECKING_COMPILER_DEFECT),
+        DiagnosticKind::CheckingCapacityExceeded => {
+            MessageTemplate::new(CHECKING_CAPACITY_EXCEEDED)
+        }
         DiagnosticKind::CheckingIncompatiblePattern => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_PATTERN)
         }
@@ -3164,9 +3152,6 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::ExternalToolExitRequiresCorrection => {
             MessageTemplate::new(NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION)
         }
-        DiagnosticNoteKind::NativeProductPreparationRecovery => {
-            MessageTemplate::new(NOTE_NATIVE_PRODUCT_PREPARATION_RECOVERY)
-        }
         DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
             MessageTemplate::new(NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE)
         }
@@ -3217,9 +3202,6 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "Return the declared result on every path that completes normally.",
             )])
-        }
-        DiagnosticNoteKind::ReportCompilerDefect => {
-            MessageTemplate::new(NOTE_REPORT_COMPILER_DEFECT)
         }
     }
 }

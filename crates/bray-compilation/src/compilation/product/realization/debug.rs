@@ -15,12 +15,12 @@ impl Compilation {
     ) -> Result<Vec<CodegenDebugLocation>, CodegenPreparationError> {
         let mut sources = BTreeMap::new();
 
-        let generated_file = CodegenSourceFile::try_new("generated.bray").ok_or_else(|| {
-            ProductQueryFailure::InvalidCodegenSourceFile {
-                source: None,
-                path: "generated.bray".to_owned(),
-            }
-        })?;
+        let generated_file = CodegenSourceFile::try_new("generated.bray").unwrap_or_else(|| {
+            panic!(
+                "product InvalidCodegenSourceFile construction failed: path={:?}",
+                "generated.bray".to_owned()
+            )
+        });
 
         let mut locations = Vec::new();
 
@@ -36,11 +36,7 @@ impl Compilation {
 
                         let source = source
                             .filter(|source| source.version() == source_anchor.source_version())
-                            .ok_or_else(|| ProductQueryFailure::SourceSnapshotMismatch {
-                                source: syntax.source_id(),
-                                expected: source_anchor.source_version(),
-                                actual: actual_version,
-                            })?;
+                            .unwrap_or_else(|| panic!("product SourceSnapshotMismatch construction failed: source={:?}, expected={:?}, actual={:?}", syntax.source_id(), source_anchor.source_version(), actual_version));
 
                         let index = LineIndex::new(source.text()).map_err(|cause| {
                             ProductQueryFailure::SourceIndex {
@@ -121,10 +117,10 @@ fn codegen_source_file(
         .unwrap_or_else(|| format!("source-{}.bray", source.identity().raw()));
 
     CodegenSourceFile::try_new(path.clone()).ok_or_else(|| {
-        ProductQueryFailure::InvalidCodegenSourceFile {
-            source: Some(source.source_id()),
-            path,
-        }
-        .into()
+        panic!(
+            "product InvalidCodegenSourceFile construction failed: source={:?}, path={:?}",
+            Some(source.source_id()),
+            path
+        )
     })
 }

@@ -17,11 +17,11 @@ pub(in crate::compilation) use codegen::{
     codegen_preparation_failure_kind, mir_content_identity, native_producer_identity,
     native_product_preparation_diagnostic,
 };
+pub use error::ProductQueryError;
 pub(crate) use error::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
     ProductTestCatalogFailureKind, ProductValueKind,
 };
-pub use error::{ProductQueryError, ProductQueryErrorKind};
 pub(in crate::compilation) use lifecycle::CodegenLifecycleNeeds;
 #[cfg(test)]
 pub(in crate::compilation) use realization::{generated_frame_symbol_name, generated_symbol_name};

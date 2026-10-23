@@ -453,10 +453,8 @@ mod tests {
 
     use super::{invalid_imported_record_set, missing_imported_template};
     use crate::compilation::binder::binding_query_error;
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::{CompilationFactKey, FactQueryError, ImportedSemanticRecordKey};
+
+    use crate::fact::ImportedSemanticRecordKey;
     use crate::test_support::{compilation_with_dependencies, encoded_semantic_dependency};
 
     #[test]
@@ -490,38 +488,31 @@ mod tests {
             .unwrap_or_else(|| panic!("imported function must retain its semantic address"));
 
         let kind = InterfaceSemanticRecordKind::CallableSignature;
-        let key = ImportedSemanticRecordKey::new(address.interface(), address.symbol(), kind);
 
-        let expected: FactQueryError = SemanticQueryFailure::contract(
-            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(key)),
-            SemanticQueryViolation::CountMismatch {
-                data: SemanticDataKind::DeclarationRecord,
-                expected: 1,
-                actual: 0,
-            },
-        )
-        .into();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            binding_query_error(invalid_imported_record_set(address, kind, &[]))
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert_eq!(
-            binding_query_error(invalid_imported_record_set(address, kind, &[])),
-            expected
-        );
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        let template_kind = InterfaceSemanticRecordKind::DeclarationTemplate;
+        assert!(message.contains("CountMismatch"));
+        assert!(message.contains("expected: 1"));
+        assert!(message.contains("actual: 0"));
 
-        let template_key =
-            ImportedSemanticRecordKey::new(address.interface(), address.symbol(), template_kind);
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            binding_query_error(missing_imported_template(
+                address,
+                InterfaceSemanticRecordKind::DeclarationTemplate,
+            ))
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let expected: FactQueryError = SemanticQueryFailure::contract(
-            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(template_key)),
-            SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
-        )
-        .into();
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            binding_query_error(missing_imported_template(address, template_kind)),
-            expected
-        );
+        assert!(message.contains("ImportedTemplate"));
 
         let records = compilation
             .imported_semantics(ImportedSemanticRecordKey::new(
@@ -529,29 +520,22 @@ mod tests {
                 address.symbol(),
                 kind,
             ))
-            .unwrap_or_else(|error| panic!("imported semantics must load: {error:?}"));
+            .unwrap();
 
-        let requested_kind = InterfaceSemanticRecordKind::GenericDeclaration;
-
-        let requested_key =
-            ImportedSemanticRecordKey::new(address.interface(), address.symbol(), requested_kind);
-
-        let expected: FactQueryError = SemanticQueryFailure::contract(
-            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(requested_key)),
-            SemanticQueryViolation::ImportedRecordKindMismatch {
-                expected: requested_kind,
-                actual: kind,
-            },
-        )
-        .into();
-
-        assert_eq!(
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             binding_query_error(invalid_imported_record_set(
                 address,
-                requested_kind,
+                InterfaceSemanticRecordKind::GenericDeclaration,
                 records.value(),
-            )),
-            expected,
-        );
+            ))
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("ImportedRecordKindMismatch"));
+        assert!(message.contains("CallableSignature"));
+        assert!(message.contains("GenericDeclaration"));
     }
 }

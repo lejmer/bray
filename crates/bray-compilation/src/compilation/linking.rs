@@ -389,7 +389,7 @@ mod tests {
             } else {
                 Err(DiagnosticBag::single(Diagnostic::new(
                     DiagnosticId::new(0),
-                    DiagnosticKind::CheckingCompilerDefect,
+                    DiagnosticKind::CheckingCapacityExceeded,
                     SeverityKind::Error,
                 )))
             }

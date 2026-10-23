@@ -1,11 +1,9 @@
 use bray_compilation::Compilation;
 use bray_diagnostics::{
-    DiagnosticBoundInspectionFailure, DiagnosticDeclarationInspectionFailure,
-    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticInspectionFailure,
-    DiagnosticInspectionFailureDetail, DiagnosticInspectionOutputFormat,
-    DiagnosticInspectionTarget, DiagnosticLoweredInspectionFailure,
-    DiagnosticSourceInspectionFailure, DiagnosticSymbolInspectionFailure,
-    DiagnosticSyntaxInspectionFailure, DiagnosticTokenInspectionFailure,
+    DiagnosticBoundInspectionFailure, DiagnosticFailureField, DiagnosticFailureValue,
+    DiagnosticInspectionFailure, DiagnosticInspectionFailureDetail,
+    DiagnosticInspectionOutputFormat, DiagnosticInspectionTarget,
+    DiagnosticLoweredInspectionFailure, DiagnosticSymbolInspectionFailure,
 };
 
 use crate::{InspectionTarget, OutputFormat};
@@ -151,82 +149,47 @@ const fn diagnostic_target(target: InspectionTarget) -> DiagnosticInspectionTarg
 
 fn source_inspection_failure(
     error: SourceInspectionRenderError,
-) -> DiagnosticSourceInspectionFailure {
+) -> DiagnosticInspectionFailureDetail {
     match error {
         SourceInspectionRenderError::Capacity { resource, actual } => {
-            DiagnosticSourceInspectionFailure::Detail(capacity_detail(resource, actual))
+            capacity_detail(resource, actual)
         }
-        SourceInspectionRenderError::SourceIndex => DiagnosticSourceInspectionFailure::SourceIndex,
-        SourceInspectionRenderError::SourceIndexOverflow(error) => {
-            DiagnosticSourceInspectionFailure::Detail(source_overflow_detail(error))
+        SourceInspectionRenderError::SourceIndexOverflow(error) => source_overflow_detail(error),
+        SourceInspectionRenderError::Json(report) => {
+            report_detail("source_inspection_json", report)
         }
-        SourceInspectionRenderError::Json(report) => DiagnosticSourceInspectionFailure::Detail(
-            report_detail("source_inspection_json", report),
-        ),
     }
 }
 
-fn token_inspection_failure(error: TokenInspectionRenderError) -> DiagnosticTokenInspectionFailure {
+fn token_inspection_failure(
+    error: TokenInspectionRenderError,
+) -> DiagnosticInspectionFailureDetail {
     match error {
-        TokenInspectionRenderError::SourceIndex => DiagnosticTokenInspectionFailure::SourceIndex,
-        TokenInspectionRenderError::SourceIndexOverflow(error) => {
-            DiagnosticTokenInspectionFailure::Detail(source_overflow_detail(error))
-        }
-        TokenInspectionRenderError::TokenText => DiagnosticTokenInspectionFailure::TokenText,
-        TokenInspectionRenderError::TriviaText => DiagnosticTokenInspectionFailure::TriviaText,
-        TokenInspectionRenderError::Json(report) => {
-            DiagnosticTokenInspectionFailure::Detail(report_detail("token_inspection_json", report))
-        }
+        TokenInspectionRenderError::SourceIndexOverflow(error) => source_overflow_detail(error),
+        TokenInspectionRenderError::Json(report) => report_detail("token_inspection_json", report),
     }
 }
 
 fn syntax_inspection_failure(
     error: SyntaxInspectionRenderError,
-) -> DiagnosticSyntaxInspectionFailure {
+) -> DiagnosticInspectionFailureDetail {
     match error {
-        SyntaxInspectionRenderError::SourceIndex => DiagnosticSyntaxInspectionFailure::SourceIndex,
-        SyntaxInspectionRenderError::SourceIndexOverflow(error) => {
-            DiagnosticSyntaxInspectionFailure::Detail(source_overflow_detail(error))
+        SyntaxInspectionRenderError::SourceIndexOverflow(error) => source_overflow_detail(error),
+        SyntaxInspectionRenderError::Json(report) => {
+            report_detail("syntax_inspection_json", report)
         }
-        SyntaxInspectionRenderError::SourceMismatch => {
-            DiagnosticSyntaxInspectionFailure::SourceMismatch
-        }
-        SyntaxInspectionRenderError::TokenText => DiagnosticSyntaxInspectionFailure::TokenText,
-        SyntaxInspectionRenderError::TriviaText => DiagnosticSyntaxInspectionFailure::TriviaText,
-        SyntaxInspectionRenderError::TreeStructure => {
-            DiagnosticSyntaxInspectionFailure::TreeStructure
-        }
-        SyntaxInspectionRenderError::Json(report) => DiagnosticSyntaxInspectionFailure::Detail(
-            report_detail("syntax_inspection_json", report),
-        ),
     }
 }
 
 fn declaration_inspection_failure(
     error: DeclarationInspectionRenderError,
-) -> DiagnosticDeclarationInspectionFailure {
+) -> DiagnosticInspectionFailureDetail {
     match error {
-        DeclarationInspectionRenderError::Container => {
-            DiagnosticDeclarationInspectionFailure::Container
-        }
-        DeclarationInspectionRenderError::Declaration => {
-            DiagnosticDeclarationInspectionFailure::Declaration
-        }
-        DeclarationInspectionRenderError::ModulePart => {
-            DiagnosticDeclarationInspectionFailure::ModulePart
-        }
-        DeclarationInspectionRenderError::Source => DiagnosticDeclarationInspectionFailure::Source,
-        DeclarationInspectionRenderError::SourceIndex => {
-            DiagnosticDeclarationInspectionFailure::SourceIndex
-        }
         DeclarationInspectionRenderError::SourceIndexOverflow(error) => {
-            DiagnosticDeclarationInspectionFailure::Detail(source_overflow_detail(error))
+            source_overflow_detail(error)
         }
         DeclarationInspectionRenderError::Json(report) => {
-            DiagnosticDeclarationInspectionFailure::Detail(report_detail(
-                "declaration_inspection_json",
-                report,
-            ))
+            report_detail("declaration_inspection_json", report)
         }
     }
 }
@@ -235,26 +198,17 @@ fn symbol_inspection_failure(
     error: SymbolInspectionRenderError,
 ) -> DiagnosticSymbolInspectionFailure {
     match error {
-        SymbolInspectionRenderError::Declaration => DiagnosticSymbolInspectionFailure::Declaration,
         SymbolInspectionRenderError::Evaluation(error) => {
             DiagnosticSymbolInspectionFailure::Evaluation(error.diagnostic_evaluation_failure())
         }
         SymbolInspectionRenderError::Json(report) => DiagnosticSymbolInspectionFailure::Detail(
             report_detail("symbol_inspection_json", report),
         ),
-        SymbolInspectionRenderError::Source(error) => source_error_detail(error).map_or(
-            DiagnosticSymbolInspectionFailure::Source,
-            DiagnosticSymbolInspectionFailure::Detail,
-        ),
-        SymbolInspectionRenderError::SourceIndex => DiagnosticSymbolInspectionFailure::SourceIndex,
         SymbolInspectionRenderError::SourceIndexOverflow(error) => {
             DiagnosticSymbolInspectionFailure::Detail(source_overflow_detail(error))
         }
-        SymbolInspectionRenderError::Symbol => DiagnosticSymbolInspectionFailure::Symbol,
-        SymbolInspectionRenderError::SymbolCycle => DiagnosticSymbolInspectionFailure::SymbolCycle,
-        SymbolInspectionRenderError::Type(_) => DiagnosticSymbolInspectionFailure::Type,
-        SymbolInspectionRenderError::UnsupportedRelationship => {
-            DiagnosticSymbolInspectionFailure::UnsupportedRelationship
+        SymbolInspectionRenderError::Type(error) => {
+            DiagnosticSymbolInspectionFailure::Detail(type_error_detail(error))
         }
     }
 }
@@ -267,18 +221,13 @@ fn bound_inspection_failure(error: BoundInspectionRenderError) -> DiagnosticBoun
         BoundInspectionRenderError::Json(report) => {
             DiagnosticBoundInspectionFailure::Detail(report_detail("bound_inspection_json", report))
         }
-        BoundInspectionRenderError::MissingNode => DiagnosticBoundInspectionFailure::MissingNode,
-        BoundInspectionRenderError::Source(error) => source_error_detail(error).map_or(
-            DiagnosticBoundInspectionFailure::Source,
-            DiagnosticBoundInspectionFailure::Detail,
-        ),
-        BoundInspectionRenderError::SourceIndex => DiagnosticBoundInspectionFailure::SourceIndex,
+        BoundInspectionRenderError::Source => DiagnosticBoundInspectionFailure::Source,
         BoundInspectionRenderError::SourceIndexOverflow(error) => {
             DiagnosticBoundInspectionFailure::Detail(source_overflow_detail(error))
         }
-        BoundInspectionRenderError::Symbol => DiagnosticBoundInspectionFailure::Symbol,
-        BoundInspectionRenderError::Type(_) => DiagnosticBoundInspectionFailure::Type,
-        BoundInspectionRenderError::Selection(_) => DiagnosticBoundInspectionFailure::Selection,
+        BoundInspectionRenderError::Type(error) => {
+            DiagnosticBoundInspectionFailure::Detail(type_error_detail(error))
+        }
         BoundInspectionRenderError::Capacity { resource, actual } => {
             DiagnosticBoundInspectionFailure::Detail(capacity_detail(resource, actual))
         }
@@ -295,14 +244,10 @@ fn lowered_inspection_failure(
         LoweredInspectionRenderError::Json(report) => DiagnosticLoweredInspectionFailure::Detail(
             report_detail("lowered_inspection_json", report),
         ),
-        LoweredInspectionRenderError::Model(error) => mir_model_error_detail(error).map_or(
-            DiagnosticLoweredInspectionFailure::Model,
-            DiagnosticLoweredInspectionFailure::Detail,
-        ),
-        LoweredInspectionRenderError::Source(error) => source_error_detail(error).map_or(
-            DiagnosticLoweredInspectionFailure::Source,
-            DiagnosticLoweredInspectionFailure::Detail,
-        ),
+        LoweredInspectionRenderError::Model(super::lowered::MirInspectionModelError::Type(
+            error,
+        )) => DiagnosticLoweredInspectionFailure::Detail(type_error_detail(error)),
+        LoweredInspectionRenderError::Source => DiagnosticLoweredInspectionFailure::Source,
         LoweredInspectionRenderError::SourceIndexOverflow(error) => {
             DiagnosticLoweredInspectionFailure::Detail(source_overflow_detail(error))
         }
@@ -319,6 +264,20 @@ fn source_overflow_detail(
     capacity_detail("source_text_bytes", error.bytes())
 }
 
+fn type_error_detail(
+    error: super::types::TypeInspectionError,
+) -> DiagnosticInspectionFailureDetail {
+    match error {
+        super::types::TypeInspectionError::Depth => inspection_detail(
+            "inspection_resource_limit",
+            [
+                text_field("resource", "type_depth"),
+                text_field("maximum", super::types::MAXIMUM_TYPE_DEPTH.to_string()),
+            ],
+        ),
+    }
+}
+
 fn capacity_detail(resource: &'static str, actual: usize) -> DiagnosticInspectionFailureDetail {
     inspection_detail(
         "inspection_resource_limit",
@@ -327,35 +286,6 @@ fn capacity_detail(resource: &'static str, actual: usize) -> DiagnosticInspectio
             text_field("actual", actual.to_string()),
         ],
     )
-}
-
-fn source_error_detail(
-    error: super::support::InspectionSourceError,
-) -> Option<DiagnosticInspectionFailureDetail> {
-    match error {
-        super::support::InspectionSourceError::Source
-        | super::support::InspectionSourceError::SourceIndex => None,
-        super::support::InspectionSourceError::SourceIndexOverflow(error) => {
-            Some(source_overflow_detail(error))
-        }
-    }
-}
-
-fn mir_model_error_detail(
-    error: super::lowered::MirInspectionModelError,
-) -> Option<DiagnosticInspectionFailureDetail> {
-    use super::lowered::MirInspectionModelError as Error;
-
-    match error {
-        Error::InvalidGeneratedLifecycle => Some(inspection_detail(
-            "mir_inspection_invalid_generated_lifecycle",
-            [],
-        )),
-        Error::MissingOperation => Some(inspection_detail("mir_inspection_missing_operation", [])),
-        Error::MissingSymbol => Some(inspection_detail("mir_inspection_missing_symbol", [])),
-        Error::Source(error) => source_error_detail(error),
-        Error::Type(_) => None,
-    }
 }
 
 fn inspection_detail<const N: usize>(

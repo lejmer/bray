@@ -12,7 +12,6 @@ pub(crate) enum SourceInspectionRenderError {
         resource: &'static str,
         actual: usize,
     },
-    SourceIndex,
     SourceIndexOverflow(TextSizeOverflow),
     Json(String),
 }
@@ -102,7 +101,7 @@ fn line_start_offsets(index: &LineIndex) -> Result<Vec<u32>, SourceInspectionRen
 
         let start = index
             .line_start(line)
-            .ok_or(SourceInspectionRenderError::SourceIndex)?;
+            .expect("retained source.rs relationships must provide SourceIndex");
 
         starts.push(start.bytes());
     }

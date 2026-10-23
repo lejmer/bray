@@ -151,7 +151,7 @@ impl Compilation {
         let catalog_product = product.clone();
 
         let catalog = TestCatalog::try_new(product, entries.iter().map(|(entry, _)| entry.clone()))
-            .map_err(|cause| {
+            .unwrap_or_else(|cause| {
                 let (identity, cause) = match cause {
                     bray_test_protocol::TestCatalogBuildError::ProductMismatch(identity) => {
                         (identity, ProductTestCatalogFailureKind::ProductMismatch)
@@ -165,12 +165,8 @@ impl Compilation {
                     ),
                 };
 
-                ProductQueryFailure::TestCatalog {
-                    product: catalog_product,
-                    identity,
-                    cause,
-                }
-            })?;
+                panic!("product TestCatalog construction failed: product={:?}, identity={:?}, cause={:?}", catalog_product, identity, cause)
+            });
 
         let discovery = TestDiscovery::new(
             catalog,
@@ -187,8 +183,12 @@ impl Compilation {
 }
 
 fn error_type_identity(digest: [u8; 32]) -> Result<TestErrorTypeIdentity, FactQueryError> {
-    TestErrorTypeIdentity::try_new(lowercase_hex(&digest))
-        .ok_or_else(|| ProductQueryFailure::InvalidTestErrorTypeIdentity { digest }.into())
+    TestErrorTypeIdentity::try_new(lowercase_hex(&digest)).ok_or_else(|| {
+        panic!(
+            "product InvalidTestErrorTypeIdentity construction failed: digest={:?}",
+            digest
+        )
+    })
 }
 
 #[cfg(test)]

@@ -5,8 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{
     CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError,
-    FactRuntimeFailure, FactTaskPhase, LocalStateFailure, TaskContextIdentity, TaskLocalOperation,
-    TaskOperation,
+    FactTaskPhase, LocalStateFailure, TaskLocalOperation, TaskOperation,
 };
 
 thread_local! {
@@ -76,7 +75,7 @@ impl FactTaskContext {
     }
 
     pub(crate) fn finish(&self) -> Result<RecordedDependencies, FactQueryError> {
-        let mut state = self.state()?;
+        let mut state = self.state();
 
         if state.phase != FactTaskPhase::Recording {
             return Err(self.invalid_state(TaskOperation::Finish, state.phase));
@@ -93,9 +92,13 @@ impl FactTaskContext {
     }
 
     pub(crate) fn discard(&self) {
-        // Cleanup cannot report failure from Drop paths. A poisoned task is already unavailable
-        // to every fallible operation through `state`.
+        // Preserve an existing unwind if task cleanup also encounters poisoned state.
         let Ok(mut state) = self.data.state.lock() else {
+            assert!(
+                std::thread::panicking(),
+                "query guard state must remain unpoisoned"
+            );
+
             return;
         };
 
@@ -121,7 +124,7 @@ impl FactTaskContext {
     }
 
     fn record(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
-        let mut state = self.state()?;
+        let mut state = self.state();
 
         if state.phase != FactTaskPhase::Recording {
             return Err(self.invalid_state(TaskOperation::RecordFact, state.phase));
@@ -138,7 +141,7 @@ impl FactTaskContext {
         key: &CompilationInputKey,
         fingerprint: FactFingerprint,
     ) -> Result<(), FactQueryError> {
-        let mut state = self.state()?;
+        let mut state = self.state();
 
         if state.phase != FactTaskPhase::Recording {
             return Err(self.invalid_state(TaskOperation::RecordInput, state.phase));
@@ -158,7 +161,7 @@ impl FactTaskContext {
     }
 
     fn record_fixed_input(&self, bit: u32) -> Result<(), FactQueryError> {
-        let state = self.state()?;
+        let state = self.state();
 
         if state.phase != FactTaskPhase::Recording {
             return Err(self.invalid_state(TaskOperation::RecordFixedInput, state.phase));
@@ -170,7 +173,7 @@ impl FactTaskContext {
     }
 
     fn record_frozen_fact(&self, bit: u8) -> Result<(), FactQueryError> {
-        let state = self.state()?;
+        let state = self.state();
 
         if state.phase != FactTaskPhase::Recording {
             return Err(self.invalid_state(TaskOperation::RecordFrozenFact, state.phase));
@@ -181,27 +184,21 @@ impl FactTaskContext {
         Ok(())
     }
 
-    fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
-        self.data.state.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: super::SynchronizationComponent::TaskDependencies,
-                fact: Some(self.key().clone()),
-                task: Some(self.identity()),
-            }
-            .into()
+    fn state(&self) -> std::sync::MutexGuard<'_, FactTaskState> {
+        self.data.state.lock().unwrap_or_else(|_| {
+            panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}, task={:?}", super::SynchronizationComponent::TaskDependencies, Some(self.key()), Some(self.identity()))
         })
     }
 
     fn invalid_state(&self, operation: TaskOperation, actual: FactTaskPhase) -> FactQueryError {
-        // The failure outlives the task-state lock and therefore owns the stable fact key.
-        FactRuntimeFailure::InvalidTaskState {
+        panic!(
+            "query runtime InvalidTaskState contract failed: operation={:?}, expected={:?}, actual={:?}, task={:?}, fact={:?}",
             operation,
-            expected: FactTaskPhase::Recording,
+            FactTaskPhase::Recording,
             actual,
-            task: self.identity(),
-            fact: self.key().clone(),
-        }
-        .into()
+            self.identity(),
+            self.key()
+        )
     }
 }
 
@@ -302,15 +299,13 @@ pub(crate) fn current_context(
         };
 
         if context.data.runtime != runtime {
-            return Err(FactRuntimeFailure::InvalidTaskContext {
-                expected_runtime: runtime,
-                actual: TaskContextIdentity {
-                    runtime: context.data.runtime,
-                    task: context.identity(),
-                    fact: context.key().clone(),
-                },
-            }
-            .into());
+            panic!(
+                "query runtime InvalidTaskContext contract failed: expected_runtime={:?}, actual_runtime={:?}, task={:?}, fact={:?}",
+                runtime,
+                context.data.runtime,
+                context.identity(),
+                context.key()
+            );
         }
 
         // Scoped workers share dependency state without sharing their local context stacks.
@@ -345,16 +340,16 @@ pub(crate) fn current_cycle(
 ) -> Result<FactCycle, FactQueryError> {
     local_evaluations(TaskLocalOperation::Cycle, |active| {
         task_cycle(active, runtime, key).ok_or_else(|| {
-            FactRuntimeFailure::MissingCycle {
+            panic!(
+                "query runtime MissingCycle contract failed: runtime={:?}, fact={:?}, active={:?}",
                 runtime,
-                fact: key.clone(),
-                active: active
+                key,
+                active
                     .iter()
                     .filter(|context| context.data.runtime == runtime)
-                    .map(|context| context.data.cycle_key.clone())
-                    .collect(),
-            }
-            .into()
+                    .map(|context| &context.data.cycle_key)
+                    .collect::<Vec<_>>()
+            )
         })
     })
 }
@@ -365,19 +360,13 @@ fn local_evaluations<T>(
 ) -> Result<T, FactQueryError> {
     LOCAL_EVALUATIONS
         .try_with(|active| {
-            let mut active = active.try_borrow_mut().map_err(|_| {
-                FactRuntimeFailure::TaskLocalStateUnavailable {
-                    operation: operation_kind,
-                    cause: LocalStateFailure::BorrowConflict,
-                }
-            })?;
+            let mut active = active.try_borrow_mut().unwrap_or_else(|_| {
+                panic!("query runtime TaskLocalStateUnavailable contract failed: operation={:?}, cause={:?}", operation_kind, LocalStateFailure::BorrowConflict)
+            });
 
             operation(&mut active)
         })
-        .map_err(|_| FactRuntimeFailure::TaskLocalStateUnavailable {
-            operation: operation_kind,
-            cause: LocalStateFailure::Unavailable,
-        })?
+        .unwrap_or_else(|_| panic!("query runtime TaskLocalStateUnavailable contract failed: operation={:?}, cause={:?}", operation_kind, LocalStateFailure::Unavailable))
 }
 
 fn task_cycle(
@@ -446,10 +435,7 @@ mod tests {
     use super::{
         FactTaskContext, FactTaskIdentity, RuntimeIdentity, current_context, record_input,
     };
-    use crate::fact::{
-        CompilationFactKey, CompilationInputKey, FactQueryError, FactRuntimeFailure, FactTaskPhase,
-        TaskOperation,
-    };
+    use crate::fact::{CompilationFactKey, CompilationInputKey, TaskOperation};
 
     #[test]
     fn finished_tasks_report_the_exact_phase_and_operation() {
@@ -466,75 +452,45 @@ mod tests {
             .finish()
             .unwrap_or_else(|error| panic!("task should finish once: {error:?}"));
 
-        let error = match context.finish() {
-            Ok(_) => panic!("a finished task must reject another finish"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| context.finish()))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidTaskState {
-                        operation: TaskOperation::Finish,
-                        expected: FactTaskPhase::Recording,
-                        actual: FactTaskPhase::Finished,
-                        task: FactTaskIdentity(2),
-                        fact: CompilationFactKey::DeclarationTable,
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("InvalidTaskState"));
     }
 
     #[test]
     fn finished_tasks_reject_fixed_and_frozen_dependency_recording() {
-        let fact = CompilationFactKey::DeclarationTable;
+        for operation in [
+            TaskOperation::RecordFixedInput,
+            TaskOperation::RecordFrozenFact,
+        ] {
+            let context = FactTaskContext::with_cycle_key(
+                RuntimeIdentity(9),
+                FactTaskIdentity(10),
+                CompilationFactKey::DeclarationTable,
+                CompilationFactKey::DeclarationTable,
+            );
 
-        let context = FactTaskContext::with_cycle_key(
-            RuntimeIdentity(9),
-            FactTaskIdentity(10),
-            fact.clone(),
-            fact,
-        );
+            context.finish().unwrap();
 
-        context
-            .finish()
-            .unwrap_or_else(|error| panic!("task should finish once: {error:?}"));
+            let panic =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match operation {
+                    TaskOperation::RecordFixedInput => context.record_fixed_input(1),
+                    TaskOperation::RecordFrozenFact => context.record_frozen_fact(1),
+                    _ => unreachable!(),
+                }))
+                .err()
+                .expect("compiler invariant must panic");
 
-        let fixed = context
-            .record_fixed_input(1)
-            .expect_err("a finished task must reject fixed-input recording");
+            let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        let frozen = context
-            .record_frozen_fact(1)
-            .expect_err("a finished task must reject frozen-fact recording");
-
-        assert!(matches!(
-            fixed,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidTaskState {
-                        operation: TaskOperation::RecordFixedInput,
-                        actual: FactTaskPhase::Finished,
-                        ..
-                    }
-                )
-        ));
-
-        assert!(matches!(
-            frozen,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidTaskState {
-                        operation: TaskOperation::RecordFrozenFact,
-                        actual: FactTaskPhase::Finished,
-                        ..
-                    }
-                )
-        ));
+            assert!(message.contains(&format!("{operation:?}")));
+            assert!(message.contains("Finished"));
+            assert!(message.contains("DeclarationTable"));
+        }
     }
 
     #[test]
@@ -548,24 +504,15 @@ mod tests {
             fact,
         );
 
-        let error = match context.run(|| current_context(RuntimeIdentity(5)).map(|_| ())) {
-            Ok(()) => panic!("a foreign runtime must not capture this task"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            context.run(|| current_context(RuntimeIdentity(5)).map(|_| ()))
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidTaskContext {
-                        expected_runtime: RuntimeIdentity(5),
-                        actual,
-                    } if actual.runtime == RuntimeIdentity(3)
-                        && actual.task == FactTaskIdentity(4)
-                        && actual.fact == CompilationFactKey::SyntaxTree
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("InvalidTaskContext"));
     }
 
     #[test]

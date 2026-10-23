@@ -20,9 +20,7 @@ use super::CompilationConstantCallResolver;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
-use crate::fact::{
-    CancellationToken, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
-};
+use crate::fact::{CancellationToken, FactQueryError, SynchronizationComponent};
 
 impl Compilation {
     pub(in crate::compilation) fn embedded_constant_key(
@@ -33,7 +31,7 @@ impl Compilation {
             .state
             .embedded_constant_expectations
             .lock()
-            .map_err(|_| embedded_constant_expectations_poisoned())?;
+            .unwrap_or_else(|_| embedded_constant_expectations_poisoned());
 
         match expectations.entry(occurrence.key()) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -101,7 +99,7 @@ impl Compilation {
         self.state
             .embedded_constant_expectations
             .lock()
-            .map_err(|_| embedded_constant_expectations_poisoned())?
+            .unwrap_or_else(|_| embedded_constant_expectations_poisoned())
             .get(&occurrence)
             .copied()
             .ok_or_else(|| {
@@ -211,19 +209,22 @@ impl Compilation {
             }
         }
 
-        let checked = CheckedConstantTerms::try_from_terms(terms)
-            .map_err(|cause| SemanticQueryFailure::CheckedConstantTerms { unit: None, cause })?;
+        let checked = CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|cause| {
+            panic!(
+                "semantic CheckedConstantTerms construction failed: cause={:?}",
+                cause
+            )
+        });
 
         Ok(DiagnosticResult::new(checked, diagnostics))
     }
 }
 
-fn embedded_constant_expectations_poisoned() -> FactRuntimeFailure {
-    FactRuntimeFailure::SynchronizationPoisoned {
-        component: SynchronizationComponent::EmbeddedConstantExpectations,
-        fact: None,
-        task: None,
-    }
+fn embedded_constant_expectations_poisoned() -> ! {
+    panic!(
+        "query runtime SynchronizationPoisoned contract failed: component={:?}",
+        SynchronizationComponent::EmbeddedConstantExpectations
+    )
 }
 
 #[cfg(test)]
@@ -240,9 +241,7 @@ mod tests {
     use bray_syntax::LiteralExpressionSyntax;
 
     use super::Compilation;
-    use crate::fact::{
-        CancellationToken, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
-    };
+    use crate::fact::{CancellationToken, FactQueryError};
     use crate::request::CompilationRequest;
     use crate::test_support::package_identity;
 
@@ -253,10 +252,15 @@ mod tests {
 
         poison_embedded_constant_expectations(&compilation);
 
-        assert_eq!(
-            compilation.embedded_constant_key(occurrence),
-            Err(poisoned_expectations_error())
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.embedded_constant_key(occurrence)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("EmbeddedConstantExpectations"));
     }
 
     #[test]
@@ -266,15 +270,19 @@ mod tests {
 
         poison_embedded_constant_expectations(&compilation);
 
-        assert_eq!(
-            compilation.embedded_constant_expected_type(occurrence.key()),
-            Err(poisoned_expectations_error())
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.embedded_constant_expected_type(occurrence.key())
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("EmbeddedConstantExpectations"));
 
         let cancellation = CancellationToken::new();
 
         cancellation.cancel();
-
         assert_eq!(cancellation.check(), Err(FactQueryError::Cancelled));
     }
 
@@ -290,25 +298,25 @@ mod tests {
             ),
         );
 
-        let _ = compilation.embedded_constant_key(expected);
+        compilation
+            .state
+            .embedded_constant_expectations
+            .lock()
+            .unwrap()
+            .insert(expected.key(), expected.expected_type());
 
-        let syntax = actual.key().syntax();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.embedded_constant_key(actual)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let expected_error: FactQueryError =
-            crate::compilation::SemanticQueryFailure::located_contract(
-                crate::compilation::SemanticQueryContext::Symbol(actual.key().owner()),
-                crate::compilation::SemanticQueryViolation::ConstantExpectationMismatch {
-                    expected: expected.expected_type(),
-                    actual: actual.expected_type(),
-                },
-                bray_source::SourceSpan::new(syntax.source_id(), syntax.full_range()),
-            )
-            .into();
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            compilation.embedded_constant_key(actual),
-            Err(expected_error)
-        );
+        assert!(message.contains("ConstantExpectationMismatch"));
+        assert!(message.contains("expected"));
+        assert!(message.contains("actual"));
+        assert!(message.contains("SourceSpan"));
     }
 
     fn compilation() -> Compilation {
@@ -362,14 +370,5 @@ mod tests {
 
             panic!("poison embedded constant expectations");
         }));
-    }
-
-    fn poisoned_expectations_error() -> FactQueryError {
-        FactRuntimeFailure::SynchronizationPoisoned {
-            component: SynchronizationComponent::EmbeddedConstantExpectations,
-            fact: None,
-            task: None,
-        }
-        .into()
     }
 }

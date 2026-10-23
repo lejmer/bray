@@ -261,12 +261,12 @@ fn atomic_alignment(
     };
 
     let GenericArgument::Type(value) = binding.argument() else {
-        return Err(ForeignQueryFailure::UnexpectedGenericArgument {
+        panic!(
+            "foreign UnexpectedGenericArgument construction failed: substitution={:?}, expected={:?}, actual={:?}",
             substitution,
-            expected: bray_symbols::GenericArgumentKind::Type,
-            actual: binding.argument().kind(),
-        }
-        .into());
+            bray_symbols::GenericArgumentKind::Type,
+            binding.argument().kind()
+        );
     };
 
     let Some(representation) = compilation.atomic_representation_for_type(value, cancellation)?
@@ -415,8 +415,7 @@ mod tests {
     use super::aggregate_alignment;
     use crate::CancellationToken;
     use crate::compilation::substitution::empty_substitution;
-    use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
-    use crate::fact::FactQueryError;
+
     use crate::test_support::{
         compilation, compilation_with_dependencies, encoded_semantic_dependency,
     };
@@ -527,26 +526,21 @@ struct SharedState
         let substitution = empty_substitution(values, definition.into_any())
             .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
 
-        let error = aggregate_alignment(
-            &compilation,
-            definition,
-            substitution,
-            &CancellationToken::new(),
-        )
-        .expect_err("atomic alignment requires its element argument");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            aggregate_alignment(
+                &compilation,
+                definition,
+                substitution,
+                &CancellationToken::new(),
+            )
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let FactQueryError::Foreign(error) = error else {
-            panic!("atomic alignment must retain a foreign query failure: {error:?}");
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            error.cause(),
-            &ForeignQueryFailure::CountMismatch {
-                context: ForeignQueryContext::Substitution(substitution),
-                data: ForeignDataKind::UnaryRepresentationArgument,
-                expected: 1,
-                actual: 0,
-            }
-        );
+        assert!(message.contains("count_mismatch"));
+        assert!(message.contains("expected=1"));
+        assert!(message.contains("actual=0"));
     }
 }

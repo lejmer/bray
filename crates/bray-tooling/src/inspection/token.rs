@@ -7,9 +7,9 @@ use serde::Serialize;
 
 use crate::OutputFormat;
 use crate::inspection::{
-    InspectionOutput, InspectionTrivia, InspectionTriviaError, escaped_text, location_for_range,
-    location_start_text, push_indented_report_value, push_report_value, push_text_diagnostic,
-    quoted_text, range_text, render_pretty_json, trivia_entries, trivia_summary,
+    InspectionOutput, InspectionTrivia, escaped_text, location_for_range, location_start_text,
+    push_indented_report_value, push_report_value, push_text_diagnostic, quoted_text, range_text,
+    render_pretty_json, trivia_entries, trivia_summary,
 };
 use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
@@ -17,10 +17,7 @@ use crate::output::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TokenInspectionRenderError {
-    SourceIndex,
     SourceIndexOverflow(TextSizeOverflow),
-    TokenText,
-    TriviaText,
     Json(String),
 }
 
@@ -106,7 +103,7 @@ impl TokenInspectionSource {
         let tokens = lexed_tokens
             .iter()
             .map(|token| TokenInspectionToken::from_token(snapshot, &line_index, token))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         let diagnostic_count = diagnostics.len();
         let diagnostic_json = diagnostic_jsons(&diagnostics, Some(sources));
@@ -143,35 +140,25 @@ struct TokenInspectionToken {
 }
 
 impl TokenInspectionToken {
-    fn from_token(
-        snapshot: &SourceSnapshot,
-        line_index: &LineIndex,
-        token: &SyntaxToken,
-    ) -> Result<Self, TokenInspectionRenderError> {
-        let text = match token.text(snapshot.text()) {
-            Some(text) => text,
-            None => return Err(TokenInspectionRenderError::TokenText),
-        };
+    fn from_token(snapshot: &SourceSnapshot, line_index: &LineIndex, token: &SyntaxToken) -> Self {
+        let text = token.text(snapshot.text()).unwrap_or_else(|| {
+            panic!(
+                "lexed token must reference its source text: source={:?}, range={:?}",
+                snapshot.source_id(),
+                token.range()
+            )
+        });
 
-        Ok(Self {
+        Self {
             kind: token.kind().as_str(),
             text: text.to_owned(),
             escaped_text: escaped_text(text),
             span: TextRangeOutput::from_range(token.range()),
             location: location_for_range(snapshot, line_index, token.range())
-                .ok_or(TokenInspectionRenderError::SourceIndex)?,
-            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())
-                .map_err(map_trivia_error)?,
-            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())
-                .map_err(map_trivia_error)?,
-        })
-    }
-}
-
-const fn map_trivia_error(error: InspectionTriviaError) -> TokenInspectionRenderError {
-    match error {
-        InspectionTriviaError::SourceIndex => TokenInspectionRenderError::SourceIndex,
-        InspectionTriviaError::Text => TokenInspectionRenderError::TriviaText,
+                .expect("retained token.rs relationships must provide SourceIndex"),
+            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia()),
+            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia()),
+        }
     }
 }
 

@@ -45,13 +45,15 @@ pub(super) fn symbol_span(
             )
         })?;
 
-    let fragment = semantics.surface().syntax_fragment().map_err(|cause| {
-        crate::compilation::SemanticQueryFailure::PreparsedSyntax {
-            symbol,
-            source: None,
-            cause,
-        }
-    })?;
+    let fragment = semantics
+        .surface()
+        .syntax_fragment()
+        .unwrap_or_else(|cause| {
+            panic!(
+                "semantic PreparsedSyntax construction failed: symbol={:?}, cause={:?}",
+                symbol, cause
+            )
+        });
 
     Ok(SourceSpan::new(
         fragment.source().source_id(),

@@ -30,91 +30,11 @@ impl DiagnosticInspectionFailureDetail {
     }
 }
 
-/// Exact source-report construction failure.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticSourceInspectionFailure {
-    /// Source line indexing failed.
-    SourceIndex,
-    /// JSON report serialization failed.
-    Json,
-    /// An exact payload-bearing report failure.
-    Detail(DiagnosticInspectionFailureDetail),
-}
-
-/// Exact token-report construction failure.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticTokenInspectionFailure {
-    /// Source line indexing failed.
-    SourceIndex,
-    /// Token text could not be correlated with source text.
-    TokenText,
-    /// Trivia text could not be correlated with source text.
-    TriviaText,
-    /// JSON report serialization failed.
-    Json,
-    /// An exact payload-bearing report failure.
-    Detail(DiagnosticInspectionFailureDetail),
-}
-
-/// Exact syntax-report construction failure.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticSyntaxInspectionFailure {
-    /// Source line indexing failed.
-    SourceIndex,
-    /// A syntax result does not belong to its selected source.
-    SourceMismatch,
-    /// Token text could not be correlated with source text.
-    TokenText,
-    /// Trivia text could not be correlated with source text.
-    TriviaText,
-    /// The syntax tree violates its traversal contract.
-    TreeStructure,
-    /// JSON report serialization failed.
-    Json,
-    /// An exact payload-bearing report failure.
-    Detail(DiagnosticInspectionFailureDetail),
-}
-
-/// Exact declaration-report construction failure.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticDeclarationInspectionFailure {
-    /// A declaration container reference is invalid.
-    Container,
-    /// A declaration reference is invalid.
-    Declaration,
-    /// A module-part reference is invalid.
-    ModulePart,
-    /// A declaration has no source correlation.
-    Source,
-    /// Source line indexing failed.
-    SourceIndex,
-    /// JSON report serialization failed.
-    Json,
-    /// An exact payload-bearing report failure.
-    Detail(DiagnosticInspectionFailureDetail),
-}
-
 /// Exact symbol-report construction failure.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSymbolInspectionFailure {
-    /// A declaration reference is invalid.
-    Declaration,
     /// Compiler evaluation failed while producing the report.
     Evaluation(DiagnosticEmissionEvaluationFailure),
-    /// JSON report serialization failed.
-    Json,
-    /// A symbol has no source correlation.
-    Source,
-    /// Source line indexing failed.
-    SourceIndex,
-    /// A symbol reference is invalid.
-    Symbol,
-    /// Symbol identity traversal contains a cycle.
-    SymbolCycle,
-    /// A semantic type cannot be represented in the report.
-    Type,
-    /// A relationship kind has no inspection representation.
-    UnsupportedRelationship,
     /// An exact payload-bearing report failure.
     Detail(DiagnosticInspectionFailureDetail),
 }
@@ -124,20 +44,8 @@ pub enum DiagnosticSymbolInspectionFailure {
 pub enum DiagnosticBoundInspectionFailure {
     /// Compiler evaluation failed while producing the report.
     Evaluation(DiagnosticEmissionEvaluationFailure),
-    /// JSON report serialization failed.
-    Json,
-    /// A selected bound node is absent.
-    MissingNode,
-    /// A bound node has no source correlation.
+    /// The requested source or byte position is outside the loaded inputs.
     Source,
-    /// Source line indexing failed.
-    SourceIndex,
-    /// A symbol reference is invalid.
-    Symbol,
-    /// A semantic type cannot be represented in the report.
-    Type,
-    /// A semantic selection cannot be represented in the report.
-    Selection,
     /// An exact payload-bearing report failure.
     Detail(DiagnosticInspectionFailureDetail),
 }
@@ -147,11 +55,7 @@ pub enum DiagnosticBoundInspectionFailure {
 pub enum DiagnosticLoweredInspectionFailure {
     /// Compiler evaluation failed while producing the report.
     Evaluation(DiagnosticEmissionEvaluationFailure),
-    /// JSON report serialization failed.
-    Json,
-    /// MIR model construction rejected the lowered unit.
-    Model,
-    /// A lowered node has no source correlation.
+    /// The requested source or byte position is outside the loaded inputs.
     Source,
     /// An exact payload-bearing report failure.
     Detail(DiagnosticInspectionFailureDetail),
@@ -183,28 +87,28 @@ pub enum DiagnosticInspectionFailure {
         /// Requested report format.
         format: DiagnosticInspectionOutputFormat,
         /// Exact report-construction failure.
-        cause: DiagnosticSourceInspectionFailure,
+        cause: DiagnosticInspectionFailureDetail,
     },
     /// Lexical token report failure.
     Token {
         /// Requested report format.
         format: DiagnosticInspectionOutputFormat,
         /// Exact report-construction failure.
-        cause: DiagnosticTokenInspectionFailure,
+        cause: DiagnosticInspectionFailureDetail,
     },
     /// Parsed syntax report failure.
     Syntax {
         /// Requested report format.
         format: DiagnosticInspectionOutputFormat,
         /// Exact report-construction failure.
-        cause: DiagnosticSyntaxInspectionFailure,
+        cause: DiagnosticInspectionFailureDetail,
     },
     /// Declaration report failure.
     Declaration {
         /// Requested report format.
         format: DiagnosticInspectionOutputFormat,
         /// Exact report-construction failure.
-        cause: DiagnosticDeclarationInspectionFailure,
+        cause: DiagnosticInspectionFailureDetail,
     },
     /// Symbol graph report failure.
     Symbol {

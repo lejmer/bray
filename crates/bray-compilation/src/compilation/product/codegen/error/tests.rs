@@ -1,11 +1,10 @@
 use bray_diagnostics::{
     DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
-    DiagnosticNativeProductFailureKind, DiagnosticNoteKind, DiagnosticSemanticValueFailure,
+    DiagnosticNativeProductFailureKind, DiagnosticSemanticValueFailure,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStoreError};
 use bray_testing::assert_goal_state_diagnostic_kind;
 
-use super::context::failure_detail;
 use super::link_input::diagnostic_native_link_input_failure;
 use super::presentation::native_product_failure_kind;
 use super::query::fact_query_failure_kind;
@@ -64,26 +63,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
     };
 
     let cases = [
-        (
-            FactQueryError::ConstantCallableBodyUnavailable,
-            Kind::EvaluationConstantCallableBodyUnavailable,
-        ),
-        (
-            FactQueryError::ConstantCallableRootUnavailable,
-            Kind::EvaluationConstantCallableRootUnavailable,
-        ),
-        (
-            FactQueryError::AtomicInitializerArgumentUnavailable,
-            Kind::EvaluationAtomicInitializerArgumentUnavailable,
-        ),
-        (
-            FactQueryError::AtomicInitializerResultUnavailable,
-            Kind::EvaluationAtomicInitializerResultUnavailable,
-        ),
-        (
-            FactQueryError::UninitInitializerResultUnavailable,
-            Kind::EvaluationUninitInitializerResultUnavailable,
-        ),
         (
             FactQueryError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
             Kind::CodegenMirCapacityExceeded,
@@ -184,26 +163,17 @@ fn native_library_failures_preserve_product_target_and_exact_symbol() {
 }
 
 #[test]
-fn unavailable_native_program_provides_recovery_guidance() {
-    let package = PackageIdentity::try_new("example")
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let product = ProductIdentity::try_new(package, "application")
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
+fn capacity_failures_do_not_claim_a_compiler_defect() {
+    let product =
+        ProductIdentity::try_new(PackageIdentity::try_new("example").unwrap(), "application")
+            .unwrap();
 
     let diagnostic = native_product_preparation_diagnostic(
-        DiagnosticNativeProductFailureKind::CodegenMirUnavailable(failure_detail(
-            "codegen_mir_unavailable",
-            [],
-        )),
+        DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
         &product,
         "x86_64-pc-windows-msvc",
     );
 
-    assert_eq!(diagnostic.notes().len(), 1);
-
-    assert_eq!(
-        diagnostic.notes()[0].kind(),
-        DiagnosticNoteKind::NativeProductPreparationRecovery
-    );
+    assert!(diagnostic.notes().is_empty());
+    assert!(diagnostic.labels().is_empty());
 }

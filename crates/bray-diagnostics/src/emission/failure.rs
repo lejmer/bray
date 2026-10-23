@@ -46,38 +46,13 @@ pub enum DiagnosticEmissionFailure {
     LinkPlan(DiagnosticEmissionLinkPlanFailure),
     Evaluation(DiagnosticEmissionEvaluationFailure),
     /// Test-catalog encoding failed before the output could be published.
-    TestCatalog(DiagnosticTestCatalogFailure),
+    TestCatalogCapacityExceeded,
     MissingContribution(DiagnosticEmissionArtifact),
     InvalidContribution(DiagnosticEmissionArtifact),
     Publication(DiagnosticEmissionArtifact),
     Linking,
     // rust-style: broad-failure
     IncompleteProduct,
-}
-
-/// Exact test-catalog protocol failure observed before publication.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticTestCatalogFailure {
-    /// The protocol encoder encountered an unexpected I/O path.
-    Io,
-    /// The discovered catalog violated the protocol's canonical shape.
-    Malformed,
-    /// The catalog requested a protocol version this build cannot encode.
-    UnsupportedVersion(u32),
-    /// The catalog exceeded a bounded protocol resource.
-    ResourceLimit,
-}
-
-impl DiagnosticTestCatalogFailure {
-    /// Returns the stable machine key for this failure.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Io => "test_catalog_io",
-            Self::Malformed => "test_catalog_malformed",
-            Self::UnsupportedVersion(_) => "test_catalog_unsupported_version",
-            Self::ResourceLimit => "test_catalog_resource_limit",
-        }
-    }
 }
 
 /// Exact planning contract that rejected an emission request.
@@ -146,60 +121,10 @@ pub enum DiagnosticPackageInterfaceFailure {
         declaration: crate::DiagnosticInterfaceSymbolIdentity,
         cause: DiagnosticEmissionEvaluationFailure,
     },
-    IncompletePublicDeclaration(String),
-    DuplicateSymbol(String),
-    MissingSymbol(String),
-    SymbolCountOverflow,
-    SymbolGraph(crate::DiagnosticInterfaceSymbolGraphProblem),
-    MissingDeclarationData(crate::DiagnosticInterfaceSymbolIdentity),
-    LostDeclarationReference {
-        declaration: Option<crate::DiagnosticInterfaceSymbolIdentity>,
-        table: String,
-        reference: u32,
-    },
-    DuplicateDeclarationIdentity {
-        first: crate::DiagnosticInterfaceSymbolIdentity,
-        second: crate::DiagnosticInterfaceSymbolIdentity,
-        identity: crate::DiagnosticInterfaceSymbolIdentity,
-    },
-    RecursiveDeclarationData {
-        declaration: Option<crate::DiagnosticInterfaceSymbolIdentity>,
-        table: String,
-        reference: u32,
-    },
     DeclarationDiscoveryFailure {
         cause: DiagnosticEmissionEvaluationFailure,
         cycle: Box<[String]>,
     },
-    MissingPackageReference {
-        table: String,
-        reference: u32,
-    },
-    MisassignedPackageRecord(String),
-    ConflictingDeclarationRecord {
-        kind: String,
-        owner: crate::DiagnosticInterfaceSymbolReference,
-    },
-    RecursiveDeclarationReference(String),
-    SemanticTableOverflow {
-        table: String,
-        maximum: u32,
-    },
-    DuplicateConstantCallableBody(u32),
-    DuplicateExecutableTemplate(u32),
-    InvalidExecutableTemplateFamily(u32),
-    DuplicateNativeBoundary(u32),
-    ImplementationDuplicateCallableBody(u32),
-    ImplementationDuplicateExecutableTemplate(u32),
-    ImplementationInvalidExecutableTemplateFamily(u32),
-    ImplementationDuplicateNativeBoundary(u32),
-    ImplementationDuplicateNativeBinding(u32),
-    ImplementationInvalidNativeBinding(u32),
-    ImplementationDuplicateSpecialization,
-    ImplementationSpecializationIdentityMismatch,
-    ImplementationInvalidExecutableOwner(u32),
-    ImplementationInvalidNativeBoundaryOwner(u32),
-    ImplementationInvalidCallableOwner(u32),
     ImplementationContentTooLarge,
 }
 
@@ -207,10 +132,6 @@ pub enum DiagnosticPackageInterfaceFailure {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticEmissionCodegenFailure {
     Incomplete,
-    DuplicateUnit(DiagnosticArtifactDigest),
-    DuplicateMappings(DiagnosticArtifactDigest),
-    MissingUnit(DiagnosticArtifactDigest),
-    MissingMappings(DiagnosticArtifactDigest),
     Request(DiagnosticArtifactDigest),
     Generation(DiagnosticArtifactDigest),
     MergeReadFailed {
@@ -306,14 +227,6 @@ pub enum DiagnosticEmissionEvaluationFailure {
     SemanticValue(DiagnosticSemanticValueFailure),
     Binding(DiagnosticBindingFailure),
     MirCapacity,
-    ConstantCallableBodyUnavailable,
-    ConstantCallableRootUnavailable,
-    AtomicRepresentationTypeUnavailable,
-    AtomicRepresentationArgumentsUnavailable,
-    AtomicInitializerArgumentUnavailable,
-    AtomicInitializerResultUnavailable,
-    UninitInitializerResultUnavailable,
-    ImportedExecutableTemplateMismatch,
     /// A semantic query failed with an exact compiler-owned category.
     SemanticQuery(DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
@@ -454,7 +367,7 @@ impl DiagnosticEmissionFailure {
             Self::NativeRead { .. } => "native_read",
             Self::LinkPlan(_) => "link_plan",
             Self::Evaluation(_) => "evaluation",
-            Self::TestCatalog(_) => "test_catalog",
+            Self::TestCatalogCapacityExceeded => "test_catalog_capacity_exceeded",
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -474,7 +387,7 @@ impl DiagnosticEmissionFailure {
             Self::NativeRead { .. } => "read",
             Self::LinkPlan(failure) => failure.as_str(),
             Self::Evaluation(failure) => failure.as_str(),
-            Self::TestCatalog(failure) => failure.as_str(),
+            Self::TestCatalogCapacityExceeded => "test_catalog_capacity_exceeded",
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -533,54 +446,7 @@ impl DiagnosticPackageInterfaceFailure {
             Self::RecoveredPublicSymbol(_) => "recovered_public_symbol",
             Self::ConstantCallableEvaluation { .. } => "constant_callable_evaluation",
             Self::ExecutableTemplateEvaluation { .. } => "executable_template_evaluation",
-            Self::IncompletePublicDeclaration(_) => "incomplete_public_declaration",
-            Self::DuplicateSymbol(_) => "duplicate_symbol",
-            Self::MissingSymbol(_) => "missing_symbol",
-            Self::SymbolCountOverflow => "symbol_count_overflow",
-            Self::SymbolGraph(_) => "symbol_graph",
-            Self::MissingDeclarationData(_) => "missing_declaration_data",
-            Self::LostDeclarationReference { .. } => "lost_declaration_reference",
-            Self::DuplicateDeclarationIdentity { .. } => "duplicate_declaration_identity",
-            Self::RecursiveDeclarationData { .. } => "recursive_declaration_data",
             Self::DeclarationDiscoveryFailure { .. } => "declaration_discovery_failure",
-            Self::MissingPackageReference { .. } => "missing_package_reference",
-            Self::MisassignedPackageRecord(_) => "misassigned_package_record",
-            Self::ConflictingDeclarationRecord { .. } => "conflicting_declaration_record",
-            Self::RecursiveDeclarationReference(_) => "recursive_declaration_reference",
-            Self::SemanticTableOverflow { .. } => "semantic_table_overflow",
-            Self::DuplicateConstantCallableBody(_) => "duplicate_constant_callable_body",
-            Self::DuplicateExecutableTemplate(_) => "duplicate_executable_template",
-            Self::InvalidExecutableTemplateFamily(_) => "invalid_executable_template_family",
-            Self::DuplicateNativeBoundary(_) => "duplicate_native_boundary",
-            Self::ImplementationDuplicateCallableBody(_) => {
-                "implementation_duplicate_callable_body"
-            }
-            Self::ImplementationDuplicateExecutableTemplate(_) => {
-                "implementation_duplicate_executable_template"
-            }
-            Self::ImplementationInvalidExecutableTemplateFamily(_) => {
-                "implementation_invalid_executable_template_family"
-            }
-            Self::ImplementationDuplicateNativeBoundary(_) => {
-                "implementation_duplicate_native_boundary"
-            }
-            Self::ImplementationDuplicateNativeBinding(_) => {
-                "implementation_duplicate_native_binding"
-            }
-            Self::ImplementationInvalidNativeBinding(_) => "implementation_invalid_native_binding",
-            Self::ImplementationDuplicateSpecialization => {
-                "implementation_duplicate_specialization"
-            }
-            Self::ImplementationSpecializationIdentityMismatch => {
-                "implementation_specialization_identity_mismatch"
-            }
-            Self::ImplementationInvalidExecutableOwner(_) => {
-                "implementation_invalid_executable_owner"
-            }
-            Self::ImplementationInvalidNativeBoundaryOwner(_) => {
-                "implementation_invalid_native_boundary_owner"
-            }
-            Self::ImplementationInvalidCallableOwner(_) => "implementation_invalid_callable_owner",
             Self::ImplementationContentTooLarge => "implementation_content_too_large",
         }
     }
@@ -590,10 +456,6 @@ impl DiagnosticEmissionCodegenFailure {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Incomplete => "incomplete",
-            Self::DuplicateUnit(_) => "duplicate_unit",
-            Self::DuplicateMappings(_) => "duplicate_mappings",
-            Self::MissingUnit(_) => "missing_unit",
-            Self::MissingMappings(_) => "missing_mappings",
             Self::Request(_) => "request",
             Self::Generation(_) => "generation",
             Self::MergeReadFailed { .. } => "merge_read_failed",
@@ -675,16 +537,6 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::SemanticValue(failure) => failure.as_str(),
             Self::Binding(failure) => failure.as_str(),
             Self::MirCapacity => "mir_capacity_exceeded",
-            Self::ConstantCallableBodyUnavailable => "constant_callable_body_unavailable",
-            Self::ConstantCallableRootUnavailable => "constant_callable_root_unavailable",
-            Self::AtomicRepresentationTypeUnavailable => "atomic_representation_type_unavailable",
-            Self::AtomicRepresentationArgumentsUnavailable => {
-                "atomic_representation_arguments_unavailable"
-            }
-            Self::AtomicInitializerArgumentUnavailable => "atomic_initializer_argument_unavailable",
-            Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
-            Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
-            Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),

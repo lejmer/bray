@@ -510,7 +510,7 @@ impl<'project> ProjectCompiler<'project> {
             .arg("--package")
             .arg(product.identity().package().as_str())
             .arg("--source-package")
-            .arg(source_package(product)?.as_str())
+            .arg(source_package(product).as_str())
             .arg("--package-version")
             .arg(
                 self.project_package(product.identity().package())?
@@ -800,11 +800,12 @@ impl<'project> ProjectCompiler<'project> {
             .interfaces
             .get(&key)
             .filter(|entry| entry.configuration == configuration)
-            .ok_or_else(|| {
-                operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                    DiagnosticProjectOperation::DependencyInterface,
-                ))
-            })?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "validated project MissingResult contract failed: {:?}",
+                    DiagnosticProjectOperation::DependencyInterface
+                )
+            });
 
         let native_implementation = if configuration.is_some()
             && self
@@ -1005,11 +1006,12 @@ impl<'project> ProjectCompiler<'project> {
         let name =
             TargetOutputName::for_native(native.object_format(), TargetOutputKind::Executable)
                 .file_name(product.identity().name())
-                .ok_or_else(|| {
-                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                        DiagnosticProjectOperation::ExecutableOutputName,
-                    ))
-                })?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "validated project MissingResult contract failed: {:?}",
+                        DiagnosticProjectOperation::ExecutableOutputName
+                    )
+                });
 
         Ok(Some(output_directory.join(name)))
     }
@@ -1038,9 +1040,9 @@ mod tests {
     }
 }
 
-fn source_package(product: &ProjectProduct) -> Result<PackageIdentity, DiagnosticBag> {
+fn source_package(product: &ProjectProduct) -> PackageIdentity {
     if product.tested_library().is_none() {
-        return Ok(product.identity().package().clone());
+        return product.identity().package().clone();
     }
 
     PackageIdentity::try_new(format!(
@@ -1048,11 +1050,7 @@ fn source_package(product: &ProjectProduct) -> Result<PackageIdentity, Diagnosti
         product.identity().package().as_str(),
         product.identity().name()
     ))
-    .ok_or_else(|| {
-        operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
-            DiagnosticProjectOperation::TestSourcePackageIdentity,
-        ))
-    })
+    .expect("validated project product must form a nonempty source package identity")
 }
 
 fn consumes_standard_library(product: &ProjectProduct) -> bool {

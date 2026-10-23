@@ -343,7 +343,7 @@ mod tests {
 
         let diagnostic = result
             .diagnostics()
-            .by_kind(DiagnosticKind::ProjectCompilerDefect)
+            .by_kind(DiagnosticKind::ProjectCommandFailed)
             .next()
             .expect("invalid compiler output must produce a compiler-defect diagnostic");
 
@@ -393,7 +393,7 @@ mod tests {
     ) {
         let diagnostic = result
             .diagnostics()
-            .by_kind(DiagnosticKind::ProjectCompilerDefect)
+            .by_kind(DiagnosticKind::ProjectCommandFailed)
             .next()
             .expect("missing compiler output must produce a compiler-defect diagnostic");
 

@@ -1,11 +1,8 @@
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticForeignQueryFailure};
 
-use crate::compilation::{
-    ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
-};
+use crate::compilation::{ForeignQueryContext, ForeignQueryError, ForeignQueryFailure};
 use crate::fact::diagnostic_context::{
-    boolean_field, count_field, identity_field, natural_field, push_semantic_type_data,
-    push_symbol, push_type_template_data, text_field,
+    boolean_field, count_field, identity_field, natural_field, push_symbol, text_field,
 };
 
 pub(super) fn diagnostic_foreign_query_failure(
@@ -14,66 +11,6 @@ pub(super) fn diagnostic_foreign_query_failure(
     use ForeignQueryFailure as Failure;
 
     let (reason, context) = match error.cause() {
-        Failure::Missing { context, data } => {
-            ("foreign_query_missing", context_with_data(context, *data))
-        }
-        Failure::CountMismatch {
-            context,
-            data,
-            expected,
-            actual,
-        } => {
-            let mut fields = context_with_data(context, *data);
-
-            fields.extend([
-                natural_field("expected_count", *expected),
-                natural_field("actual_count", *actual),
-            ]);
-
-            ("foreign_query_count_mismatch", fields)
-        }
-        Failure::UnexpectedSemanticType {
-            ty,
-            expected,
-            actual,
-        } => {
-            let mut fields = vec![
-                identity_field("semantic_type", ty),
-                text_field("expected_type_kind", foreign_type_kind(*expected)),
-            ];
-
-            push_semantic_type_data(&mut fields, actual);
-
-            ("foreign_query_unexpected_semantic_type", fields)
-        }
-        Failure::UnexpectedTypeTemplate {
-            context,
-            expected,
-            actual,
-        } => {
-            let mut fields = foreign_query_context(context);
-
-            fields.push(text_field(
-                "expected_type_kind",
-                foreign_type_kind(*expected),
-            ));
-
-            push_type_template_data(&mut fields, actual);
-
-            ("foreign_query_unexpected_type_template", fields)
-        }
-        Failure::UnexpectedGenericArgument {
-            substitution,
-            expected,
-            actual,
-        } => (
-            "foreign_query_unexpected_generic_argument",
-            vec![
-                identity_field("substitution", substitution),
-                text_field("expected_argument_kind", generic_argument_kind(*expected)),
-                text_field("actual_argument_kind", generic_argument_kind(*actual)),
-            ],
-        ),
         Failure::NumericOverflow {
             context,
             value,
@@ -87,21 +24,6 @@ pub(super) fn diagnostic_foreign_query_failure(
             ]);
 
             ("foreign_query_numeric_overflow", fields)
-        }
-        Failure::InvalidPlatformServiceRole { role } => (
-            "foreign_query_invalid_platform_service_role",
-            vec![text_field("platform_service_role", role.as_str())],
-        ),
-        Failure::CallableSignature { function, cause } => {
-            let fields = vec![
-                identity_field("function", function),
-                text_field(
-                    "signature_cause",
-                    crate::fact::callable_signature_reason(cause),
-                ),
-            ];
-
-            ("foreign_query_callable_signature", fields)
         }
         Failure::ConflictingSourceRoles {
             function,
@@ -132,20 +54,10 @@ pub(super) fn diagnostic_foreign_query_failure(
     DiagnosticForeignQueryFailure::new(reason, context)
 }
 
-const fn foreign_type_kind(kind: crate::compilation::ForeignTypeKind) -> &'static str {
-    match kind {
-        crate::compilation::ForeignTypeKind::Callable => "callable",
-    }
-}
-
 const fn foreign_integer_width(width: crate::compilation::ForeignIntegerWidth) -> &'static str {
     match width {
         crate::compilation::ForeignIntegerWidth::U64 => "u64",
     }
-}
-
-const fn generic_argument_kind(kind: bray_symbols::GenericArgumentKind) -> &'static str {
-    kind.as_str()
 }
 
 const fn foreign_source_role(role: crate::compilation::ForeignSourceRole) -> &'static str {
@@ -220,54 +132,45 @@ fn foreign_query_context(context: &ForeignQueryContext) -> Vec<DiagnosticFailure
     fields
 }
 
-fn context_with_data(
-    context: &ForeignQueryContext,
-    data: ForeignDataKind,
-) -> Vec<DiagnosticFailureField> {
-    let mut fields = foreign_query_context(context);
-
-    fields.push(text_field("data_kind", foreign_data_kind(data)));
-
-    fields
-}
-
-const fn foreign_data_kind(kind: ForeignDataKind) -> &'static str {
-    match kind {
-        ForeignDataKind::ContainingModule => "containing_module",
-        ForeignDataKind::SourceAnchor => "source_anchor",
-        ForeignDataKind::FunctionBindingRecord => "function_binding_record",
-        ForeignDataKind::StaticBindingRecord => "static_binding_record",
-        ForeignDataKind::FunctionDeclarationSyntax => "function_declaration_syntax",
-        ForeignDataKind::StaticDeclarationSyntax => "static_declaration_syntax",
-        ForeignDataKind::SourceSnapshot => "source_snapshot",
-        ForeignDataKind::SourceText => "source_text",
-        ForeignDataKind::StructureRecord => "structure_record",
-        ForeignDataKind::UnionRecord => "union_record",
-        ForeignDataKind::UnionVariantRecord => "union_variant_record",
-        ForeignDataKind::UnaryRepresentationArgument => "unary_representation_argument",
-        ForeignDataKind::RepresentationSymbol => "representation_symbol",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{CallableSignatureTemplateError, FunctionSymbolId, SymbolId};
+    use bray_symbols::{FunctionSymbolId, SymbolId};
 
     use super::{diagnostic_foreign_query_failure, foreign_query_context};
     use crate::compilation::{ForeignQueryContext, ForeignQueryError, ForeignQueryFailure};
 
     #[test]
     fn foreign_query_conversion_uses_typed_function_and_cause_fields() {
-        let error = ForeignQueryError::from(ForeignQueryFailure::CallableSignature {
+        let error = ForeignQueryError::from(ForeignQueryFailure::ConflictingSourceRoles {
             function: FunctionSymbolId::from_symbol_id(SymbolId::new(13)),
-            cause: CallableSignatureTemplateError::InvalidCallableType,
+            runtime: bray_runtime_interface::RuntimeAbiRole::RootExecution,
+            platform: bray_runtime_interface::PlatformServiceRole::StandardOutputFlush,
         });
 
         let failure = diagnostic_foreign_query_failure(&error);
 
-        assert_eq!(failure.as_str(), "foreign_query_callable_signature");
-        assert_eq!(failure.context()[0].name(), "function");
-        assert_eq!(failure.context()[1].name(), "signature_cause");
+        assert_eq!(failure.as_str(), "foreign_query_conflicting_source_roles");
+
+        assert!(
+            failure
+                .context()
+                .iter()
+                .any(|field| field.name() == "function")
+        );
+
+        assert!(
+            failure
+                .context()
+                .iter()
+                .any(|field| field.name() == "runtime_role")
+        );
+
+        assert!(
+            failure
+                .context()
+                .iter()
+                .any(|field| field.name() == "platform_role")
+        );
     }
 
     #[test]

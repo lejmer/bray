@@ -55,30 +55,22 @@ mod unit;
 pub use codegen::CodegenPreparationError;
 pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
-pub use export::{
-    PackageInterfaceExportContract, PackageInterfaceExportError,
-    PackageInterfaceInvalidCompilationCause,
-};
+pub use export::{PackageInterfaceExportError, PackageInterfaceInvalidCompilationCause};
+pub use foreign::ForeignQueryError;
 pub(crate) use foreign::{
     ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure,
     ForeignSourceRole, ForeignTypeKind,
 };
-pub use foreign::{ForeignQueryError, ForeignQueryErrorKind};
-pub(crate) use implementation::ImplementationMatchError;
 pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
-#[cfg(test)]
-pub(crate) use product::ProductSynchronizationComponent;
 pub(crate) use product::{
     NativeDemand, NativeDemandReason, ProductDataKind, ProductQueryContext, ProductQueryFailure,
     ProductTestCatalogFailureKind, ProductValueKind,
 };
-pub use product::{
-    NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
-};
+pub use product::{NativeProductPlan, NativeProductPlanningError, ProductQueryError};
 pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
-pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
+pub use semantic_error::SemanticQueryError;
 pub use source_graph::ProductSourceGraph;
 pub use state::Compilation;
 pub use testing::TestDiscovery;

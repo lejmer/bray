@@ -25,9 +25,9 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
-    DiagnosticSourceEdit, DiagnosticSourceInspectionFailure, DiagnosticStorageAccess,
-    DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
+    DiagnosticSourceEdit, DiagnosticStorageAccess, DiagnosticStorageAccessPurpose,
+    DiagnosticStorageProjection, DiagnosticStorageRoot, DiagnosticSuggestion,
+    DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
     DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
     DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
@@ -213,13 +213,13 @@ fn unsupported_emission_reasons_keep_exact_json_payloads() {
 fn inspection_failures_keep_exact_leaf_context_in_json() {
     let failure = DiagnosticInspectionFailure::Source {
         format: DiagnosticInspectionOutputFormat::Json,
-        cause: DiagnosticSourceInspectionFailure::Detail(DiagnosticInspectionFailureDetail::new(
+        cause: DiagnosticInspectionFailureDetail::new(
             "source_inspection_json",
             [DiagnosticFailureField::new(
                 "report",
                 DiagnosticFailureValue::Text("invalid map key".to_owned()),
             )],
-        )),
+        ),
     };
 
     let diagnostic =

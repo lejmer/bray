@@ -511,12 +511,19 @@ impl Compilation {
         reference: MirHelperReference,
         target: &CodegenTarget,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        let role = MirGeneratedLifecycleRole::from_reference(&reference)
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+        let role = MirGeneratedLifecycleRole::from_reference(&reference).unwrap_or_else(|| {
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference
+            );
+        });
 
-        let ty = reference
-            .lifecycle_type()
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+        let ty = reference.lifecycle_type().unwrap_or_else(|| {
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference
+            );
+        });
 
         let binding_context = self.binding_context(&self.state.cancellation)?;
 
@@ -536,11 +543,11 @@ impl Compilation {
         let context = ProductQueryContext::Instance(key.clone());
 
         ConcreteCodegenInstance::try_generated_lifecycle(key, reference).ok_or_else(|| {
-            ProductQueryFailure::Conflict {
+            panic!(
+                "product Conflict construction failed: context={:?}, data={:?}",
                 context,
-                data: ProductDataKind::GeneratedLifecycleInstance,
-            }
-            .into()
+                ProductDataKind::GeneratedLifecycleInstance
+            );
         })
     }
 
@@ -595,12 +602,15 @@ impl Compilation {
 
             let context = ProductQueryContext::Instance(key.clone());
 
-            key = key.try_with_contextual_self_witness(identity).ok_or(
-                ProductQueryFailure::Conflict {
-                    context,
-                    data: ProductDataKind::ContextualSelfWitness,
-                },
-            )?;
+            key = key
+                .try_with_contextual_self_witness(identity)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "product Conflict construction failed: context={:?}, data={:?}",
+                        context,
+                        ProductDataKind::ContextualSelfWitness
+                    );
+                });
         }
 
         let context = ProductQueryContext::Instance(key.clone());
@@ -613,11 +623,11 @@ impl Compilation {
             contextual_self_witness,
         )
         .ok_or_else(|| {
-            ProductQueryFailure::Conflict {
+            panic!(
+                "product Conflict construction failed: context={:?}, data={:?}",
                 context,
-                data: ProductDataKind::ConcreteInstance,
-            }
-            .into()
+                ProductDataKind::ConcreteInstance
+            );
         })
     }
 
@@ -689,13 +699,12 @@ impl Compilation {
 
         let member_symbol = demand.reference().instance().definition().symbol();
 
-        let member = TraitCallableMemberSymbolId::try_from_any(member_symbol).ok_or(
-            ProductQueryFailure::UnexpectedSymbolKind {
-                symbol: member_symbol,
-                expected: bray_symbols::SymbolKind::TraitCallableMember,
-                actual: member_symbol.kind(),
-            },
-        )?;
+        let member = TraitCallableMemberSymbolId::try_from_any(member_symbol).unwrap_or_else(|| {
+            let actual = member_symbol.kind();
+
+            panic!("trait dispatch requires a callable member: symbol={member_symbol:?}, actual={actual:?}");
+        },
+        );
 
         if let Some(requirement) = dispatch.trait_default_requirement() {
             return self.concrete_codegen_trait_default_callee(
@@ -783,12 +792,12 @@ impl Compilation {
             self.concrete_codegen_witness_requirement(witness, cancellation)?;
 
         if selected_requirement.trait_application() != application {
-            return Err(ProductQueryFailure::TraitApplicationMismatch {
+            panic!(
+                "product TraitApplicationMismatch construction failed: witness={:?}, expected={:?}, actual={:?}",
                 witness,
-                expected: application,
-                actual: selected_requirement.trait_application(),
-            }
-            .into());
+                application,
+                selected_requirement.trait_application()
+            );
         }
 
         let implementation = values.implementation_instance_data(witness);
@@ -952,11 +961,10 @@ impl Compilation {
                 bray_checker::built_in_trait_constraint_outcome(&context, subject, application);
 
             if outcome != Some(ProofOutcome::Proven) {
-                return Err(ProductQueryFailure::BuiltInProofMismatch {
-                    requirement,
-                    actual: outcome,
-                }
-                .into());
+                panic!(
+                    "product BuiltInProofMismatch construction failed: requirement={:?}, actual={:?}",
+                    requirement, outcome
+                );
             }
 
             let intrinsic = match intrinsic {
@@ -1185,11 +1193,11 @@ impl Compilation {
         }
 
         let ImplementationSelection::Selected(witness) = selection.value() else {
-            return Err(ProductQueryFailure::ImplementationSelectionMismatch {
+            panic!(
+                "product ImplementationSelectionMismatch construction failed: requirement={:?}, actual={:?}",
                 requirement,
-                actual: selection.value().clone(),
-            }
-            .into());
+                selection.value()
+            );
         };
 
         Ok(*witness)
@@ -1409,24 +1417,20 @@ impl Compilation {
 
             let specialization = self.codegen_specialization(data.substitution())?;
 
-            let actual = definition.kind();
-
             let identity =
-                CodegenImplementationWitness::try_new(definition.clone(), specialization).ok_or(
-                    ProductQueryFailure::ImplementationSymbolKeyExpected {
-                        key: definition,
-                        actual,
-                    },
-                )?;
+                CodegenImplementationWitness::try_new(definition.clone(), specialization).unwrap_or_else(|| {
+                    let actual = definition.kind();
+
+                    panic!("implementation witness requires an implementation key: key={definition:?}, actual={actual:?}");
+                },
+                );
 
             match concrete.insert(identity.clone(), witness) {
                 Some(existing) if existing != witness => {
-                    return Err(ProductQueryFailure::ConflictingImplementationWitness {
-                        identity,
-                        existing,
-                        actual: witness,
-                    }
-                    .into());
+                    panic!(
+                        "product ConflictingImplementationWitness construction failed: identity={:?}, existing={:?}, actual={:?}",
+                        identity, existing, witness
+                    );
                 }
                 Some(_) | None => {}
             }

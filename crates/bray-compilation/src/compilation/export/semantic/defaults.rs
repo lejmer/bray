@@ -30,7 +30,7 @@ pub(super) fn target_dependencies(
 ) -> Result<Vec<InterfaceTargetPropertyDependency>, PackageInterfaceExportError> {
     let source_graph = compilation
         .product_source_graph()
-        .map_err(super::super::invalid_compilation_fact_error)?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let module_parts = source_declaration_module_parts(source_graph.declarations());
     let mut dependencies = Vec::new();
@@ -54,7 +54,7 @@ pub(super) fn target_dependencies(
 
         let template = compilation
             .static_instance_template(declaration)
-            .map_err(super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::fact_query_export_error)?;
 
         if template.diagnostics().has_errors()
             || template.value().duration() != StaticStorageDuration::ExactThread
@@ -76,7 +76,7 @@ pub(super) fn target_dependencies(
 
         let value = compilation
             .target_property_value(property)
-            .map_err(super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::fact_query_export_error)?;
 
         dependencies.push(InterfaceTargetPropertyDependency::new(
             export.symbol_reference(owner)?,

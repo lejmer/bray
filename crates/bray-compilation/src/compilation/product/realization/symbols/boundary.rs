@@ -318,10 +318,10 @@ impl Compilation {
         {
             let symbol = role
                 .native_symbol()
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
             let name = BinarySymbolName::try_new(symbol)
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
             if let Some(kind) = bray_runtime_interface::NativeEntryKind::for_runtime_role(role) {
                 return Ok(Some(NativeBoundaryMapping::Callback {
@@ -352,7 +352,7 @@ impl Compilation {
 
         if let Some(role) = platform_service {
             let name = BinarySymbolName::try_new(role.native_symbol())
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
             let linkage = if platform_overrides.contains(&role) {
                 CodegenLinkage::Import
@@ -370,7 +370,7 @@ impl Compilation {
                 .symbol()
                 .identity()
                 .name()
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
             return native_boundary_mapping(
                 name,
@@ -388,7 +388,7 @@ impl Compilation {
                 .symbol()
                 .identity()
                 .name()
-                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
             return native_boundary_mapping(
                 name,

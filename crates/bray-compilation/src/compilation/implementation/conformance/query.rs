@@ -1387,10 +1387,7 @@ mod tests {
     use bray_symbols::{ImplementationSymbolId, SymbolOrigin, TraitRequirementResolution};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use crate::compilation::{
-        SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation, SemanticSymbolCategory,
-    };
-    use crate::fact::{CompilationFactKey, FactQueryError};
+    use crate::fact::CompilationFactKey;
     use crate::test_support::compilation;
 
     #[test]
@@ -1418,26 +1415,17 @@ mod tests {
             .map(|symbol| ImplementationSymbolId::from(symbol.id()))
             .unwrap_or_else(|| panic!("test source must declare one inherent implementation"));
 
-        let error = compilation
-            .trait_implementation_conformance(implementation)
-            .expect_err("an inherent implementation cannot have trait conformance");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.trait_implementation_conformance(implementation)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let FactQueryError::SemanticQuery(error) = error else {
-            panic!("implementation-kind mismatch must retain a semantic-query failure");
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        let symbol = implementation.into_any();
-
-        assert_eq!(
-            error.cause(),
-            &SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(symbol),
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::TraitImplementation,
-                    actual: symbol.kind(),
-                },
-            )
-        );
+        assert!(message.contains("UnexpectedSymbolKind"));
+        assert!(message.contains("TraitImplementation"));
+        assert!(message.contains("InherentImplementation"));
     }
 
     #[test]

@@ -118,12 +118,9 @@ impl Compilation {
             (true, _) => ImplementationSelection::Deferred,
             (false, []) => ImplementationSelection::Unavailable,
             (false, [candidate]) => ImplementationSelection::Selected(candidate.instance()),
-            (false, _) => ImplementationSelection::ambiguous(applicable).map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::ImplementationAmbiguity {
-                    requirement: key,
-                    cause,
-                }
-            })?,
+            (false, _) => ImplementationSelection::ambiguous(applicable).unwrap_or_else(|cause| {
+                panic!("semantic ImplementationAmbiguity construction failed: requirement={:?}, cause={:?}", key, cause)
+            }),
         };
 
         Ok(DiagnosticResult::new(selection, diagnostics))

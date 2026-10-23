@@ -210,7 +210,9 @@ pub(in crate::compilation::product::realization) fn scalar_mapping(
         TargetScalarKind::C32
         | TargetScalarKind::C64
         | TargetScalarKind::C128
-        | TargetScalarKind::C256 => return Err(CodegenPreparationError::UnresolvedType(ty)),
+        | TargetScalarKind::C256 => {
+            panic!("checked native UnresolvedType contract failed: {:?}", ty)
+        }
     };
 
     Ok(CodegenTypeMapping::new(
@@ -257,7 +259,12 @@ pub(in crate::compilation::product::realization) fn sized_layout(
     mappings
         .get(&ty)
         .and_then(CodegenTypeMapping::layout)
-        .ok_or(CodegenPreparationError::UnsizedTypeByValue(ty))
+        .ok_or_else(|| {
+            panic!(
+                "checked native UnsizedTypeByValue contract failed: {:?}",
+                ty
+            )
+        })
 }
 
 pub(in crate::compilation::product::realization) fn ensure_target_alignment(

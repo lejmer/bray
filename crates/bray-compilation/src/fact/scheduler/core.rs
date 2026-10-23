@@ -282,12 +282,9 @@ impl FactScheduler {
     pub(crate) fn current_priority(&self) -> Result<Option<QueryPriority>, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let active = active.try_borrow().map_err(|_| {
-                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                        operation: SchedulerLocalOperation::CurrentPriority,
-                        cause: LocalStateFailure::BorrowConflict,
-                    }
-                })?;
+                let active = active.try_borrow().unwrap_or_else(|_| {
+                    panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::CurrentPriority, LocalStateFailure::BorrowConflict)
+                });
 
                 Ok(active
                     .iter()
@@ -298,10 +295,7 @@ impl FactScheduler {
                     })
                     .map(|active| active.lease.priority.current()))
             })
-            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                operation: SchedulerLocalOperation::CurrentPriority,
-                cause: LocalStateFailure::Unavailable,
-            })?
+            .unwrap_or_else(|_| panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::CurrentPriority, LocalStateFailure::Unavailable))
     }
 
     pub(crate) fn promote(&self, priority: &QueryPriorityDemand, requested: QueryPriority) {
@@ -357,32 +351,23 @@ impl FactScheduler {
     fn is_active(&self) -> Result<bool, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let active = active.try_borrow().map_err(|_| {
-                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                        operation: SchedulerLocalOperation::Inspect,
-                        cause: LocalStateFailure::BorrowConflict,
-                    }
-                })?;
+                let active = active.try_borrow().unwrap_or_else(|_| {
+                    panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Inspect, LocalStateFailure::BorrowConflict)
+                });
 
                 Ok(active.iter().any(|active| {
                     active.identity == self.identity() && active.lease.held.load(Ordering::Relaxed)
                 }))
             })
-            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                operation: SchedulerLocalOperation::Inspect,
-                cause: LocalStateFailure::Unavailable,
-            })?
+            .unwrap_or_else(|_| panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Inspect, LocalStateFailure::Unavailable))
     }
 
     fn suspend_current_slot(&self) -> Result<Option<Arc<ExecutionLease>>, FactQueryError> {
         let lease = ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let active = active.try_borrow().map_err(|_| {
-                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                        operation: SchedulerLocalOperation::Inspect,
-                        cause: LocalStateFailure::BorrowConflict,
-                    }
-                })?;
+                let active = active.try_borrow().unwrap_or_else(|_| {
+                    panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Inspect, LocalStateFailure::BorrowConflict)
+                });
 
                 Ok::<_, FactQueryError>(
                     active
@@ -395,10 +380,7 @@ impl FactScheduler {
                         .map(|active| Arc::clone(&active.lease)),
                 )
             })
-            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                operation: SchedulerLocalOperation::Inspect,
-                cause: LocalStateFailure::Unavailable,
-            })??;
+            .unwrap_or_else(|_| panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Inspect, LocalStateFailure::Unavailable))?;
 
         if let Some(lease) = &lease {
             lease.suspend(&self.slots)?;
@@ -420,6 +402,11 @@ fn record_scheduler_error(
     // A scoped worker cannot return through Rayon's callback. If publication is poisoned, the
     // coordinating worker reports that exact result-storage poison through `take_scheduler_error`.
     let Ok(mut current) = storage.lock() else {
+        assert!(
+            std::thread::panicking(),
+            "query guard state must remain unpoisoned"
+        );
+
         return;
     };
 
@@ -436,9 +423,12 @@ fn publish_scheduled_result<T>(
     item: usize,
     value: T,
 ) -> Result<(), FactQueryError> {
-    let mut slot = slot
-        .lock()
-        .map_err(|_| FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(item) })?;
+    let mut slot = slot.lock().unwrap_or_else(|_| {
+        panic!(
+            "query runtime SchedulerResultStatePoisoned contract failed: item={:?}",
+            Some(item)
+        )
+    });
 
     *slot = Some(value);
 
@@ -450,16 +440,18 @@ fn collect_scheduled_results<T>(slots: Vec<Mutex<Option<T>>>) -> Result<Vec<T>, 
         .into_iter()
         .enumerate()
         .map(|(index, slot)| {
-            let result = slot.into_inner().map_err(|_| {
-                FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(index) }
-            })?;
+            let result = slot.into_inner().unwrap_or_else(|_| {
+                panic!(
+                    "query runtime SchedulerResultStatePoisoned contract failed: item={:?}",
+                    Some(index)
+                )
+            });
 
             result.ok_or_else(|| {
-                FactRuntimeFailure::WorkerTerminated {
-                    worker: None,
-                    item: Some(index),
-                }
-                .into()
+                panic!(
+                    "query runtime WorkerTerminated contract failed: item={:?}",
+                    Some(index)
+                )
             })
         })
         .collect()
@@ -470,7 +462,7 @@ fn take_scheduler_error(
 ) -> Result<Option<FactQueryError>, FactQueryError> {
     let mut current = storage
         .lock()
-        .map_err(|_| FactRuntimeFailure::SchedulerResultStatePoisoned { item: None })?;
+        .unwrap_or_else(|_| panic!("query runtime SchedulerResultStatePoisoned contract failed: "));
 
     Ok(current.take().map(|(_, error)| error))
 }
@@ -510,21 +502,15 @@ impl ActiveSchedulerGuard {
     fn enter(identity: usize, lease: Arc<ExecutionLease>) -> Result<Self, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let mut active = active.try_borrow_mut().map_err(|_| {
-                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                        operation: SchedulerLocalOperation::Enter,
-                        cause: LocalStateFailure::BorrowConflict,
-                    }
-                })?;
+                let mut active = active.try_borrow_mut().unwrap_or_else(|_| {
+                    panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Enter, LocalStateFailure::BorrowConflict)
+                });
 
                 active.push(ActiveScheduler { identity, lease });
 
                 Ok::<_, FactQueryError>(())
             })
-            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                operation: SchedulerLocalOperation::Enter,
-                cause: LocalStateFailure::Unavailable,
-            })??;
+            .unwrap_or_else(|_| panic!("query runtime SchedulerLocalStateUnavailable contract failed: operation={:?}, cause={:?}", SchedulerLocalOperation::Enter, LocalStateFailure::Unavailable))?;
 
         Ok(Self { identity })
     }
@@ -532,18 +518,35 @@ impl ActiveSchedulerGuard {
 
 impl Drop for ActiveSchedulerGuard {
     fn drop(&mut self) {
-        let _ = ACTIVE_SCHEDULERS.try_with(|active| {
+        let result = ACTIVE_SCHEDULERS.try_with(|active| {
             let Ok(mut active) = active.try_borrow_mut() else {
+                assert!(
+                    std::thread::panicking(),
+                    "active scheduler stack must be exclusively accessible at exit"
+                );
+
                 return;
             };
 
-            if active
+            let matches = active
                 .last()
-                .is_some_and(|active| active.identity == self.identity)
-            {
+                .is_some_and(|active| active.identity == self.identity);
+
+            if matches {
                 active.pop();
+            } else {
+                assert!(
+                    std::thread::panicking(),
+                    "active scheduler exit must match entry identity {}",
+                    self.identity
+                );
             }
         });
+
+        assert!(
+            result.is_ok() || std::thread::panicking(),
+            "active scheduler stack must remain available at exit"
+        );
     }
 }
 
@@ -563,9 +566,7 @@ mod tests {
         ExecutionSlots, FactScheduler, SlotState, collect_scheduled_results, grant_slot,
         publish_scheduled_result, register_waiter, unregister_waiter,
     };
-    use crate::fact::{
-        CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriorityDemand, SchedulerCounter,
-    };
+    use crate::fact::{CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriorityDemand};
     use crate::{QueryPriority, WorkerBudget};
 
     #[test]
@@ -1008,21 +1009,14 @@ mod tests {
             panic!("poison test result slot");
         });
 
-        let error = match publish_scheduled_result(&slot, 7, 42) {
-            Ok(()) => panic!("a poisoned result slot must reject publication"),
-            Err(error) => error,
-        };
+        let panic = catch_unwind(|| publish_scheduled_result(&slot, 7, 42))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SchedulerResultStatePoisoned {
-                        item: Some(7),
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("SchedulerResultStatePoisoned"));
+        assert!(message.contains("7"));
     }
 
     #[test]
@@ -1044,45 +1038,29 @@ mod tests {
 
     #[test]
     fn missing_scheduled_result_reports_worker_termination() {
-        let error = match collect_scheduled_results::<u32>(vec![Mutex::new(None)]) {
-            Ok(values) => panic!("missing worker publication must fail: {values:?}"),
-            Err(error) => error,
-        };
+        let panic = catch_unwind(|| collect_scheduled_results::<u32>(vec![Mutex::new(None)]))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::WorkerTerminated {
-                        worker: None,
-                        item: Some(0),
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("WorkerTerminated"));
+        assert!(message.contains("0"));
     }
 
     #[test]
     fn scheduler_waiter_state_reports_the_exact_counter() {
         let mut state = SlotState::default();
 
-        let error = match unregister_waiter(&mut state, false) {
-            Ok(()) => panic!("an absent ordinary waiter must not be unregistered"),
-            Err(error) => error,
-        };
+        let panic = catch_unwind(AssertUnwindSafe(|| unregister_waiter(&mut state, false)))
+            .err()
+            .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidSchedulerState {
-                        counter: SchedulerCounter::OrdinaryWaiters,
-                        expected_minimum: 1,
-                        actual: 0,
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("OrdinaryWaiters"));
+        assert!(message.contains("expected_minimum=1"));
+        assert!(message.contains("actual=0"));
 
         state.interactive_waiters = usize::MAX;
 

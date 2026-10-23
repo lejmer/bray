@@ -517,8 +517,12 @@ impl Compilation {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
 
-        let constants = CheckedConstantTerms::try_from_terms(terms)
-            .map_err(|cause| SemanticQueryFailure::CheckedConstantTerms { unit: None, cause })?;
+        let constants = CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|cause| {
+            panic!(
+                "semantic CheckedConstantTerms construction failed: cause={:?}",
+                cause
+            )
+        });
 
         let value = resolve(self.semantic_value_store()?, &constants)?;
 

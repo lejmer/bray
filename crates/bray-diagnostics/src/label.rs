@@ -137,6 +137,8 @@ pub enum DiagnosticLabelKind {
     UnsupportedTargetRequirement,
     /// Label for the unit whose refinement analysis exceeds a configured capacity.
     RefinementCapacityExceeded,
+    /// This declaration or expression exceeds a compiler representation limit.
+    CompilerCapacityExceeded,
     /// Label for the source expression whose memory operation fails.
     MemoryOperationFailure,
     /// The selected call whose trusted obligation lacks live evidence.
@@ -201,8 +203,6 @@ pub enum DiagnosticLabelKind {
     InvalidTrustedCapabilityRequirement,
     /// Label for a split module declaration with a conflicting surface.
     ConflictingModuleDeclaration,
-    /// Label for the Bray source construct affected by a compiler defect.
-    CompilerDefectSource,
 }
 
 impl DiagnosticLabelKind {
@@ -246,6 +246,7 @@ impl DiagnosticLabelKind {
             Self::UnprovenArrayGeneratorCardinality => "unproven_array_generator_cardinality",
             Self::UnsupportedTargetRequirement => "unsupported_target_requirement",
             Self::RefinementCapacityExceeded => "refinement_capacity_exceeded",
+            Self::CompilerCapacityExceeded => "compiler_capacity_exceeded",
             Self::MemoryOperationFailure => "memory_operation_failure",
             Self::TrustedObligationFailure => "trusted_obligation_failure",
             Self::TrustedCallable => "trusted_callable",
@@ -278,7 +279,6 @@ impl DiagnosticLabelKind {
             Self::InvalidAsyncOperation => "invalid_async_operation",
             Self::InvalidTrustedCapabilityRequirement => "invalid_trusted_capability_requirement",
             Self::ConflictingModuleDeclaration => "conflicting_module_declaration",
-            Self::CompilerDefectSource => "compiler_defect_source",
         }
     }
 }

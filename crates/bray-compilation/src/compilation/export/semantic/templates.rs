@@ -218,5 +218,8 @@ pub(super) fn checked_constraint_expression(
 }
 
 pub(super) fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind())
+    panic!(
+        "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+        symbol.kind()
+    )
 }

@@ -15,7 +15,6 @@ use super::targets::baseline_codegen_target;
 use super::type_fixtures::realized_types;
 
 use crate::CancellationToken;
-use crate::compilation::CodegenPreparationError;
 use crate::compilation::product::realization::support::{
     indirect_abi_value, indirect_parameter_kind,
 };
@@ -76,16 +75,21 @@ fn bray_abi_passes_large_composites_indirectly_and_rejects_unsized_values() {
         false,
     );
 
-    assert_eq!(
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compilation.classify_codegen_signature(
             unsized_signature,
             &target,
             &CancellationToken::new(),
             &mut mappings,
             &mut pending,
-        ),
-        Err(CodegenPreparationError::UnsizedTypeByValue(slice))
-    );
+        )
+    }))
+    .err()
+    .expect("compiler invariant must panic");
+
+    let message = bray_testing::panic_payload_text(panic.as_ref());
+
+    assert!(message.contains("UnsizedTypeByValue"));
 }
 
 #[test]

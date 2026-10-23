@@ -113,11 +113,14 @@ impl Compilation {
     ) -> Result<CodegenParameterMapping, CodegenPreparationError> {
         let mapping = mappings
             .get(&ty)
-            .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+            .unwrap_or_else(|| panic!("checked native UnresolvedType contract failed: {:?}", ty));
 
-        let layout = mapping
-            .layout()
-            .ok_or(CodegenPreparationError::UnsizedTypeByValue(ty))?;
+        let layout = mapping.layout().unwrap_or_else(|| {
+            panic!(
+                "checked native UnsizedTypeByValue contract failed: {:?}",
+                ty
+            )
+        });
 
         if layout.size() == 0 {
             return Ok(CodegenParameterMapping::Ignore);
@@ -188,11 +191,14 @@ impl Compilation {
     ) -> Result<CodegenResultMapping, CodegenPreparationError> {
         let mapping = mappings
             .get(&ty)
-            .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+            .unwrap_or_else(|| panic!("checked native UnresolvedType contract failed: {:?}", ty));
 
-        let layout = mapping
-            .layout()
-            .ok_or(CodegenPreparationError::UnsizedTypeByValue(ty))?;
+        let layout = mapping.layout().unwrap_or_else(|| {
+            panic!(
+                "checked native UnsizedTypeByValue contract failed: {:?}",
+                ty
+            )
+        });
 
         if layout.size() == 0 {
             return Ok(CodegenResultMapping::Void);

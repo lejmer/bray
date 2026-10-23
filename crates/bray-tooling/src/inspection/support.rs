@@ -55,25 +55,17 @@ pub(crate) fn push_indented_report_value(
     push_report_value(output, key, value);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum InspectionSourceError {
-    Source,
-    SourceIndex,
-    SourceIndexOverflow(TextSizeOverflow),
-}
-
 pub(crate) struct InspectionSources<'source> {
     sources: &'source SourceStore,
     line_indices: Vec<LineIndex>,
 }
 
 impl<'source> InspectionSources<'source> {
-    pub(crate) fn new(sources: &'source SourceStore) -> Result<Self, InspectionSourceError> {
+    pub(crate) fn new(sources: &'source SourceStore) -> Result<Self, TextSizeOverflow> {
         let line_indices = sources
             .iter()
             .map(|snapshot| LineIndex::new(snapshot.text()))
-            .collect::<Result<_, _>>()
-            .map_err(InspectionSourceError::SourceIndexOverflow)?;
+            .collect::<Result<_, _>>()?;
 
         Ok(Self {
             sources,
@@ -84,22 +76,22 @@ impl<'source> InspectionSources<'source> {
     fn snapshot_and_index(
         &self,
         source_id: bray_source::SourceId,
-    ) -> Result<(&SourceSnapshot, &LineIndex), InspectionSourceError> {
+    ) -> (&SourceSnapshot, &LineIndex) {
         let snapshot = self
             .sources
             .get(source_id)
-            .ok_or(InspectionSourceError::Source)?;
+            .expect("retained source anchor must identify a loaded source");
 
         let line_index = self
             .line_indices
             .get(
                 source_id
                     .to_index()
-                    .ok_or(InspectionSourceError::SourceIndex)?,
+                    .expect("retained source range must have a line index and location"),
             )
-            .ok_or(InspectionSourceError::SourceIndex)?;
+            .expect("retained source range must have a line index and location");
 
-        Ok((snapshot, line_index))
+        (snapshot, line_index)
     }
 }
 
@@ -167,25 +159,22 @@ fn symbol_name(symbols: &SymbolGraph, id: AnySymbolId) -> Option<String> {
 }
 
 impl InspectionSyntaxAnchor {
-    pub(crate) fn from_anchor(
-        sources: &InspectionSources<'_>,
-        anchor: SyntaxAnchor,
-    ) -> Result<Self, InspectionSourceError> {
-        let (snapshot, line_index) = sources.snapshot_and_index(anchor.source_id())?;
+    pub(crate) fn from_anchor(sources: &InspectionSources<'_>, anchor: SyntaxAnchor) -> Self {
+        let (snapshot, line_index) = sources.snapshot_and_index(anchor.source_id());
 
         let location = location_for_range(snapshot, line_index, anchor.full_range())
-            .ok_or(InspectionSourceError::SourceIndex)?;
+            .expect("retained source range must have a line index and location");
 
         let origin = SourceOriginOutput::from_origin(snapshot.origin());
 
-        Ok(Self {
+        Self {
             source_id: anchor.source_id().raw(),
             display_name: origin.display_name().to_owned(),
             syntax_kind: anchor.syntax_kind().as_str(),
             span: TextRangeOutput::from_range(anchor.full_range()),
             location,
             recovered: anchor.is_recovered(),
-        })
+        }
     }
 
     pub(crate) fn text(&self) -> String {
@@ -216,12 +205,6 @@ impl InspectionSyntaxAnchor {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum InspectionTriviaError {
-    SourceIndex,
-    Text,
-}
-
 #[derive(Serialize)]
 pub(crate) struct InspectionTrivia {
     kind: &'static str,
@@ -236,21 +219,21 @@ impl InspectionTrivia {
         snapshot: &SourceSnapshot,
         line_index: &LineIndex,
         trivia: &SyntaxTrivia,
-    ) -> Result<Self, InspectionTriviaError> {
+    ) -> Self {
         let text = trivia
             .text(snapshot.text())
-            .ok_or(InspectionTriviaError::Text)?;
+            .expect("lexed trivia must reference its source text");
 
         let location = location_for_range(snapshot, line_index, trivia.range())
-            .ok_or(InspectionTriviaError::SourceIndex)?;
+            .expect("lexed trivia must have a source location");
 
-        Ok(Self {
+        Self {
             kind: trivia.kind().as_str(),
             text: text.to_owned(),
             escaped_text: escaped_text(text),
             span: TextRangeOutput::from_range(trivia.range()),
             location,
-        })
+        }
     }
 }
 
@@ -258,7 +241,7 @@ pub(crate) fn trivia_entries(
     snapshot: &SourceSnapshot,
     line_index: &LineIndex,
     trivia: &[SyntaxTrivia],
-) -> Result<Vec<InspectionTrivia>, InspectionTriviaError> {
+) -> Vec<InspectionTrivia> {
     trivia
         .iter()
         .map(|trivia| InspectionTrivia::from_trivia(snapshot, line_index, trivia))

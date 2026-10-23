@@ -49,14 +49,12 @@ where
     }
 
     pub(crate) fn cell(&self, key: K) -> Result<Arc<FactCell<V>>, FactQueryError> {
-        let mut state =
-            self.state
-                .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::CellMap,
-                    fact: None,
-                    task: None,
-                })?;
+        let mut state = self.state.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::CellMap
+            )
+        });
 
         let access = state.next_access;
 
@@ -173,14 +171,12 @@ where
 
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &K) -> Result<bool, FactQueryError> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::CellMap,
-                fact: None,
-                task: None,
-            })?;
+        let state = self.state.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::CellMap
+            )
+        });
 
         Ok(state
             .cells
@@ -406,10 +402,10 @@ mod tests {
                 &runtime,
                 CompilationFactKey::SyntaxTree,
                 &cancellation,
-                || Err(FactQueryError::BindingDependencyUnavailable),
+                || Err(FactQueryError::SymbolCapacity { index: 0 }),
             );
 
-            assert_eq!(result, Err(FactQueryError::BindingDependencyUnavailable));
+            assert_eq!(result, Err(FactQueryError::SymbolCapacity { index: 0 }));
         }
 
         assert_eq!(cache.keys().len(), 2);

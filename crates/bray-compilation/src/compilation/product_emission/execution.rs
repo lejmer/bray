@@ -14,8 +14,7 @@ use super::native::{
     package_native_implementation, product_staging_error, stage_selected_native_inputs,
 };
 use super::publishing::{
-    package_implementation_contribution, package_implementation_error, publisher,
-    test_catalog_contribution,
+    package_implementation_contribution, publisher, test_catalog_contribution,
 };
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
@@ -663,7 +662,7 @@ impl Compilation {
                         &bundle,
                         bray_package_interface::InterfaceValidationLimits::default(),
                     )
-                    .map_err(package_implementation_error)?,
+                    .map_err(ProductEmissionErrorKind::from)?,
                 )],
             };
 

@@ -128,8 +128,6 @@ impl DiagnosticProductKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendNotSelected,
-    MissingProductRoot,
-    InvalidEntryResult,
     MissingRuntime,
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCancelled,
@@ -138,51 +136,16 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationSemanticValueStoreCreate,
     EvaluationSemanticValue(crate::DiagnosticSemanticValueFailure),
     EvaluationBinding(crate::DiagnosticBindingFailure),
-    EvaluationConstantCallableBodyUnavailable,
-    EvaluationConstantCallableRootUnavailable,
-    EvaluationAtomicRepresentationTypeUnavailable,
-    EvaluationAtomicRepresentationArgumentsUnavailable,
-    EvaluationAtomicInitializerArgumentUnavailable,
-    EvaluationAtomicInitializerResultUnavailable,
-    EvaluationUninitInitializerResultUnavailable,
-    EvaluationImportedExecutableTemplateMismatch,
     EvaluationSemanticQuery(crate::DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
     /// Foreign-boundary construction violated an exact retained contract.
     EvaluationForeign(crate::DiagnosticForeignQueryFailure),
     CodegenTargetUnsupportedProfile,
-    CodegenTargetEmptyTriple,
-    CodegenTargetEmptyCpu,
-    CodegenTargetEmptyFeature,
-    ReachabilityEmptyRoots,
-    ReachabilityDuplicateInstance,
-    ReachabilityUndemandedInstance,
-    ReachabilityIncomplete,
-    InstanceTemplateMismatch,
-    InstanceTargetMismatch,
-    InstanceDependencyTargetMismatch,
-    UnitEmpty,
-    UnitDuplicateInstance,
-    UnitMissingCompatibility,
-    UnitTargetMismatch,
-    UnitWorkBoundExceeded,
-    UnitRecipeMismatch,
-    PartitionMissingCompatibility(DiagnosticNativeProductFailureDetail),
-    PartitionInvalidUnit(DiagnosticNativeProductFailureDetail),
-    ExecutableHostDuplicateRole(DiagnosticNativeProductFailureDetail),
-    ExecutableHostMissingRuntime,
-    ExecutableHostRuntimeOwnedBinding(DiagnosticNativeProductFailureDetail),
-    ExecutableHostIncompatibleRuntime(DiagnosticNativeProductFailureDetail),
-    ExecutableHostMissingMainThreadLane,
-    ExecutableHostMissingProtectedFrameAbi,
-    ExecutableHostMissingRole(DiagnosticNativeProductFailureDetail),
     NativeResolution(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionIncompatible(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingRoleOwner(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingCapabilityOwner(DiagnosticNativeProductFailureDetail),
-    /// The configured standard library could not supply a required native artifact.
-    LinkTargetEmptyTriple,
     CodegenBackendUnsupportedTarget,
     CodegenBackendUnsupportedTargetDetail(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnsupportedArtifact(DiagnosticNativeProductFailureDetail),
@@ -195,11 +158,6 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendArtifactConstruction(DiagnosticNativeProductFailureDetail),
     CodegenBackendArtifactRead(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
-    CodegenMirUnavailable(DiagnosticNativeProductFailureDetail),
-    CodegenMissingEntrypoint,
-    CodegenInvalidInstance(DiagnosticNativeProductFailureDetail),
-    CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
-    CodegenUnitMismatch(DiagnosticNativeProductFailureDetail),
     CodegenMirCapacityExceeded,
     /// Required exact integer representation exceeds the backend limit.
     CodegenExactIntegerCapacity {
@@ -208,17 +166,9 @@ pub enum DiagnosticNativeProductFailureKind {
         /// Largest width this compiler implementation can represent.
         maximum_bits: u16,
     },
-    CodegenMissingRuntimeRole(DiagnosticNativeProductFailureDetail),
-    CodegenOpenConstantTerm(DiagnosticNativeProductFailureDetail),
-    CodegenInvalidArrayLength(DiagnosticNativeProductFailureDetail),
-    CodegenRecursiveValueType(DiagnosticNativeProductFailureDetail),
-    CodegenUnresolvedType(DiagnosticNativeProductFailureDetail),
-    CodegenUnsizedTypeByValue(DiagnosticNativeProductFailureDetail),
     CodegenInvalidAbiMapping(Option<DiagnosticNativeProductFailureDetail>),
     CodegenUnsupportedType(DiagnosticNativeProductFailureDetail),
-    CodegenMissingHelperInstance(DiagnosticNativeProductFailureDetail),
     CodegenLayoutOverflow(DiagnosticNativeProductFailureDetail),
-    CodegenInvalidSymbolName,
 }
 
 impl DiagnosticNativeProductFailureKind {
@@ -226,8 +176,6 @@ impl DiagnosticNativeProductFailureKind {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::CodegenBackendNotSelected => "codegen_backend_not_selected",
-            Self::MissingProductRoot => "missing_product_root",
-            Self::InvalidEntryResult => "invalid_entry_result",
             Self::MissingRuntime => "missing_runtime",
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCancelled => "evaluation_cancelled",
@@ -236,66 +184,14 @@ impl DiagnosticNativeProductFailureKind {
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
             Self::EvaluationSemanticValue(failure) => failure.as_str(),
             Self::EvaluationBinding(failure) => failure.as_str(),
-            Self::EvaluationConstantCallableBodyUnavailable => {
-                "evaluation_constant_callable_body_unavailable"
-            }
-            Self::EvaluationConstantCallableRootUnavailable => {
-                "evaluation_constant_callable_root_unavailable"
-            }
-            Self::EvaluationAtomicRepresentationTypeUnavailable => {
-                "evaluation_atomic_representation_type_unavailable"
-            }
-            Self::EvaluationAtomicRepresentationArgumentsUnavailable => {
-                "evaluation_atomic_representation_arguments_unavailable"
-            }
-            Self::EvaluationAtomicInitializerArgumentUnavailable => {
-                "evaluation_atomic_initializer_argument_unavailable"
-            }
-            Self::EvaluationAtomicInitializerResultUnavailable => {
-                "evaluation_atomic_initializer_result_unavailable"
-            }
-            Self::EvaluationUninitInitializerResultUnavailable => {
-                "evaluation_uninit_initializer_result_unavailable"
-            }
-            Self::EvaluationImportedExecutableTemplateMismatch => {
-                "evaluation_imported_executable_template_mismatch"
-            }
             Self::EvaluationSemanticQuery(failure) => failure.as_str(),
             Self::EvaluationProduct(failure) => failure.as_str(),
             Self::EvaluationForeign(failure) => failure.as_str(),
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",
-            Self::CodegenTargetEmptyTriple => "codegen_target_empty_triple",
-            Self::CodegenTargetEmptyCpu => "codegen_target_empty_cpu",
-            Self::CodegenTargetEmptyFeature => "codegen_target_empty_feature",
-            Self::ReachabilityEmptyRoots => "reachability_empty_roots",
-            Self::ReachabilityDuplicateInstance => "reachability_duplicate_instance",
-            Self::ReachabilityUndemandedInstance => "reachability_undemanded_instance",
-            Self::ReachabilityIncomplete => "reachability_incomplete",
-            Self::InstanceTemplateMismatch => "instance_template_mismatch",
-            Self::InstanceTargetMismatch => "instance_target_mismatch",
-            Self::InstanceDependencyTargetMismatch => "instance_dependency_target_mismatch",
-            Self::UnitEmpty => "unit_empty",
-            Self::UnitDuplicateInstance => "unit_duplicate_instance",
-            Self::UnitMissingCompatibility => "unit_missing_compatibility",
-            Self::UnitTargetMismatch => "unit_target_mismatch",
-            Self::UnitWorkBoundExceeded => "unit_work_bound_exceeded",
-            Self::UnitRecipeMismatch => "unit_recipe_mismatch",
-            Self::PartitionMissingCompatibility(detail)
-            | Self::PartitionInvalidUnit(detail)
-            | Self::ExecutableHostDuplicateRole(detail)
-            | Self::ExecutableHostRuntimeOwnedBinding(detail)
-            | Self::ExecutableHostIncompatibleRuntime(detail)
-            | Self::ExecutableHostMissingRole(detail) => detail.reason(),
-            Self::ExecutableHostMissingRuntime => "executable_host_missing_runtime",
-            Self::ExecutableHostMissingMainThreadLane => "executable_host_missing_main_thread_lane",
-            Self::ExecutableHostMissingProtectedFrameAbi => {
-                "executable_host_missing_protected_frame_abi"
-            }
             Self::NativeResolution(detail)
             | Self::RuntimeSelectionIncompatible(detail)
             | Self::RuntimeSelectionMissingRoleOwner(detail)
             | Self::RuntimeSelectionMissingCapabilityOwner(detail) => detail.reason(),
-            Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnsupportedTarget => "codegen_backend_unsupported_target",
             Self::CodegenBackendUnsupportedTargetDetail(detail)
             | Self::CodegenBackendUnsupportedArtifact(detail)
@@ -308,25 +204,13 @@ impl DiagnosticNativeProductFailureKind {
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
             Self::CodegenBackendResourceLimit(detail) => detail.reason(),
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",
-            Self::CodegenMirUnavailable(detail)
-            | Self::CodegenInvalidInstance(detail)
-            | Self::CodegenInvalidUnit(detail)
-            | Self::CodegenUnitMismatch(detail)
-            | Self::CodegenMissingRuntimeRole(detail)
-            | Self::CodegenOpenConstantTerm(detail)
-            | Self::CodegenInvalidArrayLength(detail)
-            | Self::CodegenRecursiveValueType(detail)
-            | Self::CodegenUnresolvedType(detail)
-            | Self::CodegenUnsizedTypeByValue(detail)
-            | Self::CodegenUnsupportedType(detail)
-            | Self::CodegenMissingHelperInstance(detail)
-            | Self::CodegenLayoutOverflow(detail) => detail.reason(),
+            Self::CodegenUnsupportedType(detail) | Self::CodegenLayoutOverflow(detail) => {
+                detail.reason()
+            }
             Self::CodegenExactIntegerCapacity { .. } => "codegen_exact_integer_capacity",
             Self::CodegenMirCapacityExceeded => "codegen_mir_capacity_exceeded",
-            Self::CodegenMissingEntrypoint => "codegen_missing_entrypoint",
             Self::CodegenInvalidAbiMapping(Some(detail)) => detail.reason(),
             Self::CodegenInvalidAbiMapping(None) => "codegen_invalid_abi_mapping",
-            Self::CodegenInvalidSymbolName => "codegen_invalid_symbol_name",
         }
     }
 }
@@ -343,30 +227,6 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
             Failure::SemanticValue(failure) => Self::EvaluationSemanticValue(failure),
             Failure::Binding(failure) => Self::EvaluationBinding(failure),
             Failure::MirCapacity => Self::CodegenMirCapacityExceeded,
-            Failure::ConstantCallableBodyUnavailable => {
-                Self::EvaluationConstantCallableBodyUnavailable
-            }
-            Failure::ConstantCallableRootUnavailable => {
-                Self::EvaluationConstantCallableRootUnavailable
-            }
-            Failure::AtomicRepresentationTypeUnavailable => {
-                Self::EvaluationAtomicRepresentationTypeUnavailable
-            }
-            Failure::AtomicRepresentationArgumentsUnavailable => {
-                Self::EvaluationAtomicRepresentationArgumentsUnavailable
-            }
-            Failure::AtomicInitializerArgumentUnavailable => {
-                Self::EvaluationAtomicInitializerArgumentUnavailable
-            }
-            Failure::AtomicInitializerResultUnavailable => {
-                Self::EvaluationAtomicInitializerResultUnavailable
-            }
-            Failure::UninitInitializerResultUnavailable => {
-                Self::EvaluationUninitInitializerResultUnavailable
-            }
-            Failure::ImportedExecutableTemplateMismatch => {
-                Self::EvaluationImportedExecutableTemplateMismatch
-            }
             Failure::SemanticQuery(failure) => Self::EvaluationSemanticQuery(failure),
             Failure::Product(failure) => Self::EvaluationProduct(failure),
             Failure::Foreign(failure) => Self::EvaluationForeign(failure),

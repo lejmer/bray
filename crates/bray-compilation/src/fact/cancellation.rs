@@ -58,22 +58,16 @@ impl CancellationToken {
 
     /// Returns whether cancellation has been requested.
     pub fn is_cancelled(&self) -> bool {
-        // The shared cancellation trait cannot return coordination failures. Conservatively
-        // stopping work is safe, while fallible query checks retain the exact poisoned state.
-        self.checked_is_cancelled().unwrap_or(true)
-    }
-
-    fn checked_is_cancelled(&self) -> Result<bool, FactQueryError> {
         match &*self.state {
-            CancellationState::Request(cancelled) => Ok(cancelled.load(Ordering::Acquire)),
-            CancellationState::Shared(_) => self.checked_is_cancelled_with(&mut Vec::new()),
+            CancellationState::Request(cancelled) => cancelled.load(Ordering::Acquire),
+            CancellationState::Shared(_) => self.is_cancelled_with(&mut Vec::new()),
         }
     }
 
-    fn checked_is_cancelled_with(&self, active: &mut Vec<usize>) -> Result<bool, FactQueryError> {
+    fn is_cancelled_with(&self, active: &mut Vec<usize>) -> bool {
         let shared = match &*self.state {
             CancellationState::Request(cancelled) => {
-                return Ok(cancelled.load(Ordering::Acquire));
+                return cancelled.load(Ordering::Acquire);
             }
             CancellationState::Shared(shared) => shared,
         };
@@ -81,50 +75,47 @@ impl CancellationToken {
         let identity = Arc::as_ptr(&self.state).addr();
 
         if active.contains(&identity) {
-            return Err(FactRuntimeFailure::RecursiveCancellationInterest.into());
+            panic!("query runtime RecursiveCancellationInterest contract failed");
         }
 
         active.push(identity);
 
-        let result = self.checked_shared_is_cancelled(shared, active);
+        let result = self.shared_is_cancelled(shared, active);
 
         active.pop();
 
         result
     }
 
-    fn checked_shared_is_cancelled(
+    fn shared_is_cancelled(
         &self,
         shared: &SharedCancellationState,
         active: &mut Vec<usize>,
-    ) -> Result<bool, FactQueryError> {
-        let interests =
-            shared
+    ) -> bool {
+        let interests = {
+            let interests = shared
                 .interests
                 .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::CancellationInterests,
-                    fact: None,
-                    task: None,
-                })?;
+                .expect("shared cancellation interests must remain unpoisoned");
 
-        let interests = interests.values().cloned().collect::<Vec<_>>();
+            interests.values().cloned().collect::<Vec<_>>()
+        };
 
         if interests.is_empty() {
-            return Ok(true);
+            return true;
         }
 
         for cancellation in interests {
-            if !cancellation.checked_is_cancelled_with(active)? {
-                return Ok(false);
+            if !cancellation.is_cancelled_with(active) {
+                return false;
             }
         }
 
-        Ok(true)
+        true
     }
 
     pub(crate) fn check(&self) -> Result<(), FactQueryError> {
-        if self.checked_is_cancelled()? {
+        if self.is_cancelled() {
             Err(FactQueryError::Cancelled)
         } else {
             Ok(())
@@ -177,15 +168,15 @@ impl SharedCancellation {
         cancellation: &CancellationToken,
     ) -> Result<CancellationInterest, FactQueryError> {
         if Arc::ptr_eq(&self.token.state, &cancellation.state) {
-            return Err(FactRuntimeFailure::RecursiveCancellationInterest.into());
+            panic!("query runtime RecursiveCancellationInterest contract failed");
         }
 
         let CancellationState::Shared(state) = &*self.token.state else {
-            return Err(FactRuntimeFailure::InvalidCancellationState {
-                expected: CancellationStateKind::Shared,
-                actual: cancellation_state_kind(&self.token.state),
-            }
-            .into());
+            panic!(
+                "query runtime InvalidCancellationState contract failed: expected={:?}, actual={:?}",
+                CancellationStateKind::Shared,
+                cancellation_state_kind(&self.token.state)
+            );
         };
 
         let identity = state
@@ -199,15 +190,12 @@ impl SharedCancellation {
                 task: None,
             })?;
 
-        let mut interests =
-            state
-                .interests
-                .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::CancellationInterests,
-                    fact: None,
-                    task: None,
-                })?;
+        let mut interests = state.interests.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::CancellationInterests
+            )
+        });
 
         // Shared demand retains the caller's Arc-backed request signal until interest ends.
         interests.insert(identity, cancellation.clone());
@@ -225,9 +213,12 @@ impl Drop for CancellationInterest {
             return;
         };
 
-        // Interest cleanup is best effort because Drop cannot report poisoned shared state.
-        let Ok(mut interests) = state.interests.lock() else {
-            return;
+        let mut interests = match state.interests.lock() {
+            Ok(interests) => interests,
+            Err(_) if std::thread::panicking() => return,
+            Err(cause) => {
+                panic!("cancellation interest cleanup state must remain unpoisoned: {cause}")
+            }
         };
 
         interests.remove(&self.identity);
@@ -253,11 +244,8 @@ mod tests {
 
     use bray_base::Cancellation;
 
-    use super::{CancellationState, CancellationToken, SharedCancellation};
-    use crate::fact::{
-        BatchCompletionError, BatchWork, FactQueryError, FactRuntime, FactRuntimeFailure,
-        SynchronizationComponent,
-    };
+    use super::{CancellationToken, SharedCancellation};
+    use crate::fact::{BatchWork, FactRuntime};
 
     #[test]
     fn cloned_tokens_share_cancellation() {
@@ -292,72 +280,45 @@ mod tests {
     fn recursive_shared_interest_retains_the_exact_state_failure() {
         let shared = SharedCancellation::new();
 
-        let error = match shared.register(shared.token()) {
-            Ok(_) => panic!("shared cancellation must reject recursive interest"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            shared.register(shared.token())
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::RecursiveCancellationInterest
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("RecursiveCancellationInterest"));
     }
 
     #[test]
-    fn poisoned_shared_interest_is_fallible_but_conservatively_cancelled() {
+    fn poisoned_shared_interest_never_becomes_cancellation() {
         let shared = SharedCancellation::new();
 
-        let CancellationState::Shared(state) = &*shared.token.state else {
-            panic!("shared cancellation must retain shared state");
-        };
+        shared.token().poison_shared_interests();
 
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _interests = state
-                .interests
-                .lock()
-                .unwrap_or_else(|_| panic!("test cancellation state should begin available"));
+        for operation in 0..3 {
+            let panic = catch_unwind(AssertUnwindSafe(|| match operation {
+                0 => {
+                    let _ = shared.token().check();
+                }
+                1 => {
+                    let _ = shared.token().is_cancelled();
+                }
+                _ => {
+                    let _ = FactRuntime::default().complete_batch([1_u32], shared.token(), |_| {
+                        Ok::<_, ()>(BatchWork::leaf(()))
+                    });
+                }
+            }))
+            .err()
+            .expect("compiler invariant must panic");
 
-            panic!("poison shared cancellation interests");
-        }));
-
-        let error = match shared.token().check() {
-            Ok(()) => panic!("fallible cancellation must report poisoned interest state"),
-            Err(error) => error,
-        };
-
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::CancellationInterests,
-                        ..
-                    }
-                )
-        ));
-
-        assert!(shared.token().is_cancelled());
-
-        let batch = FactRuntime::default().complete_batch([1_u32], shared.token(), |_| {
-            Ok::<_, ()>(BatchWork::leaf(()))
-        });
-
-        assert!(matches!(
-            batch,
-            Err(BatchCompletionError::Scheduler(FactQueryError::Runtime(error)))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::CancellationInterests,
-                        ..
-                    }
-                )
-        ));
+            assert!(
+                bray_testing::panic_payload_text(panic.as_ref())
+                    .contains("shared cancellation interests")
+            );
+        }
     }
 
     #[test]
@@ -373,20 +334,22 @@ mod tests {
             .register(first.token())
             .unwrap_or_else(|error| panic!("second shared interest must register: {error:?}"));
 
-        let error = match first.token().check() {
-            Ok(()) => panic!("an indirect shared interest cycle must fail"),
-            Err(error) => error,
-        };
+        let panic =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first.token().check()))
+                .err()
+                .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::RecursiveCancellationInterest
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert!(first.token().is_cancelled());
+        assert!(message.contains("RecursiveCancellationInterest"));
+
+        let panic = catch_unwind(AssertUnwindSafe(|| first.token().is_cancelled()))
+            .err()
+            .expect("compiler invariant must panic");
+
+        assert!(
+            bray_testing::panic_payload_text(panic.as_ref())
+                .contains("RecursiveCancellationInterest")
+        );
     }
 }

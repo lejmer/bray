@@ -8,7 +8,7 @@ use bray_symbols::{
 };
 
 use super::super::{CodegenPreparationError, Compilation};
-use super::{ProductQueryFailure, ProductSynchronizationComponent};
+use super::ProductSynchronizationComponent;
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,9 +132,12 @@ impl Compilation {
         self.state
             .codegen_lifecycle_needs
             .lock()
-            .map_err(|_| ProductQueryFailure::SynchronizationPoisoned {
-                component: ProductSynchronizationComponent::LifecycleNeeds,
-            })?
+            .unwrap_or_else(|_| {
+                panic!(
+                    "product SynchronizationPoisoned construction failed: component={:?}",
+                    ProductSynchronizationComponent::LifecycleNeeds
+                )
+            })
             .extend(computed);
 
         Ok(needs)
@@ -403,9 +406,12 @@ impl Compilation {
             .state
             .codegen_lifecycle_needs
             .lock()
-            .map_err(|_| ProductQueryFailure::SynchronizationPoisoned {
-                component: ProductSynchronizationComponent::LifecycleNeeds,
-            })?
+            .unwrap_or_else(|_| {
+                panic!(
+                    "product SynchronizationPoisoned construction failed: component={:?}",
+                    ProductSynchronizationComponent::LifecycleNeeds
+                )
+            })
             .get(&ty)
             .copied();
 

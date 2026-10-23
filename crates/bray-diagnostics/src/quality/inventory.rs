@@ -95,28 +95,6 @@ macro_rules! interface_components {
     };
 }
 
-macro_rules! interface_defect_components {
-    ($primary_args:expr) => {
-        &[
-            DiagnosticComponentContract::PrimaryMessage {
-                args: $primary_args,
-            },
-            DiagnosticComponentContract::Note {
-                kind: DiagnosticNoteKind::InterfaceDependencyContext,
-                args: &[
-                    DiagnosticArgName::ExpectedPackageIdentity,
-                    DiagnosticArgName::ExpectedProductIdentity,
-                    DiagnosticArgName::ArtifactPath,
-                ],
-            },
-            DiagnosticComponentContract::Note {
-                kind: DiagnosticNoteKind::ReportCompilerDefect,
-                args: &[],
-            },
-        ]
-    };
-}
-
 macro_rules! link_plan_components {
     ($primary_args:expr) => {
         &[
@@ -130,42 +108,6 @@ macro_rules! link_plan_components {
                     DiagnosticArgName::TargetTriple,
                     DiagnosticArgName::LinkerDriverIdentity,
                 ],
-            },
-        ]
-    };
-}
-
-macro_rules! compiler_defect_components {
-    ($primary_args:expr) => {
-        &[
-            DiagnosticComponentContract::PrimaryMessage {
-                args: $primary_args,
-            },
-            DiagnosticComponentContract::Note {
-                kind: DiagnosticNoteKind::ReportCompilerDefect,
-                args: &[],
-            },
-        ]
-    };
-}
-
-macro_rules! link_plan_defect_components {
-    ($primary_args:expr) => {
-        &[
-            DiagnosticComponentContract::PrimaryMessage {
-                args: $primary_args,
-            },
-            DiagnosticComponentContract::Note {
-                kind: DiagnosticNoteKind::LinkPlanContext,
-                args: &[
-                    DiagnosticArgName::ActualProductIdentity,
-                    DiagnosticArgName::TargetTriple,
-                    DiagnosticArgName::LinkerDriverIdentity,
-                ],
-            },
-            DiagnosticComponentContract::Note {
-                kind: DiagnosticNoteKind::ReportCompilerDefect,
-                args: &[],
             },
         ]
     };
@@ -210,11 +152,11 @@ impl DiagnosticKind {
             CharacterLiteralMustContainOneScalar, CharacterLiteralNeedsTerminator,
             CharacterNotAccepted, EscapeMustBeKnown, IdentifierSpellingMustBeValid,
             IdentifiersMustBeAscii, LineBreaksMustBeLfOrCrlf, OnlyImaginaryNumericSuffix,
-            PackageIdentityMustBeValid, PackageVersionMustBeValid, ReportCompilerDefect,
-            RuntimeArtifactMustBeUsable, SourceFileMustBeReadable, SourceIdsAreCompact,
-            SourceInputNeedsStableIdentity, SourceInputRequired, SourceMustBeUtf8,
-            SourceMustMatchFormatterOutput, SourceTextOffsetsAreCompact,
-            StringLiteralNeedsTerminator, UnicodeEscapeMustBeScalar, WorkerBudgetMustBePositive,
+            PackageIdentityMustBeValid, PackageVersionMustBeValid, RuntimeArtifactMustBeUsable,
+            SourceFileMustBeReadable, SourceIdsAreCompact, SourceInputNeedsStableIdentity,
+            SourceInputRequired, SourceMustBeUtf8, SourceMustMatchFormatterOutput,
+            SourceTextOffsetsAreCompact, StringLiteralNeedsTerminator, UnicodeEscapeMustBeScalar,
+            WorkerBudgetMustBePositive,
         };
 
         match self {
@@ -290,10 +232,9 @@ impl DiagnosticKind {
                 &[FilePath, StandardLibraryManifestProblem],
                 interface_components!(&[FilePath, StandardLibraryManifestProblem]),
             ),
-            Self::StandardLibraryInfrastructureFailure => Self::quality_artifact(
-                &[ArtifactPath],
-                interface_defect_components!(&[ArtifactPath]),
-            ),
+            Self::StandardLibraryInfrastructureFailure => {
+                Self::quality_artifact(&[ArtifactPath], interface_components!(&[ArtifactPath]))
+            }
             Self::StandardLibraryArtifactLengthMismatch => Self::quality_artifact(
                 &[FilePath, ExpectedByteCount, ActualByteCount],
                 interface_components!(&[FilePath, ExpectedByteCount, ActualByteCount]),
@@ -463,10 +404,6 @@ impl DiagnosticKind {
             Self::ProjectCommandFailed => Self::quality_external(
                 &[ProjectCommandFailure],
                 primary_components!(&[ProjectCommandFailure]),
-            ),
-            Self::ProjectCompilerDefect => Self::quality_external(
-                &[ProjectCommandFailure],
-                note_components!(&[ProjectCommandFailure], ReportCompilerDefect),
             ),
             Self::ProjectInitializationIdentityInvalid => Self::quality_external(
                 &[ReferencedName],
@@ -779,10 +716,9 @@ impl DiagnosticKind {
                 &[ExpectedType, ActualType],
                 primary_components!(&[ExpectedType, ActualType]),
             ),
-            Self::CheckingCompilerDefect => Self::quality_source(
-                &[EmissionFailure],
-                note_components!(&[EmissionFailure], ReportCompilerDefect),
-            ),
+            Self::CheckingCapacityExceeded => {
+                Self::quality_source(&[EmissionFailure], primary_components!(&[EmissionFailure]))
+            }
             Self::CheckingIncompatiblePattern => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
             }
@@ -1398,16 +1334,12 @@ impl DiagnosticKind {
             Self::CodegenInvalidConfiguration | Self::CodegenResourceExhausted => {
                 Self::quality_artifact(
                     &[CodegenBackendIdentity, TargetTriple],
-                    compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple]),
+                    primary_components!(&[CodegenBackendIdentity, TargetTriple]),
                 )
             }
             Self::CodegenBackendLibraryFailed => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple, CodegenBackendReport],
-                compiler_defect_components!(&[
-                    CodegenBackendIdentity,
-                    TargetTriple,
-                    CodegenBackendReport,
-                ]),
+                primary_components!(&[CodegenBackendIdentity, TargetTriple, CodegenBackendReport,]),
             ),
             Self::CodegenBackendToolExited => Self::quality_artifact(
                 &[
@@ -1416,7 +1348,7 @@ impl DiagnosticKind {
                     FilePath,
                     ExternalToolExit,
                 ],
-                compiler_defect_components!(&[
+                primary_components!(&[
                     CodegenBackendIdentity,
                     TargetTriple,
                     FilePath,
@@ -1429,7 +1361,7 @@ impl DiagnosticKind {
             ),
             Self::CodegenArtifactConstructionFailed => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple, ArtifactKind],
-                compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple, ArtifactKind,]),
+                primary_components!(&[CodegenBackendIdentity, TargetTriple, ArtifactKind,]),
             ),
             Self::CodegenArtifactReadFailed => Self::quality_artifact(
                 &[
@@ -1504,7 +1436,7 @@ impl DiagnosticKind {
             Self::LinkerDriverIncompatible | Self::LinkerInvocationFailed => {
                 Self::quality_artifact(
                     &[TargetTriple, ActualProductIdentity, LinkerDriverIdentity],
-                    link_plan_defect_components!(&[]),
+                    link_plan_components!(&[]),
                 )
             }
             Self::LinkerOptimizationReportInvalid => Self::quality_artifact(

@@ -1,6 +1,4 @@
-use super::super::inspection::{
-    format_english_inspection_failure, format_english_native_linker_build_failure,
-};
+use super::super::inspection::format_english_inspection_failure;
 use super::super::native::{
     format_english_document_parse_kind, format_english_external_tool_operation,
 };
@@ -246,11 +244,6 @@ pub(crate) fn format_english_project_command_failure(
             format_english_project_operation(*operation),
             format_english_tool_stream(*stream)
         ),
-        Failure::ToolProtocol { operation, failure } => format!(
-            "could not {} because the compiler's child-process protocol {}",
-            format_english_project_operation(*operation),
-            format_english_tool_protocol_failure(*failure)
-        ),
         Failure::ProfileComparison(problem) => match problem {
             bray_diagnostics::DiagnosticProfileComparisonProblem::Context { before, after } => {
                 format!(
@@ -275,10 +268,6 @@ pub(crate) fn format_english_project_command_failure(
             "selected test {} has no published host executable",
             format_english_quoted_text(test)
         ),
-        Failure::MissingResult(operation) => format!(
-            "could not {} because the completed result omitted a required value",
-            format_english_project_operation(*operation)
-        ),
         Failure::CapacityExceeded(operation) => format!(
             "could not {} because its compact count range was exceeded",
             format_english_project_operation(*operation)
@@ -289,20 +278,11 @@ pub(crate) fn format_english_project_command_failure(
         Failure::CompilationDiagnosticCountUnrepresentable => String::from(
             "could not load the compilation because the host diagnostic count exceeds the compiler protocol range",
         ),
-        Failure::NativeLinkerConstruction { target, failure } => format!(
-            "could not configure native linking for target {} because the compiler's {} contract is invalid",
-            format_english_quoted_text(target),
-            format_english_native_linker_build_failure(*failure)
-        ),
         Failure::Inspection(failure) => format!(
             "could not construct the compiler inspection report because {}",
             format_english_inspection_failure(failure)
         ),
-        Failure::Invariant(operation) => format!(
-            "could not {} because validated command state became inconsistent",
-            format_english_project_operation(*operation)
-        ),
-    }
+}
 }
 
 const fn format_english_tool_stream(
@@ -314,23 +294,6 @@ const fn format_english_tool_stream(
         Stream::StandardInput => "standard input",
         Stream::StandardOutput => "standard output",
         Stream::StandardError => "standard error",
-    }
-}
-
-fn format_english_tool_protocol_failure(
-    failure: bray_diagnostics::DiagnosticToolProtocolFailure,
-) -> String {
-    use bray_diagnostics::DiagnosticToolProtocolFailure as Failure;
-
-    match failure {
-        Failure::MissingStream(stream) => format!(
-            "did not provide configured piped {}",
-            format_english_tool_stream(stream)
-        ),
-        Failure::StreamThreadPanicked(stream) => format!(
-            "pump for {} terminated unexpectedly",
-            format_english_tool_stream(stream)
-        ),
     }
 }
 

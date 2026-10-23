@@ -31,11 +31,16 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::Cycle(cycle) => {
             DiagnosticEmissionEvaluationFailure::Cycle(crate::fact::diagnostic_cycle_failure(cycle))
         }
-        FactQueryError::SymbolGraph(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
-            crate::fact::diagnostic_symbol_graph_failure(*error),
-        ),
-        FactQueryError::CodegenTarget(error) => DiagnosticEmissionEvaluationFailure::Product(
-            bray_diagnostics::DiagnosticProductQueryFailure::new(codegen_target_reason(*error), []),
+        FactQueryError::SymbolCapacity { index } => {
+            DiagnosticEmissionEvaluationFailure::SemanticQuery(
+                crate::fact::diagnostic_symbol_capacity_failure(*index),
+            )
+        }
+        FactQueryError::UnsupportedCodegenProfile => DiagnosticEmissionEvaluationFailure::Product(
+            bray_diagnostics::DiagnosticProductQueryFailure::new(
+                "codegen_target_unsupported_profile",
+                [],
+            ),
         ),
         FactQueryError::PackageInterface(error) => DiagnosticEmissionEvaluationFailure::Product(
             bray_diagnostics::DiagnosticProductQueryFailure::new(
@@ -62,33 +67,10 @@ pub(crate) fn diagnostic_evaluation_failure(
                 crate::fact::diagnostic_semantic_value_failure(*error),
             )
         }
-        FactQueryError::BindingDependencyUnavailable => {
-            DiagnosticEmissionEvaluationFailure::Binding(
-                bray_diagnostics::DiagnosticBindingFailure::new(
-                    "binding_dependency_unavailable",
-                    [],
-                ),
-            )
-        }
-        FactQueryError::Binding(error) => DiagnosticEmissionEvaluationFailure::Binding(
+        FactQueryError::BindingCapacity(error) => DiagnosticEmissionEvaluationFailure::Binding(
             crate::fact::diagnostic_binding_failure(error),
         ),
         FactQueryError::MirCapacity(_) => DiagnosticEmissionEvaluationFailure::MirCapacity,
-        FactQueryError::ConstantCallableBodyUnavailable => {
-            DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable
-        }
-        FactQueryError::ConstantCallableRootUnavailable => {
-            DiagnosticEmissionEvaluationFailure::ConstantCallableRootUnavailable
-        }
-        FactQueryError::AtomicInitializerArgumentUnavailable => {
-            DiagnosticEmissionEvaluationFailure::AtomicInitializerArgumentUnavailable
-        }
-        FactQueryError::AtomicInitializerResultUnavailable => {
-            DiagnosticEmissionEvaluationFailure::AtomicInitializerResultUnavailable
-        }
-        FactQueryError::UninitInitializerResultUnavailable => {
-            DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
-        }
         FactQueryError::SemanticQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
             crate::fact::diagnostic_semantic_query_failure(error),
         ),
@@ -116,17 +98,6 @@ fn diagnostic_imported_query_failure(
     };
 
     bray_diagnostics::DiagnosticSemanticQueryFailure::new("imported_query", reason, context)
-}
-
-const fn codegen_target_reason(error: bray_codegen::CodegenTargetBuildError) -> &'static str {
-    match error {
-        bray_codegen::CodegenTargetBuildError::UnsupportedProfile => {
-            "codegen_target_unsupported_profile"
-        }
-        bray_codegen::CodegenTargetBuildError::EmptyTriple => "codegen_target_empty_triple",
-        bray_codegen::CodegenTargetBuildError::EmptyCpu => "codegen_target_empty_cpu",
-        bray_codegen::CodegenTargetBuildError::EmptyFeature => "codegen_target_empty_feature",
-    }
 }
 
 pub(super) const fn interface_validation_reason(

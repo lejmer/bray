@@ -240,11 +240,12 @@ fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, Diagnost
     let mut loaded = Vec::with_capacity(hosts.len());
 
     for host in hosts {
-        loaded.push(host.load().ok_or_else(|| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                DiagnosticProjectOperation::TestHostPublication,
-            ))
-        })?);
+        loaded.push(host.load().unwrap_or_else(|| {
+            panic!(
+                "validated project MissingResult contract failed: {:?}",
+                DiagnosticProjectOperation::TestHostPublication
+            )
+        }));
     }
 
     loaded.sort_by(|left, right| left.catalog.product().cmp(right.catalog.product()));
@@ -343,22 +344,20 @@ fn run_schedule(
         }
 
         if active == 0 {
-            return Err(operation_diagnostics(
-                DiagnosticProjectCommandFailure::Invariant(
-                    DiagnosticProjectOperation::TestAdmission,
-                ),
-            ));
+            panic!(
+                "validated project Invariant contract failed: {:?}",
+                DiagnosticProjectOperation::TestAdmission
+            );
         }
 
         let completion = match receiver.recv_timeout(HOST_POLL_INTERVAL) {
             Ok(completion) => completion,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(operation_diagnostics(
-                    DiagnosticProjectCommandFailure::Invariant(
-                        DiagnosticProjectOperation::TestHostCompletion,
-                    ),
-                ));
+                panic!(
+                    "validated project Invariant contract failed: {:?}",
+                    DiagnosticProjectOperation::TestHostCompletion
+                );
             }
         };
 
@@ -657,9 +656,10 @@ fn prepare_command_cancellation() -> Result<(), DiagnosticBag> {
     });
 
     installed.as_ref().map(|()| ()).map_err(|()| {
-        operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
-            DiagnosticProjectOperation::TestCancellationHandler,
-        ))
+        panic!(
+            "validated project Invariant contract failed: {:?}",
+            DiagnosticProjectOperation::TestCancellationHandler
+        )
     })
 }
 
