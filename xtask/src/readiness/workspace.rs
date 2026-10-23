@@ -10,6 +10,7 @@ use super::dependencies::{CargoMetadata, PackageDependencies};
 
 pub(super) struct RustTest {
     name: String,
+    qualified_name: String,
     path: String,
     body: String,
     asserted_diagnostic_kinds: BTreeSet<String>,
@@ -18,6 +19,10 @@ pub(super) struct RustTest {
 impl RustTest {
     pub(super) fn name(&self) -> &str {
         &self.name
+    }
+
+    pub(super) fn qualified_name(&self) -> &str {
+        &self.qualified_name
     }
 
     pub(super) fn path(&self) -> &str {
@@ -37,6 +42,7 @@ pub(super) struct RustWorkspace {
     root: PathBuf,
     files: BTreeMap<String, String>,
     tests: Vec<RustTest>,
+    parser_functions: Vec<String>,
     enums: BTreeMap<String, Vec<String>>,
     dependencies: CargoMetadata,
 }
@@ -59,6 +65,7 @@ impl RustWorkspace {
 
         let mut files = BTreeMap::new();
         let mut tests = Vec::new();
+        let mut parser_functions = Vec::new();
         let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
         for path in paths {
@@ -86,9 +93,12 @@ impl RustWorkspace {
                 );
             }
 
-            TestCollector {
+            SourceCollector {
                 path: &relative,
+                modules: source_module_path(&relative),
+                test_only: false,
                 tests: &mut tests,
+                parser_functions: &mut parser_functions,
             }
             .visit_file(&file);
 
@@ -103,6 +113,7 @@ impl RustWorkspace {
             root,
             files,
             tests,
+            parser_functions,
             enums,
             dependencies,
         })
@@ -114,6 +125,10 @@ impl RustWorkspace {
 
     pub(super) fn tests(&self) -> &[RustTest] {
         &self.tests
+    }
+
+    pub(super) fn parser_functions(&self) -> &[String] {
+        &self.parser_functions
     }
 
     pub(super) fn executable_test_names(&self, category: &str) -> Result<BTreeSet<&str>, String> {
@@ -252,12 +267,28 @@ pub(super) fn require_executable_source_contracts<'row>(
     Ok(())
 }
 
-struct TestCollector<'input, 'output> {
+struct SourceCollector<'input, 'output> {
     path: &'input str,
+    modules: Vec<String>,
+    test_only: bool,
     tests: &'output mut Vec<RustTest>,
+    parser_functions: &'output mut Vec<String>,
 }
 
-impl<'syntax> Visit<'syntax> for TestCollector<'_, '_> {
+impl<'syntax> Visit<'syntax> for SourceCollector<'_, '_> {
+    fn visit_item_mod(&mut self, module: &'syntax syn::ItemMod) {
+        let test_only = self.test_only;
+
+        self.test_only |= is_test_only(&module.attrs);
+
+        self.modules
+            .push(module.ident.to_string().trim_start_matches("r#").to_owned());
+
+        syn::visit::visit_item_mod(self, module);
+        self.modules.pop();
+        self.test_only = test_only;
+    }
+
     fn visit_item_fn(&mut self, function: &'syntax syn::ItemFn) {
         if function
             .attrs
@@ -268,12 +299,81 @@ impl<'syntax> Visit<'syntax> for TestCollector<'_, '_> {
 
             self.tests.push(RustTest {
                 name: function.sig.ident.to_string(),
+                qualified_name: qualified_name(&self.modules, &function.sig.ident.to_string()),
                 path: self.path.to_owned(),
                 body: function.block.to_token_stream().to_string(),
                 asserted_diagnostic_kinds,
             });
+        } else if self.path.starts_with("crates/bray-parser/src/")
+            && !self.test_only
+            && !is_test_only(&function.attrs)
+        {
+            self.parser_functions.push(qualified_name(
+                &self.modules,
+                &function.sig.ident.to_string(),
+            ));
         }
     }
+
+    fn visit_item_impl(&mut self, implementation: &'syntax syn::ItemImpl) {
+        if !self.path.starts_with("crates/bray-parser/src/")
+            || self.test_only
+            || is_test_only(&implementation.attrs)
+        {
+            return;
+        }
+
+        let syn::Type::Path(owner) = implementation.self_ty.as_ref() else {
+            return;
+        };
+
+        if !owner.path.is_ident("Parser") {
+            return;
+        }
+
+        for item in &implementation.items {
+            if let syn::ImplItem::Fn(function) = item
+                && !is_test_only(&function.attrs)
+            {
+                self.parser_functions.push(qualified_name(
+                    &self.modules,
+                    &format!("Parser::{}", function.sig.ident),
+                ));
+            }
+        }
+    }
+}
+
+fn source_module_path(path: &str) -> Vec<String> {
+    let relative = path
+        .split_once("/src/")
+        .or_else(|| path.split_once("/tests/"))
+        .map_or(path, |(_, source)| source);
+
+    relative
+        .trim_end_matches(".rs")
+        .split('/')
+        .filter(|part| !matches!(*part, "lib" | "main" | "mod"))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn qualified_name(modules: &[String], name: &str) -> String {
+    modules
+        .iter()
+        .map(String::as_str)
+        .chain([name])
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+fn is_test_only(attributes: &[syn::Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        attribute.path().is_ident("cfg")
+            && attribute
+                .parse_args::<syn::Path>()
+                .is_ok_and(|path| path.is_ident("test"))
+    })
 }
 
 fn asserted_diagnostic_kinds(block: &syn::Block) -> BTreeSet<String> {
@@ -348,7 +448,89 @@ fn path_ends_with(path: &syn::Path, expected: &[&str]) -> bool {
 pub(super) mod tests {
     use std::collections::BTreeSet;
 
-    use super::{RustWorkspace, asserted_diagnostic_kinds};
+    use syn::visit::Visit;
+
+    use super::{RustWorkspace, SourceCollector, asserted_diagnostic_kinds, source_module_path};
+
+    #[test]
+    fn parser_anchors_keep_module_owners_and_ignore_non_executable_mentions() {
+        let (functions, tests) = parsed_parser_anchors(
+            r#"
+            const MENTION: &str = "fn invented() {}";
+
+            struct Parser;
+            struct Other;
+
+            impl Parser {
+                fn source() {}
+            }
+
+            impl Other {
+                fn source() {}
+            }
+
+            fn helper() {}
+
+            #[cfg(test)]
+            fn fixture_only() {}
+
+            #[cfg(test)]
+            mod tests {
+                fn helper_without_test() {}
+
+                #[test]
+                fn real_case() {}
+
+                mod nested {
+                    #[test]
+                    fn real_case() {}
+                }
+            }
+            "#,
+        );
+
+        assert_eq!(
+            functions,
+            ["parser::state::Parser::source", "parser::state::helper"]
+        );
+
+        assert_eq!(
+            tests,
+            [
+                "parser::state::tests::real_case",
+                "parser::state::tests::nested::real_case"
+            ],
+        );
+    }
+
+    #[test]
+    fn integration_test_anchors_keep_their_harness_owner() {
+        assert_eq!(
+            source_module_path("crates/bray-parser/tests/lexer_conformance.rs"),
+            ["lexer_conformance"]
+        );
+    }
+
+    pub(in crate::readiness) fn parsed_parser_anchors(source: &str) -> (Vec<String>, Vec<String>) {
+        let file = syn::parse_file(source).expect("parser source fixture");
+        let path = "crates/bray-parser/src/parser/state.rs";
+        let mut tests = Vec::new();
+        let mut functions = Vec::new();
+
+        SourceCollector {
+            path,
+            modules: source_module_path(path),
+            test_only: false,
+            tests: &mut tests,
+            parser_functions: &mut functions,
+        }
+        .visit_file(&file);
+
+        (
+            functions,
+            tests.into_iter().map(|test| test.qualified_name).collect(),
+        )
+    }
 
     pub(in crate::readiness) fn dependency_workspace(
         packages: &[(&str, &str)],

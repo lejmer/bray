@@ -82,7 +82,7 @@ cargo xtask readiness semantic
 cargo xtask readiness native-execution
 ```
 
-The default readiness command excludes native execution. Pass `semantic`, `diagnostics`, `lowering`, `memory`,
+The default readiness command excludes native execution. Pass `parser`, `semantic`, `diagnostics`, `lowering`, `memory`,
 `codegen`, `emission`, or `linker` to run one structural audit. The command parses the Rust workspace once and shares
 that corpus across every selected audit. Pass `native-execution` to compile Bray fixtures twice, inspect their native
 objects, and execute the linked products. Ordinary Rust test runs do not run these comparatively expensive
@@ -177,5 +177,9 @@ source-semantic dependencies and interpretations.
 ## Parser coverage
 
 [The parser coverage fixture](../../crates/bray-parser/tests/fixtures/parser-coverage.md) maps grammar nonterminals to
-parser and test anchors. Update it with changes to the grammar or those anchors. Check it with `cargo nextest run -p
-bray-parser --test parser_coverage`.
+parser and executable test anchors. Update it with changes to the grammar or those anchors. Check it with
+`cargo xtask readiness parser`, which also runs as part of default readiness and reuses its parsed Rust corpus.
+Backticked function anchors resolve within the parser crate. Test anchors must identify actual `#[test]` functions,
+and ambiguous names need their module path. Parser annotations such as dispatch, shared helpers, precedence and token
+sets accompany real function anchors. Missing production functions and stale, ambiguous or helper-only test references
+fail with their coverage row and anchor.

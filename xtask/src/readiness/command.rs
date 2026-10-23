@@ -1,10 +1,10 @@
 use std::process::ExitCode;
 
 use super::workspace::RustWorkspace;
-use super::{codegen, emission, linker, lowering, memory, native_execution, semantic};
+use super::{codegen, emission, linker, lowering, memory, native_execution, parser, semantic};
 use crate::{command, workspace};
 
-const USAGE: &str = "usage: cargo xtask readiness [semantic | diagnostics | lowering | memory | codegen | emission | linker | native-execution]";
+const USAGE: &str = "usage: cargo xtask readiness [parser | semantic | diagnostics | lowering | memory | codegen | emission | linker | native-execution]";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let audit = arguments.next();
@@ -43,6 +43,8 @@ fn finish(result: Result<(), String>) -> ExitCode {
 fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), String> {
     match audit {
         None => {
+            audit_phase("Auditing parser readiness", || parser::audit(workspace))?;
+
             audit_phase("Auditing semantic readiness", || {
                 semantic::audit_coverage(workspace)
             })?;
@@ -62,6 +64,7 @@ fn run_audit(audit: Option<&str>, workspace: &RustWorkspace) -> Result<(), Strin
 
             audit_phase("Auditing linker readiness", || linker::audit(workspace))
         }
+        Some("parser") => audit_phase("Auditing parser readiness", || parser::audit(workspace)),
         Some("semantic") => audit_phase("Auditing semantic readiness", || {
             semantic::audit_coverage(workspace)
         }),

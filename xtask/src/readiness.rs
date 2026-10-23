@@ -6,6 +6,7 @@ mod linker;
 mod lowering;
 mod memory;
 mod native_execution;
+mod parser;
 mod semantic;
 mod workspace;
 
