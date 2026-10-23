@@ -433,11 +433,23 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let mut resolved = Vec::with_capacity(arguments.len());
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
 
     for argument in arguments {
         match argument {
             bray_symbols::GenericArgumentTemplate::Resolved(argument) => {
-                resolved.push(*argument);
+                let argument = match argument {
+                    GenericArgument::Type(ty) => {
+                        GenericArgument::Type(normalizer.normalize_type(*ty)?)
+                    }
+                    GenericArgument::Constant(term) => {
+                        GenericArgument::Constant(normalizer.normalize_term(*term)?)
+                    }
+                };
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                resolved.push(argument);
             }
             bray_symbols::GenericArgumentTemplate::Type(ty) => {
                 let TemplateResolution::Resolved(ty) =
@@ -461,7 +473,11 @@ where
 
                 // Candidate preparation owns dependency diagnostics after the query result drops.
                 diagnostics.extend(result.diagnostics().iter().cloned());
-                resolved.push(GenericArgument::Constant(*result.value()));
+
+                let term = normalizer.normalize_term(*result.value())?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+                resolved.push(GenericArgument::Constant(term));
             }
         }
     }

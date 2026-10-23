@@ -460,6 +460,7 @@ impl Compilation {
                     subject,
                     requirement.trait_application(),
                     constraints,
+                    diagnostics,
                 )?
                 .ok_or_else(|| {
                     symbol_contract_failure(
@@ -560,6 +561,7 @@ impl Compilation {
         subject: TypeId,
         application: bray_symbols::TraitApplicationId,
         constraints: &[(bray_symbols::GenericOwnerId, CheckedConstraint)],
+        diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<TypeId>, FactQueryError> {
         if let Some(member) = contract.result_type_member() {
             let projection = binding_context
@@ -571,12 +573,13 @@ impl Compilation {
                 })
                 .map_err(FactQueryError::SemanticValueStore)?;
 
-            return super::constraint::normalize_type_equalities(
-                binding_context.semantic_values(),
-                projection,
-                constraints,
-            )
-            .map(Some);
+            let checker =
+                crate::compilation::checker::CompilationCheckerContext::new(*binding_context)
+                    .with_type_constraints(constraints);
+
+            return bray_checker::normalize_type_valued_members(&checker, projection, diagnostics)
+                .map(Some)
+                .map_err(FactQueryError::from);
         }
 
         if let Some(definition) = contract.fixed_callable_result_type() {

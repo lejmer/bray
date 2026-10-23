@@ -575,3 +575,235 @@ fn byte_extents_report_incorrect_argument_counts() {
             .is_some()
     );
 }
+
+#[test]
+fn trait_default_bodies_apply_associated_type_equalities_in_either_query_order() {
+    for equality in [
+        "Self(Cursor).Element == Element",
+        "Self(Operations).Element == Self(Cursor).Element",
+        "",
+    ] {
+        for header_first in [false, true] {
+            let constraints = if equality.is_empty() {
+                "Self: Cursor".to_owned()
+            } else {
+                format!("Self: Cursor, {equality}")
+            };
+
+            let source = r#"
+                module app;
+
+                trait Cursor
+                {
+                    type Element;
+                    mut func next() -> Element?;
+                }
+
+                trait Operations
+                {
+                    type Element;
+
+                    consume mut func first() -> Element?
+                        with ($CONSTRAINTS)
+                    {
+                        let item: Element? = self(Cursor).next();
+                        return item;
+                    }
+                }
+            "#
+            .replace("$CONSTRAINTS", &constraints);
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.syntax_tree_result().diagnostics().is_empty(),
+                "{source}\n{:#?}",
+                compilation.syntax_tree_result().diagnostics()
+            );
+
+            let key =
+                crate::test_support::source_trait_callable_member_body_key(&compilation, "first");
+
+            if header_first {
+                let symbols = compilation.symbol_graph().unwrap();
+                let owner = symbols.symbol_for_key(key.declared_owner()).unwrap();
+                let cancellation = crate::fact::CancellationToken::new();
+                let binding = compilation.binding_context(&cancellation).unwrap();
+
+                let constraints = bray_binder::SymbolQueryProvider::resolve_symbol_query(
+                    &binding,
+                    bray_symbols::SymbolQueryRequest::<bray_symbols::GenericTypeConstraintsQuery>::new(
+                        bray_symbols::GenericOwnerId::try_new(owner).unwrap(),
+                    ),
+                ).unwrap();
+
+                assert!(constraints.diagnostics().is_empty());
+            }
+
+            let types = compilation.expression_types(key.clone()).unwrap();
+
+            if equality.is_empty() {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    types.diagnostics(),
+                    DiagnosticKind::CheckingIncompatibleExpressionType,
+                );
+            } else {
+                assert!(
+                    types.diagnostics().is_empty(),
+                    "{source}\nheader first: {header_first}\n{:#?}",
+                    types.diagnostics()
+                );
+
+                assert!(
+                    compilation.check_diagnostics().is_empty(),
+                    "{:#?}",
+                    compilation.check_diagnostics()
+                );
+
+                assert!(compilation.lowered_unit(key).unwrap().value().is_some());
+            }
+        }
+    }
+}
+
+#[test]
+fn embedded_type_equality_extents_do_not_assume_their_unchecked_header() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const func extent() -> usize
+        {
+            return 1;
+        }
+
+        func accept<T>(pos value: T) -> [bool; extent()]
+            with ([bool; extent()] == T)
+        {
+            return value;
+        }
+
+        func caller() -> [bool; 1]
+        {
+            return accept<[bool; 1]>([true]);
+        }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    assert!(
+        compilation
+            .lowered_unit(source_function_body_key(&compilation, "caller"))
+            .unwrap()
+            .value()
+            .is_some()
+    );
+}
+
+#[test]
+fn source_predicate_extents_reuse_checked_type_and_trait_headers() {
+    for premise in ["T == bool", "T: Copyable"] {
+        let source = r#"
+            module app;
+
+            const func extent<T>() -> usize
+                with ($PREMISE)
+            {
+                return 1;
+            }
+
+            const func allowed<T>() -> bool
+            {
+                return true;
+            }
+
+            func accept<T>()
+                with ($PREMISE, allowed<[bool; extent<T>()]>())
+            {
+            }
+
+            func caller()
+            {
+                accept<bool>();
+            }
+        "#
+        .replace("$PREMISE", premise);
+
+        let compilation = compilation(&source);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{source}\n{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        assert!(
+            compilation
+                .lowered_unit(source_function_body_key(&compilation, "caller"))
+                .unwrap()
+                .value()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn inherited_trait_premises_follow_scoped_type_equalities() {
+    for (left, valid) in [("bool", true), ("u8", false)] {
+        let source = r#"
+            module app;
+
+            func constrained<T>(pos value: T)
+                with (T: Copyable)
+            {
+            }
+
+            struct Holder<T, U>
+            {
+                value: U;
+            }
+
+            impl Holder<T, U>
+                with (T == T, U: Copyable)
+            {
+                consume func convert()
+                    with (T == U)
+                {
+                    constrained(self.value);
+                }
+            }
+
+            func caller()
+            {
+                let value: Holder<$LEFT, bool> = { value = true };
+                value.convert();
+            }
+        "#
+        .replace("$LEFT", left);
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:#?}");
+
+            assert!(
+                compilation
+                    .lowered_unit(source_function_body_key(&compilation, "caller"))
+                    .unwrap()
+                    .value()
+                    .is_some()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingNoApplicableCandidate,
+            );
+        }
+    }
+}

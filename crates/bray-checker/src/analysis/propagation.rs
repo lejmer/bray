@@ -54,6 +54,15 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
+        if self
+            .selections()
+            .is_some_and(|selections| selections.expression(expression).is_none())
+        {
+            self.push_recovery(current, expression.into());
+
+            return Some(Some(current));
+        }
+
         let success = self.push_block();
         let failure = self.push_block();
 
@@ -135,10 +144,15 @@ where
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
     ) -> Option<RepresentationRole> {
-        if let Some(SemanticSelection::Propagation(selection)) = self
-            .selections()
-            .and_then(|selections| selections.expression(id))
-        {
+        if let Some(selections) = self.selections() {
+            let selection = match selections.expression(id) {
+                Some(SemanticSelection::Propagation(selection)) => selection,
+                None => return None,
+                Some(unexpected) => panic!(
+                    "propagation {id:?} retains a propagation selection, found {unexpected:?}"
+                ),
+            };
+
             return match selection {
                 SelectedPropagation::Nullable { .. } => None,
                 SelectedPropagation::Result { .. } => Some(RepresentationRole::Result),
@@ -146,6 +160,8 @@ where
             };
         }
 
+        // Before semantic selection, provisional graphs can use the bound operand type.
+        // Completed selection tables must never infer an outcome for a rejected operation.
         let Some(operand) = expression.operands().first().copied() else {
             return None;
         };

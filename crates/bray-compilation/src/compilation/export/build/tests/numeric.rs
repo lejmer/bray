@@ -577,3 +577,52 @@ fn numeric_truncation_unsupported_support_queries_are_false_without_runtime_help
         );
     }
 }
+
+#[test]
+fn numeric_truncation_inherits_predicates_through_type_equalities() {
+    let source = r#"
+        module app;
+
+        using std.numeric;
+
+        struct Holder<T, U>
+        {
+            value: U;
+        }
+
+        impl Holder<T, U>
+            with (T == T, U: Copyable, std.numeric.supports_truncation<usize, U>())
+        {
+            consume func convert() -> usize
+                with (T == U)
+            {
+                return std.numeric.truncate_to<usize>(self.value);
+            }
+        }
+
+        public func converted(pos input: u8) -> usize
+        {
+            let value: Holder<u8, u8> = { value = input };
+            return value.convert();
+        }
+    "#;
+
+    let provider = standard_library_compilation(NUMERIC_SOURCES);
+    let local = standard_library_compilation(NUMERIC_SOURCES.into_iter().chain([source]));
+    let imported = execution_consumer(&provider, source);
+
+    for compilation in [&local, &imported] {
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        assert!(
+            compilation
+                .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Bound(_)))
+                .unwrap()
+                > 0
+        );
+    }
+}

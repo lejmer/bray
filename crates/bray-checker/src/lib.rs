@@ -64,7 +64,7 @@ pub use constant::{
 };
 pub use context::{
     CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerSource, ImplementationHookResolution,
+    CheckerSource, GenericConstraintScope, ImplementationHookResolution,
 };
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{

@@ -429,7 +429,8 @@ where
         return Ok(true);
     }
 
-    let active = active_generic_constraints(request, diagnostics)?;
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
+    let active = active_generic_constraints(request, diagnostics, &mut normalizer)?;
     let evidence = trait_constraint_evidence(&active);
 
     for constraint in required.value().constraints() {
@@ -448,6 +449,16 @@ where
                     .substitute_constant_term(condition, obligation.substitution())
                     .expect("checked generic predicate substitution belongs to its semantic store");
 
+                let predicate = normalizer.normalize_predicate(
+                    predicate.with_condition(Some(condition), predicate.domain()),
+                )?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                let condition = predicate
+                    .condition()
+                    .expect("normalized static predicate retains its condition");
+
                 if active.iter().any(|constraint| matches!(constraint,
                     CheckedConstraintKind::Predicate(candidate)
                         if candidate.domain() == predicate.domain() && candidate.condition() == Some(condition))) {
@@ -456,7 +467,27 @@ where
 
                 return Ok(false);
             }
-            CheckedConstraintKind::TypeEquality { .. } => return Ok(false),
+            CheckedConstraintKind::TypeEquality { left, right } => {
+                let values = request.semantic_values();
+
+                let left = values
+                    .substitute_type(left, obligation.substitution())
+                    .expect("checked equality substitution is valid");
+
+                let right = values
+                    .substitute_type(right, obligation.substitution())
+                    .expect("checked equality substitution is valid");
+
+                let equal = normalizer.normalize_type(left)? == normalizer.normalize_type(right)?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                if !equal {
+                    return Ok(false);
+                }
+
+                continue;
+            }
         };
 
         let subject = request
@@ -466,6 +497,11 @@ where
         let application = request
             .semantic_values()
             .substitute_trait_application(application, obligation.substitution()).unwrap_or_else(|error| panic!("active_constraints_prove must satisfy its checked construction contract: {error:?}"));
+
+        let subject = normalizer.normalize_type(subject)?;
+        let application = normalizer.normalize_trait_application(application)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
 
         if evidence.contains(&(subject, application)) {
             continue;
@@ -511,6 +547,7 @@ fn trait_constraint_evidence(
 fn active_generic_constraints<C>(
     request: CheckerUnitView<'_, C>,
     diagnostics: &mut DiagnosticBag,
+    normalizer: &mut crate::TypeNormalizer<'_, C>,
 ) -> CheckerQueryResult<BTreeSet<CheckedConstraintKind>, C::UpstreamError>
 where
     C: CheckerRequestContext
@@ -529,30 +566,37 @@ where
 
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-            let constraints = if request.unit().key().kind()
-                == bray_bound_tree::BoundUnitKind::Constraint
-                && request.symbols().symbol_key(owner)
-                    == Some(request.unit().key().declared_owner())
-            {
-                request.resolve_symbol_query(
+            let scope = request
+                .context()
+                .generic_constraint_scope(request.semantic_context(), generic_owner)?;
+
+            diagnostics.extend(scope.diagnostics().iter().cloned());
+
+            let constraints = match scope.value() {
+                crate::GenericConstraintScope::Unavailable => {
+                    let Some(container) = request.symbols().containing_symbol(owner) else {
+                        break;
+                    };
+
+                    owner = container;
+                    continue;
+                }
+                crate::GenericConstraintScope::TypeHeader => request.resolve_symbol_query(
                     SymbolQueryRequest::<GenericTypeConstraintsQuery>::new(generic_owner),
-                )?
-            } else {
-                request.resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
-                    generic_owner,
-                ))?
+                )?,
+                crate::GenericConstraintScope::Complete => request.resolve_symbol_query(
+                    SymbolQueryRequest::<GenericConstraintsQuery>::new(generic_owner),
+                )?,
             };
 
             if constraints.diagnostics().has_errors() {
                 diagnostics.extend(constraints.diagnostics().iter().cloned());
             } else {
-                active.extend(
-                    constraints
-                        .value()
-                        .constraints()
-                        .iter()
-                        .map(|constraint| constraint.kind()),
-                );
+                for constraint in constraints.value().constraints() {
+                    active.insert(normalizer.normalize_constraint(*constraint)?.kind());
+                }
+
+                diagnostics.extend(normalizer.take_diagnostics());
             }
         }
 
@@ -1579,7 +1623,8 @@ where
     }
 
     let mut selections = Vec::new();
-    let active = active_generic_constraints(request, diagnostics)?;
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
+    let active = active_generic_constraints(request, diagnostics, &mut normalizer)?;
     let evidence = trait_constraint_evidence(&active);
 
     for constraint in constraints.value().constraints() {
@@ -1598,6 +1643,11 @@ where
         let application = request
             .semantic_values()
             .substitute_trait_application(application, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in generic_constraint_implementation_selections: {error:?}"));
+
+        let subject = normalizer.normalize_type(subject)?;
+        let application = normalizer.normalize_trait_application(application)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
 
         if crate::built_in_trait_constraint_outcome(request.context(), subject, application)
             == Some(ProofOutcome::Proven)
