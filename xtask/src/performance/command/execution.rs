@@ -33,7 +33,8 @@ use super::progress;
 
 const USAGE: &str = "usage: cargo xtask performance \
     --output <directory> [--baseline <report.json>] [--target <triple>] \
-    [--warmup <count>] [--samples <count>] [--host-class <label>] [--workload <identity>]...";
+    [--warmup <count>] [--samples <count>] [--host-class <label>] [--workload <identity>]... \
+    [--standard-library <bundle-directory> --runtime <metadata.brayrt>]";
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> std::process::ExitCode {
     let mut arguments = arguments.peekable();
@@ -73,7 +74,7 @@ fn execute(mut options: Options) -> Result<(), String> {
         ));
     }
 
-    let prepared = super::toolchain::prepare(&root, options.target)?;
+    let prepared = super::toolchain::prepare(&root, &options)?;
 
     crate::native_toolchain::build_compiler(&root)?;
 
@@ -141,7 +142,6 @@ fn execute(mut options: Options) -> Result<(), String> {
             &compiler,
             prepared.standard_library(),
             prepared.runtime(),
-            prepared.observation_runtime(),
             &optimization_catalog,
             timer_resolution_nanoseconds,
         )?;
@@ -174,7 +174,6 @@ fn run_workload(
     compiler: &Path,
     standard_library: &Path,
     runtime: &Path,
-    observation_runtime: &Path,
     optimization_catalog: &super::super::optimization::OptimizationCatalog,
     timer_resolution_nanoseconds: u64,
 ) -> Result<(WorkloadReport, Vec<String>), String> {
@@ -307,7 +306,7 @@ fn run_workload(
         &compilation,
         product.clone(),
         options.target,
-        observation_runtime,
+        runtime,
         &output,
         workload,
         executable.path(),
@@ -354,7 +353,7 @@ fn run_workload(
             &compilation,
             product.clone(),
             options.target,
-            observation_runtime,
+            runtime,
             &storage_output,
             BuildConfiguration::ObservedRelease,
             workload.id,
@@ -761,6 +760,7 @@ mod tests {
 
         execute(Options {
             host_class: None,
+            toolchain: None,
             output: baseline_output.clone(),
             baseline: None,
             target,

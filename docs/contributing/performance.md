@@ -78,6 +78,22 @@ manually. After the producer lands, measure both revisions with their own checko
 identity fields, relabel an older report, or run the candidate runner against an older checkout: the runner embeds its
 compiler, so that would misidentify the measured implementation.
 
+For compiler comparisons, hold the imported standard library and runtime fixed. An ordinary measurement prepares these
+inputs automatically. Retain complete copies of its standard-library bundle and runtime package, using the paths recorded
+in the report's compiler invocations, outside any cache that subsequent runs may rebuild. Then give both checkout-local
+runners the same absolute `--standard-library <bundle-directory>` and `--runtime <metadata.brayrt>` paths:
+
+```text
+cargo xtask performance --output profiles/base --host-class controlled-host --standard-library /retained/standard-library --runtime /retained/runtime/bray-runtime.brayrt
+```
+
+Run the equivalent command in the candidate checkout with a separate output directory. These two options must be supplied
+together. They select prebuilt inputs without rebuilding them; the existing compiler and linker consumers still validate
+their artifact contents, target, and runtime ABI. Keep the retained directories immutable throughout both runs and any
+confirmation. The runtime's producer identity includes compiler source inputs, so automatically rebuilding it separately
+for each revision would change its identity even when runtime instructions happen to be identical. A compiler change that
+cannot consume the shared artifacts is an incomparable experiment; retain its whole-toolchain evidence separately.
+
 ```text
 cargo xtask performance gate --base-ref origin/develop --baseline profiles/base/candidate.json --candidate profiles/candidate/candidate.json --output profiles/gate
 ```

@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use bray_target::NativeTarget;
-
+use super::options::Options;
 use super::progress;
 
 pub(super) struct PreparedToolchain {
     runtime: PathBuf,
-    observation_runtime: PathBuf,
     standard_library: PathBuf,
 }
 
@@ -15,16 +13,22 @@ impl PreparedToolchain {
         &self.runtime
     }
 
-    pub(super) fn observation_runtime(&self) -> &Path {
-        &self.observation_runtime
-    }
-
     pub(super) fn standard_library(&self) -> &Path {
         &self.standard_library
     }
 }
 
-pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolchain, String> {
+pub(super) fn prepare(root: &Path, options: &Options) -> Result<PreparedToolchain, String> {
+    if let Some((standard_library, runtime)) = &options.toolchain {
+        progress::phase("Using pinned performance toolchain inputs");
+
+        return Ok(PreparedToolchain {
+            runtime: root.join(runtime),
+            standard_library: root.join(standard_library),
+        });
+    }
+
+    let target = options.target;
     let cargo_target = crate::workspace::cargo_target(root);
 
     let cache = cargo_target
@@ -40,8 +44,6 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
         target,
         &installed.join("runtime").join(target.as_str()),
     )?;
-
-    let observation_runtime = runtime.clone();
 
     let source = root.join("standard-library");
     let installed_standard_library = installed.join("standard-library");
@@ -74,7 +76,51 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
 
     Ok(PreparedToolchain {
         runtime,
-        observation_runtime,
         standard_library,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pinned_inputs_do_not_rebuild_or_overwrite_the_selected_packages() {
+        let root = tempfile::tempdir().expect("checkout root");
+
+        for standard_library in [
+            std::path::PathBuf::from("shared/standard-library"),
+            root.path().join("retained/standard-library"),
+        ] {
+            let options = super::Options::parse(
+                [
+                    "--output".to_owned(),
+                    "report".to_owned(),
+                    "--standard-library".to_owned(),
+                    standard_library.display().to_string(),
+                    "--runtime".to_owned(),
+                    "shared/runtime/bray-runtime.brayrt".to_owned(),
+                ]
+                .into_iter(),
+            )
+            .expect("paired pinned inputs");
+
+            let prepared = super::prepare(root.path(), &options).expect("select prebuilt inputs");
+
+            assert_eq!(
+                prepared.standard_library(),
+                root.path().join(standard_library)
+            );
+
+            assert_eq!(
+                prepared.runtime(),
+                root.path().join("shared/runtime/bray-runtime.brayrt")
+            );
+
+            assert_eq!(
+                std::fs::read_dir(root.path())
+                    .expect("checkout contents")
+                    .count(),
+                0
+            );
+        }
+    }
 }

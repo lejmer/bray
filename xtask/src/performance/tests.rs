@@ -98,6 +98,38 @@ fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
 }
 
 #[test]
+fn command_options_require_paired_unique_pinned_inputs() {
+    for arguments in [
+        vec!["--output", "report", "--standard-library", "bundle"],
+        vec!["--output", "report", "--runtime", "runtime.brayrt"],
+        vec![
+            "--output",
+            "report",
+            "--standard-library",
+            "bundle",
+            "--runtime",
+            "runtime.brayrt",
+            "--runtime",
+            "other.brayrt",
+        ],
+    ] {
+        assert!(parse_options_for_test(&arguments).is_err());
+    }
+
+    assert!(
+        parse_options_for_test(&[
+            "--output",
+            "report",
+            "--standard-library",
+            "bundle",
+            "--runtime",
+            "runtime.brayrt",
+        ])
+        .is_ok()
+    );
+}
+
+#[test]
 fn output_validation_rejects_peer_output_mismatches() {
     let expected = bray_base::lowercase_hex(&Sha256::digest([]));
 
