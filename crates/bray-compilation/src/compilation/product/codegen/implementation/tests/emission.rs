@@ -1,6 +1,6 @@
 use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts, generated_artifacts_of_kind,
-    generated_artifacts_of_kind_with_options,
+    generated_artifacts_of_kind_with_options, unoptimized_library_ir,
 };
 use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
@@ -796,5 +796,74 @@ fn constant_slice_places_emit_valid_native_units() {
             &format!("module app; public func read(pos value: &[u8]) -> u8 {{ {body} }}"),
             crate::BuildConfiguration::Development,
         );
+    }
+}
+
+#[test]
+fn predicate_complement_preserves_the_declared_integer_width() {
+    for (ty, bits) in [
+        ("u8", 8),
+        ("u16", 16),
+        ("u32", 32),
+        ("u64", 64),
+        ("i8", 8),
+        ("i16", 16),
+        ("i32", 32),
+        ("i64", 64),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            const INVERTED_ZERO: {ty} = ~0;
+            const INVERTED_ONE: {ty} = ~1;
+
+            func check(pos value: {ty}) -> bool
+                requires(~value == INVERTED_ZERO, ~(value | 1) == INVERTED_ONE)
+            {{
+                return true;
+            }}
+
+            public func caller(pos value: {ty}) -> bool
+            {{
+                return check(value);
+            }}
+        "#
+        );
+
+        let ir = unoptimized_library_ir(&source);
+
+        assert!(ir.contains(&format!("xor i{bits} ")), "{ty}: {ir}");
+        assert!(!ir.contains(&format!("xor i{} ", bits + 1)), "{ty}: {ir}");
+    }
+}
+
+#[test]
+fn predicate_power_handles_zero_and_one_bit_counts_without_full_width_shifts() {
+    for maximum in [0, 1, 2, 64] {
+        let source = format!(
+            r#"
+            module app;
+
+            func check(pos base: u8, pos count: u8) -> bool
+                requires(count <= {maximum} && base ** count == base)
+            {{
+                return true;
+            }}
+
+            public func caller(pos base: u8, pos count: u8) -> bool
+            {{
+                return check(base, count);
+            }}
+        "#
+        );
+
+        let ir = unoptimized_library_ir(&source);
+
+        assert!(!ir.contains("lshr i1 "), "maximum {maximum}: {ir}");
+
+        if maximum <= 1 {
+            assert!(ir.contains("select i1 "), "maximum {maximum}: {ir}");
+        }
     }
 }

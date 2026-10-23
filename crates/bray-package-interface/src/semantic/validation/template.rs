@@ -308,7 +308,7 @@ fn validate_template(
     let mut unbound = None::<Vec<BTreeSet<bray_bound_tree::CheckedTemplateNodeId>>>;
 
     for (node_index, node) in template.nodes().iter().enumerate() {
-        validate_index(node.ty().to_index(), semantics.types.len())?;
+        validate_node_type(semantics, node)?;
         validate_operation(context, node, node_index)?;
 
         if matches!(
@@ -451,6 +451,26 @@ fn validate_template(
 
     for witness in template.behavior().witnesses() {
         validate_implementation_reference(context, witness)?;
+    }
+
+    Ok(())
+}
+
+fn validate_node_type(
+    semantics: &InterfaceSemantics,
+    node: &InterfaceCheckedTemplateNode,
+) -> Result<(), InterfaceValidationError> {
+    validate_index(node.ty().to_index(), semantics.types.len())?;
+
+    if node.unsigned_integer_bits().is_some()
+        && unborrowed_type(semantics, node.ty())
+            .and_then(type_representation)
+            .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+            .is_none()
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     Ok(())
@@ -1196,21 +1216,27 @@ fn representation_type(
     ty: Option<crate::InterfaceTypeId>,
     expected: bray_compiler_known::RepresentationRole,
 ) -> bool {
-    let Some(InterfaceType::Named {
+    ty.and_then(|ty| type_at(semantics, ty))
+        .and_then(type_representation)
+        == Some(expected)
+}
+
+fn type_representation(ty: &InterfaceType) -> Option<bray_compiler_known::RepresentationRole> {
+    let InterfaceType::Named {
         definition: crate::InterfaceSymbolReference::CompilerKnown(key),
         ..
-    }) = ty.and_then(|ty| type_at(semantics, ty))
+    } = ty
     else {
-        return false;
+        return None;
     };
 
     let bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. } = key.key().data() else {
-        return false;
+        return None;
     };
 
     bray_compiler_known::COMPILER_KNOWN_CATALOG
         .compiler_known_declaration_by_key(key)
-        .is_some_and(|declaration| declaration.representation_role() == Some(expected))
+        .and_then(|declaration| declaration.representation_role())
 }
 
 fn type_at(semantics: &InterfaceSemantics, ty: crate::InterfaceTypeId) -> Option<&InterfaceType> {

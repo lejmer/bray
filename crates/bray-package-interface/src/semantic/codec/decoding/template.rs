@@ -899,6 +899,48 @@ mod tests {
     }
 
     #[test]
+    fn integer_width_certificates_reject_boolean_inputs_and_constants() {
+        let (surface, semantics) = operation_fixture();
+
+        let limits = InterfaceValidationLimits::default();
+
+        assert!(encode_semantics(&semantics, &surface, limits).is_ok());
+
+        for node_index in [0, 1] {
+            for bits in [1, 64] {
+                let mut malformed = semantics.clone();
+                let mut templates = malformed.checked_templates.to_vec();
+                let mut nodes = templates[0].nodes().to_vec();
+                let node = &nodes[node_index];
+
+                nodes[node_index] =
+                    InterfaceCheckedTemplateNode::new(node.operation().clone(), node.ty())
+                        .with_unsigned_integer_bits(std::num::NonZeroU8::new(bits));
+
+                let template = &templates[0];
+
+                templates[0] = InterfaceCheckedTemplate::new(
+                    template.kind(),
+                    template.inputs().iter().cloned(),
+                    nodes,
+                    template.temporaries().iter().copied(),
+                    template.result(),
+                    template.behavior().clone(),
+                );
+
+                malformed.checked_templates = templates.into();
+
+                assert_eq!(
+                    encode_semantics(&malformed, &surface, limits),
+                    Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_checked_template_operation_round_trips() {
         let (surface, semantics) = operation_fixture();
 

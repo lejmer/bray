@@ -391,6 +391,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         base: IntValue<'context>,
         exponent: IntValue<'context>,
     ) -> Result<IntValue<'context>, CodegenFailure> {
+        let count_type = exponent.get_type();
+
+        if count_type.get_bit_width() == 1 {
+            return llvm(self.builder.build_select(
+                exponent,
+                base,
+                base.get_type().const_int(1, false),
+                "power.selected",
+            ))
+            .map(BasicValueEnum::into_int_value);
+        }
+
         let entry = self
             .builder
             .get_insert_block()
@@ -404,7 +416,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let square = context.append_basic_block(self.function, "power.square");
         let done = context.append_basic_block(self.function, "power.done");
         let value_type = base.get_type();
-        let count_type = exponent.get_type();
 
         llvm(self.builder.build_unconditional_branch(header))?;
         self.builder.position_at_end(header);
