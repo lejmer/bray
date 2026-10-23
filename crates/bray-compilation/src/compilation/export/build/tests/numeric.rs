@@ -307,6 +307,21 @@ fn numeric_truncation_composes_with_open_generic_contracts() {
             return std.numeric.truncate_to<Target>(source);
         }
 
+        func indirect<Target, Source>(pos source: Source) -> Target
+            with(Source: Copyable, std.numeric.supports_truncation<Target, Source>())
+        {
+            let selected: const func(pos source: Source) -> Target
+                requires(std.numeric.in_truncation_domain<Target, Source>(source)) =
+                std.numeric.truncate_to<Target, Source>;
+
+            return selected(source);
+        }
+
+        public func indirect_real(pos value: r64) -> i8
+        {
+            return indirect<i8, r64>(value);
+        }
+
         public func checked_real(pos value: r64) -> i8
         {
             return checked_convert<i8, r64>(value);

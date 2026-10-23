@@ -1034,7 +1034,8 @@ func truncate<Target, Source>(pos source: Source) -> Target
 func truncate_indirect<Target, Source>(pos source: Source) -> Target
     with(Source: Copyable, std.numeric.supports_truncation<Target, Source>())
 {
-    let selected = std.numeric.truncate_to<Target, Source>;
+    let selected: const func(pos source: Source) -> Target
+        requires(std.numeric.in_truncation_domain<Target, Source>(source)) = std.numeric.truncate_to<Target, Source>;
 
     return selected(source);
 }

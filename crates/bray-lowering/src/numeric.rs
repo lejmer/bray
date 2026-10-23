@@ -1,13 +1,10 @@
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirImmediateValue, MirNumericConversionKind, MirOperand,
-    MirOperationKind, MirSourceAnchor, MirUnitBuilder,
+    MirBinaryOperator, MirImmediateValue, MirNumericConversionKind, MirOperand, MirOperationKind,
 };
 use bray_symbols::{
     ConstantValueData, ConstantValueKind, NumericTruncation, SemanticValueStore, TypeId,
 };
-
-use crate::LoweringError;
 
 pub(crate) fn can_lower_directly(
     values: &SemanticValueStore,
@@ -18,16 +15,15 @@ pub(crate) fn can_lower_directly(
         || values.substitution_is_concrete(callable.substitution())
 }
 
-pub(crate) fn lower_numeric_value(
-    builder: &mut MirUnitBuilder,
+pub(crate) fn lower_numeric_value<E>(
     values: &SemanticValueStore,
-    block: MirBlockId,
-    source: &MirSourceAnchor,
     hook: ImplementationHook,
     plan: Option<NumericTruncation>,
-    inputs: &[MirOperand],
+    input: Option<(MirOperand, TypeId)>,
     result: TypeId,
-) -> Result<MirOperand, LoweringError> {
+    mut emit: impl FnMut(MirOperationKind, TypeId) -> Result<MirOperand, E>,
+    value_error: impl Fn(bray_symbols::SemanticValueStoreError) -> E,
+) -> Result<MirOperand, E> {
     let boolean = |value| MirOperand::Immediate {
         value: MirImmediateValue::Boolean(value),
         ty: result,
@@ -35,25 +31,22 @@ pub(crate) fn lower_numeric_value(
 
     if hook == ImplementationHook::NumericTruncationSupported {
         assert!(
-            inputs.is_empty(),
+            input.is_none(),
             "numeric type support query has no value arguments"
         );
 
         return Ok(boolean(plan.is_some()));
     }
 
-    let [input] = inputs else {
+    let Some((input, ty)) = input else {
         panic!("numeric value operation retains its one scalar input");
     };
 
     if hook == ImplementationHook::NumericTruncate {
-        return push_numeric_value(
-            builder,
-            block,
-            source,
+        return emit(
             MirOperationKind::NumericConversion {
                 kind: MirNumericConversionKind::Truncate,
-                operand: input.clone(),
+                operand: input,
             },
             result,
         );
@@ -73,21 +66,16 @@ pub(crate) fn lower_numeric_value(
         return Ok(boolean(true));
     };
 
-    let ty = builder.operand_type(input);
-
     let bound = |bits| {
         values
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Real(bits)))
             .map(|value| MirOperand::Constant { value, ty })
     };
 
-    let minimum = bound(minimum)?;
-    let maximum = bound(maximum)?;
+    let minimum = bound(minimum).map_err(&value_error)?;
+    let maximum = bound(maximum).map_err(value_error)?;
 
-    let lower = push_numeric_value(
-        builder,
-        block,
-        source,
+    let lower = emit(
         MirOperationKind::Binary {
             operator: if minimum_inclusive {
                 MirBinaryOperator::GreaterThanOrEqual
@@ -100,22 +88,16 @@ pub(crate) fn lower_numeric_value(
         result,
     )?;
 
-    let upper = push_numeric_value(
-        builder,
-        block,
-        source,
+    let upper = emit(
         MirOperationKind::Binary {
             operator: MirBinaryOperator::LessThan,
-            left: input.clone(),
+            left: input,
             right: maximum,
         },
         result,
     )?;
 
-    push_numeric_value(
-        builder,
-        block,
-        source,
+    emit(
         MirOperationKind::Binary {
             operator: MirBinaryOperator::BitwiseAnd,
             left: lower,
@@ -123,21 +105,4 @@ pub(crate) fn lower_numeric_value(
         },
         result,
     )
-}
-
-fn push_numeric_value(
-    builder: &mut MirUnitBuilder,
-    block: MirBlockId,
-    source: &MirSourceAnchor,
-    kind: MirOperationKind,
-    ty: TypeId,
-) -> Result<MirOperand, LoweringError> {
-    // Every generated scalar operation retains the same source identity independently.
-    let commit = builder.push_operation(block, source.clone(), kind, Some(ty))?;
-
-    Ok(MirOperand::Value(
-        commit
-            .result()
-            .expect("numeric value operation has its typed result"),
-    ))
 }

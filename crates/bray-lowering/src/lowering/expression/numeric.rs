@@ -82,15 +82,30 @@ impl Lowerer<'_> {
 
         let result_type = self.expression_type(id);
 
+        let input = operand.map(|operand| {
+            let ty = self.builder.operand_type(&operand);
+
+            (operand, ty)
+        });
+
+        let values = self.input.semantic_values();
+
         let value = crate::numeric::lower_numeric_value(
-            &mut self.builder,
-            self.input.semantic_values(),
-            current,
-            &source,
+            values,
             hook,
             plan,
-            operand.as_slice(),
+            input,
             result_type,
+            |operation, ty| {
+                self.push_typed_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    operation,
+                    ty,
+                )
+            },
+            LoweringError::SemanticValue,
         )?;
 
         Ok(Some(LoweredExpression::continuing(

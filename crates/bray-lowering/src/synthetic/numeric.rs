@@ -31,21 +31,17 @@ pub fn lower_numeric_callable(
         .push_block(source.clone(), MirBlockKind::Ordinary)
         .map_err(SyntheticLoweringError::Capacity)?;
 
-    let mut inputs = Vec::with_capacity(parameters.len());
+    let input = match parameters {
+        [] => None,
+        [ty] => {
+            let storage = builder
+                .push_storage(source.clone(), MirStorageKind::Parameter(0), *ty)
+                .map_err(SyntheticLoweringError::Capacity)?;
 
-    for (ordinal, ty) in parameters.iter().copied().enumerate() {
-        let storage = builder
-            .push_storage(
-                source.clone(),
-                MirStorageKind::Parameter(
-                    u32::try_from(ordinal).expect("numeric callable input ordinal fits u32"),
-                ),
-                ty,
-            )
-            .map_err(SyntheticLoweringError::Capacity)?;
-
-        inputs.push(MirOperand::Copy(MirPlace::new(storage, [], ty)));
-    }
+            Some((MirOperand::Copy(MirPlace::new(storage, [], *ty)), *ty))
+        }
+        _ => panic!("checked numeric callable has zero or one input"),
+    };
 
     let plan = NumericTruncation::for_instance(
         values,
@@ -55,14 +51,23 @@ pub fn lower_numeric_callable(
     );
 
     let value = crate::numeric::lower_numeric_value(
-        &mut builder,
         values,
-        entry,
-        &source,
         hook,
         plan,
-        &inputs,
+        input,
         result,
+        |operation, ty| {
+            let commit = builder
+                .push_operation(entry, source.clone(), operation, Some(ty))
+                .map_err(SyntheticLoweringError::Capacity)?;
+
+            Ok(MirOperand::Value(
+                commit
+                    .result()
+                    .expect("numeric operation produces its typed value"),
+            ))
+        },
+        SyntheticLoweringError::SemanticValue,
     )?;
 
     builder.set_terminator(

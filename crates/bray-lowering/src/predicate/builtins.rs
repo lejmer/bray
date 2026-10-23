@@ -32,6 +32,37 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             return Ok(None);
         }
 
+        if hook.is_numeric_policy() {
+            let plan = bray_symbols::NumericTruncation::for_instance(
+                self.context.semantic_values(),
+                self.context.compiler_known_symbols(),
+                callable.instance(),
+                self.builder.target().machine().pointer_width_bits().get(),
+            );
+
+            let input = match call.arguments() {
+                [] => None,
+                [argument] => Some((
+                    argument.value().clone(),
+                    self.builder.operand_type(argument.value()),
+                )),
+                _ => panic!("checked numeric policy has zero or one input"),
+            };
+
+            let context = self.context;
+
+            return crate::numeric::lower_numeric_value(
+                context.semantic_values(),
+                hook,
+                plan,
+                input,
+                result,
+                |operation, ty| self.value(block, operation, ty),
+                |cause| crate::SyntheticLoweringError::SemanticValue(cause).into(),
+            )
+            .map(Some);
+        }
+
         // The operation retains cheap operand descriptors independently of the selected call.
         let inputs = call
             .arguments()
@@ -110,28 +141,6 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     result,
                 )
                 .map(Some);
-        }
-
-        if hook.is_numeric_policy() {
-            let plan = bray_symbols::NumericTruncation::for_instance(
-                self.context.semantic_values(),
-                self.context.compiler_known_symbols(),
-                callable.instance(),
-                self.builder.target().machine().pointer_width_bits().get(),
-            );
-
-            return crate::numeric::lower_numeric_value(
-                &mut self.builder,
-                self.context.semantic_values(),
-                block,
-                &self.source,
-                hook,
-                plan,
-                &inputs,
-                result,
-            )
-            .map(Some)
-            .map_err(|error| crate::SyntheticLoweringError::from(error).into());
         }
 
         let memory = self.memory_kind(callable.instance(), hook, &types, result)?;
