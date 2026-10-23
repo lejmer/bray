@@ -141,7 +141,7 @@ pub(super) fn smoke_test(
             if result.status.code() != Some(expected) || !expected_stderr {
                 return Err(CommandError::EntrySmoke(crate::command::failure(
                     &format!(
-                        "{name} ({}; {mode}, expected exit {expected})",
+                        "{name} ({}, {mode}, expected exit {expected})",
                         executable.path().display()
                     ),
                     &result,
