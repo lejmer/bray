@@ -440,25 +440,13 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         let compact_match_arm_body = self.compact_match_arm_body();
         let compact_empty_block = self.inside_compact_empty_block();
 
-        let preserve_block_paragraph = source_line_breaks >= 2
-            && self
-                .configuration
-                .is_enabled(FormatterRule::BlockParagraphSpacing)
-            && !matches!(
-                kind,
-                SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken
-            )
-            && !matches!(self.previous_token, Some(SyntaxKind::OpenBraceToken))
-            && self.nodes.iter().any(|kind| {
-                matches!(
-                    kind,
-                    SyntaxKind::BlockExpression | SyntaxKind::CallableBodyBlockExpression
-                )
-            })
-            && !(matches!(self.nodes.last(), Some(SyntaxKind::MatchBody))
-                && self
-                    .configuration
-                    .is_enabled(FormatterRule::MatchCaseSpacing));
+        let preserve_block_paragraph = self.block_paragraphs.preserves_source_separation(
+            kind,
+            self.previous_token,
+            &self.nodes,
+            source_line_breaks,
+            self.configuration,
+        );
 
         let trailing_comma_layout = !matches!(self.previous_token, Some(SyntaxKind::CommaToken))
             || self.configuration.applies_to(
@@ -634,7 +622,11 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             }
             SyntaxKind::SemicolonToken
                 if !semicolon_stays_inline(parent)
-                    && !self.inside_compact_match_arm_body()
+                    && (!self.inside_compact_match_arm_body()
+                        || FormatterRule::SemicolonLayout.preferred_for(
+                            FormatterRule::MatchArmBodyLayout,
+                            FormatterDecision::StatementSeparation,
+                        ) == FormatterRule::SemicolonLayout)
                     && self
                         .configuration
                         .is_enabled(FormatterRule::SemicolonLayout) =>

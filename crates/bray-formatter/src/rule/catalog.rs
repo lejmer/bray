@@ -83,19 +83,19 @@ rules! {
         [], [];
 
     BlockParagraphSpacing, "block-paragraph-spacing",
-        "Paragraph spacing inside executable blocks.", true, 18,
+        "Paragraph spacing inside executable blocks.", true, 19,
         [BlockParagraphSeparation], [],
         [], [];
 
     MatchCaseSpacing, "match-case-spacing",
-        "Spacing between adjacent match cases.", true, 19,
-        [MatchCaseSeparation], [],
-        [], [];
+        "Spacing between adjacent match cases.", true, 18,
+        [MatchCaseSeparation, BlockParagraphSeparation], [],
+        [], [BlockParagraphSpacing];
 
     MatchArmBodyLayout, "match-arm-body-layout",
-        "Inline layout for simple match-arm bodies.", true, 12,
-        [BracePlacement], [MaximumLineWidth],
-        [BracePlacement => BlockBraces], [BlockBraces];
+        "Inline layout for simple match-arm bodies.", true, 0,
+        [BracePlacement, StatementSeparation], [MaximumLineWidth],
+        [BracePlacement => BlockBraces, StatementSeparation => BlockBraces], [BlockBraces, SemicolonLayout];
 
     StructConstructionLayout, "struct-construction-layout",
         "Field layout inside struct construction expressions.", true, 20,

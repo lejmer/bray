@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn catalog_is_exhaustive_and_records_every_shared_owner() {
         let mut names = BTreeSet::new();
-        let mut orders = BTreeSet::new();
+        let mut stage_orders = BTreeSet::new();
         let defaults = FormatterConfiguration::default();
 
         for (index, rule) in FormatterRule::ALL.iter().copied().enumerate() {
@@ -72,7 +72,11 @@ mod tests {
             assert_eq!(rule.index(), index);
             assert_eq!(descriptor.rule, rule);
             assert!(names.insert(descriptor.name));
-            assert!(orders.insert(descriptor.order));
+
+            for stage in descriptor.stages() {
+                assert!(stage_orders.insert((stage, descriptor.order)));
+            }
+
             assert!(!descriptor.decisions.is_empty());
             assert_eq!(FormatterRule::from_name(descriptor.name), Some(rule));
             assert_eq!(defaults.is_enabled(rule), descriptor.enabled_by_default);

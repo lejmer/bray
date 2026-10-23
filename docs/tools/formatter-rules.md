@@ -5,7 +5,7 @@
 This reference is generated from `FormatterRule::descriptor()` in `bray-formatter`.
 
 Stages run in the order below. Earlier stages constrain later decisions. Within each stage,
-lower explicit rule order wins. Rule orders are unique. Conflicting owner
+lower explicit rule order wins. Rule orders are unique within a stage. Conflicting owner
 pairs are recorded once. A shared decision without a recorded conflict is an invariant failure.
 
 Dependencies apply to the named decision only. Disabling a dependency preserves other decisions
@@ -16,7 +16,7 @@ owned by the rule. Disabling a spacing rule preserves source spacing at its sele
 - `RecoveryPreservation`: preserve recovered source before any configurable rule.
 - `SyntaxRewrites`: `simplify-nested-if`.
 - `CommentOwnership`: `comment-placement`.
-- `StructuralLayout`: `semicolon-layout`, `parenthesized-list-layout`, `bracketed-list-layout`, `match-arm-body-layout`, `indentation`, `block-braces`, `module-item-spacing`, `callable-member-spacing`, `directive-line-breaks`, `block-paragraph-spacing`, `match-case-spacing`, `struct-construction-layout`, `overload-arm-layout`, `generic-list-layout`, `trailing-comma-layout`.
+- `StructuralLayout`: `match-arm-body-layout`, `semicolon-layout`, `parenthesized-list-layout`, `bracketed-list-layout`, `indentation`, `block-braces`, `module-item-spacing`, `callable-member-spacing`, `directive-line-breaks`, `match-case-spacing`, `block-paragraph-spacing`, `struct-construction-layout`, `overload-arm-layout`, `generic-list-layout`, `trailing-comma-layout`.
 - `TokenSpacing`: `generic-delimiter-spacing`, `range-spacing`, `member-access-spacing`, `directive-marker-spacing`, `comma-spacing`, `colon-spacing`, `semicolon-layout`, `prefix-operator-spacing`, `operator-spacing`, `parenthesized-list-layout`, `bracketed-list-layout`, `word-spacing`.
 - `Wrapping`: `line-wrapping`.
 - `Serialization`: `line-ending-style`, `final-newline`.
@@ -68,7 +68,7 @@ Default: `true`. Order: `17`.
 
 Paragraph spacing inside executable blocks.
 
-Default: `true`. Order: `18`.
+Default: `true`. Order: `19`.
 
 - Own `BlockParagraphSeparation` in `StructuralLayout`.
 
@@ -76,20 +76,24 @@ Default: `true`. Order: `18`.
 
 Spacing between adjacent match cases.
 
-Default: `true`. Order: `19`.
+Default: `true`. Order: `18`.
 
 - Own `MatchCaseSeparation` in `StructuralLayout`.
+- Own `BlockParagraphSeparation` in `StructuralLayout`.
+- Resolve shared ownership with `block-paragraph-spacing` by precedence.
 
 ### `match-arm-body-layout`
 
 Inline layout for simple match-arm bodies.
 
-Default: `true`. Order: `12`.
+Default: `true`. Order: `0`.
 
 - Own `BracePlacement` in `StructuralLayout`.
+- Own `StatementSeparation` in `StructuralLayout`.
 - Require `block-braces` for `BracePlacement`.
+- Require `block-braces` for `StatementSeparation`.
 - Parameter `maximum_line_width`: positive 16-bit integer, default `120`.
-- Resolve shared ownership with `block-braces` by precedence.
+- Resolve shared ownership with `block-braces`, `semicolon-layout` by precedence.
 
 ### `struct-construction-layout`
 
