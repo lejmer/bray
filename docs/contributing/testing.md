@@ -179,7 +179,8 @@ source-semantic dependencies and interpretations.
 [The parser coverage fixture](../../crates/bray-parser/tests/fixtures/parser-coverage.md) maps grammar nonterminals to
 parser and executable test anchors. Update it with changes to the grammar or those anchors. Check it with
 `cargo xtask readiness parser`, which also runs as part of default readiness and reuses its parsed Rust corpus.
-Backticked function anchors resolve within the parser crate. Test anchors must identify actual `#[test]` functions,
+Backticked function anchors resolve within the parser crate. Cargo target roots and declared Rust modules establish
+source inclusion and logical owners, including literal `#[path]` module names. Test anchors must identify actual `#[test]` functions,
 and ambiguous names need their module path. Parser annotations such as dispatch, shared helpers, precedence and token
 sets accompany real function anchors. Missing production functions and stale, ambiguous or helper-only test references
 fail with their coverage row and anchor.

@@ -26,9 +26,8 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
     let coverage = workspace.read_text(COVERAGE)?;
 
     let tests = workspace
-        .tests()
+        .parser_tests()
         .iter()
-        .filter(|test| test.path().starts_with("crates/bray-parser/"))
         .map(|test| test.qualified_name())
         .collect::<Vec<_>>();
 
