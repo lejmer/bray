@@ -2,8 +2,8 @@ use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::{ConstantCallContract, ConstantCallTarget};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableContractClauseKind, CallablePredicateContractsQuery, CallableSignatureQuery,
-    PredicateSignatureTemplateQuery, SymbolQueryRequest, TypeData,
+    CallableContractClauseKind, CallablePredicateContractsQuery, PredicateSignatureTemplateQuery,
+    SymbolQueryRequest, TypeData,
 };
 
 use crate::compilation::{Compilation, binder::binding_query_error};
@@ -16,36 +16,18 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<bray_symbols::CallableSignature>>, FactQueryError> {
         let binding = self.binding_context(cancellation)?;
-        let values = self.semantic_value_store()?;
+        let mut diagnostics = DiagnosticBag::new();
 
-        let signature = binding
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(binding_query_error)?;
+        let signature =
+            self.resolve_callable_signature_types(&binding, callable, &mut diagnostics)?;
 
-        let constants = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                signature.value().callable_type(),
-                signature.value().result(),
-            ],
-            cancellation,
-        )?;
+        let signature = if diagnostics.has_errors() {
+            None
+        } else {
+            signature
+        };
 
-        let diagnostics =
-            DiagnosticBag::merged_all([signature.diagnostics(), constants.diagnostics()]);
-
-        let result = (!diagnostics.has_errors()).then(|| {
-            bray_checker::resolve_callable_signature_template(
-                values,
-                signature.value(),
-                callable.substitution(),
-                constants.value(),
-            )
-            .expect("checked constant signature has its demanded type constants")
-        });
-
-        Ok(DiagnosticResult::new(result, diagnostics))
+        Ok(DiagnosticResult::new(signature, diagnostics))
     }
 
     pub(in crate::compilation) fn constant_call_contract(
@@ -56,6 +38,10 @@ impl Compilation {
         let values = self.semantic_value_store()?;
         let binding = self.binding_context(cancellation)?;
         let mut diagnostics = DiagnosticBag::new();
+        let context = crate::compilation::checker::CompilationCheckerContext::new(binding);
+
+        let mut normalizer =
+            bray_checker::TypeNormalizer::new(&context, Some(target.substitution()));
 
         let contract = match target {
             ConstantCallTarget::Declaration(callable) => {
@@ -108,6 +94,7 @@ impl Compilation {
 
                     let ty = super::super::template::resolved_input_type(self, template)?;
                     let ty = values.substitute_type(ty, *substitution)?;
+                    let ty = normalizer.normalize_type(ty)?;
                     let data = values.type_data(ty);
 
                     let TypeData::Callable(callable) = data.as_ref() else {
@@ -148,6 +135,8 @@ impl Compilation {
                         .ty(),
                         *substitution,
                     )?;
+
+                    let result = normalizer.normalize_type(result)?;
 
                     let inputs =
                         if let bray_bound_tree::DefaultValueProvider::CallableParameter(_) =
@@ -228,9 +217,9 @@ impl Compilation {
                             let ty =
                                 super::super::template::resolved_input_type(self, parameter.ty())?;
 
-                            values
-                                .substitute_type(ty, predicate.substitution())
-                                .map_err(FactQueryError::SemanticValueStore)
+                            let ty = values.substitute_type(ty, predicate.substitution())?;
+
+                            normalizer.normalize_type(ty).map_err(FactQueryError::from)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
 
@@ -244,6 +233,14 @@ impl Compilation {
                     Some(ConstantCallContract::new(inputs, result, []))
                 }
             }
+        };
+
+        diagnostics.extend(normalizer.take_diagnostics());
+
+        let contract = if diagnostics.has_errors() {
+            None
+        } else {
+            contract
         };
 
         Ok(DiagnosticResult::new(contract, diagnostics))

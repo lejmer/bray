@@ -73,6 +73,21 @@ pub enum ConstantCallTarget {
     Predicate(bray_symbols::PredicateInstanceData),
 }
 
+impl ConstantCallTarget {
+    /// Returns the selected generic application for every invocation kind.
+    pub const fn substitution(&self) -> bray_symbols::GenericSubstitutionId {
+        match self {
+            ConstantCallTarget::Declaration(callable) => callable.substitution(),
+            ConstantCallTarget::Predicate(predicate) => predicate.substitution(),
+            ConstantCallTarget::Anonymous(_, Some(substitution))
+            | ConstantCallTarget::Default(_, substitution) => *substitution,
+            ConstantCallTarget::Anonymous(_, None) => panic!(
+                "anonymous invocation resolves its lexical generic context before template evaluation"
+            ),
+        }
+    }
+}
+
 /// The exact logical signature and caller requirements of a constant invocation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConstantCallContract {
@@ -164,19 +179,6 @@ impl ConstantCallRequest {
     /// Returns the exact implementation identity selected for this invocation.
     pub const fn target(&self) -> &ConstantCallTarget {
         &self.target
-    }
-
-    /// Returns the selected generic application for every invocation kind.
-    pub const fn substitution(&self) -> bray_symbols::GenericSubstitutionId {
-        match &self.target {
-            ConstantCallTarget::Declaration(callable) => callable.substitution(),
-            ConstantCallTarget::Predicate(predicate) => predicate.substitution(),
-            ConstantCallTarget::Anonymous(_, Some(substitution))
-            | ConstantCallTarget::Default(_, substitution) => *substitution,
-            ConstantCallTarget::Anonymous(_, None) => panic!(
-                "anonymous invocation resolves its lexical generic context before template evaluation"
-            ),
-        }
     }
 
     /// Returns the selected implementation when the callable is a trait fulfillment.

@@ -11,7 +11,9 @@ use bray_symbols::{
 use crate::test_support::source_function_body_key;
 use crate::{Compilation, CompilationRequest, DependencyInterfaceInput};
 
-use super::fixtures::{compilation, compilation_from_sources, execution_consumer, export};
+use super::fixtures::{
+    compilation, compilation_from_sources, execution_consumer, export, implementation_dependency,
+};
 
 #[test]
 fn imported_generic_references_preserve_declared_argument_counts() {
@@ -796,4 +798,200 @@ fn member_access_distinguishes_trait_applications_from_value_arguments() {
             }
         }
     }
+}
+
+#[test]
+fn imported_array_extents_normalize_closed_definitions_calls_and_substitutions() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        const COUNT: u8 = 1;
+
+        const func count(pos value: usize) -> usize
+        {
+            return value;
+        }
+
+        struct Items<const length: usize>
+        {
+            values: [u8; length + 1];
+        }
+
+        func retain<const length: usize>(pos values: [u8; length + 1]) -> [u8; length + 1]
+        {
+            return values;
+        }
+    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const VALUES: [u8; example.package.api.COUNT as usize] = [7];
+
+        func sample() -> u8
+        {
+            let repeated: [u8; example.package.api.count(1)] = [7; 1];
+            let pair: [u8; 2] = example.package.api.retain<1>([2, 3]);
+            let items: example.package.api.Items<1> = { values = pair, };
+
+            return items.values[1] + repeated[0] + VALUES[0];
+        }
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn imported_const_array_extents_normalize_return_values_and_nested_helpers() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        const COUNT: usize = 1;
+        const SOURCE: [u8; COUNT] = [7];
+
+        const func make() -> [u8; COUNT]
+        {
+            return SOURCE;
+        }
+
+        const func extent<const amount: usize>() -> usize
+        {
+            return amount;
+        }
+
+        const func retain<const count: usize>(
+            pos values: [u8; extent<count + 1>()],
+        ) -> [u8; extent<count + 1>()]
+        {
+            return values;
+        }
+
+        const func defaulted(pos values: [u8; COUNT] = SOURCE) -> [u8; COUNT]
+        {
+            return values;
+        }
+
+        const func fixed_extent<const amount: u8>() -> usize
+        {
+            return 1;
+        }
+
+        func accept<const count: u8>(pos values: [u8; fixed_extent<count + 1>()]) {}
+    "#,
+    );
+
+    let dependency = implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const VALUES: [u8; 1] = example.package.api.make();
+        const PAIR: [u8; 2] = example.package.api.retain<1>([2, 3]);
+        const DEFAULTED: [u8; 1] = example.package.api.defaulted();
+        const SOURCE: [u8; 1] = example.package.api.SOURCE;
+
+        func sample()
+        {
+            example.package.api.accept<1>([0]);
+        }
+    "#,
+        [dependency.clone()],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let invalid = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func sample()
+        {
+            example.package.api.accept<255>([0]);
+        }
+    "#,
+        [dependency],
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        invalid.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable,
+    );
+
+    let diagnostic = invalid
+        .check_diagnostics()
+        .by_kind(bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable)
+        .next()
+        .expect("invalid u8 argument has a conversion diagnostic");
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&bray_diagnostics::DiagnosticArg::actual_type(
+                bray_diagnostics::DiagnosticType::U8,
+            ))
+    );
+}
+
+#[test]
+fn imported_const_array_extents_normalize_mutated_component_types() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Items<const count: usize>
+        {
+            mut values: [u8; count + 1];
+        }
+
+        const func update<const count: usize>(pos input: Items<count>) -> Items<count>
+        {
+            let mut changed = input;
+            changed.values = changed.values;
+
+            return changed;
+        }
+    "#,
+    );
+
+    let dependency = implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const PAIR: [u8; 2] = [2, 3];
+        const INPUT: example.package.api.Items<1> = { values = PAIR };
+        const VALUES: example.package.api.Items<1> = example.package.api.update<1>(INPUT);
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 }

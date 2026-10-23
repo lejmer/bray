@@ -112,7 +112,7 @@ where
     let mut calls = Vec::new();
     let mut built_in_operators = Vec::new();
     let mut deferred = BTreeSet::new();
-    let mut diagnostics = DiagnosticBag::new();
+    let mut all_diagnostics = DiagnosticBag::new();
 
     for candidate_set in candidate_sets {
         if request.is_cancelled() {
@@ -136,6 +136,8 @@ where
 
             continue;
         }
+
+        let mut diagnostics = DiagnosticBag::new();
 
         match candidate_set {
             ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
@@ -271,6 +273,19 @@ where
             }
             ExpressionCandidateSet::NotApplicable(_) => {}
         }
+
+        crate::diagnostic::anchor_diagnostics(
+            &mut diagnostics,
+            bray_diagnostics::DiagnosticLabelKind::SelectionFailure,
+            || {
+                Some(crate::diagnostic::expression_span(
+                    request,
+                    candidate_set.expression(),
+                ))
+            },
+        );
+
+        all_diagnostics.extend(diagnostics);
     }
 
     calls.sort_unstable_by_key(|call| call.expression);
@@ -281,7 +296,7 @@ where
         built_in_operators,
         member_targets: BTreeMap::new(),
         deferred,
-        diagnostics,
+        diagnostics: all_diagnostics,
     }))
 }
 
@@ -799,6 +814,26 @@ struct MaterializedCallCandidates<'prepared> {
     diagnostics: DiagnosticBag,
 }
 
+impl<'prepared> MaterializedCallCandidates<'prepared> {
+    fn new<C: CheckerRequestContext + ?Sized>(
+        request: CheckerUnitView<'_, C>,
+        expression: BoundExpressionId,
+        candidates: Cow<'prepared, [CallableCandidate]>,
+        mut diagnostics: DiagnosticBag,
+    ) -> Self {
+        crate::diagnostic::anchor_diagnostics(
+            &mut diagnostics,
+            bray_diagnostics::DiagnosticLabelKind::SelectionFailure,
+            || Some(crate::diagnostic::expression_span(request, expression)),
+        );
+
+        Self {
+            candidates,
+            diagnostics,
+        }
+    }
+}
+
 fn dependency_progress<T, Upstream>(
     result: CheckerQueryResult<T, Upstream>,
 ) -> Result<SessionProgress<T>, CheckerQueryError<Upstream>> {
@@ -842,10 +877,12 @@ where
         && prepared.values.is_empty()
         && member_template.is_none()
     {
-        return Ok(Some(MaterializedCallCandidates {
-            candidates: Cow::Borrowed(&prepared.candidates),
-            diagnostics: DiagnosticBag::new(),
-        }));
+        return Ok(Some(MaterializedCallCandidates::new(
+            request,
+            prepared.expression,
+            Cow::Borrowed(&prepared.candidates),
+            DiagnosticBag::new(),
+        )));
     }
 
     let mut candidates = prepared.candidates.clone();
@@ -951,10 +988,12 @@ where
     }
 
     if prepared.values.is_empty() || member_template.is_some() {
-        return Ok(Some(MaterializedCallCandidates {
-            candidates: Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
+        return Ok(Some(MaterializedCallCandidates::new(
+            request,
+            prepared.expression,
+            Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
             diagnostics,
-        }));
+        )));
     }
 
     let Some(callee_type) = types.expression(call.callee()) else {
@@ -970,10 +1009,12 @@ where
     let data = request.semantic_values().type_data(callee_type.ty());
 
     let TypeData::Callable(callable) = data.as_ref() else {
-        return Ok(Some(MaterializedCallCandidates {
-            candidates: Cow::Owned(candidates),
+        return Ok(Some(MaterializedCallCandidates::new(
+            request,
+            prepared.expression,
+            Cow::Owned(candidates),
             diagnostics,
-        }));
+        )));
     };
 
     let result = call_result(request, callable, callable.result());
@@ -1042,10 +1083,12 @@ where
         )
     }));
 
-    Ok(Some(MaterializedCallCandidates {
-        candidates: Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
+    Ok(Some(MaterializedCallCandidates::new(
+        request,
+        prepared.expression,
+        Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
         diagnostics,
-    }))
+    )))
 }
 
 pub(super) fn converge<C>(

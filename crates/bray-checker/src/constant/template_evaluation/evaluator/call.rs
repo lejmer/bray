@@ -33,8 +33,12 @@ where
             panic!("constant symbol {symbol:?} must have a constant definition");
         };
 
-        let instance =
-            ConstantInstanceKey::new(definition, self.substitution, self.selected_implementation);
+        let instance = ConstantInstanceKey::new(
+            definition,
+            self.substitution
+                .expect("declaration nodes retain their generic environment"),
+            self.selected_implementation,
+        );
 
         let result = self
             .resolver
@@ -106,9 +110,7 @@ where
 
         let values = self.context.semantic_values();
 
-        let substitution = values
-            .substitute_generic_substitution(substitution, self.substitution)
-            .unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
+        let substitution = self.substitute_arguments(substitution);
 
         let implementation = match dispatch {
             None => None,
@@ -132,8 +134,7 @@ where
                     panic!("constant call implementation must resolve to a declared implementation: {declaration:?}");
                 };
 
-                let substitution = values
-                    .substitute_generic_substitution(*substitution, self.substitution).unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
+                let substitution = self.substitute_arguments(*substitution);
 
                 values
                     .intern_implementation_instance(ImplementationInstanceData::new(
@@ -194,13 +195,12 @@ where
                     .map_err(|error| self.record_query_failure(error))?;
 
                 let requirement = bray_symbols::ImplementationRequirementKey::new(
-                    values
-                        .substitute_type(requirement.subject(), self.substitution)
-                        .unwrap_or_else(|error| panic!("checked subject substitution: {error:?}")),
+                    self.instantiate_type(requirement.subject())?,
                     values
                         .substitute_trait_application(
                             requirement.trait_application(),
-                            self.substitution,
+                            self.substitution
+                                .expect("dispatch nodes retain their generic environment"),
                         )
                         .unwrap_or_else(|error| panic!("checked trait substitution: {error:?}")),
                 );

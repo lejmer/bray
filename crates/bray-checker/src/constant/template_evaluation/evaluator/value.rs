@@ -28,7 +28,7 @@ where
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         if self.static_initializer
             && matches!(
-                self.template.nodes()[template_index(operand.raw())].operation(),
+                self.template().nodes()[template_index(operand.raw())].operation(),
                 CheckedTemplateOperation::Declaration { .. }
             )
         {
@@ -110,7 +110,7 @@ where
             declaration,
             substitution: Some(substitution),
         }) = self
-            .template
+            .template()
             .nodes()
             .get(index)
             .map(|node| node.operation())
@@ -124,11 +124,7 @@ where
             );
         };
 
-        let substitution = self
-            .context
-            .semantic_values()
-            .substitute_generic_substitution(*substitution, self.substitution)
-            .unwrap_or_else(|error| panic!("semantic_value in evaluate_static_address: {error:?}"));
+        let substitution = self.substitute_arguments(*substitution);
 
         let selection = self
             .resolver
@@ -173,14 +169,14 @@ where
         let index = template_index(input.raw());
 
         let input = self
-            .template
+            .template()
             .inputs()
             .get(index).unwrap_or_else(|| panic!("evaluate_input requires constant template input, input: {input:?}, index: {index:?}"));
 
         match input.kind() {
             CheckedTemplateInputKind::Parameter(ordinal) => Ok(ordinal
                 .to_index()
-                .and_then(|index| self.arguments.get(index + usize::from(self.template.inputs().iter()
+                .and_then(|index| self.arguments.get(index + usize::from(self.template().inputs().iter()
                     .any(|input| input.kind() == &CheckedTemplateInputKind::Receiver))))
                 .copied().unwrap_or_else(|| panic!("checked constant parameter ordinal {ordinal:?} must exist in the application"))),
             CheckedTemplateInputKind::GenericConstant(parameter) => {
@@ -193,7 +189,7 @@ where
                 let substitution = self
                     .context
                     .semantic_values()
-                    .generic_substitution_data(self.substitution);
+                    .generic_substitution_data(self.substitution.expect("generic input nodes retain their environment"));
 
                 let Some(GenericArgument::Constant(term)) =
                     substitution.argument_for(GenericParameterSymbolId::Const(parameter))
@@ -201,12 +197,17 @@ where
                     panic!("generic constant {parameter:?} must have a constant substitution argument");
                 };
 
-                let ty = self
-                    .context
-                    .semantic_values()
-                    .substitute_type(input.ty(), self.substitution).unwrap_or_else(|error| panic!("semantic_value in evaluate_input: {error:?}"));
+                if let Some(value) = self.generic_inputs.get(index).copied().flatten() {
+                    return Ok(value);
+                }
 
-                self.evaluate_term(term, ty)
+                let ty = self.instantiate_type(input.ty())?;
+                let value = self.evaluate_typed_term(term, ty)?;
+
+                self.generic_inputs.resize(self.template().inputs().len(), None);
+                self.generic_inputs[index] = Some(value);
+
+                Ok(value)
             }
             CheckedTemplateInputKind::Receiver => Ok(*self.arguments.first()
                 .expect("checked constant method application supplies its receiver")),
@@ -376,6 +377,31 @@ where
         Ok(self.intern_value(ty, kind))
     }
 
+    pub(in crate::constant::template_evaluation) fn conversion_failure(
+        &mut self,
+        error: super::super::super::operation::ConstantOperationError,
+        target: TypeId,
+    ) -> TemplateEvaluationFailure {
+        let problem = super::super::super::diagnostic::ConstantDiagnostic::operation(
+            bray_diagnostics::DiagnosticConstantOperation::Conversion,
+            error,
+        );
+
+        match problem.render(
+            self.context,
+            bray_diagnostics::DiagnosticId::new(0),
+            None,
+            || Ok(target),
+        ) {
+            Ok(diagnostic) => {
+                self.diagnostics.add(diagnostic);
+
+                TemplateEvaluationFailure::Diagnosed
+            }
+            Err(error) => self.record_query_failure(error),
+        }
+    }
+
     pub(in crate::constant::template_evaluation) fn evaluate_conversion(
         &mut self,
         value: ConstantValueId,
@@ -498,12 +524,7 @@ where
                 .machine()
                 .pointer_width_bits()
         })
-        .map_err(|error| {
-            operation_failure(
-                bray_diagnostics::DiagnosticConstantOperation::Conversion,
-                error,
-            )
-        })?;
+        .map_err(|error| self.conversion_failure(error, target))?;
 
         Ok(self.intern_value(target, kind))
     }
@@ -562,7 +583,7 @@ where
     pub(super) fn evaluate_construction(
         &mut self,
         variant: Option<&bray_symbols::SymbolKey>,
-        fields: &[bray_symbols::ConstantField<bray_symbols::SymbolKey, CheckedTemplateNodeId>],
+        fields: &[ConstantField<bray_symbols::SymbolKey, CheckedTemplateNodeId>],
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let kind = match variant {

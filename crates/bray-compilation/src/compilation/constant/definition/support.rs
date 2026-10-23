@@ -197,20 +197,24 @@ pub(in crate::compilation) fn collect_constant_references_from(
     Ok(references)
 }
 
-pub(in crate::compilation::constant) fn substitute_expression_types(
-    values: &bray_symbols::SemanticValueStore,
+pub(in crate::compilation::constant) fn instantiate_expression_types(
+    context: &crate::compilation::checker::CompilationCheckerContext<'_>,
     types: &CheckedExpressionTypes,
     substitution: GenericSubstitutionId,
-) -> Result<CheckedExpressionTypes, FactQueryError> {
+) -> Result<bray_diagnostics::DiagnosticResult<CheckedExpressionTypes>, FactQueryError> {
+    let mut normalizer = bray_checker::TypeNormalizer::new(context, Some(substitution));
+
     let entries = types
         .entries()
         .iter()
         .map(|entry| {
             let result = entry.result();
 
-            let ty = values
+            let ty = bray_checker::CheckerRequestContext::semantic_values(context)
                 .substitute_type(result.ty(), substitution)
                 .map_err(FactQueryError::SemanticValueStore)?;
+
+            let ty = normalizer.normalize_type(ty)?;
 
             Ok(ExpressionTypeEntry::new(
                 entry.expression(),
@@ -219,10 +223,9 @@ pub(in crate::compilation::constant) fn substitute_expression_types(
         })
         .collect::<Result<Vec<_>, FactQueryError>>()?;
 
-    Ok(CheckedExpressionTypes::new(
-        types.unit(),
-        types.kind(),
-        entries,
+    Ok(bray_diagnostics::DiagnosticResult::new(
+        CheckedExpressionTypes::new(types.unit(), types.kind(), entries),
+        normalizer.take_diagnostics(),
     ))
 }
 

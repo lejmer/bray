@@ -3035,6 +3035,7 @@ fn numeric_const_truncation_uses_selected_integer_representations() {
                 r#"
                 const SOURCE: u16 = 257;
                 const VALUE: u8 = std.numeric.truncate_to<u8>(SOURCE);
+                const ARRAY: [u8; VALUE as usize] = [0];
             "#,
             );
         }

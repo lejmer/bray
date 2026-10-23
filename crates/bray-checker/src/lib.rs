@@ -56,7 +56,7 @@ pub use constant::{
     ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
     ConstantLiteralError, ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
-    constant_eligibility_diagnostic, constant_invocation_targets,
+    constant_eligibility_diagnostic, constant_invocation_targets, evaluate_array_length,
     evaluate_constant_callable_template, evaluate_constant_definition_template,
     evaluate_constant_intrinsic, evaluate_generic_constraint_template,
     evaluate_static_initializer_template, fold_machine_integer_binary,
@@ -124,7 +124,9 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
-pub use type_normalization::{normalize_callable_signature, normalize_type_valued_members};
+pub use type_normalization::{
+    TypeNormalizer, normalize_callable_signature, normalize_type_valued_members,
+};
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,

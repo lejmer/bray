@@ -17,14 +17,12 @@ pub fn normalize_type_valued_members<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    TypeNormalizer {
-        request,
-        diagnostics,
-        substitution: None,
-        normalized: BTreeMap::new(),
-        active: BTreeSet::new(),
-    }
-    .normalize_type(ty)
+    let mut normalizer = TypeNormalizer::new(request, None);
+    let ty = normalizer.normalize_type(ty)?;
+
+    diagnostics.extend(normalizer.take_diagnostics());
+
+    Ok(ty)
 }
 
 /// Resolves implementation Self and type-valued members in an instantiated callable signature.
@@ -37,33 +35,48 @@ pub fn normalize_callable_signature<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut normalizer = TypeNormalizer {
-        request,
-        diagnostics,
-        substitution,
-        normalized: BTreeMap::new(),
-        active: BTreeSet::new(),
-    };
+    let mut normalizer = TypeNormalizer::new(request, substitution);
+    let signature = signature.try_map_types(|ty| normalizer.normalize_type(ty))?;
 
-    signature.try_map_types(|ty| normalizer.normalize_type(ty))
+    diagnostics.extend(normalizer.take_diagnostics());
+
+    Ok(signature)
 }
 
-struct TypeNormalizer<'request, 'diagnostics, C>
+/// Resolves types on demand within one immutable checking and substitution context.
+pub struct TypeNormalizer<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     request: &'request C,
-    diagnostics: &'diagnostics mut DiagnosticBag,
+    diagnostics: DiagnosticBag,
     substitution: Option<GenericSubstitutionId>,
     normalized: BTreeMap<TypeId, TypeId>,
     active: BTreeSet<TypeId>,
 }
 
-impl<C> TypeNormalizer<'_, '_, C>
+impl<'request, C> TypeNormalizer<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn normalize_type(
+    /// Creates a normalizer that shares results across types in the same context.
+    pub fn new(request: &'request C, substitution: Option<GenericSubstitutionId>) -> Self {
+        Self {
+            request,
+            diagnostics: DiagnosticBag::new(),
+            substitution,
+            normalized: BTreeMap::new(),
+            active: BTreeSet::new(),
+        }
+    }
+
+    /// Takes diagnostics produced since the previous call, retaining normalized type results.
+    pub fn take_diagnostics(&mut self) -> DiagnosticBag {
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    /// Resolves type members and closed extents in an already substituted type.
+    pub fn normalize_type(
         &mut self,
         ty: TypeId,
     ) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
@@ -166,10 +179,20 @@ where
             TypeData::Array { element, length } => {
                 let element = self.normalize_type(*element)?;
 
-                self.intern(TypeData::Array {
-                    element,
-                    length: *length,
-                })?
+                let length = self.request.normalize_array_length(*length)?;
+                let recovered = length.diagnostics().has_errors();
+
+                self.diagnostics
+                    .extend(length.diagnostics().iter().cloned());
+
+                if recovered {
+                    self.intern(TypeData::Error)?
+                } else {
+                    self.intern(TypeData::Array {
+                        element,
+                        length: *length.value(),
+                    })?
+                }
             }
             TypeData::FlexibleArray(element) => {
                 let element = self.normalize_type(*element)?;
