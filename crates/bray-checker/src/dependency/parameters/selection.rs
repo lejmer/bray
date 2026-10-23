@@ -11,7 +11,7 @@ use super::graph::{ParameterNode, Parameters, retain_parameters, solve_parameter
 
 #[derive(Default)]
 pub(super) struct SelectionParameters {
-    relevant: BTreeMap<CallableDefinitionId, Parameters>,
+    relevant: BTreeMap<(CallableDefinitionId, bray_symbols::DependencyCallOutput), Parameters>,
 }
 
 impl SelectionParameters {
@@ -19,15 +19,16 @@ impl SelectionParameters {
         &mut self,
         request: CheckerUnitView<'_, C>,
         selected: CallableInstanceData,
+        output: bray_symbols::DependencyCallOutput,
     ) -> Result<CallableInstanceData, CheckerQueryError<C::UpstreamError>> {
-        if !self.relevant.contains_key(&selected.definition()) {
-            self.discover(request, selected)?;
+        if !self.relevant.contains_key(&(selected.definition(), output)) {
+            self.discover(request, selected, output)?;
         }
 
         Ok(retain_parameters(
             request.semantic_values(),
             selected,
-            self.relevant.get(&selected.definition()),
+            self.relevant.get(&(selected.definition(), output)),
         )
         .unwrap_or_else(|error| {
             panic!("key must satisfy its checked construction contract: {error:?}")
@@ -38,14 +39,15 @@ impl SelectionParameters {
         &mut self,
         request: CheckerUnitView<'_, C>,
         selected: CallableInstanceData,
+        output: bray_symbols::DependencyCallOutput,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let values = request.semantic_values();
-        let mut pending = vec![selected];
+        let mut pending = vec![(selected, output)];
         let mut nodes = BTreeMap::new();
 
-        while let Some(callable) = pending.pop() {
-            if self.relevant.contains_key(&callable.definition())
-                || nodes.contains_key(&callable.definition())
+        while let Some((callable, output)) = pending.pop() {
+            if self.relevant.contains_key(&(callable.definition(), output))
+                || nodes.contains_key(&(callable.definition(), output))
             {
                 continue;
             }
@@ -62,13 +64,13 @@ impl SelectionParameters {
             let mut edges = Vec::new();
 
             let local =
-                selection_requirements(values, template.requirements(), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
+                selection_requirements(values, template.output_requirements(output), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             let local = values
                 .intern_dependency_contract_template(DependencyContractTemplateData::new(local)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             nodes.insert(
-                callable.definition(),
+                (callable.definition(), output),
                 ParameterNode {
                     callable,
                     local,
@@ -84,16 +86,20 @@ impl SelectionParameters {
 fn selection_requirements(
     values: &SemanticValueStore,
     requirements: &[DependencyRequirement],
-    pending: &mut Vec<CallableInstanceData>,
-    edges: &mut Vec<(CallableInstanceData, CallableDefinitionId)>,
+    pending: &mut Vec<(CallableInstanceData, bray_symbols::DependencyCallOutput)>,
+    edges: &mut Vec<(
+        CallableInstanceData,
+        (CallableDefinitionId, bray_symbols::DependencyCallOutput),
+    )>,
 ) -> Result<Vec<DependencyRequirement>, SemanticValueStoreError> {
     super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
-        let (callable, requirement, inputs) = match item {
+        let (callable, requirement, inputs, output) = match item {
             DependencyRequirement::ResultCall {
+                output,
                 callable,
                 requirement,
                 inputs,
-            } => (*callable, requirement, inputs),
+            } => (*callable, requirement, inputs, output),
             _ => return None,
         };
 
@@ -110,14 +116,15 @@ fn selection_requirements(
 
             // Member arguments do not select the implementation. Its result is inspected separately.
             if requirement.is_none() {
-                pending.push(*callable);
-                edges.push((*callable, callable.definition()));
+                pending.push((*callable, *output));
+                edges.push((*callable, (callable.definition(), *output)));
             }
 
             Ok(vec![DependencyRequirement::result_call(
                 empty,
                 *requirement,
                 inputs,
+                *output,
             )])
         })())
     })

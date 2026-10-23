@@ -3,9 +3,7 @@ use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
     CheckedExpressionTypes, CheckedPatterns, CheckedSemanticSelections, SemanticSelection,
 };
-use bray_symbols::{
-    AnyLocalSymbolId, DependencyRequirement, DependencyRequirementKind, DependencySubject,
-};
+use bray_symbols::{AnyLocalSymbolId, DependencyRequirement, DependencyRequirementKind};
 use std::collections::BTreeSet;
 
 pub(crate) struct Transfer<'a, 'state, C: CheckerRequestContext + ?Sized> {
@@ -153,18 +151,27 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             return Ok(BTreeSet::new());
         }
 
+        let mut call_result = false;
+
         let mut requirements = if let Some(initializer) = self.inputs.projected_initializer(id) {
             self.state
                 .values
                 .get(&initializer)
                 .cloned()
                 .unwrap_or_default()
+        } else if let Some(SemanticSelection::Operation(operation)) = self.selections.expression(id)
+            && let Some(template) =
+                crate::dependency::call::operation_result_dependencies(self.request, id, operation)?
+        {
+            call_result = true;
+
+            self.operation_values(id, operation, template.template.requirements())?
         } else {
             match expression {
-                BoundExpression::Literal(_)
-                | BoundExpression::Unary(_)
-                | BoundExpression::Binary(_)
-                | BoundExpression::AnonymousCallable(_) => BTreeSet::new(),
+                BoundExpression::Unary(_) | BoundExpression::Binary(_) => BTreeSet::new(),
+                BoundExpression::Literal(_) | BoundExpression::AnonymousCallable(_) => {
+                    BTreeSet::new()
+                }
                 BoundExpression::Name(name) => match name.target() {
                     BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => {
                         self.state.locals.get(&binding).cloned().unwrap_or_default()
@@ -198,24 +205,37 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                         Some(SemanticSelection::Call(_))
                     ) =>
                 {
-                    let values = self.call_values(id)?;
+                    call_result = true;
 
-                    if values.iter().any(|requirement| {
-                        !matches!(requirement, DependencyRequirement::Direct { .. })
-                    }) {
-                        self.state
-                            .call_definitions
-                            .entry(id.ordinal())
-                            .or_default()
-                            .extend(values);
+                    self.call_values(id)?
+                }
+                BoundExpression::Structured(value)
+                    if value.kind() == BoundStructuredExpressionKind::With =>
+                {
+                    let mut values = self.state.values.get(&id).cloned().unwrap_or_default();
 
-                        BTreeSet::from([DependencyRequirement::variable(
-                            0,
-                            bray_symbols::SymbolOrdinal::new(id.ordinal()),
-                        )])
-                    } else {
-                        values
+                    if let Some(SemanticSelection::ScopedUse(scoped)) =
+                        self.selections.expression(id)
+                    {
+                        if scoped.enter().1.result() != scoped.capability_type() {
+                            values.extend(self.scoped_values(scoped)?);
+                        }
+
+                        if crate::representation::type_representation(
+                            self.request,
+                            scoped.exit().1.result(),
+                        ) == Some(bray_compiler_known::RepresentationRole::Result)
+                        {
+                            values.extend(self.exit_values(scoped)?);
+                        }
                     }
+
+                    values
+                }
+                BoundExpression::Structured(value)
+                    if value.kind() == BoundStructuredExpressionKind::Catch =>
+                {
+                    self.state.values.get(&id).cloned().unwrap_or_default()
                 }
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
@@ -224,40 +244,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                         panic!("expression_values requires structured value operand, id: {id:?}")
                     });
 
-                    let reborrowed = self.reborrowed_receiver(operand);
-
-                    let kind = if reborrowed.is_some() {
-                        DependencyRequirementKind::ValueDependencies
-                    } else {
-                        DependencyRequirementKind::StorageAlive
-                    };
-
-                    let mut sources = self.expression_sources(id, expression);
-
-                    if sources.is_empty()
-                        && let Some(receiver) = reborrowed
-                    {
-                        return Ok(self.projected_values(receiver, &[]));
-                    }
-
-                    if sources.is_empty() && self.borrows_evaluation_storage(operand) {
-                        sources.insert((
-                            DependencySubject::root(
-                                bray_symbols::DependencySubjectRoot::EvaluationStorage,
-                            ),
-                            true,
-                        ));
-                    }
-
-                    sources
-                        .into_iter()
-                        .map(|source| {
-                            DependencyRequirement::direct(
-                                super::sources::source_subject(&source, []),
-                                kind,
-                            )
-                        })
-                        .collect()
+                    self.borrowed_values(operand, &[])
                 }
                 _ => self
                     .inputs
@@ -269,6 +256,23 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
         for (value, path) in self.inputs.projected_operands(id) {
             requirements.extend(self.projected_values(value, &path));
+        }
+
+        if call_result
+            && requirements
+                .iter()
+                .any(|requirement| !matches!(requirement, DependencyRequirement::Direct { .. }))
+        {
+            self.state
+                .call_definitions
+                .entry(id.ordinal())
+                .or_default()
+                .extend(requirements);
+
+            return Ok(BTreeSet::from([DependencyRequirement::variable(
+                0,
+                bray_symbols::SymbolOrdinal::new(id.ordinal()),
+            )]));
         }
 
         Ok(requirements)

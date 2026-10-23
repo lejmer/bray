@@ -388,7 +388,10 @@ fn value_producing_blocks_lower_through_a_result_join() {
 
     assert!(matches!(
         mir.blocks()[1].terminator().kind(),
-        MirTerminatorKind::Return(Some(MirOperand::Value(_)))
+        MirTerminatorKind::Return {
+            value: Some(MirOperand::Value(_)),
+            ..
+        }
     ));
 }
 
@@ -667,11 +670,13 @@ fn constant_false_assertions_terminate_non_unit_callables() {
 
     let mir = lowered_mir(&result);
 
-    assert!(
-        mir.blocks()
-            .iter()
-            .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Return(None)))
-    );
+    assert!(mir.blocks().iter().all(|block| !matches!(
+        block.terminator().kind(),
+        MirTerminatorKind::Return {
+            value: None,
+            report: None
+        }
+    )));
 }
 
 #[test]

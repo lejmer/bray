@@ -9,7 +9,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, insert_value, integer_constant, llvm, next_helper};
+use super::super::support::{extract_value, integer_constant, llvm, next_helper};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(in super::super) fn translate_text(
@@ -115,22 +115,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .result_type()
             .expect("checked MIR text translation requires an established mapping or value");
 
-        let fields = self.text_aggregate_fields(result, 2);
-        let mut value = self.types.map(result)?.const_zero();
-
-        value = insert_value(
-            &self.builder,
-            value,
-            data.into(),
-            self.aggregate_value_element(&fields, 0)?,
-        )?;
-
-        insert_value(
-            &self.builder,
-            value,
-            length.into(),
-            self.aggregate_value_element(&fields, 1)?,
-        )
+        self.construct_positional_product(result, &[data.into(), length.into()])
     }
 
     fn text_from_utf8(
@@ -152,33 +137,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &[data.into(), length.into()],
         )?;
 
-        let fields = match self
-            .type_mapping(validated_type)
-            .map(bray_codegen::CodegenTypeMapping::kind)
-        {
-            Some(CodegenTypeKind::Aggregate(fields)) => fields.clone(),
-            unexpected => panic!(
-                "checked MIR text translation violated an established compiler contract: {unexpected:?}"
-            ),
-        };
+        let valid = self
+            .aggregate_field_value(validated, validated_type, 0)?
+            .into_int_value();
 
-        let valid = extract_value(
-            &self.builder,
-            validated,
-            self.aggregate_element(&fields, 0)?,
-        )?
-        .into_int_value();
-
-        let text = extract_value(
-            &self.builder,
-            validated,
-            self.aggregate_element(&fields, 1)?,
-        )?;
-
-        let text_type = fields
-            .get(1)
-            .map(bray_codegen::CodegenFieldLayout::ty)
-            .expect("checked MIR text translation requires an established mapping or value");
+        let text = self.aggregate_field_value(validated, validated_type, 1)?;
+        let fields = self.text_aggregate_fields(validated_type, 2);
+        let text_type = fields[1].ty();
 
         let string = self.owned_text(operation, text, text_type)?;
 
@@ -436,22 +401,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         length: IntValue<'context>,
         owner: PointerValue<'context>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let fields = self.text_aggregate_fields(ty, 3);
-        let mut value = self.types.map(ty)?.const_zero();
-
-        for (index, field) in [data.into(), owner.into(), length.into()]
-            .into_iter()
-            .enumerate()
-        {
-            value = insert_value(
-                &self.builder,
-                value,
-                field,
-                self.aggregate_value_element(&fields, index)?,
-            )?;
-        }
-
-        Ok(value)
+        self.construct_positional_product(ty, &[data.into(), owner.into(), length.into()])
     }
 
     fn utf8_result(
@@ -535,13 +485,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;
 
-            llvm(self.builder.build_store(destination, payload))?;
+            self.store_value(destination, payload, field.ty())?;
         }
 
-        llvm(
-            self.builder
-                .build_load(llvm_type, storage, "string.result.value"),
-        )
+        self.place_value(storage, result, "string.result.value")
     }
 
     pub(super) fn result_string_type(&self, result: bray_symbols::TypeId) -> bray_symbols::TypeId {

@@ -104,6 +104,13 @@ where
         self.resolve(ty).map(|shape| shape.suspending)
     }
 
+    pub(crate) fn quiescence_requires_suspension(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        self.resolve(ty).map(|shape| shape.quiescence)
+    }
+
     pub(crate) fn requirement(
         &mut self,
         ty: TypeId,
@@ -115,6 +122,140 @@ where
             .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
 
         Ok(cleanup)
+    }
+
+    pub(in crate::asynchronous) fn require_inputs(
+        &mut self,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        for entry in selections.entries() {
+            match entry.selection() {
+                bray_bound_tree::SemanticSelection::Operation(
+                    bray_bound_tree::SelectedOperation::Construction(construction),
+                ) => {
+                    self.requirement(construction.result_type())?;
+
+                    for input in construction.inputs() {
+                        match input {
+                            bray_bound_tree::SelectedConstructionInput::Explicit {
+                                conversion,
+                                ..
+                            } => self.require_conversion(conversion)?,
+                            bray_bound_tree::SelectedConstructionInput::Default { ty, .. } => {
+                                self.requirement(*ty)?;
+                            }
+                        }
+                    }
+                }
+                bray_bound_tree::SemanticSelection::Operation(
+                    bray_bound_tree::SelectedOperation::Conversion(conversion),
+                ) => {
+                    self.require_conversion(conversion)?;
+                }
+                bray_bound_tree::SemanticSelection::Operation(
+                    bray_bound_tree::SelectedOperation::Index { target, .. },
+                ) if target.custom_borrow_kind().is_some() => {
+                    let Some(bray_bound_tree::BoundExpression::Structured(source)) =
+                        self.request.view().expression(entry.expression())
+                    else {
+                        panic!("selected custom indexing retains its structured source");
+                    };
+
+                    if let Some(bounds) = source.slice_bounds() {
+                        let bound = bounds
+                            .lower()
+                            .or(bounds.upper())
+                            .expect("checked custom slice has a bound supplying its type");
+
+                        let bound_type = types
+                            .expression(bound)
+                            .expect("checked slice bound retains its type")
+                            .ty();
+
+                        let nullable = self
+                            .request
+                            .semantic_values()
+                            .intern_type(bray_symbols::TypeData::Nullable(bound_type))
+                            .expect("checked slice bound admits its nullable input type");
+
+                        self.requirement(nullable)?;
+                    }
+                }
+                bray_bound_tree::SemanticSelection::Call(call) => {
+                    for argument in call.arguments() {
+                        match argument {
+                            bray_bound_tree::SelectedArgument::Explicit { conversion, .. } => {
+                                self.require_conversion(conversion)?
+                            }
+                            bray_bound_tree::SelectedArgument::Default { ty, .. } => {
+                                self.requirement(*ty)?;
+                            }
+                        }
+                    }
+
+                    if let Some(receiver) = call.receiver() {
+                        let ty = receiver
+                            .input_type(self.request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
+
+                        self.requirement(ty)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for (id, expression) in self.request.unit().tree().expressions() {
+            if matches!(expression, bray_bound_tree::BoundExpression::Await(_)) {
+                // A completed await owns its result before delivering cancellation.
+                // Publish its cleanup shape with the other implicit input owners.
+                let ty = types
+                    .expression(id)
+                    .expect("checked await retains its completion type")
+                    .ty();
+
+                self.requirement(ty)?;
+            }
+
+            let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
+                continue;
+            };
+
+            use bray_bound_tree::BoundStructuredExpressionKind as Kind;
+
+            if matches!(
+                expression.kind(),
+                Kind::Tuple | Kind::Array | Kind::RepeatedArray | Kind::Range
+            ) {
+                for operand in expression.operands() {
+                    let ty = types
+                        .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
+                        .ty();
+
+                    self.requirement(ty)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn require_conversion(
+        &mut self,
+        conversion: &bray_bound_tree::SelectedConversion,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let mut pending = vec![conversion];
+
+        while let Some(conversion) = pending.pop() {
+            self.requirement(conversion.source_type())?;
+            self.requirement(conversion.target_type())?;
+
+            if let bray_bound_tree::ConversionTarget::Composite(children) = conversion.target() {
+                pending.extend(children.iter());
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn resolve(

@@ -84,6 +84,24 @@ where
         ]));
     }
 
+    let reports = instantiate_reports(&template.template, &mut result_context)?;
+
+    let instantiated = if matches!(
+        call.resolution().result(),
+        bray_bound_tree::BoundCallResult::LazyFuture(_)
+    ) {
+        let evaluation =
+            instantiate_reports(&template.immediate_reports(true), &mut result_context)?;
+
+        instantiated
+            .with_reports(evaluation)
+            .with_deferred_reports(reports)
+    } else {
+        let reports = instantiate_reports(&template.immediate_reports(false), &mut result_context)?;
+
+        instantiated.with_reports(reports)
+    };
+
     Ok((
         super::references::with_references(
             request,
@@ -282,13 +300,17 @@ where
 
     instantiated = instantiated.with_normal_completion(template.normal_completion());
 
-    if result.is_some() {
+    {
         let mut context = CallInstantiationContext::hidden(
             request,
             storage,
             (root, input),
             result,
-            Some(scoped.initializer()),
+            matches!(
+                occurrence,
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+            )
+            .then_some(scoped.initializer()),
         );
 
         context.set_result_values(values);
@@ -312,10 +334,82 @@ where
             &concrete,
             &mut context,
         )?);
+
+        instantiated = instantiated.with_reports(instantiate_reports(&template, &mut context)?);
     }
 
     super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
         .map_err(DependencyContractInstantiationError::Resolution)
+}
+
+pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
+    template: &DependencyContractTemplateData,
+    context: &mut CallInstantiationContext<'_, C>,
+) -> Result<
+    bray_bound_tree::BoundCallReports,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+> {
+    let mut instantiate = |requirements: Option<&[DependencyRequirement]>| {
+        requirements
+            .map(|requirements| {
+                let concrete =
+                    DependencyContractTemplateData::new(concrete_report_requirements(requirements));
+
+                BoundDependencyContract::try_instantiate(&concrete, context)
+            })
+            .transpose()
+    };
+
+    Ok(bray_bound_tree::BoundCallReports::new(
+        instantiate(template.completion_reports())?,
+        instantiate(template.abnormal_reports())?,
+    ))
+}
+
+pub(super) fn concrete_report_requirements(
+    requirements: &[DependencyRequirement],
+) -> Vec<DependencyRequirement> {
+    requirements
+        .iter()
+        .flat_map(|requirement| match requirement {
+            // Contracts own their lists and share immutable subject paths.
+            DependencyRequirement::Direct { .. } => vec![requirement.clone()],
+            DependencyRequirement::Guarded(guarded) => vec![DependencyRequirement::guarded(
+                guarded.guard().clone(),
+                concrete_report_requirements(guarded.requirements()),
+            )],
+            DependencyRequirement::ResultCall { .. }
+            | DependencyRequirement::FixedPoint { .. }
+            | DependencyRequirement::Variable { .. } => Vec::new(),
+        })
+        .collect()
+}
+
+pub(crate) fn cleanup_report_contract<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    access: bray_bound_tree::StorageAccessId,
+    requirements: &[DependencyRequirement],
+) -> Result<BoundDependencyContract, CheckerQueryError<C::UpstreamError>> {
+    let template = DependencyContractTemplateData::new(concrete_report_requirements(requirements));
+
+    let mut context = CallInstantiationContext::hidden(
+        request,
+        storage,
+        (DependencySubjectRoot::Receiver, access),
+        None,
+        None,
+    );
+
+    BoundDependencyContract::try_instantiate(&template, &mut context).map_err(|error| match error {
+        DependencyContractInstantiationError::Resolution(error) => error,
+        DependencyContractInstantiationError::ForeignUnit => {
+            panic!("cleanup report receiver {access:?} belongs to the checked unit")
+        }
+        DependencyContractInstantiationError::UnresolvedWitness => {
+            panic!("cleanup report receiver {access:?} has a resolved dependency contract")
+        }
+    })
 }
 
 fn instantiate_hidden_call<C>(

@@ -1,10 +1,10 @@
-use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenResultMapping};
 use bray_ir::{MirHelperReference, MirOperationId, MirStandardLibraryHelper, MirTextOperation};
 use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, llvm, next_helper, pointer_value};
+use super::super::support::{llvm, next_helper, pointer_value};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn text_scalar_count(
@@ -168,14 +168,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .result_type()
             .expect("checked MIR text translation requires an established mapping or value");
 
-        if value.get_type() == self.types.map(result_type)? {
+        if self.types.map(source_type)? == self.types.map(result_type)? {
             return Ok(value);
         }
 
         let present = self.nullable_present(value, source_type)?;
         let payload = self.project_value(value, source_type, result_type)?;
         let present_value = self.construct_nullable_present(result_type, payload)?;
-        let absent_value = self.types.map(result_type)?.const_zero();
+        let zero = self.types.map(result_type)?.const_zero();
+        let absent_value = self.initialize_value(zero, result_type, "text.nullable.absent")?;
 
         llvm(self.builder.build_select(
             present,
@@ -191,23 +192,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         text: BasicValueEnum<'context>,
         text_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let fields = match self
-            .type_mapping(text_type)
-            .map(bray_codegen::CodegenTypeMapping::kind)
-        {
-            Some(CodegenTypeKind::Aggregate(fields)) => fields.clone(),
-            unexpected => panic!(
-                "checked MIR text translation violated an established compiler contract: {unexpected:?}"
-            ),
-        };
-
-        let data = extract_value(&self.builder, text, self.aggregate_element(&fields, 0)?)?;
+        let data = self.aggregate_field_value(text, text_type, 0)?;
         let data = pointer_value(data).expect("text aggregates must contain a data pointer");
 
-        let length = extract_value(&self.builder, text, self.aggregate_element(&fields, 1)?)?
+        let length = self
+            .aggregate_field_value(text, text_type, 1)?
             .into_int_value();
 
-        let owner = extract_value(&self.builder, text, self.aggregate_element(&fields, 2)?)?;
+        let owner = self.aggregate_field_value(text, text_type, 2)?;
         let owner = pointer_value(owner).expect("text aggregates must contain an owner pointer");
 
         let result = operation

@@ -603,12 +603,10 @@ fn returned_values_preserve_caller_storage_and_owned_results() {
                     Unavailable;
                 }
 
-                func good(pos produce: func(pos input: &bool) -> Result<Value<bool>, Failure>)
-                    -> Result<Value<bool>, Failure>
+                func good(pos produce: func(pos input: &bool) -> Result<Value<bool>, Failure>,
+                    pos input: &bool) -> Result<Value<bool>, Failure>
                 {
-                    let local: bool = true;
-
-                    return produce(&local);
+                    return produce(input);
                 }
             "#,
         r#"

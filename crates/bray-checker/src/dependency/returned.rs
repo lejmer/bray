@@ -50,6 +50,15 @@ pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
         )
 }
 
+pub(super) fn declaration_source(
+    call: &SelectedCall,
+) -> Option<bray_symbols::CallableInstanceData> {
+    match call.target() {
+        BoundCallableTarget::Declaration(instance) => Some(instance),
+        _ => call.resolution().declaration_source(),
+    }
+}
+
 /// Applies the selected implementation, generic substitution and parameter defaults once.
 pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -75,6 +84,12 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                         DependencyRequirementKind::BorrowCapabilityActive(kind),
                     )))
             )).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+    } else if matches!(call.target(), BoundCallableTarget::Predicate(_)) {
+        // Predicate evaluation is checked in an effect-free context. It cannot retain
+        // an owned cleanup incident or return a value with input dependencies.
+        store
+            .empty_dependency_contract_template()
+            .expect("predicate outputs have no retained ownership")
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
         let requirement = request.context().result_dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
@@ -88,24 +103,43 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                 .expect("selected anonymous callable retains its body key")
                 .0,
         )?
-    } else if !opaque_result(call)
-        && let BoundCallableTarget::Declaration(instance) = call.target()
-    {
+    } else if let Some(instance) = declaration_source(call) {
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
-        let requirements = input_requirements(call);
+        let requirements = input_requirements(call).collect::<Vec<_>>();
+
+        let body = call
+            .phase_behaviors()
+            .deferred_execution()
+            .unwrap_or(call.phase_behaviors().invocation());
+
+        let mut template = DependencyContractTemplateData::new(requirements.iter().cloned());
+
+        if call.invocation() == bray_symbols::CallableInvocation::Bray {
+            template = template.with_abnormal_reports(requirements.iter().cloned());
+
+            if !body
+                .execution_properties()
+                .contains(&bray_symbols::ExecutionProperty::Pure)
+            {
+                template = template.with_completion_reports(requirements);
+            }
+        }
 
         store
-            .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+            .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
-    let instance = match call.target() {
-        BoundCallableTarget::Declaration(instance) => Some(instance),
-        _ => None,
-    };
+    let instance = declaration_source(call);
 
     let mut template = resolved_result_template(request, instance, template)?;
+
+    if call.invocation() == bray_symbols::CallableInvocation::Native {
+        // The native entry consumes body incidents and contains abnormal completion.
+        // Omitted defaults still execute in the caller and are expanded below.
+        template = template.without_reports();
+    }
 
     if let Some(relation) = call
         .implementation_hook()
@@ -123,7 +157,13 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.with_requirements(input_requirements(call));
     }
 
-    super::defaults::expand_result_defaults(request, call, &template)
+    super::defaults::expand_result_defaults(
+        request,
+        call.arguments(),
+        call.receiver(),
+        declaration_source(call),
+        &template,
+    )
 }
 
 pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
@@ -141,8 +181,8 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    let mut result =
-        template.with_requirements(super::witness::resolve(request, template.requirements())?);
+    let mut result = template
+        .try_map_requirements(|requirements| super::witness::resolve(request, requirements))?;
 
     if template
         .effects()
@@ -312,7 +352,9 @@ fn append_cleanup_call_effects<C: CheckerRequestContext + ?Sized>(
     Ok(())
 }
 
-fn input_requirements(call: &SelectedCall) -> impl Iterator<Item = DependencyRequirement> + '_ {
+pub(super) fn input_requirements(
+    call: &SelectedCall,
+) -> impl Iterator<Item = DependencyRequirement> + '_ {
     call.arguments()
         .iter()
         .map(|argument| match argument {
@@ -336,12 +378,13 @@ fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
 
 /// Resolves a portable input root to the expression selected at this call site.
 pub(crate) fn result_argument(
-    call: &SelectedCall,
+    arguments: &[SelectedArgument],
+    receiver: Option<&bray_bound_tree::SelectedReceiver>,
     root: DependencySubjectRoot,
 ) -> Option<bray_bound_tree::BoundExpressionId> {
     match root {
         DependencySubjectRoot::Parameter(parameter) => {
-            call.arguments().iter().find_map(|argument| match argument {
+            arguments.iter().find_map(|argument| match argument {
                 SelectedArgument::Explicit {
                     ordinal,
                     expression,
@@ -350,7 +393,7 @@ pub(crate) fn result_argument(
                 _ => None,
             })
         }
-        DependencySubjectRoot::Receiver => call.receiver().map(|receiver| receiver.expression()),
+        DependencySubjectRoot::Receiver => receiver.map(|receiver| receiver.expression()),
         _ => None,
     }
 }
@@ -366,7 +409,13 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
-        .filter_map(|relation| result_argument(call, relation.entry().subject_root()))
+        .filter_map(|relation| {
+            result_argument(
+                call.arguments(),
+                call.receiver(),
+                relation.entry().subject_root(),
+            )
+        })
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut pending = template.requirements().iter().collect::<Vec<_>>();
@@ -374,7 +423,11 @@ pub(crate) fn result_inputs(
     while let Some(requirement) = pending.pop() {
         match requirement {
             DependencyRequirement::Direct { subject, .. } => {
-                inputs.extend(result_argument(call, subject.subject_root()));
+                inputs.extend(result_argument(
+                    call.arguments(),
+                    call.receiver(),
+                    subject.subject_root(),
+                ));
             }
             DependencyRequirement::Guarded(guarded) => {
                 let subject = match guarded.guard() {
@@ -382,7 +435,12 @@ pub(crate) fn result_inputs(
                     | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
                 };
 
-                inputs.extend(result_argument(call, subject.subject_root()));
+                inputs.extend(result_argument(
+                    call.arguments(),
+                    call.receiver(),
+                    subject.subject_root(),
+                ));
+
                 pending.extend(guarded.requirements());
             }
             DependencyRequirement::ResultCall { inputs, .. } => {
@@ -466,7 +524,8 @@ impl super::ValueInputs {
                         return None;
                     };
 
-                    let argument = result_argument(call, subject.subject_root())?;
+                    let argument =
+                        result_argument(call.arguments(), call.receiver(), subject.subject_root())?;
 
                     Some((argument, subject.projections().to_vec()))
                 })

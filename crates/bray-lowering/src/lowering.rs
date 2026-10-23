@@ -13,6 +13,7 @@ mod parts;
 mod projection;
 mod receiver;
 mod replacement;
+mod reports;
 mod representation;
 mod scoped;
 

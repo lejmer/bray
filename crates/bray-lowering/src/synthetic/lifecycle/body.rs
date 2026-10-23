@@ -20,6 +20,7 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        pending_reports: None,
         frame: None,
         frame_states: Vec::new(),
         continuation: None,
@@ -168,7 +169,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder.set_terminator(
                     end,
                     source.clone(),
-                    MirTerminatorKind::Return(return_value),
+                    MirTerminatorKind::Return {
+                        value: return_value,
+                        report: self
+                            .pending_reports
+                            .as_ref()
+                            .map(crate::cleanup_outcome::CleanupOutcome::report),
+                    },
                 );
             }
             MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_, _) => {
@@ -181,7 +188,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     target.runtime_abi(),
                 )?;
 
-                builder.set_terminator(end, source.clone(), MirTerminatorKind::Return(None));
+                builder.set_terminator(
+                    end,
+                    source.clone(),
+                    MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
+                );
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -290,7 +304,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder.set_terminator(
             lifecycle_end,
             source.clone(),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         );
 
         Ok(())
@@ -388,6 +405,13 @@ mod tests {
             _: MirStandardLibraryHelper,
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
+        }
+
+        fn callable_completion_reports(
+            &self,
+            _: CallableInstanceData,
+        ) -> Result<bool, Self::Error> {
+            panic!("tuple lowering selects no source invocation")
         }
 
         fn destruction_body(

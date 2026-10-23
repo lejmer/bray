@@ -1548,9 +1548,13 @@ fn async_operation(
             runtime_reference("runtime", *runtime, parts);
 
             match state {
-                MirTaskTerminalState::Completed(value) => {
+                MirTaskTerminalState::Completed { value, report } => {
                     parts.attribute("state", "completed");
                     parts.operand("value", value, context)?;
+
+                    if let Some(report) = report {
+                        parts.operand("report", report, context)?;
+                    }
                 }
                 MirTaskTerminalState::Cancelled(report) => {
                     parts.attribute("state", "cancelled");
@@ -1754,12 +1758,7 @@ fn inspection_terminator(
             parts.callable_reference("next", *next, &context);
             parts.r#type("element", *element_type, &context)?;
 
-            parts.edges.push(InspectionMirEdge {
-                role: String::from("item"),
-                target: item.slot(),
-                arguments: Vec::new(),
-                cleanup_phase: None,
-            });
+            parts.target(String::from("item"), *item);
 
             parts.edge("exhausted", exhausted, None, &context)?;
 
@@ -1774,12 +1773,7 @@ fn inspection_terminator(
             parts.place("cursor", cursor, &context)?;
             parts.r#type("element", *element_type, &context)?;
 
-            parts.edges.push(InspectionMirEdge {
-                role: String::from("item"),
-                target: item.slot(),
-                arguments: Vec::new(),
-                cleanup_phase: None,
-            });
+            parts.target(String::from("item"), *item);
 
             parts.edge("exhausted", exhausted, None, &context)?;
 
@@ -1812,27 +1806,21 @@ fn inspection_terminator(
             parts.r#type("inputs", assembly.inputs_type(), &context)?;
             parts.r#type("output", assembly.output_type(), &context)?;
 
-            parts.edges.push(InspectionMirEdge {
-                role: String::from("normal"),
-                target: assembly.normal().slot(),
-                arguments: Vec::new(),
-                cleanup_phase: None,
-            });
+            parts.target(String::from("normal"), assembly.normal());
 
             for (index, alternate) in assembly.alternates().iter().enumerate() {
-                parts.edges.push(InspectionMirEdge {
-                    role: format!("alternate[{index}]"),
-                    target: alternate.slot(),
-                    arguments: Vec::new(),
-                    cleanup_phase: None,
-                });
+                parts.target(format!("alternate[{index}]"), *alternate);
             }
 
             "inline_assembly"
         }
-        MirTerminatorKind::Return(value) => {
+        MirTerminatorKind::Return { value, report } => {
             if let Some(value) = value {
                 parts.operand("value", value, &context)?;
+            }
+
+            if let Some(report) = report {
+                parts.operand("report", report, &context)?;
             }
 
             "return"
@@ -1873,28 +1861,29 @@ fn inspection_terminator(
 
             "forward_run_result"
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            parts.edge("completed", completed, None, &context)?;
+            parts.place("report", report, &context)?;
+
+            "take_call_report"
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
             cancelled,
+            completed_report,
         } => {
             parts.edge("completed", completed, None, &context)?;
 
-            parts.edges.push(InspectionMirEdge {
-                role: String::from("cancelled"),
-                target: cancelled.target().slot(),
-                arguments: Vec::new(),
-                cleanup_phase: None,
-            });
+            if let Some(report) = completed_report {
+                parts.place("completed_report", report, &context)?;
+            }
+
+            parts.target(String::from("cancelled"), cancelled.target());
 
             parts.place("cancelled_report", cancelled.report(), &context)?;
 
-            parts.edges.push(InspectionMirEdge {
-                role: String::from("panicked"),
-                target: panicked.target().slot(),
-                arguments: Vec::new(),
-                cleanup_phase: None,
-            });
+            parts.target(String::from("panicked"), panicked.target());
 
             parts.place("report", panicked.report(), &context)?;
 
@@ -1957,6 +1946,15 @@ struct TerminatorParts {
 }
 
 impl TerminatorParts {
+    fn target(&mut self, role: impl Into<String>, target: bray_ir::MirBlockId) {
+        self.edges.push(InspectionMirEdge {
+            role: role.into(),
+            target: target.slot(),
+            arguments: Vec::new(),
+            cleanup_phase: None,
+        });
+    }
+
     fn new() -> Self {
         Self {
             operands: Vec::new(),

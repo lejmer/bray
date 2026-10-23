@@ -450,7 +450,14 @@ mod tests {
                 .expect("test storage must validate");
         }
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         builder.finish(entry)
     }

@@ -388,14 +388,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 phase: AnalysisCallPhase::Completion,
                 ..
             } | AnalysisOperationKind::TaskOperation { .. }
-        ) && !(matches!(operation, AnalysisOperationKind::Bound(_))
-            && (contracts.is_some()
-                || occurrence.expression().is_some_and(|expression| {
-                    matches!(
-                        self.execution.semantics.selections().expression(expression),
-                        Some(bray_bound_tree::SemanticSelection::ScopedUse(_))
-                    )
-                })))
+                | AnalysisOperationKind::Result {
+                    phase: crate::analysis::model::AnalysisResultPhase::Completion,
+                    ..
+                }
+        ) && !(matches!(operation, AnalysisOperationKind::Bound(_)) && contracts.is_some())
         {
             return bray_bound_tree::StorageCompletion::default();
         }

@@ -119,9 +119,11 @@ impl InterfaceDependencyRequirement {
         callable: super::InterfaceCallableInstanceId,
         requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
         inputs: impl IntoIterator<Item = InterfaceDependencyCallInput>,
+        output: bray_symbols::DependencyCallOutput,
     ) -> Self {
         Self {
             value: InterfaceDependencyRequirementValue::ResultCall {
+                output,
                 callable,
                 requirement,
                 inputs: sorted_unique_shared_slice(inputs),
@@ -172,6 +174,8 @@ pub enum InterfaceDependencyRequirementValue {
     },
     /// A deferred callable result, optionally awaiting implementation selection.
     ResultCall {
+        /// The selected value or owned report output.
+        output: bray_symbols::DependencyCallOutput,
         /// Callable instance.
         callable: super::InterfaceCallableInstanceId,
         /// Subject and trait application selecting an implementation, when needed.
@@ -249,6 +253,8 @@ pub struct InterfaceDependencyContract {
     >,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
+    pub(crate) completion_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
+    pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
     pub(crate) effects: Arc<
         [bray_symbols::DependencyStorageEffect<
             InterfaceDependencySubject,
@@ -277,6 +283,8 @@ impl InterfaceDependencyContract {
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            completion_reports: None,
+            abnormal_reports: None,
             normal_completion: true,
             returned_input: None,
             carriers: Arc::new([]),
@@ -286,6 +294,42 @@ impl InterfaceDependencyContract {
                 bray_symbols::DependencyStorageEffect::Escape,
             ]),
         }
+    }
+
+    /// Records dependencies of reports accompanying normal completion.
+    /// Presence with no dependencies still denotes a possible report.
+    pub fn with_completion_reports(
+        mut self,
+        requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+
+        self
+    }
+
+    /// Records dependencies of reports propagated by panic or cancellation.
+    pub fn with_abnormal_reports(
+        mut self,
+        requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
+
+        self
+    }
+
+    pub(crate) fn all_requirements(&self) -> impl Iterator<Item = &InterfaceDependencyRequirement> {
+        self.requirements
+            .iter()
+            .chain(
+                self.completion_reports
+                    .iter()
+                    .flat_map(|requirements| requirements.iter()),
+            )
+            .chain(
+                self.abnormal_reports
+                    .iter()
+                    .flat_map(|requirements| requirements.iter()),
+            )
     }
 
     /// Attaches the complete returned carriers of declared trusted guarantees.

@@ -1,5 +1,5 @@
 use super::super::model::{Origin, Place, References, State, Target};
-use bray_bound_tree::{BorrowCapabilityId, StorageProjection};
+use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
 
 impl Target {
@@ -257,6 +257,26 @@ impl State {
         })
     }
 
+    pub(super) fn is_owned_inline_storage(&self, path: &Place) -> bool {
+        self.owned_storage.binary_search(&path.root).is_ok()
+            && !path.projections.contains(&StorageProjection::OwnedTarget)
+    }
+
+    pub(super) fn reachable_inline_roots(
+        &self,
+        target: &Target,
+    ) -> impl Iterator<Item = StorageIdentityId> + '_ {
+        let (storage, returned) = match &target.origin {
+            Origin::Storage(path) => (Some(path.root), None),
+            Origin::Returned { reference, .. } => (None, self.returned_roots.get(reference)),
+            Origin::Entry { .. } | Origin::Allocation(_) => (None, None),
+        };
+
+        storage
+            .into_iter()
+            .chain(returned.into_iter().flatten().copied())
+    }
+
     pub(in crate::analysis::storage_flow) fn target_relationship(
         &self,
         left: &Target,
@@ -271,8 +291,7 @@ impl State {
         };
 
         if let Some((reference, slot)) = returned_slot
-            && self.owned_storage.binary_search(&slot.root).is_ok()
-            && !slot.projections.contains(&StorageProjection::OwnedTarget)
+            && self.is_owned_inline_storage(slot)
             && !self
                 .returned_roots
                 .get(reference)
@@ -287,10 +306,7 @@ impl State {
             _ => None,
         };
 
-        if slot.is_some_and(|slot| {
-            self.owned_storage.binary_search(&slot.root).is_ok()
-                && !slot.projections.contains(&StorageProjection::OwnedTarget)
-        }) {
+        if slot.is_some_and(|slot| self.is_owned_inline_storage(slot)) {
             // An original input cannot address this invocation's inline slots. Owned
             // heap storage can predate the invocation and already have incoming aliases.
             return bray_bound_tree::StorageRelationship::Disjoint;

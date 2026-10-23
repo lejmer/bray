@@ -472,7 +472,14 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("test block must validate: {error:?}"));
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
 

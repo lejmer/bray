@@ -114,7 +114,8 @@ pub(in crate::translation::unit) fn translate<'context, 'request>(
         &builder,
         request.target(),
         NativeRunState::RUNTIME_FAILURE,
-        usize.const_int(4, false).into(),
+        Some(usize.const_int(4, false)),
+        None,
     )?;
 
     llvm(builder.build_store(destination, initial))?;
@@ -407,7 +408,8 @@ fn declare_callback<'context>(
         &builder,
         target,
         NativeRunState::COMPLETED,
-        state_handle.into(),
+        Some(state_handle),
+        None,
     )?;
 
     llvm(builder.build_store(outcome, completed))?;

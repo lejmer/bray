@@ -38,7 +38,7 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
 }
 
 #[test]
-fn partially_moved_box_projects_through_policy_and_releases_on_both_exits() {
+fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits() {
     let source = include_str!(
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
     );
@@ -123,8 +123,8 @@ fn partially_moved_box_projects_through_policy_and_releases_on_both_exits() {
     }
 
     assert!(
-        normal && body_panic && body_cancellation && cleanup_panic && cleanup_cancellation,
-        "normal exit, body panic/cancellation and cleanup panic/cancellation must each reach the policy release: {mir:?}"
+        normal && body_panic && !body_cancellation && cleanup_panic && cleanup_cancellation,
+        "normal exit, body panic and cleanup failures reach release, while the non-cancelling body has no cancellation cleanup: {mir:?}"
     );
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),

@@ -4,12 +4,17 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirCallableReference, MirImmediateValue, MirOperand, MirOperationKind,
-    MirSourceAnchor, MirStoreKind,
+    MirBlockId, MirCallableReference, MirOperand, MirOperationKind, MirSourceAnchor, MirStoreKind,
 };
 use bray_symbols::{BorrowKind, ReceiverMode, TypeData, TypeId};
 
 use super::{LoweringError, block::LoweredExpression, lowerer::Lowerer};
+
+/// Entry activity and the separately admitted exit duty have distinct failure paths.
+pub(super) struct ScopedCleanup {
+    pub(super) entered: bray_ir::MirPlace,
+    pub(super) admitted: bray_ir::MirPlace,
+}
 
 impl Lowerer<'_> {
     pub(super) fn lower_scope_enter(
@@ -77,6 +82,22 @@ impl Lowerer<'_> {
             current,
             |lowerer, current, place| {
                 let source = lowerer.expression_source(expression);
+                let current = lowerer.admit_scoped_exit(expression, current, &source)?;
+
+                let entry_owner = matches!(invocation_result, BoundCallResult::LazyFuture(_))
+                    .then_some(bray_ir::MirOutgoingOwner::Invocation {
+                        callable,
+                        result: invocation_result,
+                    });
+
+                let current = match &entry_owner {
+                    // The selected async entry uses the ordinary factory admission contract.
+                    Some(owner) => {
+                        lowerer.admit_outgoing(expression, current, &source, owner.clone())?
+                    }
+                    None => current,
+                };
+
                 let mut projections = place.projections().to_vec();
 
                 let reached = lowerer.append_reached_dereference(
@@ -105,15 +126,20 @@ impl Lowerer<'_> {
                     },
                 )?;
 
+                if let Some(owner) = entry_owner {
+                    lowerer.discharge_outgoing(current, &source, owner)?;
+                }
+
                 let (current, value) = if matches!(invocation_result, BoundCallResult::Immediate(_))
                 {
                     lowerer.finish_typed_call_panic_check(
-                        expression,
+                        BoundExecutionSite::ScopedEnter(expression),
                         current,
                         &source,
                         &MirOperand::Value(value),
                         invocation_result.ty(),
                         None,
+                        true,
                     )?
                 } else {
                     (current, MirOperand::Value(value))
@@ -138,7 +164,13 @@ impl Lowerer<'_> {
                             .expect("scope entry await publishes its completion");
 
                         lowerer.finish_typed_call_panic_check(
-                            expression, current, &source, &value, result, None,
+                            BoundExecutionSite::ScopedEnter(expression),
+                            current,
+                            &source,
+                            &value,
+                            result,
+                            None,
+                            true,
                         )?
                     } else {
                         (current, value)
@@ -157,6 +189,25 @@ impl Lowerer<'_> {
                 let (current, value) = if result != capability_type {
                     let (success, capability, error, failure) =
                         lowerer.branch_result_value(current, &source, value, result)?;
+
+                    let failure_type = lowerer.builder.operand_type(&failure);
+
+                    let MirOperand::Value(failure) = failure else {
+                        panic!("Result branch publishes its projected payload value");
+                    };
+
+                    let (error, failure) = lowerer.discharge_scoped_exit(
+                        error,
+                        &source,
+                        expression,
+                        Some((failure, failure_type)),
+                    )?;
+
+                    let failure = MirOperand::Value(
+                        failure
+                            .expect("guarded discharge forwards its pending payload")
+                            .0,
+                    );
 
                     let failure = lowerer.construct_result(
                         error,
@@ -203,7 +254,6 @@ impl Lowerer<'_> {
 
         let place = self.place_for_access(access, false)?;
         let source = self.expression_source(expression);
-        let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
         self.push_operation(
             current,
@@ -216,9 +266,16 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let guard = self.new_initialization_guard(current, &source, boolean, &[], true)?;
+        let guard = Self::retained_place(
+            &self
+                .scoped_guards
+                .get(&expression)
+                .expect("entered scope retains its cleanup duty")
+                .entered,
+        );
 
-        self.scoped_guards.insert(expression, guard);
+        self.set_boolean_guard(current, &source, &guard, true)?;
+        self.mark_scope_entered(expression);
 
         self.lower_pattern_bindings(pattern, MirOperand::Copy(place), current)
     }
@@ -264,165 +321,174 @@ impl Lowerer<'_> {
         let guard = self
             .scoped_guards
             .get(&expression)
-            .map(Self::retained_place)
-            .expect("successful scoped entry retains its active protocol guard");
+            .map(|state| Self::retained_place(&state.entered))
+            .expect("scoped entry retains its protocol guard");
 
         let clear = Self::retained_place(&guard);
 
-        self.guarded_cleanup_region(
-            block,
-            source,
-            place,
-            Some(guard),
-            None,
-            |lowerer, block, place, value| {
-                // Clear protocol activity before invoking user code, independently of capability destruction.
-                lowerer.push_operation(
-                    block,
-                    Self::retained_source(source),
-                    MirOperationKind::Store {
-                        kind: MirStoreKind::Assign,
-                        destination: Self::retained_place(&clear),
-                        value: MirOperand::Immediate {
-                            value: MirImmediateValue::Boolean(false),
-                            ty: clear.ty(),
+        let block = self
+            .guarded_cleanup_region(
+                block,
+                source,
+                place,
+                Some(guard),
+                None,
+                |lowerer, block, place, value| {
+                    // Clear protocol activity before invoking user code, independently of capability destruction.
+                    lowerer.set_boolean_guard(block, source, &clear, false)?;
+
+                    let ordinary_shield = lowerer.cleanup_outcome.is_none()
+                        && matches!(invocation_result, BoundCallResult::LazyFuture(_));
+
+                    if ordinary_shield {
+                        lowerer.cleanup_shield(
+                            block,
+                            source,
+                            bray_runtime_interface::RuntimeAbiRole::CleanupShieldEnter,
+                        )?;
+                    }
+
+                    let call = crate::lifecycle_call::lower_lifecycle_call(
+                        callable,
+                        parameter,
+                        place,
+                        None,
+                        invocation_result,
+                        true,
+                        None,
+                        |operation, ty| {
+                            lowerer.push_operation(
+                                block,
+                                Self::retained_source(source),
+                                operation,
+                                ty,
+                            )
                         },
-                    },
-                    None,
-                )?;
+                    )?;
 
-                let ordinary_shield = lowerer.cleanup_outcome.is_none()
-                    && matches!(invocation_result, BoundCallResult::LazyFuture(_));
+                    let mut continuations = Vec::new();
+                    let mut block = block;
+                    let mut completion = MirOperand::Value(call);
 
-                if ordinary_shield {
-                    lowerer.cleanup_shield(
+                    if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
+                        let awaited = lowerer.lower_awaited_frame(
+                            BoundExecutionSite::ScopedExit(expression),
+                            completion,
+                            Some(result),
+                            block,
+                            Self::retained_source(source),
+                        )?;
+
+                        block = awaited
+                            .block
+                            .expect("shielded scope exit resumes to its cleanup dispatcher");
+
+                        completion = awaited
+                            .value
+                            .expect("shielded scope exit publishes its completion result");
+                    }
+
+                    (block, completion) = lowerer.check_scoped_exit_call(
+                        expression,
                         block,
                         source,
-                        bray_runtime_interface::RuntimeAbiRole::CleanupShieldEnter,
-                    )?;
-                }
-
-                let call = crate::lifecycle_call::lower_lifecycle_call(
-                    callable,
-                    parameter,
-                    place,
-                    None,
-                    invocation_result,
-                    true,
-                    None,
-                    |operation, ty| {
-                        lowerer.push_operation(block, Self::retained_source(source), operation, ty)
-                    },
-                )?;
-
-                let mut continuations = Vec::new();
-                let mut block = block;
-                let mut completion = MirOperand::Value(call);
-
-                if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
-                    let awaited = lowerer.lower_awaited_frame(
-                        BoundExecutionSite::ScopedExit(expression),
+                        ordinary_shield,
+                        &mut continuations,
                         completion,
-                        Some(result),
-                        block,
-                        Self::retained_source(source),
                     )?;
 
-                    block = awaited
-                        .block
-                        .expect("shielded scope exit resumes to its cleanup dispatcher");
+                    if ordinary_shield {
+                        lowerer.cleanup_shield(
+                            block,
+                            source,
+                            bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave,
+                        )?;
+                    }
 
-                    completion = awaited
-                        .value
-                        .expect("shielded scope exit publishes its completion result");
-                }
+                    if lowerer.type_representation(result) == Some(RepresentationRole::Result) {
+                        let (success, _, error, failure) =
+                            lowerer.branch_result_value(block, source, completion, result)?;
 
-                (block, completion) = lowerer.check_scoped_exit_call(
-                    block,
-                    source,
-                    ordinary_shield,
-                    &mut continuations,
-                    completion,
-                )?;
+                        let joined = lowerer.builder.push_block(
+                            Self::retained_source(source),
+                            lowerer.builder.block_kind(block),
+                        )?;
 
-                if ordinary_shield {
-                    lowerer.cleanup_shield(
-                        block,
-                        source,
-                        bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave,
-                    )?;
-                }
+                        lowerer.set_terminator(
+                            success,
+                            Self::retained_source(source),
+                            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
+                        )?;
 
-                if lowerer.type_representation(result) == Some(RepresentationRole::Result) {
-                    let (success, _, error, failure) =
-                        lowerer.branch_result_value(block, source, completion, result)?;
-
-                    let joined = lowerer.builder.push_block(
-                        Self::retained_source(source),
-                        lowerer.builder.block_kind(block),
-                    )?;
-
-                    lowerer.set_terminator(
-                        success,
-                        Self::retained_source(source),
-                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
-                    )?;
-
-                    let error = if lowerer.cleanup_outcome.is_none()
-                        && lowerer.scoped_exit_completes_result(expression, exit)
-                    {
-                        let pending = pending.expect(
+                        let error = if lowerer.cleanup_outcome.is_none()
+                            && bray_bound_tree::scoped_exit_completes_result(
+                                lowerer.input.unit().view(),
+                                expression,
+                                exit,
+                            ) {
+                            let pending = pending.expect(
                             "normal fallible with completion retains its pending result storage",
                         );
 
-                        lowerer.replace_scoped_result(error, source, pending, failure)?
-                    } else {
-                        let local = lowerer.cleanup_outcome.is_none();
+                            lowerer.replace_scoped_result(error, source, pending, failure)?
+                        } else {
+                            let local = lowerer.cleanup_outcome.is_none();
 
-                        let outcome = match &lowerer.cleanup_outcome {
-                            // The nested incident shares the enclosing outcome's storage paths.
-                            Some(outcome) => outcome.clone(),
-                            None => lowerer.create_cleanup_outcome(error, source)?,
+                            let outcome = match &lowerer.cleanup_outcome {
+                                // The nested incident shares the enclosing outcome's storage paths.
+                                Some(outcome) => outcome.clone(),
+                                None => lowerer.create_cleanup_outcome(error, source)?,
+                            };
+
+                            let retention =
+                                lowerer.lifecycle_retention(source, invocation_result)?;
+
+                            let outcome = outcome.with_retention(retention);
+
+                            let error = outcome.retain_incident(
+                                &mut lowerer.builder,
+                                error,
+                                source,
+                                failure,
+                                (callable, invocation_result),
+                            )?;
+
+                            if local {
+                                lowerer.finish_finalizer_outcome(error, source, &outcome)?
+                            } else {
+                                error
+                            }
                         };
 
-                        let error = outcome.retain_incident(
-                            &mut lowerer.builder,
+                        lowerer.set_terminator(
                             error,
-                            source,
-                            failure,
-                            (callable, invocation_result),
+                            Self::retained_source(source),
+                            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
                         )?;
 
-                        if local {
-                            lowerer.finish_finalizer_outcome(error, source, &outcome)?
-                        } else {
-                            error
-                        }
-                    };
+                        block = joined;
+                    }
 
-                    lowerer.set_terminator(
-                        error,
-                        Self::retained_source(source),
-                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
-                    )?;
+                    for continuation in continuations.into_iter().rev() {
+                        lowerer.set_terminator(
+                            block,
+                            Self::retained_source(source),
+                            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(
+                                continuation,
+                                [],
+                            )),
+                        )?;
 
-                    block = joined;
-                }
+                        block = continuation;
+                    }
 
-                for continuation in continuations.into_iter().rev() {
-                    lowerer.set_terminator(
-                        block,
-                        Self::retained_source(source),
-                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(continuation, [])),
-                    )?;
+                    Ok((block, value))
+                },
+            )?
+            .0;
 
-                    block = continuation;
-                }
-
-                Ok((block, value))
-            },
-        )
-        .map(|(block, _)| block)
+        self.discharge_scoped_exit(block, source, expression, None)
+            .map(|(block, _)| block)
     }
 
     fn replace_scoped_result(
@@ -482,15 +548,21 @@ impl Lowerer<'_> {
 
     fn check_scoped_exit_call(
         &mut self,
+        expression: BoundExpressionId,
         block: MirBlockId,
         source: &MirSourceAnchor,
         shielded: bool,
         continuations: &mut Vec<MirBlockId>,
         value: MirOperand,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let reports = self
+            .input
+            .storage_flow()
+            .completion_reports(BoundExecutionSite::ScopedExit(expression));
+
         if let Some(outcome) = &self.cleanup_outcome {
             let (completed, value, continuation) =
-                outcome.check_completion(&mut self.builder, block, source, Some(value))?;
+                outcome.check_completion(&mut self.builder, block, source, Some(value), reports)?;
 
             continuations.push(continuation);
 
@@ -499,47 +571,19 @@ impl Lowerer<'_> {
                 value.expect("completed scoped exit retains its result"),
             ))
         } else {
-            let (completed, value) =
-                self.check_ordinary_cleanup(block, source, None, shielded, Some(value))?;
+            let (completed, value) = self.check_ordinary_cleanup(
+                block,
+                source,
+                None,
+                shielded,
+                Some(value),
+                Some(BoundExecutionSite::ScopedExit(expression)),
+            )?;
 
             Ok((
                 completed,
                 value.expect("completed scoped exit retains its result"),
             ))
-        }
-    }
-
-    fn scoped_exit_completes_result(
-        &self,
-        expression: BoundExpressionId,
-        exit: Option<bray_bound_tree::AnyBoundNodeId>,
-    ) -> bool {
-        let Some(bray_bound_tree::BoundExpression::Structured(scoped)) =
-            self.input.unit().view().expression(expression)
-        else {
-            panic!("selected scoped use retains its with expression");
-        };
-
-        let [body] = scoped.blocks() else {
-            panic!("selected scoped use retains its body");
-        };
-
-        let syntax = self
-            .input
-            .unit()
-            .view()
-            .block(*body)
-            .expect("scoped body belongs to its unit")
-            .origin()
-            .source_anchor()
-            .syntax();
-
-        match exit {
-            Some(bray_bound_tree::AnyBoundNodeId::Block(block)) => block == *body,
-            Some(bray_bound_tree::AnyBoundNodeId::Expression(transfer)) => {
-                matches!(self.input.unit().view().expression(transfer), Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Yield && transfer.target() == Some(syntax))
-            }
-            _ => false,
         }
     }
 

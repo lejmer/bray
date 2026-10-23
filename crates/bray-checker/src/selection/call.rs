@@ -1093,8 +1093,8 @@ fn member_selection_is_overload(
 
     assert_eq!(
         input.receiver().map(super::ReceiverSelection::expression),
-        Some(receiver),
-        "member call {:?} must retain its bound receiver",
+        member.is_callable_declaration().then_some(receiver),
+        "member call {:?} must preserve its declaration receiver or stored callable value",
         input.expression()
     );
 
@@ -1299,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "must retain its bound receiver")]
+    #[should_panic(expected = "must preserve its declaration receiver or stored callable value")]
     fn method_requests_require_the_bound_callee_receiver() {
         let fixture = method_call_fixture(BoundUnitId::new(78));
         let context = TestCheckerContext::new(false);

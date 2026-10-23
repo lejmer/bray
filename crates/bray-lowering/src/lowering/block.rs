@@ -108,7 +108,8 @@ impl Lowerer<'_> {
 
             self.capture_cleanup = self.frame_capture_cleanup(&source, body.into())?;
 
-            let cancellation = self.suspension_cleanup_edge(&source, body.into())?;
+            let cancellation =
+                self.suspension_cleanup_edge(&source, body.into(), self.initial_frame_retention())?;
 
             let resume = self.builder.push_block(
                 Self::retained_source(&source),

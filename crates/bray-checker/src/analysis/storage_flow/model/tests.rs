@@ -8,10 +8,7 @@ use crate::test_support::{error_type, expression_unit, push_expression};
 
 #[test]
 fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
-    use crate::CheckerUnitView;
-    use crate::test_support::{TestCheckerContext, callable_entry};
-    use bray_bound_tree::{Liveness, StorageAccess, StorageAccessPurpose, StorageAccessRoot};
-    use std::collections::BTreeSet;
+    use bray_bound_tree::{StorageAccess, StorageAccessPurpose, StorageAccessRoot};
 
     let (unit, expressions) = expression_unit(BoundUnitId::new(92), |tree, origin| {
         (0..2)
@@ -64,46 +61,12 @@ fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
 
     let storage = builder.finish();
 
-    let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
-        .expect("test liveness must build");
+    let mut input = super::StorageFlowInput::default();
 
-    let context = TestCheckerContext::new(false);
-    let semantic_context = callable_entry(unit.key());
-    let request = CheckerUnitView::new(&unit, &semantic_context, &context);
-
-    let (input, _) = super::StorageFlowInput::new(
-        &mut crate::asynchronous::CleanupShapeResolver::new(request),
-        request,
+    input.prepare_locations(
         &storage,
-        BTreeSet::new(),
-        &liveness,
-        &bray_bound_tree::CheckedDependencyContracts::try_new(
-            &unit,
-            &storage,
-            [],
-            [],
-            [],
-            [],
-            false,
-        )
-        .expect("empty test dependencies"),
-        &crate::dependency::ValueInputs::default(),
-        &bray_bound_tree::CheckedSemanticSelections::try_new(
-            &unit,
-            &bray_bound_tree::CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []),
-            [],
-        )
-        .expect("empty test selections"),
         &crate::analysis::guarantee::CleanupPlan::default(),
-        &bray_bound_tree::CheckedMemoryOperations::try_new(
-            unit.unit(),
-            unit.key().kind(),
-            [],
-            false,
-        )
-        .expect("empty test memory operations"),
-    )
-    .expect("test storage indexes must build");
+    );
 
     assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
 
@@ -320,10 +283,11 @@ fn uncertain_writes_do_not_reconstruct_a_definitely_moved_component() {
 }
 
 fn reachable_state() -> StorageFlowState {
-    StorageFlowState {
-        reachable: true,
-        ..StorageFlowState::default()
-    }
+    let mut state = StorageFlowState::default();
+
+    state.reachable = true;
+
+    state
 }
 
 fn storage_and_expressions(
@@ -443,4 +407,45 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
 
         assert_eq!(state.definitely_absent.contains_key(&payload), retained);
     }
+}
+
+#[test]
+fn abnormal_reports_retain_dependencies_without_requesting_pending_storage() {
+    let (identity, expressions) = storage_and_expressions(94);
+
+    let subject = bray_bound_tree::BoundDependencySubject::Storage(identity);
+    let boundary = expressions[0];
+    let mut abnormal = reachable_state();
+
+    abnormal.retain_reports(Some(boundary), [subject], false);
+    assert!(abnormal.report_retains(subject));
+    assert_eq!(abnormal.pending_report_boundaries().count(), 0);
+
+    let mut normal = reachable_state();
+
+    normal.retain_reports(Some(boundary), [], true);
+    assert!(abnormal.merge(&normal, None));
+    assert!(!abnormal.merge(&normal, None));
+
+    assert_eq!(
+        abnormal.pending_report_boundaries().collect::<Vec<_>>(),
+        [Some(boundary)]
+    );
+
+    assert!(abnormal.report_retains(subject));
+
+    let mut caught = abnormal.clone();
+
+    caught.transfer_report_boundary(boundary, None, true);
+    assert_eq!(caught.pending_report_boundaries().count(), 0);
+    assert!(!caught.report_retains(subject));
+
+    abnormal.transfer_report_boundary(boundary, None, false);
+
+    assert_eq!(
+        abnormal.pending_report_boundaries().collect::<Vec<_>>(),
+        [None]
+    );
+
+    assert!(abnormal.report_retains(subject));
 }

@@ -20,6 +20,14 @@ enum CallInstantiationInput<'check> {
         result: Option<StorageAccessId>,
         expression: Option<BoundExpressionId>,
     },
+    Inputs {
+        inputs: &'check [(
+            DependencySubjectRoot,
+            StorageAccessId,
+            Option<BoundExpressionId>,
+        )],
+        result: Option<StorageAccessId>,
+    },
 }
 
 pub(super) struct CallInstantiationContext<'check, C>
@@ -72,6 +80,25 @@ where
         }
     }
 
+    pub(super) fn hidden_inputs(
+        request: CheckerUnitView<'check, C>,
+        storage: &'check StoragePlan,
+        inputs: &'check [(
+            DependencySubjectRoot,
+            StorageAccessId,
+            Option<BoundExpressionId>,
+        )],
+        result: Option<StorageAccessId>,
+    ) -> Self {
+        Self {
+            request,
+            storage,
+            input: CallInstantiationInput::Inputs { inputs, result },
+            deferred: false,
+            result_values: None,
+        }
+    }
+
     pub(super) fn set_result_values(&mut self, values: &'check crate::dependency::ValueInputs) {
         self.result_values = Some(values);
     }
@@ -101,19 +128,72 @@ where
     }
 
     fn selected_expression(&self, root: DependencySubjectRoot) -> Option<BoundExpressionId> {
-        let (expression, call) = match self.input {
-            CallInstantiationInput::Selected { expression, call } => (expression, call),
+        let (expression, call) = match &self.input {
+            CallInstantiationInput::Selected { expression, call } => (*expression, *call),
             CallInstantiationInput::Hidden {
                 input, expression, ..
             } => {
-                return (root == input.0).then_some(expression).flatten();
+                return (root == input.0).then_some(*expression).flatten();
+            }
+            CallInstantiationInput::Inputs { inputs, .. } => {
+                return inputs.iter().find_map(|(actual, _, expression)| {
+                    (*actual == root).then_some(*expression).flatten()
+                });
             }
         };
 
         match root {
             DependencySubjectRoot::Result => Some(expression),
-            _ => crate::dependency::result_argument(call, root),
+            _ => crate::dependency::result_argument(call.arguments(), call.receiver(), root),
         }
+    }
+
+    fn input_borrow(
+        &self,
+        root: DependencySubjectRoot,
+    ) -> Option<bray_bound_tree::BorrowCapabilityId> {
+        let (expression, kind) = match &self.input {
+            CallInstantiationInput::Inputs { inputs, .. } => {
+                return inputs.iter().find_map(|(actual, access, _)| {
+                    (*actual == root)
+                        .then(|| self.storage.access(*access)?.root().borrow_capability())
+                        .flatten()
+                });
+            }
+            CallInstantiationInput::Selected { call, .. } => match root {
+                DependencySubjectRoot::Receiver => {
+                    let receiver = call.receiver()?;
+
+                    let kind = match receiver.mode() {
+                        ReceiverMode::Shared => bray_symbols::BorrowKind::Shared,
+                        ReceiverMode::Mutable => bray_symbols::BorrowKind::Mutable,
+                        ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => return None,
+                    };
+
+                    (receiver.expression(), kind)
+                }
+                DependencySubjectRoot::Parameter(ordinal) => {
+                    call.arguments()
+                        .iter()
+                        .find_map(|argument| match argument {
+                            SelectedArgument::Explicit {
+                                expression,
+                                ordinal: actual,
+                                reborrow: Some(kind),
+                                ..
+                            } if *actual == ordinal.raw() => Some((*expression, *kind)),
+                            _ => None,
+                        })?
+                }
+                _ => return None,
+            },
+            CallInstantiationInput::Hidden { .. } => return None,
+        };
+
+        self.storage
+            .expression_plans(expression)
+            .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
+            .and_then(|plan| self.storage.borrow_for_plan(plan))
     }
 
     fn receiver_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
@@ -121,7 +201,7 @@ where
             return None;
         }
 
-        let CallInstantiationInput::Selected { call, .. } = self.input else {
+        let CallInstantiationInput::Selected { call, .. } = &self.input else {
             return None;
         };
 
@@ -140,16 +220,26 @@ where
     }
 
     fn hidden_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
-        let CallInstantiationInput::Hidden { input, result, .. } = self.input else {
-            return None;
-        };
-
-        if root == input.0 {
-            Some(input.1)
-        } else if root == DependencySubjectRoot::Result {
-            result
-        } else {
-            None
+        match &self.input {
+            CallInstantiationInput::Hidden { input, result, .. } => {
+                if root == input.0 {
+                    Some(input.1)
+                } else if root == DependencySubjectRoot::Result {
+                    *result
+                } else {
+                    None
+                }
+            }
+            CallInstantiationInput::Inputs { inputs, result } => {
+                if root == DependencySubjectRoot::Result {
+                    *result
+                } else {
+                    inputs
+                        .iter()
+                        .find_map(|(actual, access, _)| (*actual == root).then_some(*access))
+                }
+            }
+            CallInstantiationInput::Selected { .. } => None,
         }
     }
 
@@ -158,7 +248,7 @@ where
             return None;
         }
 
-        let CallInstantiationInput::Selected { expression, call } = self.input else {
+        let CallInstantiationInput::Selected { expression, call } = &self.input else {
             return None;
         };
 
@@ -194,7 +284,7 @@ where
         };
 
         transferred
-            .then(|| expression_access(self.storage, expression))
+            .then(|| expression_access(self.storage, *expression))
             .flatten()
     }
 
@@ -284,6 +374,13 @@ where
         }
 
         if requirement == DependencyRequirementKind::ValueDependencies
+            && subject.projections().is_empty()
+            && let Some(capability) = self.input_borrow(root)
+        {
+            return Ok(BoundDependencySubject::BorrowCapability(capability));
+        }
+
+        if requirement == DependencyRequirementKind::ValueDependencies
             && projections.is_empty()
             && let Some((capability, _)) =
                 self.storage
@@ -299,7 +396,8 @@ where
         let frame_access = self.deferred_frame_access(root);
 
         let base = frame_access
-            .or_else(|| (requirement != DependencyRequirementKind::ValueDependencies).then(|| self.receiver_access(root)).flatten())
+            .or_else(|| (requirement != DependencyRequirementKind::ValueDependencies)
+                .then(|| self.receiver_access(root).or_else(|| self.hidden_access(root))).flatten())
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })

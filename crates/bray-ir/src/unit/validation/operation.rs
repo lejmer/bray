@@ -973,14 +973,11 @@ fn validate_terminal_state(
 ) -> Option<()> {
     unit.kind().protected_frame()?;
 
-    match state {
-        MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
-            validate_operand(unit, value, block, Some(operation))
-        }
-        MirTaskTerminalState::Cancelled(report) => {
-            validate_operand(unit, report, block, Some(operation))
-        }
+    for operand in state.operands() {
+        validate_operand(unit, operand, block, Some(operation))?;
     }
+
+    Some(())
 }
 
 pub(super) fn validate_operand(

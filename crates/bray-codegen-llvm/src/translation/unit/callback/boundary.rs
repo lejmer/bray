@@ -185,15 +185,26 @@ pub(in crate::translation::unit) fn resolve_callback_outcome<'context>(
     trampoline: FunctionValue<'context>,
     outcome: BasicValueEnum<'context>,
 ) -> Result<(), CodegenFailure> {
-    let payload = super::super::support::extract_value(builder, outcome, 2)?;
+    let report = super::super::support::extract_value(builder, outcome, 2)?;
 
+    consume_owned_report(context, module, request, builder, trampoline, report)
+}
+
+pub(in crate::translation::unit) fn consume_owned_report<'context>(
+    context: &'context Context,
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    builder: &Builder<'context>,
+    function: FunctionValue<'context>,
+    payload: BasicValueEnum<'context>,
+) -> Result<(), CodegenFailure> {
     let owns_report = crate::translation::panic::report_has_ownership(context, builder, |index| {
         super::super::support::extract_value(builder, payload, index)
             .map(BasicValueEnum::into_int_value)
     })?;
 
-    let report = context.append_basic_block(trampoline, "callback.report_incidents");
-    let complete = context.append_basic_block(trampoline, "callback.complete");
+    let report = context.append_basic_block(function, "callback.report_incidents");
+    let complete = context.append_basic_block(function, "callback.complete");
 
     llvm(builder.build_conditional_branch(owns_report, report, complete))?;
     builder.position_at_end(report);
@@ -303,7 +314,8 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
         builder,
         request.target(),
         NativeRunState::PANICKED,
-        report,
+        None,
+        Some(report),
     )?;
 
     resolve_callback_outcome(context, module, request, builder, trampoline, outcome)?;

@@ -1109,7 +1109,7 @@ mod tests {
 
             assert!(mir.blocks().iter().any(|block| matches!(
                 block.terminator().kind(),
-                bray_ir::MirTerminatorKind::Return(Some(_))
+                bray_ir::MirTerminatorKind::Return { value: Some(_), .. }
             )));
         }
     }
@@ -1456,14 +1456,10 @@ mod tests {
             matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == ty)
         });
 
-        let awaits_finalizer = mir.operations().iter().any(|operation| {
-            matches!(
-                operation.kind(),
-                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
-            )
-        });
-
-        assert_eq!(destroys_owner, completed || awaits_finalizer, "{source}");
+        assert!(
+            destroys_owner,
+            "resolved or abandoned finalization must still destroy its owner: {source}"
+        );
 
         mir.clone()
     }

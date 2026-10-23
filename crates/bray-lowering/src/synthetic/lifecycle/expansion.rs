@@ -33,6 +33,7 @@ pub fn expand_lifecycle_continuations<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        pending_reports: None,
         frame: Some(frame.frame()),
         // Expansion extends the enclosing descriptor once, not once per cleanup site.
         frame_states: frame.states().to_vec(),
@@ -79,6 +80,12 @@ fn selected_cleanup(
     operation: &MirOperationKind,
 ) -> Option<(MirGeneratedLifecycleRole, &MirPlace, &MirCleanupCollection)> {
     let (role, place, collection) = match operation {
+        // Cancellation broadcast cannot suspend. Keep its shared synchronous helper
+        // instead of copying the structural traversal into every retained frame state.
+        MirOperationKind::Cleanup {
+            phase: bray_ir::MirCleanupPhase::TaskCancellation,
+            ..
+        } => return None,
         MirOperationKind::Cleanup {
             phase,
             place,

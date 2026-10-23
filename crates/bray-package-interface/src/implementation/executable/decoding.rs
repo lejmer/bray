@@ -2007,7 +2007,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             9 => {
                 let state = match read_u32(&mut self.reader)? {
-                    0 => bray_ir::MirTaskTerminalState::Completed(self.operand()?),
+                    0 => bray_ir::MirTaskTerminalState::Completed {
+                        value: self.operand()?,
+                        report: self.optional_operand()?,
+                    },
                     1 => bray_ir::MirTaskTerminalState::Cancelled(self.operand()?),
                     2 => bray_ir::MirTaskTerminalState::Panicked(self.operand()?),
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
@@ -2099,7 +2102,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     otherwise: self.edge()?,
                 })
             }
-            5 => Ok(MirTerminatorKind::Return(self.optional_operand()?)),
+            5 => Ok(MirTerminatorKind::Return {
+                value: self.optional_operand()?,
+                report: self.optional_operand()?,
+            }),
             6 => Ok(MirTerminatorKind::Unreachable),
             7 => {
                 let kind = match read_u32(&mut self.reader)? {
@@ -2185,10 +2191,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 item: self.block_id()?,
                 exhausted: self.edge()?,
             }),
+            18 => Ok(MirTerminatorKind::TakeCallReport {
+                completed: self.edge()?,
+                report: self.place()?,
+            }),
             17 => Ok(MirTerminatorKind::CheckCallOutcome {
                 completed: self.edge()?,
                 panicked: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
                 cancelled: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
+                completed_report: if read_bool(&mut self.reader)? {
+                    Some(self.place()?)
+                } else {
+                    None
+                },
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }

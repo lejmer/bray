@@ -945,7 +945,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             },
         )?;
 
-        for requirement in &*contract.requirements {
+        for requirement in contract.all_requirements() {
             self.include_dependency_requirement(requirement);
         }
 
@@ -1019,6 +1019,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                         .chain(result.iter()),
                 ),
                 InterfaceDependencyRequirementValue::ResultCall {
+                    output: _,
                     callable,
                     requirement,
                     inputs,

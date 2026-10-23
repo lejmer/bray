@@ -56,7 +56,7 @@ where
 {
     let mut result = BTreeMap::new();
 
-    for (pattern, source) in crate::pattern::binding_subjects(request.unit()) {
+    for (pattern, source) in request.unit().tree().binding_subjects() {
         extend_pattern_bindings(
             request.view(),
             storage,

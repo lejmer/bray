@@ -1210,7 +1210,10 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
 
         assert!(matches!(
             block.terminator().kind(),
-            MirTerminatorKind::Return(None)
+            MirTerminatorKind::Return {
+                value: None,
+                report: None
+            }
         ));
     }
 
@@ -2304,72 +2307,360 @@ fn retained_capture_cleanup_publishes_frame_outcomes() {
 
 #[test]
 fn destructor_receiver_tail_retains_normal_completion() {
-    let application = compilation(
-        r#"
+    for (fields, body, reports) in [
+        ("", "assert(true);", false),
+        (
+            "action: func() -> unit executes(total);",
+            "self.action();",
+            true,
+        ),
+    ] {
+        let source = r#"
         module app;
         struct Owner
         {
             pending: Future<unit>;
+            ExtraFields
             destruct()
             {
-                assert(true, "normal destructor body");
+                Body
             }
         }
-    "#,
-    );
+    "#
+        .replace("ExtraFields", fields)
+        .replace("Body", body);
 
-    assert!(
-        !application.check_diagnostics().has_errors(),
-        "{:?}",
-        application.check_diagnostics()
-    );
-
-    let key = application
-        .declared_unit_keys_for_test()
-        .unwrap()
-        .into_iter()
-        .find(|key| {
-            key.kind() == BoundUnitKind::CallableBody
-                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
-        })
-        .unwrap();
-
-    let lowered = application.lowered_unit(key).unwrap();
-    let mir = lowered_mir(&lowered);
-    let tail = mir.cleanup_continuation().unwrap();
-
-    for abandoned in [false, true] {
-        let selected = |entry: &bray_ir::MirCleanupEntry| {
-            if abandoned {
-                entry.abandoned()
-            } else {
-                entry.ordinary()
-            }
-        };
-
-        let handoffs = tail
-            .entries()
-            .iter()
-            .map(|entry| (entry.handoff(), vec![selected(entry)]))
-            .collect::<std::collections::BTreeMap<_, _>>();
-
-        let roots = tail
-            .entries()
-            .iter()
-            .filter(|entry| entry.is_initial())
-            .map(selected);
-
-        let reachable = bray_ir::reachable_blocks(mir, roots, &handoffs);
+        let application = compilation(&source);
 
         assert!(
-            reachable.into_iter().any(|id| {
-                !handoffs.contains_key(&id)
-                    && matches!(
-                        mir.block(id).unwrap().terminator().kind(),
-                        MirTerminatorKind::Return(None)
-                    )
-            }),
-            "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
+            !application.check_diagnostics().has_errors(),
+            "{:?}",
+            application.check_diagnostics()
         );
+
+        let key = application
+            .declared_unit_keys_for_test()
+            .unwrap()
+            .into_iter()
+            .find(|key| {
+                key.kind() == BoundUnitKind::CallableBody
+                    && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+            })
+            .unwrap();
+
+        let lowered = application.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&lowered);
+        let tail = mir.cleanup_continuation().unwrap();
+
+        assert!(mir.is_valid(), "{source}");
+
+        assert_eq!(
+            tail.entries().iter().any(|entry| matches!(
+                mir.block(entry.handoff()).unwrap().terminator().kind(),
+                MirTerminatorKind::Return {
+                    report: Some(_),
+                    ..
+                }
+            )),
+            reports,
+            "{source}"
+        );
+
+        for abandoned in [false, true] {
+            let selected = |entry: &bray_ir::MirCleanupEntry| {
+                if abandoned {
+                    entry.abandoned()
+                } else {
+                    entry.ordinary()
+                }
+            };
+
+            let handoffs = tail
+                .entries()
+                .iter()
+                .map(|entry| (entry.handoff(), vec![selected(entry)]))
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            let roots = tail
+                .entries()
+                .iter()
+                .filter(|entry| entry.is_initial())
+                .map(selected);
+
+            let reachable = bray_ir::reachable_blocks(mir, roots, &handoffs);
+
+            assert!(
+                reachable.into_iter().any(|id| {
+                    !handoffs.contains_key(&id)
+                        && matches!(
+                            mir.block(id).unwrap().terminator().kind(),
+                            MirTerminatorKind::Return { value: None, .. }
+                        )
+                }),
+                "normal receiver cleanup returns after its deferred handoff, abandoned={abandoned}"
+            );
+        }
+    }
+}
+
+#[test]
+fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
+    for execution in ["", "async "] {
+        for body in ["return Ok(unit);", r#"panic("");"#] {
+            let compilation = compilation(&format!(
+                r#"
+                module app;
+                async func pending() {{}}
+                struct Failure {{ child: Future<unit>; }}
+                struct Resource {{}}
+                impl Resource
+                {{
+                    enter() -> bool {{ return true; }}
+                    {execution}exit(pos lease: bool) -> Result<unit, Failure>
+                    {{
+                        return Error(Failure {{ child = pending() }});
+                    }}
+                }}
+                async func caller(pos resource: Resource) -> Result<unit, Failure>
+                {{
+                    let _ = with lease = resource {{ {body} }};
+
+                    return Ok(unit);
+                }}
+                "#,
+            ));
+
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(
+                diagnostics.is_empty(),
+                "{execution}, {body}: {diagnostics:?}"
+            );
+
+            let key = source_function_body_key(&compilation, "caller");
+            let lowered = compilation.lowered_unit(key).unwrap();
+            let mir = lowered_mir(&lowered);
+            let mut quiescence = 0;
+
+            for operation in mir.operations() {
+                if let MirOperationKind::Quiesce { collection, .. } = operation.kind() {
+                    quiescence += 1;
+
+                    assert!(
+                        collection.as_ref().unwrap().retention().is_some(),
+                        "{execution}, {body}: scoped error quiescence retains its caller continuation"
+                    );
+                }
+            }
+
+            assert!(
+                quiescence > 0,
+                "fallible exit retains owned error quiescence"
+            );
+        }
+    }
+}
+
+#[test]
+fn scoped_error_quiescence_requires_an_async_caller_even_for_sync_exit() {
+    let compilation = compilation(
+        r#"
+        module app;
+        async func pending() {}
+        struct Failure { child: Future<unit>; }
+        struct Resource {}
+        impl Resource
+        {
+            enter() -> bool { return true; }
+            exit(pos lease: bool) -> Result<unit, Failure>
+            {
+                return Error(Failure { child = pending() });
+            }
+        }
+        func caller(pos resource: Resource) -> Result<unit, Failure>
+        {
+            let _ = with lease = resource { return Ok(unit); };
+
+            return Ok(unit);
+        }
+        "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+    );
+}
+
+#[test]
+fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Resource
+        {
+            enter() -> bool
+            {
+                return true;
+            }
+
+            exit(pos capability: bool) {}
+        }
+
+        struct Local
+        {
+            marker: usize;
+
+            destruct()
+            {
+                let _ = self.marker;
+            }
+        }
+
+        async func caller(pos resource: Resource)
+        {
+            with capability = resource
+            {
+                let local = Local
+                {
+                    marker = 619
+                };
+            };
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let lowered = compilation.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&lowered);
+    let mut checked = 0;
+
+    assert!(mir.is_valid());
+
+    for block in mir.blocks() {
+        for (index, id) in block.operations().iter().enumerate() {
+            let operation = mir.operation(*id).unwrap();
+
+            let bray_ir::MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+                ..
+            } = operation.kind()
+            else {
+                continue;
+            };
+
+            if !matches!(
+                mir.storage(place.storage()).unwrap().kind(),
+                bray_ir::MirStorageKind::Local
+            ) {
+                continue;
+            }
+
+            assert!(
+                block.operations()[..index]
+                    .last()
+                    .is_some_and(|id| matches!(
+                        mir.operation(*id).unwrap().kind(),
+                        bray_ir::MirOperationKind::Store {
+                            value: bray_ir::MirOperand::Immediate {
+                                value: bray_ir::MirImmediateValue::Boolean(false),
+                                ..
+                            },
+                            ..
+                        }
+                    )),
+                "source ownership must retire before structural cleanup can fail or suspend"
+            );
+
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "the scoped body owns a local requiring cleanup"
+    );
+}
+
+#[test]
+fn scoped_result_completion_reaches_the_following_return() {
+    for execution in ["", "async "] {
+        for fallible in [false, true] {
+            let result = if fallible {
+                "Result<bool, unit>"
+            } else {
+                "bool"
+            };
+
+            let entered = if fallible { "Ok(true)" } else { "true" };
+
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource
+                {{
+                    {execution}enter() -> {result}
+                    {{
+                        return {entered};
+                    }}
+
+                    {execution}exit(pos capability: bool) {{}}
+                }}
+
+                {execution}func caller() -> usize
+                {{
+                    let _ = with capability = Resource {{}}
+                    {{
+                        yield unit;
+                    }};
+
+                    return 619;
+                }}
+                "#,
+            );
+
+            let compilation = compilation(&source);
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "caller"))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            assert!(mir.is_valid());
+
+            let returns = if execution.is_empty() {
+                mir.blocks().iter().any(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Return { value: Some(_), .. }
+                    )
+                })
+            } else {
+                mir.operations().iter().any(|operation| {
+                    matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
+                            state: bray_ir::MirTaskTerminalState::Completed { .. },
+                            ..
+                        })
+                    )
+                })
+            };
+
+            assert!(
+                returns,
+                "the checked with result must continue to its following return: {source}"
+            );
+        }
     }
 }

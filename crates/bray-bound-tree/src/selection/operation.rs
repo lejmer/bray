@@ -131,6 +131,12 @@ impl MemberTarget {
         self.result_type
     }
 
+    /// Whether the member names a callable declaration, rather than a stored callable value.
+    pub fn is_callable_declaration(&self) -> bool {
+        bray_symbols::CallableDefinitionId::try_new(self.member).is_some()
+            || self.member.kind() == bray_symbols::SymbolKind::CallableOverload
+    }
+
     /// Returns the exact substituted callable when this member can be invoked.
     pub const fn callable_instance(&self) -> Option<CallableInstanceData> {
         self.callable_instance
@@ -512,6 +518,20 @@ impl SelectedConversion {
         }
     }
 
+    /// Whether the conversion executes a selected source callable at any level.
+    pub fn invokes_source(&self) -> bool {
+        let mut invokes = false;
+
+        self.visit_targets(|target| {
+            invokes |= matches!(
+                target,
+                ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. }
+            );
+        });
+
+        invokes
+    }
+
     /// Creates one explicit conversion plan.
     pub const fn new(source_type: TypeId, target_type: TypeId, target: ConversionTarget) -> Self {
         Self {
@@ -621,19 +641,11 @@ impl SelectedOperation {
                 OperatorTarget::BuiltIn(operator) => operator.builtin_may_panic(),
                 OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => true,
             },
-            Self::Index { target, .. } => matches!(target, IndexTarget::Custom { .. }),
-            Self::Conversion(conversion) => {
-                let mut may_panic = false;
-
-                conversion.visit_targets(|target| {
-                    may_panic |= matches!(
-                        target,
-                        ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. }
-                    );
-                });
-
-                may_panic
-            }
+            Self::Index { target, .. } => matches!(
+                target,
+                IndexTarget::Custom { .. } | IndexTarget::TraitConstraint { .. }
+            ),
+            Self::Conversion(conversion) => conversion.invokes_source(),
             Self::Construction(_) => true,
             Self::Member(member) => matches!(member.member(), AnySymbolId::UnionVariant(_)),
             Self::Implementation(_) => false,
@@ -781,6 +793,9 @@ fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplemen
         | ConversionTarget::CVariadicPromotion
         | ConversionTarget::TraitConstraint { .. } => {}
     });
+
+    witnesses.sort_unstable();
+    witnesses.dedup();
 
     witnesses
 }

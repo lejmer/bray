@@ -116,12 +116,8 @@ impl Compilation {
             });
 
             for callable in invocations {
-                let selected = match calls.entry(callable) {
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(self.lifecycle_invocation_lanes(callable, cancellation)?)
-                    }
-                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                };
+                let selected =
+                    self.lifecycle_invocation_lanes(callable, &mut calls, cancellation)?;
 
                 requirements = ExecutionLaneRequirement::set(
                     requirements.iter().chain(selected.iter()).copied(),
@@ -288,16 +284,25 @@ impl Compilation {
                                 ),
                             ),
                         );
+                    } else if let bray_ir::MirCallTarget::Direct(reference) = call.target() {
+                        // Structural expansion preserves the selected call, rather than
+                        // a source invocation's phase summary. Resolve its contract once.
+                        let selected = self.lifecycle_invocation_lanes(
+                            reference.instance(),
+                            calls,
+                            cancellation,
+                        )?;
+
+                        lanes = ExecutionLaneRequirement::set(
+                            lanes.iter().chain(selected.iter()).copied(),
+                        );
                     }
                 }
             }
 
             if let MirTerminatorKind::Iterate { next, .. } = block.terminator().kind() {
-                let selected = match calls.entry(next.instance()) {
-                    std::collections::btree_map::Entry::Vacant(entry) => entry
-                        .insert(self.lifecycle_invocation_lanes(next.instance(), cancellation)?),
-                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                };
+                let selected =
+                    self.lifecycle_invocation_lanes(next.instance(), calls, cancellation)?;
 
                 lanes = ExecutionLaneRequirement::set(lanes.iter().chain(selected.iter()).copied());
             }
@@ -331,11 +336,20 @@ impl Compilation {
         Ok(states)
     }
 
-    fn lifecycle_invocation_lanes(
+    fn lifecycle_invocation_lanes<'cache>(
         &self,
         callable: bray_symbols::CallableInstanceData,
+        calls: &'cache mut BTreeMap<
+            bray_symbols::CallableInstanceData,
+            Vec<ExecutionLaneRequirement>,
+        >,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ExecutionLaneRequirement>, CodegenPreparationError> {
+    ) -> Result<&'cache [ExecutionLaneRequirement], CodegenPreparationError> {
+        let entry = match calls.entry(callable) {
+            std::collections::btree_map::Entry::Occupied(entry) => return Ok(entry.into_mut()),
+            std::collections::btree_map::Entry::Vacant(entry) => entry,
+        };
+
         let binding = self.binding_context(cancellation)?;
         let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
@@ -357,10 +371,10 @@ impl Compilation {
             signature.callable_type(),
         );
 
-        Ok(bray_lowering::lower_execution_requirements(
+        Ok(entry.insert(bray_lowering::lower_execution_requirements(
             known,
             requirements,
-        ))
+        )))
     }
 }
 

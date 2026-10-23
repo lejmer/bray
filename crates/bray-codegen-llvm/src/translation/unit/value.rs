@@ -18,9 +18,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .copied()
                 .expect("translated MIR values must be available before use")),
             MirOperand::Immediate { value, ty } => {
-                let ty = self.types.map(*ty)?;
+                let semantic = *ty;
+                let ty = self.types.map(semantic)?;
 
-                match value {
+                let value = match value {
                     MirImmediateValue::Boolean(value) => match ty {
                         BasicTypeEnum::IntType(ty) => {
                             Ok(ty.const_int(u64::from(*value), false).into())
@@ -32,7 +33,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     MirImmediateValue::Unit
                     | MirImmediateValue::NullableAbsent
                     | MirImmediateValue::EmptyPanicReport => Ok(ty.const_zero()),
-                }
+                }?;
+
+                self.initialize_value(value, semantic, "immediate.value")
             }
             MirOperand::Copy(place) => {
                 let value = self.observed_operand(operand)?;
@@ -44,14 +47,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperand::Move(place) => {
                 let pointer = self.place(place)?;
 
-                if !self.pending_moves.contains(place) {
-                    self.pending_moves.push(place.clone());
+                if self.type_mapping(place.ty()).is_some_and(|mapping| {
+                    mapping.behavior() == Some(CodegenTypeBehavior::PanicReport)
+                }) && !self.moved_reports.contains(place)
+                {
+                    // Native report slots use an empty value after ownership transfer.
+                    self.moved_reports.push(place.clone());
                 }
 
-                llvm(
-                    self.builder
-                        .build_load(self.types.map(place.ty())?, pointer, "move"),
-                )
+                self.place_value(pointer, place.ty(), "move")
             }
             MirOperand::Constant { value, ty } => self.constant_as(*value, *ty),
             MirOperand::ConstantTerm { term, ty } => {
@@ -83,10 +87,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let pointer = self.place(place)?;
 
-        llvm(
-            self.builder
-                .build_load(self.types.map(place.ty())?, pointer, "load"),
-        )
+        self.place_value(pointer, place.ty(), "load")
     }
 
     fn constant_as(
@@ -105,23 +106,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.mapped_constant_as(semantic_type, representation, kind)
     }
 
-    pub(super) fn clear_moved_places(&mut self) -> Result<(), CodegenFailure> {
-        let moved = std::mem::take(&mut self.pending_moves);
+    pub(super) fn clear_moved_reports(&mut self) -> Result<(), CodegenFailure> {
+        let moved = std::mem::take(&mut self.moved_reports);
 
         for place in moved {
-            let ownership_bearing = self.type_mapping(place.ty()).is_some_and(|mapping| {
-                matches!(
-                    mapping.kind(),
-                    CodegenTypeKind::Aggregate(_)
-                        | CodegenTypeKind::Array { .. }
-                        | CodegenTypeKind::Union { .. }
-                )
-            });
-
-            if !ownership_bearing {
-                continue;
-            }
-
             let pointer = self.place(&place)?;
             let value_type = self.types.map(place.ty())?;
 
@@ -153,29 +141,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match kind {
             CodegenTypeKind::Aggregate(fields) => {
                 for (index, field) in fields.iter().enumerate() {
-                    let element = self.aggregate_value_element(&fields, index)?;
-
-                    let element =
-                        crate::conversion::resource_limit(element, "aggregate_element_index")?;
-
-                    let field_value = super::support::extract_value(&self.builder, value, element)?;
+                    let field_value = self.aggregate_field_value(value, ty, index)?;
 
                     self.retain_copied_value(field_value, field.ty())?;
                 }
             }
             CodegenTypeKind::Array { element, length } => {
                 for index in 0..length {
-                    let index =
-                        crate::conversion::resource_limit(index, "aggregate_element_index")?;
-
-                    let element_value = super::support::extract_value(&self.builder, value, index)?;
+                    let element_value = self.array_element_value(value, ty, index)?;
 
                     self.retain_copied_value(element_value, element)?;
                 }
             }
             CodegenTypeKind::Union { tag, variants } => {
                 if let Some(tag) = tag {
-                    self.retain_copied_union(value, tag, &variants)?;
+                    self.retain_copied_union(value, ty, tag, &variants)?;
                 }
             }
             CodegenTypeKind::Unit
@@ -196,12 +176,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn retain_copied_union(
         &mut self,
         value: BasicValueEnum<'context>,
+        ty: bray_symbols::TypeId,
         tag: bray_symbols::TypeId,
         variants: &[bray_codegen::CodegenUnionVariantLayout],
     ) -> Result<(), CodegenFailure> {
-        let storage = self.allocate_temporary(value.get_type(), "copy.union")?;
+        let storage = if self.types.is_address_value(ty)? {
+            super::support::pointer_value(value).expect("copied union has its storage carrier")
+        } else {
+            let storage = self.allocate_temporary(value.get_type(), "copy.union")?;
 
-        llvm(self.builder.build_store(storage, value))?;
+            llvm(self.builder.build_store(storage, value))?;
+
+            storage
+        };
 
         let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
             panic!("checked MIR value translation violated an established compiler contract");
@@ -241,11 +228,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             for field in variant.fields() {
                 let field_pointer = self.constant_offset_pointer(storage, field.offset_bytes())?;
 
-                let field_value = llvm(self.builder.build_load(
-                    self.types.map(field.ty())?,
-                    field_pointer,
-                    "copy.union.field",
-                ))?;
+                let field_value =
+                    self.place_value(field_pointer, field.ty(), "copy.union.field")?;
 
                 self.retain_copied_value(field_value, field.ty())?;
             }
@@ -312,13 +296,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 value = insert_value(&self.builder, value, real, 0)?;
 
-                insert_value(&self.builder, value, imaginary, 1)
+                let value = insert_value(&self.builder, value, imaginary, 1)?;
+
+                self.initialize_value(value, ty, "constant.complex")
             }
             ConstantValueKind::String(text) => {
                 self.string_constant(semantic_type, representation, &text)
             }
             ConstantValueKind::Unit | ConstantValueKind::NullableAbsent => {
-                Ok(self.types.map(ty)?.const_zero())
+                let zero = self.types.map(ty)?.const_zero();
+
+                self.initialize_value(zero, ty, "constant.empty")
             }
             ConstantValueKind::NullablePresent(child) => {
                 let child = self.constant(child)?;
@@ -329,17 +317,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.aggregate_constant(ty, children.iter().copied())
             }
             ConstantValueKind::Product(fields) => {
-                let mapping = self.type_mapping(ty).expect(
-                    "checked MIR value translation requires an established mapping or value",
-                );
-
-                let CodegenTypeKind::Aggregate(layout) = mapping.kind() else {
-                    panic!(
-                        "checked MIR value translation violated an established compiler contract"
-                    );
-                };
-
-                let mut value = self.types.map(ty)?.const_zero();
+                let layout = self.aggregate_fields(ty);
+                let zero = self.types.map(ty)?.const_zero();
+                let mut value = self.initialize_value(zero, ty, "constant.product")?;
 
                 for field in fields.iter() {
                     let field_value = self.constant(*field.value())?;
@@ -350,14 +330,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             layout.reference()
                                 == Some(bray_ir::MirFieldReference::Struct(*field.field()))
                         })
-                        .expect("checked MIR value translation requires an established mapping or value");
+                        .expect("constant product field has its checked layout");
 
-                    value = insert_value(
-                        &self.builder,
-                        value,
-                        field_value,
-                        self.aggregate_value_element(layout, index)?,
-                    )?;
+                    value = self.insert_aggregate_field(value, &layout, index, field_value)?;
                 }
 
                 Ok(value)
@@ -448,17 +423,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 _ => None,
             });
 
-        let mut value = self.types.map(ty)?.const_zero();
+        let zero = self.types.map(ty)?.const_zero();
+        let mut value = self.initialize_value(zero, ty, "constant.aggregate")?;
 
         for (index, child) in children.into_iter().enumerate() {
             let child = self.constant(child)?;
 
-            let element = match &fields {
-                Some(fields) => self.aggregate_value_element(fields, index)?,
-                None => index,
+            value = match &fields {
+                Some(fields) => self.insert_aggregate_field(value, fields, index, child)?,
+                None => self.insert_array_element(value, ty, index, child)?,
             };
-
-            value = insert_value(&self.builder, value, child, element)?;
         }
 
         Ok(value)
@@ -475,42 +449,60 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(child);
         }
 
-        let mut value = mapped.const_zero();
-
-        let mapping = self
-            .type_mapping(ty)
-            .expect("checked MIR value translation requires an established mapping or value");
-
-        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!("checked MIR value translation violated an established compiler contract");
-        };
+        let fields = self.aggregate_fields(ty);
 
         let payload = fields
             .len()
             .checked_sub(1)
-            .expect("checked MIR value translation requires an established mapping or value");
+            .expect("nullable has its payload field");
 
-        if fields.len() > 1 {
-            let tag_type = self.types.map(fields[0].ty())?;
-
-            let BasicTypeEnum::IntType(tag_type) = tag_type else {
-                panic!("checked MIR value translation violated an established compiler contract");
-            };
-
-            value = insert_value(
-                &self.builder,
-                value,
-                tag_type.const_int(1, false).into(),
-                self.aggregate_value_element(fields, 0)?,
-            )?;
+        if self.types.map(fields[payload].ty())? == mapped {
+            return Ok(child);
         }
 
-        insert_value(
-            &self.builder,
-            value,
-            child,
-            self.aggregate_value_element(fields, payload)?,
-        )
+        let mut value = self.initialize_value(mapped.const_zero(), ty, "nullable.value")?;
+
+        let storage = self.types.is_address_value(ty)?.then(|| {
+            super::support::pointer_value(value).expect("nullable value retains its storage")
+        });
+
+        if fields.len() > 1 {
+            let BasicTypeEnum::IntType(tag_type) = self.types.map(fields[0].ty())? else {
+                panic!("nullable tag has its integer representation");
+            };
+
+            let tag = tag_type.const_int(1, false).into();
+
+            if let Some(storage) = storage {
+                let destination =
+                    self.constant_offset_pointer(storage, fields[0].offset_bytes())?;
+
+                self.store_value(destination, tag, fields[0].ty())?;
+            } else {
+                value = insert_value(
+                    &self.builder,
+                    value,
+                    tag,
+                    self.aggregate_value_element(&fields, 0)?,
+                )?;
+            }
+        }
+
+        if let Some(storage) = storage {
+            let destination =
+                self.constant_offset_pointer(storage, fields[payload].offset_bytes())?;
+
+            self.store_value(destination, child, fields[payload].ty())?;
+
+            Ok(value)
+        } else {
+            insert_value(
+                &self.builder,
+                value,
+                child,
+                self.aggregate_value_element(&fields, payload)?,
+            )
+        }
     }
 
     pub(super) fn string_constant(
@@ -671,13 +663,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
             let value = self.constant(*field.value())?;
 
-            llvm(self.builder.build_store(destination, value))?;
+            self.store_value(destination, value, layout.ty())?;
         }
 
-        llvm(
-            self.builder
-                .build_load(llvm_type, storage, "constant.union.value"),
-        )
+        self.place_value(storage, ty, "constant.union.value")
     }
 
     pub(super) fn constant_offset_pointer(
@@ -1044,7 +1033,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("literal store must build: {error:?}"));
         }
 
-        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let (mir, _) = reconstruct_reachable(&builder.finish(entry))
             .unwrap_or_else(|error| panic!("literal test MIR must reconstruct: {error:?}"));
@@ -1164,7 +1160,14 @@ mod tests {
             }
         }
 
-        builder.set_terminator(current, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            current,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
 
@@ -1250,7 +1253,14 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("nullable query must build: {error:?}"));
 
-        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let mir = builder.finish(entry);
 

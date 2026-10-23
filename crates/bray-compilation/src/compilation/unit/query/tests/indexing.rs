@@ -376,3 +376,35 @@ func mutate(pos input: Value)
         DiagnosticKind::CheckingMutableIndexContractRequired,
     );
 }
+
+#[test]
+fn custom_slice_without_a_bound_type_reports_selection_failure() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Values
+        {
+            value: i32;
+        }
+        impl Values(SliceIndex<i32>)
+        {
+            type Output = i32;
+            func slice(pos start: i32?, pos end: i32?) -> &i32
+            {
+                return &self.value;
+            }
+        }
+        func caller(pos value: &Values)
+        {
+            let _ = value[..];
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
+    );
+}

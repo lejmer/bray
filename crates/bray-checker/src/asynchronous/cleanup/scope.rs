@@ -152,71 +152,7 @@ where
     let requirements = cleanup_shapes.storage_requirements(storage)?;
     let replacements = super::super::replacement::replacement_plans(storage, flow, cleanup_shapes)?;
 
-    for entry in selections.entries() {
-        match entry.selection() {
-            bray_bound_tree::SemanticSelection::Operation(
-                bray_bound_tree::SelectedOperation::Construction(construction),
-            ) => {
-                cleanup_shapes.requirement(construction.result_type())?;
-
-                for input in construction.inputs() {
-                    cleanup_shapes.requirement(input.ty())?;
-                }
-            }
-            bray_bound_tree::SemanticSelection::Call(call) => {
-                for argument in call.arguments() {
-                    let ty = match argument {
-                        bray_bound_tree::SelectedArgument::Explicit { conversion, .. } => {
-                            conversion.target_type()
-                        }
-                        bray_bound_tree::SelectedArgument::Default { ty, .. } => *ty,
-                    };
-
-                    cleanup_shapes.requirement(ty)?;
-                }
-
-                if let Some(receiver) = call.receiver() {
-                    let ty = receiver
-                        .input_type(request.semantic_values()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in scope_exit_plans: {error:?}"));
-
-                    cleanup_shapes.requirement(ty)?;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    for (id, expression) in request.unit().tree().expressions() {
-        if matches!(expression, bray_bound_tree::BoundExpression::Await(_)) {
-            // A completed await owns its result before delivering cancellation.
-            // Publish its cleanup shape with the other implicit input owners.
-            let ty = types
-                .expression(id)
-                .expect("checked await retains its completion type")
-                .ty();
-
-            cleanup_shapes.requirement(ty)?;
-        }
-
-        let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
-            continue;
-        };
-
-        use bray_bound_tree::BoundStructuredExpressionKind as Kind;
-
-        if matches!(
-            expression.kind(),
-            Kind::Tuple | Kind::Array | Kind::RepeatedArray | Kind::Range
-        ) {
-            for operand in expression.operands() {
-                let ty = types
-                    .expression(*operand).unwrap_or_else(|| panic!("scope_exit_plans requires checked expression type or node, operand: {operand:?}"))
-                    .ty();
-
-                cleanup_shapes.requirement(ty)?;
-            }
-        }
-    }
+    cleanup_shapes.require_inputs(selections, types)?;
 
     let requirements_by_identity = requirements
         .iter()

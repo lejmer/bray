@@ -68,11 +68,14 @@ impl SemanticValueStore {
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(template);
 
-        let requirements = template
-            .requirements()
-            .iter()
-            .map(|requirement| self.substitute_dependency_requirement(requirement, substitution))
-            .collect::<Result<Vec<_>, _>>()?;
+        let substituted = template.try_map_requirements(|requirements| {
+            requirements
+                .iter()
+                .map(|requirement| {
+                    self.substitute_dependency_requirement(requirement, substitution)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })?;
 
         let borrows = template
             .borrows()
@@ -153,8 +156,7 @@ impl SemanticValueStore {
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
         self.intern_dependency_contract_template(
-            template
-                .with_requirements(requirements)
+            substituted
                 .with_borrows(borrows)
                 .with_carriers(carriers)
                 .with_returned_input(
@@ -225,6 +227,7 @@ impl SemanticValueStore {
                 Ok(DependencyRequirement::variable(*depth, *ordinal))
             }
             DependencyRequirement::ResultCall {
+                output,
                 callable,
                 requirement,
                 inputs,
@@ -254,6 +257,7 @@ impl SemanticValueStore {
                     callable,
                     requirement,
                     inputs,
+                    *output,
                 ))
             }
             DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(

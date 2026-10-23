@@ -29,10 +29,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR control translation requires an established mapping or value",
                 );
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
-                let then_route = self.route_edge(then_edge, "branch.then", &pending_moves)?;
-                let else_route = self.route_edge(else_edge, "branch.else", &pending_moves)?;
+                let then_route = self.route_edge(then_edge, "branch.then", &moved_reports)?;
+                let else_route = self.route_edge(else_edge, "branch.else", &moved_reports)?;
 
                 self.builder.position_at_end(source);
 
@@ -61,10 +61,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
                 let otherwise_route =
-                    self.route_edge(otherwise, "switch.otherwise", &pending_moves)?;
+                    self.route_edge(otherwise, "switch.otherwise", &moved_reports)?;
 
                 let mut llvm_cases = Vec::with_capacity(cases.len());
 
@@ -72,7 +72,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let route = self.route_edge(
                         case.edge(),
                         &format!("switch.case.{index}"),
-                        &pending_moves,
+                        &moved_reports,
                     )?;
 
                     llvm_cases.push((value, route));
@@ -85,33 +85,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .build_switch(discriminant, otherwise_route, &llvm_cases),
                 )?;
             }
-            MirTerminatorKind::Return(value) => {
-                if self.frame_context.is_some() {
-                    if value.is_some() {
-                        panic!(
-                            "checked MIR control translation violated an established compiler contract"
-                        );
-                    }
-
-                    if self.frame_broadcast {
-                        self.return_broadcast_outcome(
-                            bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
-                            self.types.context().i64_type().const_zero().into(),
-                        )?;
-                    } else {
-                        let progress = self
-                            .frame_progress
-                            .take()
-                            .expect("source frame return retains its terminal progress");
-
-                        self.return_frame_progress(progress)?;
-                    }
-                } else {
-                    self.translate_return(value.as_ref())?;
-                }
+            MirTerminatorKind::Return { value, report } => {
+                self.translate_return(value.as_ref(), report.as_ref())?
             }
             MirTerminatorKind::Unreachable => {
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_unreachable())?;
             }
             MirTerminatorKind::InlineAssembly(assembly) => {
@@ -120,7 +98,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::Panic { cleanup, .. }
             | MirTerminatorKind::CancelCurrentRun { cleanup } => {
                 self.add_edge_arguments(cleanup.edge())?;
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
 
                 llvm(
                     self.builder
@@ -161,12 +139,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     }
                 };
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
-                let matched_route = self.route_edge(matched, "pattern.matched", &pending_moves)?;
+                let matched_route = self.route_edge(matched, "pattern.matched", &moved_reports)?;
 
                 let unmatched_route =
-                    self.route_edge(unmatched, "pattern.unmatched", &pending_moves)?;
+                    self.route_edge(unmatched, "pattern.unmatched", &moved_reports)?;
 
                 self.builder.position_at_end(source);
 
@@ -224,16 +202,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let cancelled =
                     self.union_variant_tag(result_type, edges.cancelled_variant(), tag.get_type())?;
 
-                let (source, pending_moves) = self.take_control_source()?;
+                let (source, moved_reports) = self.take_control_source()?;
 
                 let completed_route =
-                    self.route_edge(edges.completed(), "run.completed", &pending_moves)?;
+                    self.route_edge(edges.completed(), "run.completed", &moved_reports)?;
 
                 let panicked_route =
-                    self.route_edge(edges.panicked().edge(), "run.panicked", &pending_moves)?;
+                    self.route_edge(edges.panicked().edge(), "run.panicked", &moved_reports)?;
 
                 let cancelled_route =
-                    self.route_edge(edges.cancelled().edge(), "run.cancelled", &pending_moves)?;
+                    self.route_edge(edges.cancelled().edge(), "run.cancelled", &moved_reports)?;
 
                 let cases = [
                     (completed, completed_route),
@@ -245,11 +223,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_switch(tag, cancelled_route, &cases))?;
             }
+            MirTerminatorKind::TakeCallReport { completed, report } => {
+                self.translate_normal_call_report(completed, report)?;
+            }
             MirTerminatorKind::CheckCallOutcome {
                 completed,
                 panicked,
                 cancelled,
-            } => self.translate_call_panic(block, completed, panicked, cancelled)?,
+                completed_report,
+            } => self.translate_call_panic(
+                block,
+                completed,
+                completed_report.as_ref(),
+                panicked,
+                cancelled,
+            )?,
         }
 
         Ok(())
@@ -427,10 +415,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .copied()
             .expect("checked MIR control translation requires an established mapping or value");
 
-        let (source, pending_moves) = self.take_control_source()?;
+        let (source, moved_reports) = self.take_control_source()?;
 
-        let item_route = self.route_target(item, "iterate.item", &pending_moves)?;
-        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &pending_moves)?;
+        let item_route = self.route_target(item, "iterate.item", &moved_reports)?;
+        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &moved_reports)?;
 
         phi.add_incoming(&[(&element, item_route)]);
         self.builder.position_at_end(source);
@@ -488,7 +476,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let literal = self.constant(*literal)?;
 
-                self.equal_values(subject, literal)
+                self.equal_pattern_values(subject, literal, subject_type)
             }
             MirPatternPredicate::Constant(term) => {
                 let value = self
@@ -501,7 +489,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let value = self.constant(value)?;
 
-                self.equal_values(subject, value)
+                self.equal_pattern_values(subject, value, subject_type)
             }
             MirPatternPredicate::NullableAbsent | MirPatternPredicate::NullablePresent => {
                 let present = self.nullable_present(subject, subject_type)?;
@@ -615,10 +603,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         );
                     };
 
-                    let storage =
-                        self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
+                    let storage = if self.types.is_address_value(subject_type)? {
+                        pointer_value(subject).expect("union value retains its storage")
+                    } else {
+                        let storage =
+                            self.allocate_temporary(subject.get_type(), "pattern.union.subject")?;
 
-                    llvm(self.builder.build_store(storage, subject))?;
+                        llvm(self.builder.build_store(storage, subject))?;
+
+                        storage
+                    };
 
                     break (storage, tag);
                 }
@@ -641,11 +635,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         break (storage, tag);
                     }
 
-                    subject = llvm(self.builder.build_load(
-                        self.types.map(*target)?,
-                        storage,
-                        "pattern.union.borrow",
-                    ))?;
+                    subject = self.place_value(storage, *target, "pattern.union.borrow")?;
 
                     subject_type = *target;
                 }
@@ -699,7 +689,68 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn translate_return(
         &mut self,
         value: Option<&MirOperand>,
+        report: Option<&MirOperand>,
     ) -> Result<(), CodegenFailure> {
+        if self.frame_context.is_some() {
+            assert!(
+                report.is_none(),
+                "protected frames publish owned reports with their terminal state"
+            );
+
+            if value.is_some() {
+                panic!("checked MIR control translation violated an established compiler contract");
+            }
+
+            if self.frame_broadcast {
+                self.return_broadcast_outcome(
+                    bray_runtime_abi::NativeFrameProgressKind::COMPLETED,
+                    self.types.context().i64_type().const_zero().into(),
+                )?;
+            } else {
+                let progress = self
+                    .frame_progress
+                    .take()
+                    .expect("source frame return retains its terminal progress");
+
+                self.return_frame_progress(progress)?;
+            }
+
+            return Ok(());
+        }
+
+        if let Some(report) = report {
+            let report = self.operand(report)?;
+
+            if let Some(destination) = self.panic_report_context {
+                let outcome = super::support::native_run_outcome_value(
+                    self.types.context(),
+                    &self.builder,
+                    self.request.target(),
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    None,
+                    Some(report),
+                )?;
+
+                llvm(self.builder.build_store(destination, outcome))?;
+            } else {
+                assert_ne!(
+                    self.signature.abi(),
+                    bray_symbols::CallableAbi::Bray,
+                    "Bray report return in {:?} retains its explicit outcome destination",
+                    self.instance.key()
+                );
+
+                super::callback::consume_owned_report(
+                    self.types.context(),
+                    self.module,
+                    self.request,
+                    &self.builder,
+                    self.function,
+                    report,
+                )?;
+            }
+        }
+
         match self.signature.result() {
             CodegenResultMapping::Void => {
                 if let Some(value) = value {
@@ -712,10 +763,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     }
                 }
 
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
-            CodegenResultMapping::Direct { coercion, .. } => {
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
                 let value = value.expect(
                     "checked MIR control translation requires an established mapping or value",
                 );
@@ -723,11 +774,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.operand(value)?;
 
                 let value = match coercion {
-                    Some(coercion) => self.encode_abi_result(value, coercion)?,
-                    None => value,
+                    Some(coercion) => self.encode_abi_result(value, *ty, coercion)?,
+                    None => self.abi_register_value(value, *ty)?,
                 };
 
-                self.clear_moved_places()?;
+                self.clear_moved_reports()?;
 
                 llvm(self.builder.build_return(Some(&value)))?;
             }
@@ -748,8 +799,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self.operand(value)?;
                 let value = self.convert(value, source_type, *pointee)?;
 
-                llvm(self.builder.build_store(destination, value))?;
-                self.clear_moved_places()?;
+                self.store_value(destination, value, *pointee)?;
+                self.clear_moved_reports()?;
                 llvm(self.builder.build_return(None))?;
             }
         }
@@ -762,15 +813,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         value: BasicValueEnum<'context>,
     ) -> Result<(), CodegenFailure> {
         match self.signature.result() {
-            CodegenResultMapping::Direct { coercion, .. } => {
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
                 let value = match coercion {
-                    Some(coercion) => self.encode_abi_result(value, coercion)?,
-                    None => value,
+                    Some(coercion) => self.encode_abi_result(value, *ty, coercion)?,
+                    None => self.abi_register_value(value, *ty)?,
                 };
 
                 llvm(self.builder.build_return(Some(&value)))?;
             }
-            CodegenResultMapping::Indirect { .. } => {
+            CodegenResultMapping::Indirect { pointee, .. } => {
                 let destination = self
                     .function
                     .get_first_param()
@@ -779,7 +830,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR control translation requires an established mapping or value",
                     );
 
-                llvm(self.builder.build_store(destination, value))?;
+                self.store_value(destination, value, *pointee)?;
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Void => {

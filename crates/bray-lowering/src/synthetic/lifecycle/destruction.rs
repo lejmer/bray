@@ -47,8 +47,24 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.capacity_error(cause))?;
 
-        let (block, result) =
-            self.check_lifecycle_value(builder, block, source, result, callable.result.ty())?;
+        let reports = body.unit.blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Return {
+                    report: Some(_),
+                    ..
+                }
+            )
+        });
+
+        let (block, result) = self.check_lifecycle_value(
+            builder,
+            block,
+            source,
+            result,
+            callable.result.ty(),
+            reports,
+        )?;
 
         let Some(parameter) = parameter else {
             return Ok((block, result));
@@ -165,7 +181,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block(source.clone(), builder.block_kind(block))
             .map_err(|cause| self.capacity_error(cause))?;
 
-        let panicked = self.tail_failure(
+        let panicked = self.tail_report(
             builder,
             source,
             block,
@@ -174,7 +190,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             MirCleanupState::Panicked,
         )?;
 
-        let cancelled = self.tail_failure(
+        let cancelled = self.tail_report(
             builder,
             source,
             block,
@@ -182,6 +198,37 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             &outcome,
             MirCleanupState::Cancelled,
         )?;
+
+        let completed = if body.unit.blocks().iter().any(|block| {
+            matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Return {
+                    report: Some(_),
+                    ..
+                }
+            )
+        }) {
+            let reported = self.tail_report(
+                builder,
+                source,
+                block,
+                finish,
+                &outcome,
+                MirCleanupState::Incidents,
+            )?;
+
+            let report_type = builder.operand_type(&outcome.report());
+
+            MirEdge::new(
+                reported,
+                [MirOperand::Immediate {
+                    value: MirImmediateValue::EmptyPanicReport,
+                    ty: report_type,
+                }],
+            )
+        } else {
+            MirEdge::new(finish, [])
+        };
 
         let receiver = body
             .unit
@@ -252,7 +299,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 &body.callables,
                 places.clone(),
                 abandoned,
-                finish,
+                completed.clone(),
                 panicked,
                 cancelled,
                 outcome.collection().retention(),
@@ -344,7 +391,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         })
     }
 
-    fn tail_failure(
+    fn tail_report(
         &self,
         builder: &mut MirUnitBuilder,
         source: &MirSourceAnchor,
@@ -368,7 +415,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder,
                 entry,
                 source,
-                finish,
+                MirEdge::new(finish, []),
                 state,
                 MirOperand::Value(report),
             )

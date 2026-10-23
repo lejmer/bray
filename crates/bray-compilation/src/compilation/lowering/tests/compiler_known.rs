@@ -367,7 +367,17 @@ fn direct_compiler_known_trait_calls_retain_builtin_intrinsics() {
         .operations()
         .iter()
         .filter_map(|operation| match operation.kind() {
-            MirOperationKind::Call(call) => Some(call),
+            MirOperationKind::Call(call) => match call.target() {
+                bray_ir::MirCallTarget::Runtime(runtime) => {
+                    assert_eq!(
+                        runtime.role(),
+                        bray_runtime_interface::RuntimeAbiRole::PanicReportSuppression
+                    );
+
+                    None
+                }
+                _ => Some(call),
+            },
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -508,7 +518,7 @@ fn standard_testing_failure_lowers_to_structured_failure_control() {
 
     assert!(caught.blocks().iter().any(|block| matches!(
         block.terminator().kind(),
-        MirTerminatorKind::Return(Some(_))
+        MirTerminatorKind::Return { value: Some(_), .. }
     )));
 
     assert!(

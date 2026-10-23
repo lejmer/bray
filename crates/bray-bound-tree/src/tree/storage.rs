@@ -5,8 +5,8 @@ use bray_symbols::AnyLocalSymbolId;
 
 use crate::{
     BoundBlock, BoundBlockId, BoundBlockItem, BoundCallableBody, BoundCallableBodyId,
-    BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId, BoundUnitId, BoundUnitKey,
-    BoundUnitView,
+    BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId,
+    BoundStructuredExpressionKind, BoundUnitId, BoundUnitKey, BoundUnitView,
 };
 
 /// Immutable bound nodes for one checked semantic unit.
@@ -107,6 +107,73 @@ impl BoundTree {
         }
 
         initializers
+    }
+
+    /// Returns each binding pattern and the expression supplying its subject.
+    pub fn binding_subjects(&self) -> Vec<(crate::BoundPatternId, BoundExpressionId)> {
+        let mut subjects = Vec::new();
+
+        for (_, block) in self.blocks() {
+            for item in block.items() {
+                if let BoundBlockItem::LocalBinding(binding) = item {
+                    subjects.push((binding.pattern(), binding.initializer()));
+                }
+            }
+        }
+
+        for (_, expression) in self.expressions() {
+            match expression {
+                BoundExpression::Structured(value)
+                    if value.kind() == BoundStructuredExpressionKind::PatternBinding =>
+                {
+                    if let Some(subject) = value.operands().first() {
+                        subjects
+                            .extend(value.patterns().iter().map(|pattern| (*pattern, *subject)));
+                    }
+                }
+                BoundExpression::For(value) => subjects.push((value.pattern(), value.source())),
+                BoundExpression::Generator(value) => {
+                    subjects.push((value.pattern(), value.source()))
+                }
+                BoundExpression::Match(value) => {
+                    subjects.extend(
+                        value
+                            .arms()
+                            .iter()
+                            .map(|arm| (arm.pattern(), value.subject())),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        subjects
+    }
+
+    /// Only whole immutable declaration bindings preserve their initializer's exact value.
+    pub fn immutable_initializers(
+        &self,
+    ) -> std::collections::BTreeMap<bray_symbols::LocalBindingSymbolId, crate::BoundExpressionId>
+    {
+        self.binding_subjects()
+            .into_iter()
+            .filter_map(|(id, initializer)| {
+                let pattern = self.pattern(id).expect("bound subject retains its pattern");
+
+                if pattern.mode() != crate::BoundPatternMode::Declaration
+                    || pattern.kind() != crate::BoundPatternKind::Binding
+                    || pattern.is_mutable()
+                {
+                    return None;
+                }
+
+                let [binding] = pattern.bindings() else {
+                    return None;
+                };
+
+                Some((*binding, initializer))
+            })
+            .collect()
     }
 
     /// Returns the callable body identified within this tree, when present.

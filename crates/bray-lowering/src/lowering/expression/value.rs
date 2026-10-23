@@ -195,8 +195,7 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value =
-                                self.materialize_owned_input(id, block, &source, value, ty)?;
+                            let value = self.materialize_owned_input(block, &source, value, ty)?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }
@@ -258,8 +257,7 @@ impl Lowerer<'_> {
 
                             let ty = self.builder.operand_type(&value);
 
-                            let value =
-                                self.materialize_owned_input(id, block, &source, value, ty)?;
+                            let value = self.materialize_owned_input(block, &source, value, ty)?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }
@@ -306,6 +304,7 @@ impl Lowerer<'_> {
                 &value,
                 owner_type,
                 Some(owner_type),
+                true,
             )?
         } else {
             (block, value)
@@ -342,7 +341,7 @@ impl Lowerer<'_> {
             {
                 let ty = self.builder.operand_type(&value);
 
-                self.materialize_owned_input(*expression, current, &lowered.source, value, ty)?
+                self.materialize_owned_input(current, &lowered.source, value, ty)?
             } else {
                 value
             };

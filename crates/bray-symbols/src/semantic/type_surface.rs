@@ -9,12 +9,12 @@ use crate::{
 /// Cleanup declared by a named type, before inspecting its represented parts.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TypeLifecycle {
-    /// No declared cleanup or scoped-use behavior.
+    /// No declared whole-value cleanup.
     #[default]
     None,
-    /// Synchronous destruction without graceful finalization or scoped-use duties.
+    /// Synchronous destruction without graceful finalization.
     Destruction,
-    /// Finalization or scoped-use behavior, possibly with destruction as well.
+    /// Graceful finalization, possibly with destruction as well.
     Graceful,
 }
 

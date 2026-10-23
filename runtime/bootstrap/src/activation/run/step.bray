@@ -155,17 +155,19 @@ trusted internal func step(
             );
         }
 
-        let updated = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
-
-        let progress = std.memory.replace_value<bray.runtime.bootstrap.activation.Progress>(
-            &mut updated.progress,
-            bray.runtime.bootstrap.activation.empty_progress()
+        let (mut incidents, mut progress) = trusted bray.runtime.bootstrap.activation.execution.take_terminal(
+            &mut cursor
         );
 
-        let incidents = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
-            &mut updated.incidents,
-            bray.runtime.bootstrap.empty_records()
-        );
+        // The root observer consumes successful values and panic reports. Other
+        // terminal reports belong to the run's mandatory incident sink.
+        if progress.kind != 3
+        {
+            trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+                &mut incidents,
+                trusted bray.runtime.bootstrap.activation.execution.take_report(&mut progress)
+            );
+        }
 
         return (progress, bray.runtime.bootstrap.empty_records(), incidents, FINISHED);
     }

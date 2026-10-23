@@ -241,10 +241,11 @@ where
         }
     }
 
-    add_selected_task_operations(
+    check_selected_async_operations(
         request,
         selections,
         execution,
+        cleanup,
         &mut task_operations,
         &mut diagnostics,
     );
@@ -331,6 +332,12 @@ fn cleanup_deferred_calls(
         .map(|(expression, calls)| ((*expression).into(), calls.clone()))
         .collect::<BTreeMap<_, _>>();
 
+    for plan in plans {
+        if cleanup.scoped_error_quiescence.contains_key(&plan.scope()) {
+            calls.entry(plan.exit()).or_default();
+        }
+    }
+
     let scope_accesses = plans.iter().flat_map(|plan| {
         plan.lifecycle_resolution()
             .iter()
@@ -384,15 +391,38 @@ fn broadcast_owners(
         .collect()
 }
 
-fn add_selected_task_operations<C>(
+fn check_selected_async_operations<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     execution: Option<CallableExecution>,
+    cleanup: &crate::analysis::guarantee::CleanupPlan,
     task_operations: &mut BTreeMap<BoundExpressionId, AsyncTaskOperation>,
     diagnostics: &mut DiagnosticBag,
 ) where
     C: CheckerRequestContext + ?Sized,
 {
+    for expression in cleanup.scoped_error_quiescence.values().copied() {
+        let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
+            panic!("selected scoped cleanup retains its invocation: {expression:?}");
+        };
+
+        if matches!(
+            scoped.exit_result(),
+            bray_bound_tree::BoundCallResult::LazyFuture(_)
+        ) {
+            // The selected asynchronous call already checks its execution context.
+            continue;
+        }
+
+        add_suspension_context_diagnostic(
+            request,
+            execution,
+            expression,
+            AnalysisSuspensionKind::ScopedCall,
+            diagnostics,
+        );
+    }
+
     for entry in selections.entries() {
         let Some(analysis_kind) = selected_task_operation(request, entry.selection()) else {
             continue;

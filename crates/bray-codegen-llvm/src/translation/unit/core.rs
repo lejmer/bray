@@ -215,7 +215,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
-    pub(super) pending_moves: Vec<MirPlace>,
+    pub(super) moved_reports: Vec<MirPlace>,
     pub(super) panic_report_context: Option<PointerValue<'context>>,
     pub(super) pending_call_panic_report_context: Option<PointerValue<'context>>,
     pub(super) propagated_outcome_return: Option<BasicBlock<'context>>,
@@ -335,7 +335,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
-            pending_moves: Vec::new(),
+            moved_reports: Vec::new(),
             panic_report_context,
             pending_call_panic_report_context: None,
             propagated_outcome_return: None,
@@ -418,7 +418,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
-            pending_moves: Vec::new(),
+            moved_reports: Vec::new(),
             panic_report_context: None,
             pending_call_panic_report_context: None,
             propagated_outcome_return: None,
@@ -602,32 +602,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
-        for (id, block) in self.unit.blocks_with_ids() {
-            if !self.reachable_blocks.contains(&id) {
-                continue;
-            }
-
-            let llvm_block = self.block(id);
-
-            self.builder.position_at_end(llvm_block);
-
-            for parameter in block.parameters() {
-                let ty = self.value_type(*parameter)?;
-
-                let phi = llvm(
-                    self.builder
-                        .build_phi(ty, &format!("value.{}", parameter.slot())),
-                )?;
-
-                self.phis.insert(*parameter, phi);
-                self.values.insert(*parameter, phi.as_basic_value());
-            }
-        }
-
-        Ok(())
-    }
-
     pub(super) fn create_storages(&mut self) -> Result<(), CodegenFailure> {
         if let Some(frame_context) = self.frame_context {
             let dispatch = self
@@ -781,7 +755,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         } else {
                             let destination = self.storage(storage)?;
 
-                            llvm(self.builder.build_store(destination, value))?;
+                            if coercion.is_some() {
+                                self.store_value(destination, value, *ty)?;
+                            } else {
+                                llvm(self.builder.build_store(destination, value))?;
+                            }
                         }
                     }
 
@@ -797,16 +775,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .and_then(pointer_value)
                         .expect("checked MIR translation requires an established mapping or value");
 
-                    let value = llvm(self.builder.build_load(
-                        self.types.map(*pointee)?,
-                        source,
-                        "parameter.indirect",
-                    ))?;
+                    let value = self.place_value(source, *pointee, "parameter.indirect")?;
 
                     if let Some(storage) = storage {
                         let destination = self.storage(storage)?;
 
-                        llvm(self.builder.build_store(destination, value))?;
+                        self.store_value(destination, value, *pointee)?;
                     }
 
                     llvm_index += 1;

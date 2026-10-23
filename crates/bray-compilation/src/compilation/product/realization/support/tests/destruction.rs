@@ -615,7 +615,10 @@ fn owned_indirection_uses_storage_policy_teardown() {
     assert!(
         reachable.iter().any(|id| matches!(
             broadcast.block(*id).unwrap().terminator().kind(),
-            MirTerminatorKind::Return(None)
+            MirTerminatorKind::Return {
+                value: None,
+                report: None
+            }
         )),
         "a failed projection returns to the enclosing traversal"
     );
@@ -920,6 +923,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         completed,
         panicked,
         cancelled,
+        completed_report: None,
     } = generated.block(call_block).unwrap().terminator().kind()
     else {
         panic!("the finalizer outcome must be checked before inspecting its Result");

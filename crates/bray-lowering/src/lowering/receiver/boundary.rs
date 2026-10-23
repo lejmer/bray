@@ -125,7 +125,10 @@ impl Lowerer<'_> {
         self.set_terminator(
             block,
             Self::retained_source(source),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: self.pending_report(),
+            },
         )?;
 
         for (entry, mode) in [(ordinary, false), (abandoned, true)] {

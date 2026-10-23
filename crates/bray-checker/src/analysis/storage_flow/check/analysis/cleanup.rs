@@ -23,6 +23,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
+        let mut report_outputs = Vec::new();
 
         let mut observe = |_: _,
                            _: _,
@@ -45,6 +46,45 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              identity: bray_bound_tree::StorageMutation,
              mutation: crate::analysis::guarantee::CleanupMutation<'_>| {
                 use crate::analysis::guarantee::CleanupMutation;
+
+                if let CleanupMutation::Lifecycle(call) = &mutation {
+                    let contract =
+                        &dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
+
+                    if let Some(requirements) = contract.completion_reports() {
+                        report_outputs.push((
+                            call.access,
+                            requirements.to_vec(),
+                            operation.is_normal_cleanup(),
+                        ));
+                    }
+
+                    if !self.on_normal_path {
+                        if let Some(requirements) = contract.abnormal_reports() {
+                            report_outputs.push((call.access, requirements.to_vec(), false));
+                        }
+
+                        if call
+                            .lifecycle
+                            .call
+                            .callable
+                            .definition()
+                            .callable_symbol()
+                            .kind()
+                            == bray_symbols::SymbolKind::Finalizer
+                            && crate::representation::type_representation(
+                                self.request,
+                                call.lifecycle.call.result.completion_type(),
+                            ) == Some(bray_compiler_known::RepresentationRole::Result)
+                        {
+                            report_outputs.push((
+                                call.access,
+                                contract.requirements().to_vec(),
+                                false,
+                            ));
+                        }
+                    }
+                }
 
                 let invocation = match &mutation {
                     CleanupMutation::Lifecycle(call) => Some(call),
@@ -179,6 +219,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.trusted = trusted;
         state.memory = memory;
+
+        for (access, requirements, pending) in report_outputs {
+            self.retain_cleanup_reports(state, access, &requirements, pending);
+        }
     }
 
     fn prepare_cleanup_references(

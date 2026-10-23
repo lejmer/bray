@@ -17,6 +17,36 @@ pub enum StorageScopeBuildError {
     MissingPattern { pattern: BoundPatternId },
 }
 
+/// Returns whether the selected exit determines its with expression's normal typed result.
+pub fn scoped_exit_completes_result(
+    view: BoundUnitView<'_>,
+    expression: BoundExpressionId,
+    exit: Option<crate::AnyBoundNodeId>,
+) -> bool {
+    let Some(crate::BoundExpression::Structured(scoped)) = view.expression(expression) else {
+        panic!("selected scoped use retains its with expression");
+    };
+
+    let [body] = scoped.blocks() else {
+        panic!("selected scoped use retains its body");
+    };
+
+    let syntax = view
+        .block(*body)
+        .expect("scoped body belongs to its unit")
+        .origin()
+        .source_anchor()
+        .syntax();
+
+    match exit {
+        Some(crate::AnyBoundNodeId::Block(block)) => block == *body,
+        Some(crate::AnyBoundNodeId::Expression(transfer)) => {
+            matches!(view.expression(transfer), Some(crate::BoundExpression::ControlTransfer(transfer)) if transfer.kind() == crate::BoundControlTransferKind::Yield && transfer.target() == Some(syntax))
+        }
+        _ => false,
+    }
+}
+
 /// Returns whether one identity transfers through its checked unit boundary.
 pub fn storage_identity_transfers_at_unit_exit(
     storage: &StoragePlan,

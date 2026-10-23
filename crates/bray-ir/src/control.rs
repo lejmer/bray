@@ -477,8 +477,13 @@ pub enum MirTerminatorKind {
     ///
     /// The separate payload keeps assembly descriptors out of ordinary terminator slots.
     InlineAssembly(Box<MirInlineAssemblyTerminator>),
-    /// Return from this unit.
-    Return(Option<MirOperand>),
+    /// Return the ordinary payload and any retained cleanup report from this unit.
+    Return {
+        /// Ordinary result payload, absent for a void result.
+        value: Option<MirOperand>,
+        /// Owned incidents preserved without changing normal completion.
+        report: Option<MirOperand>,
+    },
     /// End a path that cannot continue.
     Unreachable,
     /// Suspend a protected frame and retain its checked resume state.
@@ -505,10 +510,19 @@ pub enum MirTerminatorKind {
         /// Distinct successor edges.
         edges: MirRunResultEdges,
     },
+    /// Transfer a normal report after a call proved unable to unwind.
+    TakeCallReport {
+        /// Continuation receiving the ordinary call result.
+        completed: MirEdge,
+        /// Destination receiving the call's owned report.
+        report: crate::MirPlace,
+    },
     /// Continue after a call with distinct normal, panic, and cancellation paths.
     CheckCallOutcome {
         /// Normal continuation after the call completed.
         completed: MirEdge,
+        /// Destination for an owned report accompanying normal completion, when observed.
+        completed_report: Option<crate::MirPlace>,
         /// Abnormal continuation receiving the propagated panic report.
         panicked: MirCallFailureEdge,
         /// Cancellation continuation after ownership transferred into the call.
@@ -618,13 +632,15 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallOutcome { completed, .. } => visit(completed)?,
+            Self::CheckCallOutcome { completed, .. } | Self::TakeCallReport { completed, .. } => {
+                visit(completed)?
+            }
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
             | Self::CancelCurrentRun { cleanup } => visit(&mut cleanup.edge)?,
             Self::InlineAssembly(_)
-            | Self::Return(_)
+            | Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. } => {}
@@ -689,10 +705,12 @@ impl MirTerminatorKind {
                 visit(edges.panicked().edge().target());
                 visit(edges.cancelled().edge().target());
             }
+            Self::TakeCallReport { completed, .. } => visit(completed.target()),
             Self::CheckCallOutcome {
                 completed,
                 panicked,
                 cancelled,
+                ..
             } => {
                 visit(completed.target());
                 visit(panicked.target());
@@ -702,7 +720,7 @@ impl MirTerminatorKind {
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
             | Self::CancelCurrentRun { cleanup } => visit(cleanup.edge().target()),
-            Self::Return(_)
+            Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. } => {}
@@ -745,13 +763,14 @@ impl MirTerminatorKind {
             | Self::RangeIterate { .. }
             | Self::Switch { .. }
             | Self::InlineAssembly(_)
-            | Self::Return(_)
+            | Self::Return { .. }
             | Self::Unreachable
             | Self::PropagatePanic { .. }
             | Self::PropagateCancellation { .. }
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
             | Self::CheckCallOutcome { .. }
+            | Self::TakeCallReport { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::Panic { .. }

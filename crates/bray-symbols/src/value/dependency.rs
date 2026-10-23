@@ -189,6 +189,8 @@ pub enum DependencyRequirement {
     Guarded(GuardedDependencyRequirement),
     /// A deferred callable result, optionally awaiting implementation selection.
     ResultCall {
+        /// The selected value or owned report output.
+        output: DependencyCallOutput,
         /// The declaration and its generic arguments.
         callable: super::CallableInstanceId,
         /// The subject and trait application selecting an implementation, when needed.
@@ -196,6 +198,17 @@ pub enum DependencyRequirement {
         /// Dependencies of each actual input in the enclosing contract.
         inputs: Arc<[DependencyCallInput]>,
     },
+}
+
+/// The owned output selected from one checked callable summary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DependencyCallOutput {
+    /// The ordinary returned value.
+    Value,
+    /// Reports accompanying normal completion.
+    CompletionReport,
+    /// Reports accompanying panic or cancellation.
+    AbnormalReport,
 }
 
 /// The storage and value dependencies supplied to one symbolic result call.
@@ -260,8 +273,10 @@ impl DependencyRequirement {
         callable: super::CallableInstanceId,
         requirement: Option<crate::ImplementationRequirementKey>,
         inputs: impl IntoIterator<Item = DependencyCallInput>,
+        output: DependencyCallOutput,
     ) -> Self {
         Self::ResultCall {
+            output,
             callable,
             requirement,
             inputs: sorted_unique_shared_slice(inputs),
@@ -390,6 +405,8 @@ impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
+    completion_reports: Option<Arc<[DependencyRequirement]>>,
+    abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
     returned_input: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
@@ -412,6 +429,81 @@ impl DependencyContractTemplateData {
         self.returned_input
     }
 
+    /// Attaches dependencies of reports that can accompany normal completion.
+    /// An empty set still records that an independently owned report can be produced.
+    pub fn with_completion_reports(
+        mut self,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+
+        self
+    }
+
+    /// Returns report dependencies for normal completion, absent when no report is produced.
+    pub fn completion_reports(&self) -> Option<&[DependencyRequirement]> {
+        self.completion_reports.as_deref()
+    }
+
+    /// Attaches dependencies of reports propagated with panic or cancellation.
+    /// An empty set still records that an independently owned report can be produced.
+    pub fn with_abnormal_reports(
+        mut self,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
+
+        self
+    }
+
+    /// Returns report dependencies for abnormal completion, absent when no report is produced.
+    pub fn abnormal_reports(&self) -> Option<&[DependencyRequirement]> {
+        self.abnormal_reports.as_deref()
+    }
+
+    /// Removes implicit report outputs consumed by a native ABI boundary.
+    /// Explicit value dependencies, reference relations and effects remain unchanged.
+    pub fn without_reports(mut self) -> Self {
+        self.completion_reports = None;
+        self.abnormal_reports = None;
+
+        self
+    }
+
+    /// Transforms requirements in every output while preserving report presence.
+    pub fn try_map_requirements<E>(
+        &self,
+        mut map: impl FnMut(&[DependencyRequirement]) -> Result<Vec<DependencyRequirement>, E>,
+    ) -> Result<Self, E> {
+        let mut result = self.with_requirements(map(self.requirements())?);
+
+        if let Some(requirements) = self.completion_reports() {
+            result = result.with_completion_reports(map(requirements)?);
+        }
+
+        if let Some(requirements) = self.abnormal_reports() {
+            result = result.with_abnormal_reports(map(requirements)?);
+        }
+
+        Ok(result)
+    }
+
+    /// Enumerates dependencies in every owned output of this callable.
+    pub fn all_requirements(&self) -> impl Iterator<Item = &DependencyRequirement> {
+        self.requirements
+            .iter()
+            .chain(
+                self.completion_reports
+                    .iter()
+                    .flat_map(|requirements| requirements.iter()),
+            )
+            .chain(
+                self.abnormal_reports
+                    .iter()
+                    .flat_map(|requirements| requirements.iter()),
+            )
+    }
+
     /// Enumerates formal reference paths required by exact relations and mutation effects.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
         self.borrows()
@@ -427,10 +519,22 @@ impl DependencyContractTemplateData {
             }))
     }
 
+    /// Returns lifetime requirements for one selected owned output.
+    /// Absence and an independent report both have no lifetime requirements.
+    pub fn output_requirements(&self, output: DependencyCallOutput) -> &[DependencyRequirement] {
+        match output {
+            DependencyCallOutput::Value => self.requirements(),
+            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or(&[]),
+            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or(&[]),
+        }
+    }
+
     /// Creates a template after deterministic sorting and deduplication.
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            completion_reports: None,
+            abnormal_reports: None,
             borrows: Arc::new([]),
             returned_input: None,
             carriers: Arc::new([]),
@@ -449,6 +553,9 @@ impl DependencyContractTemplateData {
     ) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            // Each output retains the same immutable report summary during value-only refinement.
+            completion_reports: self.completion_reports.as_ref().map(Arc::clone),
+            abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
             returned_input: self.returned_input,
@@ -531,6 +638,40 @@ mod tests {
     };
 
     #[test]
+    fn output_mapping_preserves_absence_and_normalizes_every_owned_output() {
+        let input = DependencyRequirement::direct(
+            DependencySubject::root(DependencySubjectRoot::Receiver),
+            DependencyRequirementKind::StorageAlive,
+        );
+
+        let template = DependencyContractTemplateData::new([])
+            .with_completion_reports([input.clone()])
+            .with_abnormal_reports([]);
+
+        let mapped = template
+            .try_map_requirements::<std::convert::Infallible>(|requirements| {
+                Ok(requirements.iter().chain(requirements).cloned().collect())
+            })
+            .unwrap();
+
+        assert_eq!(mapped, template);
+        assert_eq!(mapped.all_requirements().collect::<Vec<_>>(), [&input]);
+
+        assert_ne!(
+            DependencyContractTemplateData::new([]),
+            DependencyContractTemplateData::new([]).with_completion_reports([])
+        );
+
+        assert!(
+            DependencyContractTemplateData::new([])
+                .try_map_requirements::<()>(|_| Ok(Vec::new()))
+                .unwrap()
+                .completion_reports()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn dependency_templates_are_normalized() {
         let subject =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
@@ -559,6 +700,11 @@ mod tests {
                 subject: subject.clone(),
                 kind: crate::DependencyMutationKind::Write,
             }])
+            .with_completion_reports([])
+            .with_abnormal_reports([DependencyRequirement::direct(
+                subject.clone(),
+                DependencyRequirementKind::StorageAlive,
+            )])
             .with_normal_completion(false);
 
         let requirement =
@@ -569,6 +715,8 @@ mod tests {
         assert_eq!(changed.requirements(), &[requirement]);
         assert_eq!(changed.borrows(), template.borrows());
         assert_eq!(changed.effects(), template.effects());
+        assert_eq!(changed.completion_reports(), Some([].as_slice()));
+        assert_eq!(changed.abnormal_reports(), template.abnormal_reports());
         assert!(!changed.normal_completion());
         assert!(template.requirements().is_empty());
     }

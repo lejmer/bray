@@ -5,7 +5,6 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::llvm;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_uninit_new(
@@ -15,7 +14,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let result = self.operation_result_type(operation);
         let ty = self.types.map(result)?;
 
-        Ok(undefined_value(ty))
+        self.initialize_value(undefined_value(ty), result, "uninit.value")
     }
 
     pub(super) fn translate_uninit_pointer(
@@ -38,22 +37,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let storage = self.memory_pointer(storage)?;
+        let ty = self.operand_type(value);
         let value = self.operand(value)?;
 
-        llvm(self.builder.build_store(storage, value))?;
+        self.store_value(storage, value, ty)?;
 
         Ok(storage)
     }
 
     pub(super) fn translate_protected_value(
         &mut self,
+        operation: &MirOperation,
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [storage] = memory.operands() else {
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        self.operand(storage)
+        let value = self.operand(storage)?;
+
+        self.snapshot_value(
+            value,
+            self.operation_result_type(operation),
+            "protected.value",
+        )
     }
 
     pub(super) fn translate_uninit_move(
@@ -67,10 +74,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let storage = self.memory_pointer(storage)?;
 
-        llvm(
-            self.builder
-                .build_load(self.types.map(element)?, storage, "memory.uninit.move"),
-        )
+        self.load_value(storage, element, "memory.uninit.move")
     }
 
     pub(super) fn translate_anchored_borrow(

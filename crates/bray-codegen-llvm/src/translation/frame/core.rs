@@ -5,7 +5,7 @@ use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
     CodegenSymbolKey,
 };
-use bray_ir::{MirStorageId, MirStorageKind};
+use bray_ir::MirStorageKind;
 use bray_runtime_interface::ProtectedFrameOperation;
 use inkwell::AddressSpace;
 use inkwell::context::Context;
@@ -28,12 +28,12 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .frame_descriptor()
         .expect("protected-frame translation requires an established mapping or value");
 
-    let context_type = frame_context_type(context, instance, types)?;
-
     let storage = request
         .mappings()
         .symbol(&CodegenSymbolKey::CleanupStorage(instance.key().clone()))
         .expect("protected frame must publish its cleanup storage descriptor");
+
+    let context_type = frame_context_type(context, storage.name().as_str(), instance, types)?;
 
     let identity = instance
         .protected_frame_identity()
@@ -129,6 +129,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
 
 fn frame_context_type<'context>(
     context: &'context Context,
+    name: &str,
     instance: &CodegenInstance,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<StructType<'context>, CodegenFailure> {
@@ -159,7 +160,11 @@ fn frame_context_type<'context>(
 
     fields.push(crate::native::activation::header_type(context, types.target()).into());
 
-    Ok(context.struct_type(&fields, false))
+    let context_type = context.opaque_struct_type(&format!("{name}.context"));
+
+    context_type.set_body(&fields, false);
+
+    Ok(context_type)
 }
 
 fn translate_constructor<'context>(
@@ -297,60 +302,48 @@ fn initialize_parameters(
             .ok()
             .and_then(|position| storages.get(&position).copied());
 
+        if matches!(mapping, CodegenParameterMapping::Ignore) {
+            continue;
+        }
+
+        let value = function
+            .get_nth_param(parameter_index)
+            .expect("protected-frame constructor has every mapped machine parameter");
+
+        parameter_index += 1;
+
+        let Some(storage) = storage else {
+            continue;
+        };
+
+        let destination = builder
+            .build_struct_gep(
+                context_type,
+                context,
+                frame_storage_field_index(storage)?,
+                "frame.parameter",
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
         match mapping {
-            CodegenParameterMapping::Ignore => {}
+            CodegenParameterMapping::Ignore => unreachable!(),
             CodegenParameterMapping::Direct { .. } => {
-                let value = function
-                    .get_nth_param(parameter_index)
-                    .expect("protected-frame translation requires an established mapping or value");
-
-                store_frame_parameter(builder, context_type, context, storage, value)?;
-
-                parameter_index += 1;
+                builder
+                    .build_store(destination, value)
+                    .map_err(CodegenFailure::backend_library)?;
             }
             CodegenParameterMapping::Indirect { pointee, .. } => {
-                let source = function
-                    .get_nth_param(parameter_index)
-                    .and_then(pointer_value)
-                    .expect("protected-frame translation requires an established mapping or value");
+                let source = pointer_value(value).expect("indirect frame parameter is an address");
+                let mapped = types.map(*pointee)?;
+                let size = types.target_data().get_store_size(&mapped);
+                let size = types.context().i64_type().const_int(size, false);
 
-                let value = builder
-                    .build_load(types.map(*pointee)?, source, "frame.parameter.indirect")
+                builder
+                    .build_memcpy(destination, 1, source, 1, size)
                     .map_err(CodegenFailure::backend_library)?;
-
-                store_frame_parameter(builder, context_type, context, storage, value)?;
-
-                parameter_index += 1;
             }
         }
     }
-
-    Ok(())
-}
-
-fn store_frame_parameter<'context>(
-    builder: &inkwell::builder::Builder<'context>,
-    context_type: StructType<'context>,
-    context: PointerValue<'context>,
-    storage: Option<MirStorageId>,
-    value: BasicValueEnum<'context>,
-) -> Result<(), CodegenFailure> {
-    let Some(storage) = storage else {
-        return Ok(());
-    };
-
-    let destination = builder
-        .build_struct_gep(
-            context_type,
-            context,
-            frame_storage_field_index(storage)?,
-            "frame.parameter",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_store(destination, value)
-        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }

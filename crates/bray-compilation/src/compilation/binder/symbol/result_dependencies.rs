@@ -397,7 +397,7 @@ fn body_result_dependencies(
         previous.borrows()
     };
 
-    bray_symbols::DependencyContractTemplateData::new(
+    let mut result = bray_symbols::DependencyContractTemplateData::new(
         previous
             .requirements()
             .iter()
@@ -437,7 +437,31 @@ fn body_result_dependencies(
         None
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
-    .with_normal_completion(previous.normal_completion() || checked.normal_completion())
+    .with_normal_completion(previous.normal_completion() || checked.normal_completion());
+
+    if previous.completion_reports().is_some() || checked.completion_reports().is_some() {
+        result = result.with_completion_reports(
+            previous
+                .completion_reports()
+                .into_iter()
+                .flatten()
+                .chain(checked.completion_reports().into_iter().flatten())
+                .cloned(),
+        );
+    }
+
+    if previous.abnormal_reports().is_some() || checked.abnormal_reports().is_some() {
+        result = result.with_abnormal_reports(
+            previous
+                .abnormal_reports()
+                .into_iter()
+                .flatten()
+                .chain(checked.abnormal_reports().into_iter().flatten())
+                .cloned(),
+        );
+    }
+
+    result
 }
 
 fn body_key(
@@ -488,8 +512,17 @@ fn body_callees<'a>(
                     };
 
                     call.resolution()
-                        .anonymous_body()
-                        .map(|(key, _)| ResultDependencyOwner::Anonymous(key.clone()))
+                        .declaration_source()
+                        .map(|instance| {
+                            ResultDependencyOwner::Declaration(
+                                instance.definition().callable_symbol().into_any(),
+                            )
+                        })
+                        .or_else(|| {
+                            call.resolution()
+                                .anonymous_body()
+                                .map(|(key, _)| ResultDependencyOwner::Anonymous(key.clone()))
+                        })
                 }),
         )
         .chain(

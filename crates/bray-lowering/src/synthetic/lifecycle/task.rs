@@ -80,17 +80,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
+        self.push_lifecycle_operation(
+            builder,
+            block,
+            source,
+            MirOperationKind::Cleanup {
+                collection: None,
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+            },
+        )?;
+
         outcome
-            .resolve(
-                builder,
-                block,
-                source,
-                [MirOperationKind::Cleanup {
-                    collection: None,
-                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                    place,
-                }],
-            )
+            .check(builder, block, source)
             .map_err(|cause| self.capacity_error(cause))
     }
 }

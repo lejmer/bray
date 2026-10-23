@@ -419,7 +419,12 @@ where
             let continuation = self.push_block();
 
             self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-            self.push_dependency_failures(current, id.into());
+
+            self.push_dependency_failures(
+                current,
+                bray_bound_tree::BoundExecutionSite::Cleanup(id.into()),
+            );
+
             current = continuation;
         }
 

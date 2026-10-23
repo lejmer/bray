@@ -99,7 +99,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 // mutates translation state.
                 let signature = symbol.signature().clone();
 
-                if call.may_propagate_panic() && checks_call_panic {
+                if checks_call_panic {
                     self.invoke_checked_function(function, &signature, semantic_arguments, "call")
                 } else {
                     self.invoke_function(function, &signature, semantic_arguments, "call")
@@ -149,7 +149,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let function_type = self.types.function_type(&signature)?;
 
-                if call.may_propagate_panic() && checks_call_panic {
+                if checks_call_panic {
                     self.invoke_checked_indirect(
                         function_type,
                         pointer,

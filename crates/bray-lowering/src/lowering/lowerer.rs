@@ -50,6 +50,8 @@ pub(super) struct LoopTarget {
 
 pub(super) struct CatchTarget {
     pub(super) block: MirBlockId,
+    pub(super) success: MirBlockId,
+    pub(super) reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) report_type: bray_symbols::TypeId,
     pub(super) scope_depth: usize,
 }
@@ -67,7 +69,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
-    pub(super) scoped_guards: BTreeMap<bray_bound_tree::BoundExpressionId, MirPlace>,
+    pub(super) scoped_guards:
+        BTreeMap<bray_bound_tree::BoundExpressionId, super::scoped::ScopedCleanup>,
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
@@ -78,6 +81,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) pending_reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) receiver_cleanup: Option<super::receiver::ReceiverCleanup>,
     pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
@@ -123,6 +127,7 @@ impl<'unit> Lowerer<'unit> {
             capture_cleanup: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
+            pending_reports: None,
             receiver_cleanup: None,
             cleanup_occurrence: None,
             cleanup_failure_targets: None,
@@ -143,6 +148,7 @@ impl<'unit> Lowerer<'unit> {
         self.initialize_receiver_cleanup(&source)?;
 
         self.initialize_cleanup_guards(entry, &source)?;
+        self.pending_reports = self.allocate_pending_reports(entry, &source, None)?;
 
         if let Some((reference, ty)) = self.input.static_owner().cloned() {
             self.builder.push_storage(
@@ -221,18 +227,31 @@ impl<'unit> Lowerer<'unit> {
                     block,
                     Self::retained_source(&completion.source),
                     MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
-                        state: MirTaskTerminalState::Completed(value),
+                        state: MirTaskTerminalState::Completed {
+                            value,
+                            report: self.pending_report(),
+                        },
                         runtime: self.runtime_reference(RuntimeAbiRole::TerminalPublication),
                     }),
                     None,
                 )?;
 
-                self.set_terminator(block, completion.source, MirTerminatorKind::Return(None))?;
+                self.set_terminator(
+                    block,
+                    completion.source,
+                    MirTerminatorKind::Return {
+                        value: None,
+                        report: None,
+                    },
+                )?;
             } else {
                 self.set_terminator(
                     block,
                     completion.source,
-                    MirTerminatorKind::Return(completion.value),
+                    MirTerminatorKind::Return {
+                        value: completion.value,
+                        report: self.pending_report(),
+                    },
                 )?;
             }
         }
@@ -461,7 +480,10 @@ mod tests {
 
         assert!(matches!(
             mir.blocks()[0].terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Value(_)),
+                ..
+            }
         ));
     }
 
@@ -556,12 +578,22 @@ mod tests {
             .set_terminator(
                 consumed,
                 source.clone(),
-                MirTerminatorKind::Return(Some(MirOperand::Value(parameter))),
+                MirTerminatorKind::Return {
+                    value: Some(MirOperand::Value(parameter)),
+                    report: None,
+                },
             )
             .unwrap();
 
         lowerer
-            .set_terminator(retained, source, MirTerminatorKind::Return(None))
+            .set_terminator(
+                retained,
+                source,
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            )
             .unwrap();
 
         let mir = lowerer.builder.finish(entry);
@@ -782,7 +814,7 @@ mod tests {
                         && cases.iter().any(|case| {
                             matches!(
                                 mir.block(case.edge().target()).unwrap().terminator().kind(),
-                                MirTerminatorKind::Return(Some(_))
+                                MirTerminatorKind::Return { value: Some(_), .. }
                             )
                         }) =>
                 {
@@ -805,7 +837,10 @@ mod tests {
         let returned_report = destinations
             .iter()
             .find_map(|destination| match destination {
-                MirTerminatorKind::Return(Some(report)) => Some(report),
+                MirTerminatorKind::Return {
+                    value: Some(report),
+                    report: None,
+                } => Some(report),
                 _ => None,
             })
             .expect("return route must transfer the collected report");
@@ -944,7 +979,10 @@ mod tests {
 
         assert!(matches!(
             mir.blocks()[2].terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Value(_)),
+                ..
+            }
         ));
     }
 
@@ -966,10 +1004,13 @@ mod tests {
 
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Immediate {
-                value: bray_ir::MirImmediateValue::NullableAbsent,
+            MirTerminatorKind::Return {
+                value: Some(bray_ir::MirOperand::Immediate {
+                    value: bray_ir::MirImmediateValue::NullableAbsent,
+                    ..
+                }),
                 ..
-            }))
+            }
         )));
     }
 

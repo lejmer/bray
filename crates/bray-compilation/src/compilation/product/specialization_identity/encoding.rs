@@ -668,6 +668,7 @@ mod tests {
                     callable,
                     requirement: Some(requirement),
                     inputs,
+                    output: _,
                 } = witness.unwrap()
                 else {
                     panic!("expected witness result");
@@ -697,6 +698,7 @@ mod tests {
                                 *callable,
                                 Some(*requirement),
                                 inputs,
+                                bray_symbols::DependencyCallOutput::Value,
                             ),
                         ]))
                         .unwrap();

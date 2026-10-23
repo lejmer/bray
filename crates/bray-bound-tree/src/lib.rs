@@ -53,8 +53,8 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, CheckedDependencyContracts,
-    DependencyContractsBuildError,
+    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, CallReportOutput,
+    CheckedDependencyContracts, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
@@ -129,8 +129,8 @@ pub use storage::{
     StorageProjection, StorageProtocolCall, StorageReferencePath, StorageRelationship,
     StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
     StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
-    storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
-    storage_identity_transfers_at_unit_exit,
+    scoped_exit_completes_result, storage_expression_republishes_destructor_receiver,
+    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

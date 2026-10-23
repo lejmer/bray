@@ -19,7 +19,7 @@ impl Lowerer<'_> {
     ) -> Result<bray_ir::MirFrameRetention, LoweringError> {
         let broadcast = self.frame_broadcast(source, occurrence, false)?;
 
-        let initialized = match &self.completion_cleanup {
+        let mut initialized = match &self.completion_cleanup {
             Some(place) => vec![place.storage()],
             None => {
                 let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
@@ -29,6 +29,19 @@ impl Lowerer<'_> {
                 self.retained_storages(suspension.retained_subjects())?
             }
         };
+
+        for outcome in self
+            .pending_reports
+            .iter()
+            .chain(
+                self.catch_targets
+                    .iter()
+                    .filter_map(|catch| catch.reports.as_ref()),
+            )
+            .filter(|_| self.completion_cleanup.is_none())
+        {
+            initialized.extend(outcome.collection().places().map(|place| place.storage()));
+        }
 
         Ok(bray_ir::MirFrameRetention::new(
             broadcast,
@@ -53,6 +66,26 @@ impl Lowerer<'_> {
 
         self.frame_retention(source, occurrence)
             .map(|retention| Some(std::sync::Arc::new(retention)))
+    }
+
+    pub(in crate::lowering) fn lifecycle_retention(
+        &mut self,
+        source: &MirSourceAnchor,
+        invocation: bray_bound_tree::BoundCallResult,
+    ) -> Result<Option<std::sync::Arc<bray_ir::MirFrameRetention>>, LoweringError> {
+        match invocation {
+            bray_bound_tree::BoundCallResult::Immediate(_) => self.cleanup_retention(source),
+            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
+                // The just-published awaited state already owns the exact cleanup retention.
+                Ok(Some(std::sync::Arc::new(
+                    self.frame_states
+                        .last()
+                        .expect("awaited lifecycle call published its continuation")
+                        .retention()
+                        .clone(),
+                )))
+            }
+        }
     }
 
     pub(in crate::lowering) fn frame_completion(
@@ -185,7 +218,10 @@ impl Lowerer<'_> {
             self.set_terminator(
                 entry,
                 Self::retained_source(source),
-                MirTerminatorKind::Return(None),
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
             )?;
 
             return Ok(entry);
@@ -320,7 +356,10 @@ impl Lowerer<'_> {
         self.set_terminator(
             completed,
             Self::retained_source(source),
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
         )?;
 
         // The retained descriptor shares immutable paths with subsequent state entries.

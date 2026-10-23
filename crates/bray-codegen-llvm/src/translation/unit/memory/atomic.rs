@@ -6,7 +6,7 @@ use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 use inkwell::{AtomicRMWBinOp, IntPredicate};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, insert_value, int_value, llvm, pointer_value};
+use super::super::support::{extract_value, int_value, llvm, pointer_value};
 use super::target::llvm_memory_order;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -410,19 +410,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .result_type()
             .expect("checked MIR memory translation requires an established mapping or value");
 
-        let fields = self.aggregate_fields(result_type);
-
-        if fields.len() != 2 {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        }
-
-        let mut decoded = self.types.map(result_type)?.const_zero();
-        let previous_field = self.aggregate_value_element(&fields, 0)?;
-        let succeeded_field = self.aggregate_value_element(&fields, 1)?;
-
-        decoded = insert_value(&self.builder, decoded, previous, previous_field)?;
-
-        insert_value(&self.builder, decoded, succeeded, succeeded_field)
+        self.construct_positional_product(result_type, &[previous, succeeded])
     }
 
     fn atomic_value_is_boolean(&self, value_type: bray_symbols::TypeId) -> bool {

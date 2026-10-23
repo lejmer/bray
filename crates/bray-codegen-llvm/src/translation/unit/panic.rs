@@ -46,6 +46,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
+    pub(super) fn translate_normal_call_report(
+        &mut self,
+        completed: &MirEdge,
+        report: &bray_ir::MirPlace,
+    ) -> Result<(), CodegenFailure> {
+        let context = self
+            .pending_call_panic_report_context
+            .take()
+            .expect("a normal report transfer has its preceding call outcome context");
+
+        let (source, moved_reports) = self.take_control_source()?;
+
+        let destination =
+            self.route_call_completion(completed, Some(report), context, &moved_reports)?;
+
+        self.builder.position_at_end(source);
+        llvm(self.builder.build_unconditional_branch(destination))?;
+
+        Ok(())
+    }
+
     pub(super) fn translate_panic_propagation(
         &mut self,
         report: &MirOperand,
@@ -53,7 +74,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let report = self.operand(report)?;
 
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         self.propagate_failure(NativeRunState::PANICKED, report, runtime)
     }
@@ -64,7 +85,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let report = self.operand(report)?;
 
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         self.propagate_failure(
             NativeRunState::CANCELLED,
@@ -96,7 +117,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 self.request.target(),
                 state,
-                report,
+                None,
+                Some(report),
             )?;
 
             llvm(self.builder.build_store(context, outcome))?;
@@ -115,6 +137,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         block: bray_ir::MirBlockId,
         completed: &MirEdge,
+        completed_report: Option<&bray_ir::MirPlace>,
         panicked: &bray_ir::MirCallFailureEdge,
         cancelled_edge: &bray_ir::MirCallFailureEdge,
     ) -> Result<(), CodegenFailure> {
@@ -170,50 +193,47 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let cancelled = native_run_state_is(
-            &self.builder,
-            state,
-            NativeRunState::CANCELLED,
-            "call.cancelled",
-        )?;
+        let (_, moved_reports) = self.take_control_source()?;
 
-        let function = self
-            .builder
-            .get_insert_block()
-            .and_then(inkwell::basic_block::BasicBlock::get_parent)
-            .expect("checked MIR translation requires an established mapping or value");
+        if !super::edge::empty_unreachable_target(self.unit, cancelled_edge.target()) {
+            let cancelled = native_run_state_is(
+                &self.builder,
+                state,
+                NativeRunState::CANCELLED,
+                "call.cancelled",
+            )?;
 
-        let propagate_cancellation = self
-            .types
-            .context()
-            .append_basic_block(function, "call.propagate_cancellation");
+            let function = self.function;
 
-        let inspect_panic = self
-            .types
-            .context()
-            .append_basic_block(function, "call.inspect_panic");
+            let propagate_cancellation = self
+                .types
+                .context()
+                .append_basic_block(function, "call.propagate_cancellation");
 
-        llvm(self.builder.build_conditional_branch(
-            cancelled,
-            propagate_cancellation,
-            inspect_panic,
-        ))?;
+            let inspect_panic = self
+                .types
+                .context()
+                .append_basic_block(function, "call.inspect_panic");
 
-        self.builder.position_at_end(propagate_cancellation);
+            llvm(self.builder.build_conditional_branch(
+                cancelled,
+                propagate_cancellation,
+                inspect_panic,
+            ))?;
 
-        let (_, pending_moves) = self.take_control_source()?;
+            self.builder.position_at_end(propagate_cancellation);
 
-        let cancellation_route = self.route_call_failure(
-            cancelled_edge,
-            context,
-            NativeRunState::CANCELLED,
-            &pending_moves,
-        )?;
+            let cancellation_route = self.route_call_failure(
+                cancelled_edge,
+                context,
+                NativeRunState::CANCELLED,
+                &moved_reports,
+            )?;
 
-        self.builder.position_at_end(propagate_cancellation);
-        llvm(self.builder.build_unconditional_branch(cancellation_route))?;
-
-        self.builder.position_at_end(inspect_panic);
+            self.builder.position_at_end(propagate_cancellation);
+            llvm(self.builder.build_unconditional_branch(cancellation_route))?;
+            self.builder.position_at_end(inspect_panic);
+        }
 
         let pending = native_run_state_is(
             &self.builder,
@@ -224,10 +244,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (source, _) = self.take_control_source()?;
 
-        let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
+        let completed_route =
+            self.route_call_completion(completed, completed_report, context, &moved_reports)?;
 
         let panicked_route =
-            self.route_call_failure(panicked, context, NativeRunState::PANICKED, &pending_moves)?;
+            self.route_call_failure(panicked, context, NativeRunState::PANICKED, &moved_reports)?;
 
         self.builder.position_at_end(source);
 

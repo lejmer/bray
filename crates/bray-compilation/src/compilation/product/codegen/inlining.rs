@@ -402,12 +402,19 @@ impl Compilation {
                 MirTerminatorKind::Goto(edge) => {
                     self.scalar_edge(body, edge, instance, &mut types, cancellation)?
                 }
-                MirTerminatorKind::Return(value) => match value {
-                    Some(value) => {
-                        self.scalar_operand(body, value, instance, &mut types, cancellation)?
-                    }
-                    None => true,
-                },
+                MirTerminatorKind::Return { value, report } => {
+                    report.is_none()
+                        && match value {
+                            Some(value) => self.scalar_operand(
+                                body,
+                                value,
+                                instance,
+                                &mut types,
+                                cancellation,
+                            )?,
+                            None => true,
+                        }
+                }
                 MirTerminatorKind::Branch {
                     condition,
                     then_edge,

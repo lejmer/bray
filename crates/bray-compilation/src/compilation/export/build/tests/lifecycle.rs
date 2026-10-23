@@ -1717,3 +1717,234 @@ fn imported_generic_destructor_tails_retain_their_execution_context() {
         }
     }
 }
+
+#[test]
+fn imported_scoped_calls_enforce_requirements_on_the_entered_capability() {
+    for (enter_contract, exit_contract, body, valid) in [
+        ("", "", "example.package.api.observe(&lease);", false),
+        (
+            "ensures(trusted live(&result))",
+            "",
+            "example.package.api.observe(&lease);",
+            true,
+        ),
+        ("", "requires(trusted live(&lease))", "", false),
+        (
+            "ensures(trusted live(&result))",
+            "requires(trusted live(&lease))",
+            "",
+            true,
+        ),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            trusted module api;
+            struct Resource {{}}
+            struct Lease {{ tag: bool; }}
+            trusted predicate live(value: &Lease);
+            impl Resource
+            {{
+                trusted enter() -> Lease {enter_contract}
+                {{
+                    return {{ tag = true }};
+                }}
+
+                exit(pos lease: Lease) {exit_contract} {{}}
+            }}
+            func observe(pos value: &Lease) requires(trusted live(value)) {{}}
+            "#,
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+                module app;
+                using example.package.api;
+                func caller(pos resource: example.package.api.Resource)
+                {{
+                    with lease = resource {{ {body} }};
+                }}
+                "#,
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{diagnostics:?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_scoped_exit_must_explicitly_transfer_trusted_authority() {
+    for (exit_contract, valid) in [("", false), ("ensures(trusted live(lease.tag))", true)] {
+        let provider = compilation(&format!(
+            r#"
+            trusted module api;
+            struct Resource {{ tag: bool; }}
+            struct Lease {{ tag: bool; }}
+            trusted predicate live(value: bool);
+            impl Resource
+            {{
+                trusted enter() -> Lease
+                    ensures(result.tag == self.tag, trusted live(result.tag))
+                    executes(pure)
+                {{
+                    return {{ tag = self.tag }};
+                }}
+
+                trusted exit(pos lease: Lease) {exit_contract} executes(pure) {{}}
+            }}
+            func observe(pos value: bool) requires(trusted live(value)) executes(pure) {{}}
+            "#,
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func caller(pos resource: &example.package.api.Resource)
+            {
+                with lease = resource
+                {
+                    let copied = lease.tag;
+                    let _ = copied;
+                };
+
+                example.package.api.observe(resource.tag);
+            }
+            "#,
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{exit_contract}: {diagnostics:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_scoped_exit_retains_its_owned_error_quiescence() {
+    for execution in ["", "async "] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            async func pending() {{}}
+            struct Failure {{ child: Future<unit>; }}
+            struct Resource {{}}
+            impl Resource
+            {{
+                enter() -> bool {{ return true; }}
+                {execution}exit(pos lease: bool) -> Result<unit, Failure>
+                {{
+                    return Error(Failure {{ child = pending() }});
+                }}
+            }}
+            "#,
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            async func caller(pos resource: example.package.api.Resource)
+                -> Result<unit, example.package.api.Failure>
+            {
+                let _ = with lease = resource { return Ok(unit); };
+
+                return Ok(unit);
+            }
+            "#,
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{execution}: {diagnostics:?}");
+
+        let key = source_function_body_key(&consumer, "caller");
+        let lowered = consumer.lowered_unit(key).unwrap();
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let mut retained = 0;
+
+        for operation in mir.operations() {
+            if let MirOperationKind::Quiesce { collection, .. } = operation.kind() {
+                assert!(collection.as_ref().unwrap().retention().is_some());
+
+                retained += 1;
+            }
+        }
+
+        assert!(
+            retained > 0,
+            "imported scoped error retains its continuation"
+        );
+    }
+}
+
+#[test]
+fn inactive_scoped_protocols_do_not_require_whole_value_cleanup() {
+    let declarations = r#"
+        module api;
+        struct Value
+        {
+            number: i32;
+        }
+        struct Resource
+        {
+            value: Value;
+            enter() -> bool
+            {
+                return true;
+            }
+            exit(pos lease: bool) {}
+        }
+    "#;
+
+    let provider = compilation(declarations);
+
+    let source = compilation(&format!(
+        r#"{declarations}
+        func extract(pos resource: Resource) -> Value
+        {{
+            return resource.value;
+        }}
+        "#
+    ));
+
+    let imported = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        func extract(pos resource: example.package.api.Resource) -> example.package.api.Value
+        {
+            return resource.value;
+        }
+        "#,
+    );
+
+    for compilation in [&source, &imported] {
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}

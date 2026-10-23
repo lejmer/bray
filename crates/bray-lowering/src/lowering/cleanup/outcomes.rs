@@ -5,7 +5,7 @@ use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, StorageAccessId};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
-    MirSourceAnchor, MirSwitchCase, MirTerminatorKind,
+    MirSourceAnchor, MirStorageKind, MirSwitchCase, MirTerminatorKind,
 };
 use bray_symbols::ConstantValueId;
 
@@ -55,7 +55,13 @@ struct AbnormalCleanupRoute {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum AbnormalCleanupStep {
+struct AbnormalCleanupStep {
+    occurrence: Option<bray_bound_tree::BoundExecutionSite>,
+    operation: AbnormalCleanupOperation,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum AbnormalCleanupOperation {
     ScopedExit(bray_bound_tree::BoundExpressionId),
     Place {
         place: bray_ir::MirPlace,
@@ -65,12 +71,8 @@ enum AbnormalCleanupStep {
         access: StorageAccessId,
         place: bray_ir::MirPlace,
         completed: bool,
-        exit: AnyBoundNodeId,
     },
-    Temporary {
-        temporary: InputTemporary,
-        exit: Option<AnyBoundNodeId>,
-    },
+    Temporary(InputTemporary),
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -89,9 +91,8 @@ impl Lowerer<'_> {
         CleanupOutcome::state_constants(self.input.semantic_values(), ty).map_err(Into::into)
     }
 
-    pub(in crate::lowering) fn create_cleanup_outcome(
+    pub(in crate::lowering) fn allocate_cleanup_outcome(
         &mut self,
-        block: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<CleanupOutcome, LoweringError> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
@@ -99,23 +100,36 @@ impl Lowerer<'_> {
         let unit = self.representation_type(RepresentationRole::Unit)?;
         let states = self.cleanup_state_constants()?;
 
-        CleanupOutcome::new(
+        CleanupOutcome::allocate(
             &mut self.builder,
-            block,
             source,
             boolean,
             report,
             unit,
             self.input.target().runtime_abi(),
             states,
+            MirStorageKind::Temporary,
         )
         .map_err(Into::into)
+    }
+
+    pub(in crate::lowering) fn create_cleanup_outcome(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<CleanupOutcome, LoweringError> {
+        let outcome = self.allocate_cleanup_outcome(source)?;
+
+        outcome.begin(&mut self.builder, block, source)?;
+
+        Ok(outcome)
     }
 
     pub(in crate::lowering) fn suspension_cleanup_edge(
         &mut self,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
+        retention: bray_ir::MirFrameRetention,
     ) -> Result<MirCleanupEdge, LoweringError> {
         let plans = self.cleanup_plans(0, exit);
 
@@ -124,9 +138,18 @@ impl Lowerer<'_> {
             MirBlockKind::CleanupBroadcast,
         )?;
 
-        let outcome = self.create_cleanup_outcome(broadcast, source)?;
+        let outcome = self
+            .create_cleanup_outcome(broadcast, source)?
+            .with_retention(Some(Arc::new(retention)));
 
-        outcome.initialize_cancellation(&mut self.builder, broadcast, source, None)?;
+        let broadcast = self.seed_pending_failure(
+            &outcome,
+            broadcast,
+            source,
+            CleanupFailure::Cancellation(None),
+            CleanupDestination::PropagateCancellation,
+        )?;
+
         self.cleanup_outcome = Some(outcome);
 
         let lifecycle = self.resolve_cleanup(
@@ -202,19 +225,8 @@ impl Lowerer<'_> {
 
         machine.outcome.begin(&mut self.builder, current, source)?;
 
-        match failure {
-            CleanupFailure::Panic(report) => {
-                machine
-                    .outcome
-                    .initialize_panic(&mut self.builder, current, source, report)?
-            }
-            CleanupFailure::Cancellation(report) => machine.outcome.initialize_cancellation(
-                &mut self.builder,
-                current,
-                source,
-                report,
-            )?,
-        }
+        let current =
+            self.seed_pending_failure(&machine.outcome, current, source, failure, destination)?;
 
         let temporaries = self.input_cleanup(input_exit);
 
@@ -444,10 +456,18 @@ impl Lowerer<'_> {
     ) -> Result<Vec<AbnormalCleanupStep>, LoweringError> {
         let mut steps = Vec::new();
 
+        let occurrence = plans
+            .last()
+            .map(|plan| bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()))
+            .or(self.cleanup_occurrence);
+
         if let Some(place) = abandoned {
-            steps.push(AbnormalCleanupStep::Place {
-                place: place.clone(),
-                source: Self::retained_source(source),
+            steps.push(AbnormalCleanupStep {
+                occurrence,
+                operation: AbnormalCleanupOperation::Place {
+                    place: place.clone(),
+                    source: Self::retained_source(source),
+                },
             });
         }
 
@@ -457,7 +477,10 @@ impl Lowerer<'_> {
             if phase == MirCleanupPhase::LifecycleResolution
                 && let Some(expression) = plan.scoped_exit()
             {
-                steps.push(AbnormalCleanupStep::ScopedExit(expression));
+                steps.push(AbnormalCleanupStep {
+                    occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
+                    operation: AbnormalCleanupOperation::ScopedExit(expression),
+                });
             }
 
             let depth = self
@@ -477,29 +500,25 @@ impl Lowerer<'_> {
                 &mut temporaries,
                 phase,
                 depth,
-                Some(plan.exit()),
+                Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
             );
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
-                steps.push(AbnormalCleanupStep::Access {
-                    access: *access,
-                    place: self.place_for_access(*access, false)?,
-                    completed: self.input.finalizer_is_complete(plan.exit(), *access),
-                    exit: plan.exit(),
+                steps.push(AbnormalCleanupStep {
+                    occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
+                    operation: AbnormalCleanupOperation::Access {
+                        access: *access,
+                        place: self.place_for_access(*access, false)?,
+                        completed: self.input.finalizer_is_complete(plan.exit(), *access),
+                    },
                 });
             }
         }
 
-        Self::push_abnormal_temporary_steps(
-            &mut steps,
-            &mut temporaries,
-            phase,
-            0,
-            plans.last().map(AsyncScopeExitPlan::exit),
-        );
+        Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, 0, occurrence);
 
         Ok(steps)
     }
@@ -509,7 +528,7 @@ impl Lowerer<'_> {
         temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
         phase: MirCleanupPhase,
         scope_depth: usize,
-        exit: Option<AnyBoundNodeId>,
+        occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         loop {
             let Some(temporary) =
@@ -519,9 +538,9 @@ impl Lowerer<'_> {
             };
 
             if temporary.requires_cleanup(phase) {
-                steps.push(AbnormalCleanupStep::Temporary {
-                    temporary: temporary.clone(),
-                    exit,
+                steps.push(AbnormalCleanupStep {
+                    occurrence,
+                    operation: AbnormalCleanupOperation::Temporary(temporary.clone()),
                 });
             }
         }
@@ -557,11 +576,13 @@ impl Lowerer<'_> {
 
             self.cleanup_outcome = Some(machine.outcome.clone());
 
-            let end = match &step {
-                AbnormalCleanupStep::ScopedExit(expression) => {
+            let previous = std::mem::replace(&mut self.cleanup_occurrence, step.occurrence);
+
+            let end = match &step.operation {
+                AbnormalCleanupOperation::ScopedExit(expression) => {
                     self.push_scope_exit(entry, source, *expression, None, None)?
                 }
-                AbnormalCleanupStep::Place {
+                AbnormalCleanupOperation::Place {
                     place,
                     source: cleanup_source,
                 } => {
@@ -577,16 +598,11 @@ impl Lowerer<'_> {
                     )?
                     .0
                 }
-                AbnormalCleanupStep::Access {
+                AbnormalCleanupOperation::Access {
                     access,
                     place,
                     completed,
-                    exit,
                 } => {
-                    let previous = self
-                        .cleanup_occurrence
-                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
-
                     let result = self.push_cleanup_place(
                         entry,
                         source,
@@ -597,25 +613,14 @@ impl Lowerer<'_> {
                         None,
                     )?;
 
-                    self.cleanup_occurrence = previous;
-
                     result.0
                 }
-                AbnormalCleanupStep::Temporary { temporary, exit } => {
-                    let previous = self.cleanup_occurrence;
-
-                    self.cleanup_occurrence = exit
-                        .map(bray_bound_tree::BoundExecutionSite::Cleanup)
-                        .or(previous);
-
-                    let end = self.push_input_cleanup_temporary(entry, phase, temporary)?;
-
-                    self.cleanup_occurrence = previous;
-
-                    end
+                AbnormalCleanupOperation::Temporary(temporary) => {
+                    self.push_input_cleanup_temporary(entry, phase, temporary)?
                 }
             };
 
+            self.cleanup_occurrence = previous;
             self.cleanup_outcome = None;
 
             self.set_terminator(

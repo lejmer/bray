@@ -6,7 +6,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::{insert_value, int_value, llvm};
+use super::super::support::{int_value, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_layout_query(
@@ -234,37 +234,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(field.ty())
     }
 
-    pub(super) fn construct_positional_product(
-        &mut self,
-        ty: bray_symbols::TypeId,
-        values: &[BasicValueEnum<'context>],
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let fields = self
-            .type_mapping(ty)
-            .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Aggregate(fields) => Some(fields.clone()),
-                _ => None,
-            })
-            .expect("checked MIR memory translation requires an established mapping or value");
-
-        if fields.len() != values.len() {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        }
-
-        let mut result = self.types.map(ty)?.const_zero();
-
-        for (index, value) in values.iter().copied().enumerate() {
-            result = insert_value(
-                &self.builder,
-                result,
-                value,
-                self.aggregate_value_element(&fields, index)?,
-            )?;
-        }
-
-        Ok(result)
-    }
-
     fn construct_positional_union(
         &mut self,
         ty: bray_symbols::TypeId,
@@ -296,12 +265,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         for (field, value) in variant.fields().iter().zip(values.iter().copied()) {
             let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;
 
-            llvm(self.builder.build_store(destination, value))?;
+            self.store_value(destination, value, field.ty())?;
         }
 
-        llvm(
-            self.builder
-                .build_load(llvm_type, storage, "memory.union.value"),
-        )
+        self.place_value(storage, ty, "memory.union.value")
     }
 }

@@ -356,7 +356,14 @@ mod tests {
             panic!("test MIR block must be valid");
         };
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let result_type = crate::test_support::test_type();
         let abi = RuntimeAbiVersion::new(1, 0);

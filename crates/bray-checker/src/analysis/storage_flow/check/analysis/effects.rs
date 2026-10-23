@@ -42,24 +42,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return state.memory.deferred_effects(source);
         }
 
-        if let Some(bray_bound_tree::SemanticSelection::Operation(operation)) = invocation
-            .expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression))
+        if !self.dependencies.calls().contains_key(&invocation)
+            && invocation.expression().is_some_and(|expression| {
+                matches!(
+                    self.execution.semantics.selections().expression(expression),
+                    Some(bray_bound_tree::SemanticSelection::Operation(_))
+                )
+            })
         {
-            // The graph also splits fallible built-ins and construction into attempt
-            // and completion. Only selected calls or defaults can add opaque effects.
-            // Operand transfers and destination writes have their own storage operations.
-            let mut calls = Vec::new();
-            let mut defaults = Vec::new();
-
-            let resolved = crate::behavior::collect_operation_behavior(
-                operation,
-                None,
-                &mut calls,
-                &mut defaults,
-            );
-
-            return (resolved && calls.is_empty() && defaults.is_empty()).then(Vec::new);
+            // Source-free operations have no invocation contract. Their operand
+            // transfers and destination writes have separate storage operations.
+            return Some(Vec::new());
         }
 
         self.prepare_call_references(state, invocation);
@@ -422,18 +415,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if let Some(effect) = effect {
-            let effect = if effect == DependencyStorageEffect::Unknown
-                && kind == DependencyMutationKind::Atomic
-            {
-                DependencyStorageEffect::Atomic
-            } else {
-                effect
-            };
-
-            let effect = if effect == DependencyStorageEffect::Unknown
-                && kind == DependencyMutationKind::Escape
-            {
-                DependencyStorageEffect::Escape
+            let effect = if effect == DependencyStorageEffect::Unknown {
+                DependencyStorageEffect::unresolved(kind)
             } else {
                 effect
             };

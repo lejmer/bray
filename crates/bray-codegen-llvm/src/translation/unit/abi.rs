@@ -9,11 +9,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn encode_abi_pieces(
         &mut self,
         value: BasicValueEnum<'context>,
+        ty: TypeId,
         coercion: &CodegenAggregateCoercion,
     ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
-        let storage = self.allocate_temporary(value.get_type(), "abi.value")?;
+        let storage = if self.types.is_address_value(ty)? {
+            super::support::pointer_value(value).expect("ABI aggregate has its storage carrier")
+        } else {
+            let storage = self.allocate_temporary(value.get_type(), "abi.value")?;
 
-        llvm(self.builder.build_store(storage, value))?;
+            llvm(self.builder.build_store(storage, value))?;
+
+            storage
+        };
 
         coercion
             .pieces()
@@ -46,10 +53,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "ABI register pieces match their mapping"
         );
 
-        let ty = self.types.map(ty)?;
-        let storage = self.allocate_temporary(ty, "abi.value")?;
+        let mapped = self.types.map(ty)?;
+        let storage = self.allocate_temporary(mapped, "abi.value")?;
 
-        llvm(self.builder.build_store(storage, ty.const_zero()))?;
+        llvm(self.builder.build_store(storage, mapped.const_zero()))?;
 
         for (piece, value) in coercion.pieces().iter().zip(pieces) {
             let pointer = self.constant_offset_pointer(storage, piece.offset_bytes)?;
@@ -59,15 +66,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .map_err(CodegenFailure::unsupported_target_report)?;
         }
 
-        llvm(self.builder.build_load(ty, storage, "abi.semantic.value"))
+        self.place_value(storage, ty, "abi.semantic.value")
     }
 
     pub(super) fn encode_abi_result(
         &mut self,
         value: BasicValueEnum<'context>,
+        ty: TypeId,
         coercion: &CodegenAggregateCoercion,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let pieces = self.encode_abi_pieces(value, coercion)?;
+        let pieces = self.encode_abi_pieces(value, ty, coercion)?;
 
         if pieces.len() == 1 {
             return Ok(pieces[0]);

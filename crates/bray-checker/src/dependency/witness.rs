@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundCallableTarget, SelectedArgument, SelectedCall};
+use bray_bound_tree::{SelectedArgument, SelectedCall};
 use bray_symbols::{
     DependencyCallInput, DependencyContractTemplateData, DependencyContractTemplateId,
     DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
@@ -12,34 +12,46 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
-    let BoundCallableTarget::Declaration(instance) = call.target() else {
+    let Some(instance) = super::returned::declaration_source(call) else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in deferred_result"
         );
     };
 
-    let callable = request
-        .semantic_values()
-        .intern_callable_instance(instance).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in deferred_result: {error:?}"));
+    let roots = input_roots(call);
 
-    Ok(DependencyContractTemplateData::new([
-        DependencyRequirement::result_call(callable, requirement, call_inputs(call)),
-    ]))
+    let body = call
+        .phase_behaviors()
+        .deferred_execution()
+        .unwrap_or(call.phase_behaviors().invocation());
+
+    deferred_outputs(
+        request,
+        instance,
+        requirement,
+        roots,
+        call.invocation() != bray_symbols::CallableInvocation::Native,
+        !body
+            .execution_properties()
+            .contains(&bray_symbols::ExecutionProperty::Pure),
+    )
 }
 
-fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
-    let roots = call
-        .arguments()
-        .iter()
-        .map(|argument| match argument {
-            SelectedArgument::Explicit { ordinal, .. }
-            | SelectedArgument::Default { ordinal, .. } => {
-                DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))
-            }
-        })
-        .chain(call.receiver().map(|_| DependencySubjectRoot::Receiver));
+pub(in crate::dependency) fn deferred_outputs<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    instance: bray_symbols::CallableInstanceData,
+    requirement: Option<bray_symbols::ImplementationRequirementKey>,
+    roots: impl IntoIterator<Item = DependencySubjectRoot>,
+    publishes_reports: bool,
+    normal_reports: bool,
+) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
+    let callable = request
+        .semantic_values()
+        .intern_callable_instance(instance)
+        .expect("selected callable belongs to the current semantic store");
 
-    roots
+    let inputs = roots
+        .into_iter()
         .map(|root| {
             DependencyCallInput::new(
                 root,
@@ -53,7 +65,46 @@ fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
                 )],
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let mut template = DependencyContractTemplateData::new([DependencyRequirement::result_call(
+        callable,
+        requirement,
+        inputs.iter().cloned(),
+        bray_symbols::DependencyCallOutput::Value,
+    )]);
+
+    if publishes_reports {
+        template = template.with_abnormal_reports([DependencyRequirement::result_call(
+            callable,
+            requirement,
+            inputs.iter().cloned(),
+            bray_symbols::DependencyCallOutput::AbnormalReport,
+        )]);
+
+        if normal_reports {
+            template = template.with_completion_reports([DependencyRequirement::result_call(
+                callable,
+                requirement,
+                inputs,
+                bray_symbols::DependencyCallOutput::CompletionReport,
+            )]);
+        }
+    }
+
+    Ok(template)
+}
+
+fn input_roots(call: &SelectedCall) -> impl Iterator<Item = DependencySubjectRoot> + '_ {
+    call.arguments()
+        .iter()
+        .map(|argument| match argument {
+            SelectedArgument::Explicit { ordinal, .. }
+            | SelectedArgument::Default { ordinal, .. } => {
+                DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal))
+            }
+        })
+        .chain(call.receiver().map(|_| DependencySubjectRoot::Receiver))
 }
 
 pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
@@ -64,9 +115,9 @@ pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
     let values = request.semantic_values();
 
     let template = values
-        .substitute_dependency_contract(template, key.0.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}"));
+        .substitute_dependency_contract(template, key.callable.substitution()).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}"));
 
-    let template = match key.1 {
+    let template = match key.contextual_self {
         Some((context, subject)) => values
             .substitute_contextual_self_in_dependency_contract(template, context, subject).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in instantiate_template: {error:?}")),
         None => template,
@@ -123,7 +174,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
         &mut self,
         key: super::parameters::ResultKey,
     ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let (selected, contextual_self) = key;
+        let selected = key;
 
         let key = self.parameters.key(self.request, key)?;
 
@@ -134,13 +185,13 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let request = self.request;
 
-        let template =
-            request.callable_result_dependencies(selected.definition().callable_symbol())?;
+        let template = request
+            .callable_result_dependencies(selected.callable.definition().callable_symbol())?;
 
-        let template = instantiate_template(request, template, (selected, contextual_self))?;
+        let template = instantiate_template(request, template, selected)?;
 
-        let result =
-            DependencyContractTemplateData::new(self.requirements(template.requirements())?);
+        let requirements = template.output_requirements(key.output);
+        let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
 
         self.active.remove(&key);
 
@@ -291,6 +342,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                     result.extend(self.variable(*depth, *ordinal)?)
                 }
                 DependencyRequirement::ResultCall {
+                    output,
                     callable,
                     requirement,
                     inputs,
@@ -306,7 +358,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                                 continue;
                             };
 
-                            (selected, Some((context, requirement.subject())))
+                            super::parameters::ResultKey {
+                                callable: selected,
+                                contextual_self: Some((context, requirement.subject())),
+                                output: *output,
+                            }
                         }
                         None => {
                             let selected =
@@ -320,7 +376,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                                 continue;
                             }
 
-                            (*selected, None)
+                            super::parameters::ResultKey {
+                                callable: *selected,
+                                contextual_self: None,
+                                output: *output,
+                            }
                         }
                     };
 
@@ -367,7 +427,7 @@ fn map_call_inputs(
     })
 }
 
-pub(super) fn map_requirements(
+pub(crate) fn map_requirements(
     requirements: &[DependencyRequirement],
     map: &mut impl FnMut(
         &DependencySubject,
@@ -376,6 +436,13 @@ pub(super) fn map_requirements(
         -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError>,
 ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
     super::equations::map_requirements(requirements, 0, &mut |requirement, depth| {
+        if let DependencyRequirement::Guarded(guarded) = requirement {
+            // Value dependencies do not prove that the caller's current storage
+            // has the callee's entry discriminant. Retain the possible dependency
+            // without exporting that unproved condition into the caller's roots.
+            return Some(map_requirements(guarded.requirements(), map));
+        }
+
         let DependencyRequirement::Direct { subject, kind } = requirement else {
             return None;
         };

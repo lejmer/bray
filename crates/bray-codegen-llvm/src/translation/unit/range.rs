@@ -87,10 +87,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let element: BasicValueEnum<'context> = start.into();
 
-        let (source, pending_moves) = self.take_control_source()?;
+        let (source, moved_reports) = self.take_control_source()?;
 
-        let item_route = self.route_target(item, "range.item", &pending_moves)?;
-        let exhausted_route = self.route_edge(exhausted, "range.exhausted", &pending_moves)?;
+        let item_route = self.route_target(item, "range.item", &moved_reports)?;
+        let exhausted_route = self.route_edge(exhausted, "range.exhausted", &moved_reports)?;
 
         phi.add_incoming(&[(&element, item_route)]);
         self.builder.position_at_end(source);

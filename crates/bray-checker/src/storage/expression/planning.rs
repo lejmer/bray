@@ -132,13 +132,11 @@ where
                     .iter()
                     .map(bray_bound_tree::BoundArgument::expression),
             )?,
+            BoundExpression::Conversion(expression) => {
+                self.plan_transferred_operand(id, expression.operand())?
+            }
             BoundExpression::Await(expression) => {
-                self.plan_expression(
-                    expression.operand(),
-                    Some(StorageAccessPurpose::ValueTransfer),
-                )?;
-
-                self.temporary_access(id)?
+                self.plan_transferred_operand(id, expression.operand())?
             }
             BoundExpression::For(expression) => {
                 let source = self.plan_expression(expression.source(), None)?;
@@ -259,6 +257,16 @@ where
         Ok(access)
     }
 
+    fn plan_transferred_operand(
+        &mut self,
+        expression: BoundExpressionId,
+        operand: BoundExpressionId,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
+        self.temporary_access(expression)
+    }
+
     fn is_compile_time_qualifier(
         &self,
         expression: BoundExpressionId,
@@ -283,7 +291,7 @@ where
         let purpose = self.operator_operand_purpose(id);
 
         for operand in operands {
-            self.plan_expression(*operand, Some(purpose))?;
+            self.plan_invocation_input((*operand).into(), *operand, purpose)?;
         }
 
         self.temporary_access(id)
@@ -307,14 +315,17 @@ where
         if operator.binary_operator().is_some() {
             let purpose = self.operator_operand_purpose(id);
 
-            self.record_purpose(*destination, Some(purpose), destination_access)?;
+            self.plan_invocation_input((*destination).into(), *destination, purpose)?;
         }
 
-        self.record_purpose(
-            *destination,
-            Some(StorageAccessPurpose::Write),
-            destination_access,
-        )?;
+        self.builder_mut()
+            .plan_access(
+                id.into(),
+                *destination,
+                StorageAccessPurpose::Write,
+                destination_access,
+            )
+            .expect("assignment checks its destination after evaluating the replacement");
 
         self.record_purpose(
             id,
@@ -329,7 +340,7 @@ where
         };
 
         for value in values {
-            self.plan_expression(*value, Some(value_purpose))?;
+            self.plan_invocation_input((*value).into(), *value, value_purpose)?;
         }
 
         self.temporary_access(id)
@@ -500,71 +511,6 @@ where
         }
     }
 
-    fn plan_scoped_use(
-        &mut self,
-        id: BoundExpressionId,
-        expression: &bray_bound_tree::BoundStructuredExpression,
-    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let ([initializer], [pattern], [body]) = (
-            expression.operands(),
-            expression.patterns(),
-            expression.blocks(),
-        ) else {
-            panic!("with occurrence {id:?} retains its initializer, pattern and body");
-        };
-
-        let Some(SemanticSelection::ScopedUse(scoped)) = self.selections.expression(id) else {
-            self.plan_expression(*initializer, Some(StorageAccessPurpose::Read))?;
-            self.plan_block(*body)?;
-
-            return self.recovery_access(id);
-        };
-
-        let receiver = scoped
-            .enter()
-            .1
-            .receiver()
-            .expect("selected enter has a receiver");
-
-        let capability_type = scoped.capability_type();
-
-        self.plan_receiver(
-            bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-            *initializer,
-            receiver.mode(),
-        )?;
-
-        let capability = self.protocol_access(
-            id,
-            StorageIdentity::ScopedCapability {
-                expression: id,
-                pattern: *pattern,
-            },
-            capability_type,
-        )?;
-
-        self.builder_mut()
-            .plan_access(
-                (*pattern).into(),
-                id,
-                StorageAccessPurpose::Initialize,
-                capability,
-            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
-
-        self.builder_mut()
-            .plan_occurrence_access(
-                bray_bound_tree::BoundExecutionSite::ScopedExit(id),
-                id,
-                StorageAccessPurpose::ValueTransfer,
-                capability,
-            ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
-
-        self.plan_pattern(*pattern, id, capability)?;
-        self.plan_block(*body)?;
-
-        self.temporary_access(id)
-    }
-
     fn plan_iteration_storage(
         &mut self,
         expression: BoundExpressionId,
@@ -613,10 +559,15 @@ where
         let custom_borrow_kind = target.and_then(IndexTarget::custom_borrow_kind);
         let custom = custom_borrow_kind.is_some();
 
-        let receiver_access = self.plan_expression(
-            receiver,
-            custom_borrow_kind.map(StorageAccessPurpose::Borrow),
-        )?;
+        let receiver_access = if let Some(kind) = custom_borrow_kind {
+            self.plan_invocation_input(
+                receiver.into(),
+                receiver,
+                StorageAccessPurpose::Borrow(kind),
+            )?
+        } else {
+            self.plan_expression(receiver, None)?
+        };
 
         for selector in &operands[1..] {
             let purpose = match (kind, custom) {
@@ -629,7 +580,7 @@ where
                 _ => StorageAccessPurpose::Read,
             };
 
-            self.plan_expression(*selector, Some(purpose))?;
+            self.plan_invocation_input((*selector).into(), *selector, purpose)?;
         }
 
         let (projection, purpose) = match kind {

@@ -1319,7 +1319,14 @@ mod tests {
             panic!("test protected-frame block must validate");
         };
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         let state = MirFrameState::new(
             MirFrameStateId::new(0),

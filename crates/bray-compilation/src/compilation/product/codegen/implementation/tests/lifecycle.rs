@@ -1,10 +1,11 @@
-use super::support::artifacts::generated_artifacts;
+use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind_with_options};
 use super::support::runtime::{
     runtime_native_plan, runtime_native_plan_for_product,
     runtime_native_plan_for_sources_target_with_platform_overrides,
 };
 use crate::SelectedTarget;
 
+use bray_codegen::{BackendArtifactKind, OptimizationLevel};
 use bray_ir::{MirOperationKind, MirTerminatorKind, MirUnitKey};
 use bray_symbols::ProductKind;
 
@@ -485,4 +486,197 @@ fn source_destructor_parts_reuse_the_owner_cleanup_continuation() {
 
         assert!(!generated_artifacts(&backend, &plan).is_empty());
     }
+}
+
+#[test]
+fn awaited_owners_retain_cleanup_before_the_enclosing_expression_accepts_them() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        async func pending() {}
+        struct Failure
+        {
+            child: Future<unit>;
+        }
+        async func produce() -> Result<i32, Failure>
+        {
+            return Error(Failure { child = pending() });
+        }
+        async func main()
+        {
+            let outcome: Result<i32, Failure> = if true
+            {
+                yield await produce();
+            }
+            else
+            {
+                yield Ok(0);
+            };
+
+            match consume outcome
+            {
+                case Ok(_) {}
+                case Error(_) {}
+            }
+        }
+        "#,
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
+    for execution in ["", "async "] {
+        for entry_execution in ["", "async "] {
+            for (entry_type, entry_value) in [
+                ("Capability", "capability"),
+                ("Result<Capability, Failure>", "Ok(capability)"),
+            ] {
+                for body in ["panic(\"\");", "yield unit;"] {
+                    let entry_await = if entry_execution.is_empty() {
+                        ""
+                    } else {
+                        "await pending();"
+                    };
+
+                    let source = format!(
+                        r#"
+            module app;
+            static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+            async func pending() {{}}
+            @layout(stable, align = 2048)
+            struct Failure
+            {{
+                marker: usize;
+                child: Future<unit>;
+                finalize() {{}}
+                destruct()
+                {{
+                    assert(self.marker == 619);
+                }}
+            }}
+            struct Capability
+            {{
+                outcome: Result<unit, Failure>;
+            }}
+            struct Resource
+            {{
+                capability: {entry_type};
+                {entry_execution}consume enter() -> {entry_type}
+                {{
+                    {entry_await}
+                    core.atomic.fetch_add<usize, 0>(&COUNT, value = 1);
+                    return self.capability;
+                }}
+                {execution}exit(pos lease: Capability) -> Result<unit, Failure>
+                {{
+                    return lease.outcome;
+                }}
+            }}
+            async func main()
+            {{
+                let _ = catch
+                {{
+                    let capability = Capability
+                    {{
+                        outcome = Error(Failure {{ marker = 619, child = pending() }})
+                    }};
+                    let resource = Resource {{ capability = {entry_value} }};
+                    let _ = with lease = resource
+                    {{
+                        {body}
+                    }};
+
+                    yield unit;
+                }};
+            }}
+            "#,
+                    );
+
+                    let (_, plan) = runtime_native_plan(&source);
+
+                    for instance in plan.units().iter().flat_map(|unit| unit.instances()) {
+                        for operation in instance.mir().operations() {
+                            let call = match operation.kind() {
+                                MirOperationKind::Call(call)
+                                | MirOperationKind::Async(
+                                    bray_ir::MirAsyncOperation::CreateFrame {
+                                        initializer: bray_ir::MirFrameInitializer::Callable(call),
+                                        ..
+                                    },
+                                ) => call,
+                                _ => continue,
+                            };
+
+                            let bray_ir::MirCallTarget::Direct(reference) = call.target() else {
+                                continue;
+                            };
+
+                            if reference.instance().definition().callable_symbol().kind()
+                                != bray_symbols::SymbolKind::ScopeExit
+                            {
+                                continue;
+                            }
+
+                            assert!(instance.mir().operations().iter().any(|operation| matches!(
+                                operation.kind(),
+                                MirOperationKind::AdmitOutgoing {
+                                    owner: bray_ir::MirOutgoingOwner::Invocation { callable, result }, ..
+                                } if callable == reference && *result == call.result()
+                            )), "selected exit owns admission before it can run");
+                        }
+                    }
+
+                    assert!(
+                        !plan.units().is_empty(),
+                        "{execution}, {entry_execution}, {entry_type}, {body}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn moving_aligned_union_values_does_not_clear_dead_payload_bytes() {
+    let (backend, plan) = runtime_native_plan_for_product(
+        r#"
+        module app;
+        @layout(stable, align = 2048)
+        struct Payload
+        {
+            marker: usize;
+        }
+        func transfer(pos value: Result<unit, Payload>) -> Result<unit, Payload>
+        {
+            return value;
+        }
+        "#,
+        ProductKind::Library,
+    );
+
+    let options = plan.options().with_optimization(OptimizationLevel::None);
+
+    let artifacts = generated_artifacts_of_kind_with_options(
+        &backend,
+        &plan,
+        BackendArtifactKind::BackendIr,
+        &options,
+    );
+
+    let text = artifacts
+        .iter()
+        .map(|bytes| String::from_utf8_lossy(bytes))
+        .collect::<String>();
+
+    assert!(text.contains("@llvm.memmove"), "{text}");
+    assert!(!text.contains("load %bray.union."), "{text}");
+
+    assert!(
+        !text.lines().any(|line| {
+            line.trim_start().starts_with("store %bray.union.") && line.contains("zeroinitializer")
+        }),
+        "{text}"
+    );
 }

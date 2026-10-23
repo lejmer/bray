@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::prepare::project;
 use crate::CheckerRequestContext;
 
 use crate::analysis::storage_flow::memory::Place;
@@ -241,6 +240,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         for (site, contracts) in dependencies.calls() {
             for subject in contracts.reference_subjects() {
                 let Some(argument) = super::invocation::invocation_argument(
+                    request.view(),
                     selections,
                     *site,
                     subject.subject_root(),
@@ -252,9 +252,20 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     continue;
                 };
 
-                if let Some(path) = project(request, base.clone(), subject.projections())? {
-                    paths.insert(path);
-                }
+                let path = contracts
+                    .reference_path(subject)
+                    .expect("reference subject retains its prepared path");
+
+                let mut place = base.clone();
+
+                place.projections = base
+                    .projections
+                    .iter()
+                    .copied()
+                    .chain(path.projections().iter().copied())
+                    .collect();
+
+                paths.insert(place);
             }
         }
 

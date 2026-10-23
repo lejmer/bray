@@ -82,6 +82,7 @@ impl Lowerer<'_> {
             &awaited.value.expect("await publishes its completion value"),
             completion,
             None,
+            true,
         )?;
 
         // Take the child's outcome before observing a new cancellation request.
@@ -90,12 +91,13 @@ impl Lowerer<'_> {
         let retained = self.input_temporaries.len();
 
         let value = if self.input_cleanup_phases(completion).is_some() {
-            self.materialize_owned_input(id, block, &source, value, completion)?
+            self.materialize_owned_input(block, &source, value, completion)?
         } else {
             value
         };
 
-        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+        let retention = self.frame_retention(&source, id.into())?;
+        let cancellation = self.suspension_cleanup_edge(&source, id.into(), retention)?;
 
         let resume = self.builder.push_block(
             Self::retained_source(&source),
@@ -128,6 +130,8 @@ impl Lowerer<'_> {
             self.builder.block_kind(current),
         )?;
 
+        let retention = self.frame_retention(&source, occurrence)?;
+
         let cancellation = match occurrence {
             bray_bound_tree::BoundExecutionSite::ScopedExit(_)
             | bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
@@ -148,10 +152,9 @@ impl Lowerer<'_> {
                     MirEdge::new(unreachable, []),
                 )
             }
-            _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
+            _ => self.suspension_cleanup_edge(&source, occurrence.node(), retention.clone())?,
         };
 
-        let retention = self.frame_retention(&source, occurrence)?;
         let state = MirFrameState::new(self.next_frame_state()?, resume, retention);
 
         // Composition consumes the future. Keep source initialization guards in the
@@ -419,6 +422,12 @@ impl Lowerer<'_> {
             std::iter::once(state.guard.storage())
                 .chain(state.parts.iter().map(|part| part.guard.storage()))
         }));
+
+        storages.extend(
+            self.scoped_guards
+                .values()
+                .flat_map(|state| [state.entered.storage(), state.admitted.storage()]),
+        );
 
         storages.sort_unstable();
         storages.dedup();

@@ -112,8 +112,28 @@ impl<'a> SemanticExporter<'a> {
             .map(|input| self.constant_term_id(input))
             .transpose()?;
 
+        let mut contract = InterfaceDependencyContract::new(requirements);
+
+        if let Some(requirements) = data.completion_reports() {
+            contract = contract.with_completion_reports(
+                requirements
+                    .iter()
+                    .map(|requirement| self.dependency_requirement(requirement))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+
+        if let Some(requirements) = data.abnormal_reports() {
+            contract = contract.with_abnormal_reports(
+                requirements
+                    .iter()
+                    .map(|requirement| self.dependency_requirement(requirement))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+
         self.dependency_contracts.push(
-            InterfaceDependencyContract::new(requirements)
+            contract
                 .with_borrows(borrows)
                 .with_carriers(carriers)
                 .with_returned_input(returned_input)
@@ -190,6 +210,7 @@ impl<'a> SemanticExporter<'a> {
                 ))
             }
             DependencyRequirement::ResultCall {
+                output,
                 callable,
                 requirement,
                 inputs,
@@ -210,6 +231,7 @@ impl<'a> SemanticExporter<'a> {
                     callable,
                     requirement,
                     inputs,
+                    *output,
                 ))
             }
             DependencyRequirement::Direct { subject, kind } => {

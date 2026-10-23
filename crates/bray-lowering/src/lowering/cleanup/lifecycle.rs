@@ -90,7 +90,7 @@ impl Lowerer<'_> {
                 Ok(outcome.check(&mut self.builder, block, source)?)
             } else {
                 Ok(self
-                    .check_ordinary_cleanup(block, source, Some(owner), false, None)?
+                    .check_ordinary_cleanup(block, source, Some(owner), false, None, None)?
                     .0)
             };
         }
@@ -141,7 +141,10 @@ impl Lowerer<'_> {
         };
 
         let outcome = outcome.with_retention(retention);
-        let completed = outcome.resolve(&mut self.builder, block, source, [operation])?;
+
+        self.push_operation(block, Self::retained_source(source), operation, None)?;
+
+        let completed = outcome.check(&mut self.builder, block, source)?;
 
         if local {
             self.finish_finalizer_outcome(completed, source, &outcome)
@@ -252,19 +255,7 @@ impl Lowerer<'_> {
             }
         };
 
-        let retention = match invocation {
-            bray_bound_tree::BoundCallResult::Immediate(_) => self.cleanup_retention(source)?,
-            bray_bound_tree::BoundCallResult::LazyFuture(_) => {
-                // The just-published awaited state already owns the exact cleanup retention.
-                Some(std::sync::Arc::new(
-                    self.frame_states
-                        .last()
-                        .expect("awaited finalizer published its continuation")
-                        .retention()
-                        .clone(),
-                ))
-            }
-        };
+        let retention = self.lifecycle_retention(source, invocation)?;
 
         let outcome = outcome.with_retention(retention);
 
@@ -285,6 +276,9 @@ impl Lowerer<'_> {
                 invocation,
             ),
             payloads,
+            self.input.dependency_contracts().lifecycle_dependencies()[&callable.callable]
+                .completion_reports()
+                .is_some(),
         )?;
 
         // Keep the owner broadcastable throughout finalizer mutation. Destruction
@@ -352,13 +346,15 @@ impl Lowerer<'_> {
 
         let [panicked, cancelled] = transfers;
 
-        Ok(outcome.dispatch(
+        let completed = outcome.dispatch(
             &mut self.builder,
             block,
             source,
             panicked,
             cancelled,
             &mut None,
-        )?)
+        )?;
+
+        self.forward_cleanup_incidents(completed, source, outcome, &mut None)
     }
 }

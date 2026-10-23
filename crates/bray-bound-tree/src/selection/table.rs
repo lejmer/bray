@@ -143,6 +143,8 @@ impl CheckedSemanticSelections {
             ));
         }
 
+        retain_callable_value_sources(unit, &mut entries);
+
         Ok(Self {
             unit: unit.unit(),
             kind: unit.key().kind(),
@@ -172,6 +174,63 @@ impl CheckedSemanticSelections {
             .ok()
             .and_then(|index| self.entries.get(index))
             .map(SemanticSelectionEntry::selection)
+    }
+}
+
+fn retain_callable_value_sources(unit: &BoundUnit, entries: &mut [SemanticSelectionEntry]) {
+    let references = entries
+        .iter()
+        .filter_map(|entry| {
+            let SemanticSelection::CallableReference(instance) = entry.selection() else {
+                return None;
+            };
+
+            Some((entry.expression(), *instance))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    if references.is_empty() {
+        return;
+    }
+
+    let initializers = unit.tree().immutable_initializers();
+
+    for entry in entries {
+        let SemanticSelection::Call(call) = &mut entry.selection else {
+            continue;
+        };
+
+        if !matches!(call.target(), crate::BoundCallableTarget::Indirect(_)) {
+            continue;
+        }
+
+        let BoundExpression::Call(source) = unit
+            .tree()
+            .expression(entry.expression)
+            .expect("checked indirect call retains its bound expression")
+        else {
+            unreachable!()
+        };
+
+        let mut origin = source.callee();
+
+        while let Some(BoundExpression::Name(name)) = unit.tree().expression(origin) {
+            let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
+                name.target()
+            else {
+                break;
+            };
+
+            let Some(initializer) = initializers.get(&binding) else {
+                break;
+            };
+
+            origin = *initializer;
+        }
+
+        if let Some(instance) = references.get(&origin) {
+            call.set_declaration_source(*instance);
+        }
     }
 }
 
@@ -442,13 +501,16 @@ fn call_matches_expression(
         return false;
     }
 
-    let source_receiver = source_call_receiver(unit, source.callee());
+    let declaration_backed = matches!(call.target(), crate::BoundCallableTarget::Declaration(_));
+
+    let source_receiver = declaration_backed
+        .then(|| source_call_receiver(unit, source.callee()))
+        .flatten();
 
     if call.receiver().map(crate::SelectedReceiver::expression) != source_receiver {
         return false;
     }
 
-    let declaration_backed = matches!(call.target(), crate::BoundCallableTarget::Declaration(_));
     let mut parameters = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
     let mut saw_default = false;

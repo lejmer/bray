@@ -23,7 +23,7 @@ pub fn append_cleanup_continuation(
     callables: &BTreeMap<crate::MirCallableReference, crate::MirCallableReference>,
     places: BTreeMap<MirStorageId, MirPlace>,
     abandoned: bool,
-    completed: MirBlockId,
+    completed: MirEdge,
     panicked: MirBlockId,
     cancelled: MirBlockId,
     retention: Option<&std::sync::Arc<crate::MirFrameRetention>>,
@@ -104,7 +104,7 @@ pub fn append_cleanup_continuation(
         },
     )?;
 
-    let output_unit = completed.unit();
+    let output_unit = completed.target().unit();
     let mut next_value = builder.value_count();
 
     predict_results(
@@ -158,8 +158,23 @@ pub fn append_cleanup_continuation(
             MirTerminatorKind::Goto(MirEdge::new(ids.block(next[0]), []))
         } else {
             match terminal {
-                MirTerminatorKind::Return(None) => {
-                    MirTerminatorKind::Goto(MirEdge::new(completed, []))
+                MirTerminatorKind::Return {
+                    value: None,
+                    report,
+                } => {
+                    let edge = if let Some(report) = report {
+                        assert_eq!(
+                            completed.arguments().len(),
+                            1,
+                            "a report-producing receiver tail requires its caller's report destination"
+                        );
+
+                        MirEdge::new(completed.target(), [report])
+                    } else {
+                        completed.clone()
+                    };
+
+                    MirTerminatorKind::Goto(edge)
                 }
                 MirTerminatorKind::PropagatePanic { report, .. } => {
                     MirTerminatorKind::Goto(MirEdge::new(panicked, [report]))

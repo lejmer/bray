@@ -267,7 +267,7 @@ pub(super) fn binding_type_dependencies<C: CheckerRequestContext + ?Sized>(
 > {
     let mut dependencies = std::collections::BTreeMap::new();
 
-    for (pattern, subject) in crate::pattern::binding_subjects(request.unit()) {
+    for (pattern, subject) in request.unit().tree().binding_subjects() {
         let mut inputs = Vec::new();
 
         walk_bound_unit_view(request.view(), subject, |event| {

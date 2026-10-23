@@ -5,7 +5,7 @@ use bray_ir::{
 };
 use bray_symbols::TypeId;
 
-/// Visits an initialized prefix in reverse order while forwarding a pending scope-exit value.
+/// Visits an initialized range in reverse order while forwarding a pending scope-exit value.
 pub(crate) struct ReverseCleanupLoop {
     condition: MirBlockId,
     pub(crate) body: MirBlockId,
@@ -67,7 +67,7 @@ impl ReverseCleanupLoop {
             MirTerminatorKind::Goto(MirEdge::new(condition, pending)),
         );
 
-        let [zero, one] = constants;
+        let [first, one] = constants;
 
         let nonempty = push_value(
             builder,
@@ -76,7 +76,7 @@ impl ReverseCleanupLoop {
             MirOperationKind::Binary {
                 operator: MirBinaryOperator::GreaterThan,
                 left: MirOperand::Copy(counter.clone()),
-                right: zero,
+                right: first,
             },
             boolean,
         )?;
@@ -211,7 +211,10 @@ mod tests {
                 builder.set_terminator(
                     cleanup.continuation,
                     source,
-                    MirTerminatorKind::Return(cleanup.continuation_value.map(MirOperand::Value)),
+                    MirTerminatorKind::Return {
+                        value: cleanup.continuation_value.map(MirOperand::Value),
+                        report: None,
+                    },
                 );
 
                 let unit = builder.finish(entry);
@@ -299,7 +302,10 @@ mod tests {
                         else_edge
                     }
                 }
-                MirTerminatorKind::Return(value) => {
+                MirTerminatorKind::Return {
+                    value,
+                    report: None,
+                } => {
                     return (
                         visited,
                         value

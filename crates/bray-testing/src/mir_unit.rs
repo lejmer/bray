@@ -56,7 +56,14 @@ pub fn test_mir_unit_with_declaration_for_target(
         panic!("test MIR block must be valid");
     };
 
-    builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+    builder.set_terminator(
+        entry,
+        source,
+        MirTerminatorKind::Return {
+            value: None,
+            report: None,
+        },
+    );
 
     let unit = builder.finish(entry);
 

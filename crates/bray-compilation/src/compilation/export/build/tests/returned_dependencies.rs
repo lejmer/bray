@@ -64,6 +64,82 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 }
 
 #[test]
+fn imported_immutable_function_values_reuse_the_producers_report_contract() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Cell { mut value: bool; }
+        func rewrite(pos cell: &mut Cell) { cell.value = false; }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Cell;
+        using example.package.api.rewrite;
+        func caller(pos cell: &mut example.package.api.Cell)
+        {
+            let operation: func(pos cell: &mut example.package.api.Cell) = example.package.api.rewrite;
+            operation(cell);
+            operation(cell);
+        }
+    "#,
+    );
+
+    let key = source_function_body_key(&consumer, "caller");
+
+    let checked = consumer
+        .dependency_contracts(key.clone())
+        .expect("imported callable value checks");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:#?}",
+        checked.diagnostics()
+    );
+
+    let calls = checked.value().calls();
+
+    assert_eq!(calls.len(), 2);
+
+    for call in calls.values() {
+        assert!(call.reports().completed().is_none(), "{call:#?}");
+    }
+
+    let lowered = consumer
+        .lowered_unit(key)
+        .expect("imported callable value lowers");
+
+    assert!(
+        !lowered.diagnostics().has_errors(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+
+    assert!(
+        lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .blocks()
+            .iter()
+            .all(|block| {
+                !matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Return {
+                        report: Some(_),
+                        ..
+                    }
+                )
+            })
+    );
+}
+
+#[test]
 fn returned_values_preserve_imported_generic_dependencies() {
     let provider = compilation(
         r#"
@@ -2160,6 +2236,230 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
                 name == "reference",
                 "borrowed referent escapes must remain visible: imported={imported}, {name}: {effects:?}"
             );
+        }
+    }
+}
+
+#[test]
+fn composite_conversion_effects_use_the_aggregate_input_paths() {
+    use bray_symbols::{
+        DependencyProjection, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    for (input, output, expected) in [
+        (
+            "(Source, Source)",
+            "(Target, Target)",
+            vec![
+                DependencyProjection::TupleElement(SymbolOrdinal::new(0)),
+                DependencyProjection::TupleElement(SymbolOrdinal::new(1)),
+            ],
+        ),
+        (
+            "Source?",
+            "Target?",
+            vec![DependencyProjection::NullableValue],
+        ),
+        ("[Source; 2]", "[Target; 2]", vec![]),
+    ] {
+        let source = r#"
+        module api;
+        struct Value
+        {
+            mut active: bool;
+        }
+        struct Source
+        {
+            value: &mut Value;
+        }
+        struct Target {}
+        impl Conversion = Source(ConvertTo<Target>)
+        {
+            consume func convert() -> Target
+            {
+                let mut reference = self.value;
+                reference.active = true;
+                return Target {};
+            }
+        }
+        func caller(pos value: Input) -> Output
+        {
+            return value as Output;
+        }
+        "#
+        .replace("Input", input)
+        .replace("Output", output);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+
+        let consumer = execution_consumer(
+            &application,
+            &format!(
+                "module app; using example.package.api.Source; using example.package.api.Target; using example.package.api.caller; func forward(pos value: {}) -> {} {{ return example.package.api.caller(value); }}",
+                input.replace("Source", "example.package.api.Source"),
+                output.replace("Target", "example.package.api.Target")
+            ),
+        );
+
+        let imported_diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            !imported_diagnostics.has_errors(),
+            "{imported_diagnostics:#?}"
+        );
+
+        for (application, name) in [(&application, "caller"), (&consumer, "forward")] {
+            let key = crate::test_support::source_function_body_key(application, name);
+            let flow = application.storage_flow(key).unwrap();
+            let summary = flow.value().dependencies().effects();
+
+            let summary_roots = summary
+                .iter()
+                .filter_map(|effect| match effect {
+                    DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                summary_roots.len(),
+                expected.len(),
+                "{name}: {source}: {summary:#?}"
+            );
+
+            for reference in summary_roots {
+                assert_eq!(
+                    reference.subject_root(),
+                    DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))
+                );
+
+                assert!(
+                    expected.contains(reference.projections().first().unwrap()),
+                    "{summary:#?}"
+                );
+            }
+
+            assert_eq!(
+                summary
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                expected.is_empty(),
+                "{name}: {source}: {summary:#?}"
+            );
+        }
+
+        let key = crate::test_support::source_function_body_key(&application, "caller");
+        let contracts = application.dependency_contracts(key).unwrap();
+
+        let effects = contracts
+            .value()
+            .calls()
+            .values()
+            .flat_map(|call| call.effects())
+            .collect::<Vec<_>>();
+
+        let indirect = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let actual = indirect
+            .iter()
+            .map(|reference| {
+                assert_eq!(reference.subject_root(), DependencySubjectRoot::Receiver);
+
+                *reference
+                    .projections()
+                    .first()
+                    .expect("composite reference retains its aggregate prefix")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected, "{source}: {effects:#?}");
+
+        if expected.is_empty() {
+            assert!(
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                "{effects:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
+    use bray_symbols::{
+        DependencyProjection, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value { mut active: bool; }
+        struct Indexed { mut output: i32; mut visits: usize; target: &mut Value; }
+        impl IndexAccess = Indexed(MutableElementIndex<i32>)
+        {
+            type Output = i32;
+            mut func index(pos selector: &i32) -> &mut i32
+            {
+                self.visits = 1;
+                self.target.active = true;
+                return &mut self.output;
+            }
+        }
+        func owned(pos mut indexed: Indexed) { let _ = &mut indexed[0]; }
+        func borrowed(pos indexed: &mut Indexed) { let _ = &mut indexed[0]; }
+    "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.Indexed;
+        using example.package.api.owned;
+        using example.package.api.borrowed;
+        func owned(pos indexed: example.package.api.Indexed) { example.package.api.owned(indexed); }
+        func borrowed(pos indexed: &mut example.package.api.Indexed) { example.package.api.borrowed(indexed); }
+    "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for application in [&provider, &consumer] {
+        for name in ["owned", "borrowed"] {
+            let flow = application
+                .storage_flow(source_function_body_key(application, name))
+                .unwrap();
+
+            let effects = flow.value().dependencies().effects();
+
+            assert!(
+                !effects
+                    .iter()
+                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                "{name}: {effects:#?}"
+            );
+
+            assert!(effects.iter().any(|effect| matches!(effect,
+                DependencyStorageEffect::Indirect { reference, .. }
+                if reference.subject_root() == DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))
+                    && matches!(reference.projections(), [DependencyProjection::ProductField(_)])
+            )), "{name}: {effects:#?}");
         }
     }
 }

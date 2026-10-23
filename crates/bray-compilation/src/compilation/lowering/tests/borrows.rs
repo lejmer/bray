@@ -234,7 +234,7 @@ impl I32Read = i32(Read)
     assert!(
         mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
-            MirTerminatorKind::Return(Some(MirOperand::Copy(place)))
+            MirTerminatorKind::Return { value: Some(MirOperand::Copy(place)), report: None }
                 if matches!(
                     place.projections().first().map(bray_ir::MirProjection::kind),
                     Some(MirProjectionKind::Dereference)
@@ -291,7 +291,10 @@ func read(pos owner: &Owner) -> i32
                     MirOperand::Copy(place) => Some(place.projections()),
                     _ => None,
                 }),
-            MirTerminatorKind::Return(Some(MirOperand::Copy(place))) => Some(place.projections()),
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Copy(place)),
+                report: None,
+            } => Some(place.projections()),
             _ => None,
         });
 

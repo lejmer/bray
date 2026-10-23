@@ -130,6 +130,7 @@ pub(crate) struct AnalysisOperation {
     before: ProgramPointId,
     after: ProgramPointId,
     cleanup_suspension: bool,
+    scoped_exit: Option<(bray_bound_tree::StorageExitPoint, bool)>,
 }
 
 impl AnalysisOperation {
@@ -145,7 +146,27 @@ impl AnalysisOperation {
             before,
             after,
             cleanup_suspension: false,
+            scoped_exit: None,
         }
+    }
+
+    pub(super) fn with_scoped_exit(
+        mut self,
+        exit: bray_bound_tree::StorageExitPoint,
+        preserves_exit_value: bool,
+    ) -> Self {
+        self.scoped_exit = Some((exit, preserves_exit_value));
+
+        self
+    }
+
+    pub(crate) fn scoped_exit(self) -> Option<bray_bound_tree::StorageExitPoint> {
+        self.scoped_exit.map(|(exit, _)| exit)
+    }
+
+    pub(crate) fn is_normal_cleanup(self) -> bool {
+        self.scoped_exit
+            .map_or_else(|| self.kind.is_normal_cleanup(), |(_, normal)| normal)
     }
 
     pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
@@ -302,6 +323,7 @@ pub(crate) struct AnalysisBlock {
     operations: Box<[AnalysisOperationId]>,
     predecessors: Box<[AnalysisEdgeId]>,
     successors: Box<[AnalysisEdgeId]>,
+    report_boundary: Option<BoundExpressionId>,
 }
 
 impl AnalysisBlock {
@@ -316,7 +338,18 @@ impl AnalysisBlock {
             operations: operations.into(),
             predecessors: predecessors.into(),
             successors: successors.into(),
+            report_boundary: None,
         }
+    }
+
+    pub(crate) fn with_report_boundary(mut self, boundary: Option<BoundExpressionId>) -> Self {
+        self.report_boundary = boundary;
+
+        self
+    }
+
+    pub(crate) const fn report_boundary(&self) -> Option<BoundExpressionId> {
+        self.report_boundary
     }
 
     pub(crate) const fn id(&self) -> AnalysisBlockId {
@@ -377,6 +410,7 @@ pub(crate) struct ControlFlowGraph {
     operations: Box<[AnalysisOperation]>,
     exits: Box<[AnalysisExit]>,
     component_order: Box<[usize]>,
+    report_parents: std::collections::BTreeMap<BoundExpressionId, Option<BoundExpressionId>>,
 }
 
 impl ControlFlowGraph {
@@ -432,6 +466,7 @@ impl ControlFlowGraph {
             operations: operations.into(),
             exits: exits.into(),
             component_order: Box::new([]),
+            report_parents: std::collections::BTreeMap::new(),
         };
 
         assert!(
@@ -463,6 +498,41 @@ impl ControlFlowGraph {
         graph.component_order = order.into();
 
         graph
+    }
+
+    pub(super) fn with_report_parents(
+        mut self,
+        parents: std::collections::BTreeMap<BoundExpressionId, Option<BoundExpressionId>>,
+    ) -> Self {
+        self.report_parents = parents;
+
+        self
+    }
+
+    pub(crate) fn report_parent(&self, boundary: BoundExpressionId) -> Option<BoundExpressionId> {
+        self.report_parents[&boundary]
+    }
+
+    pub(crate) fn exited_report_boundaries(
+        &self,
+        edge: &AnalysisEdge,
+    ) -> impl Iterator<Item = BoundExpressionId> + '_ {
+        let source = self
+            .block(edge.source())
+            .expect("report source belongs to its graph")
+            .report_boundary();
+
+        let target = self
+            .block(edge.target())
+            .expect("report destination belongs to its graph")
+            .report_boundary();
+
+        std::iter::successors(source, |boundary| self.report_parent(*boundary)).take_while(
+            move |boundary| {
+                !std::iter::successors(target, |parent| self.report_parent(*parent))
+                    .any(|parent| parent == *boundary)
+            },
+        )
     }
 
     /// Components precede every successor outside their own cycle.
@@ -502,6 +572,16 @@ impl ControlFlowGraph {
                 AnalysisExitKind::Return
                     | AnalysisExitKind::NormalFallthrough
                     | AnalysisExitKind::ResultErrorPropagation
+            )
+        })
+    }
+
+    /// Exits that transfer the run's panic or cancellation outcome.
+    pub(crate) fn abnormal_exits(&self) -> impl Iterator<Item = &AnalysisExit> {
+        self.exits.iter().filter(|exit| {
+            matches!(
+                exit.kind(),
+                AnalysisExitKind::Panic | AnalysisExitKind::Cancellation
             )
         })
     }

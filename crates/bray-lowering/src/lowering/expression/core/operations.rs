@@ -1033,8 +1033,7 @@ impl Lowerer<'_> {
                 );
             };
 
-            let value =
-                self.materialize_owned_input(id, current, &source, operand, receiver_type)?;
+            let value = self.materialize_owned_input(current, &source, operand, receiver_type)?;
 
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
@@ -1092,7 +1091,7 @@ impl Lowerer<'_> {
 
                     current = continued;
 
-                    let value = self.materialize_owned_input(id, current, &source, value, *ty)?;
+                    let value = self.materialize_owned_input(current, &source, value, *ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: Some(*parameter),
@@ -1133,7 +1132,7 @@ impl Lowerer<'_> {
                     current = continuation;
 
                     let ty = self.builder.operand_type(&value);
-                    let value = self.materialize_owned_input(id, current, &source, value, ty)?;
+                    let value = self.materialize_owned_input(current, &source, value, ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
@@ -1420,9 +1419,15 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
+                true,
             )
         } else {
-            Ok((current, value))
+            let mut value = Some(value);
+
+            let completed =
+                self.take_completion_report(expression.into(), current, &source, &mut value)?;
+
+            Ok((completed, value.expect("normal call retains its result")))
         }
     }
 

@@ -213,9 +213,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         // The operation and move bookkeeping share the immutable storage path.
         let payload = self.operand(&MirOperand::Move(incident.clone()))?;
 
-        self.builder
-            .build_store(storage.1, payload)
-            .map_err(CodegenFailure::backend_library)?;
+        self.store_value(storage.1, payload, incident.ty())?;
 
         let [helper] = mapping.helpers() else {
             panic!("typed incident transfer has one selected destruction helper");

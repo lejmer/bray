@@ -33,7 +33,6 @@ use crate::analysis::model::{
     AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
 use crate::analysis::reachability::ReachabilityResult;
-use crate::analysis::storage_flow::authority::mutable_storage;
 use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative};
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
 
@@ -62,28 +61,21 @@ pub(crate) fn check_storage_flow_with_graph<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let ((input, cleanup_diagnostics), authority_diagnostics) =
-        match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
-            StorageFlowInput::new(
-                cleanup_shapes,
-                request,
-                storage,
-                mutable,
-                liveness,
-                dependencies,
-                values,
-                execution.semantics.selections(),
-                execution.disposal.plan,
-                memory,
-            )
-            .map(|prepared| (prepared, diagnostics))
-        }) {
-            Ok(result) => result,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let (input, input_diagnostics) = match StorageFlowInput::new(
+        cleanup_shapes,
+        request,
+        storage,
+        liveness,
+        dependencies,
+        values,
+        execution.semantics.selections(),
+        execution.disposal.plan,
+        memory,
+    ) {
+        Ok(result) => result,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    };
 
     let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
         Ok(owners) => owners,
@@ -133,8 +125,7 @@ where
     );
 
     collector.trusted = crate::analysis::guarantee::TrustedChecks::new(execution);
-    collector.diagnostics.add_range(authority_diagnostics);
-    collector.diagnostics.add_range(cleanup_diagnostics);
+    collector.diagnostics.add_range(input_diagnostics);
 
     let mut conditions = BTreeMap::<_, Option<bool>>::new();
     let mut reachable_blocks = BTreeSet::new();
@@ -146,10 +137,16 @@ where
         .map(|exit| exit.block())
         .collect::<BTreeSet<_>>();
 
+    let abnormal_exits = graph
+        .abnormal_exits()
+        .map(|exit| exit.block())
+        .collect::<BTreeSet<_>>();
+
     let normal_paths = graph.completion_predecessors();
 
     for block in graph.blocks() {
         collector.on_normal_path = normal_paths.contains(&block.id());
+        collector.report_boundary = block.report_boundary();
 
         // Publication evaluates operations against an independent final block-entry state.
         let state = result.state(block.id()).filter(|state| state.reachable);
@@ -159,6 +156,10 @@ where
 
             continue;
         };
+
+        collector
+            .report_collections
+            .extend(state.pending_report_boundaries());
 
         for operation in block.operations() {
             let operation = graph
@@ -184,10 +185,16 @@ where
             collector.apply_operation(&mut state, operation);
         }
 
+        collector
+            .report_collections
+            .extend(state.pending_report_boundaries());
+
         collector.collect_conditions(&state, block, graph, &mut conditions);
 
         if normal_exits.contains(&block.id()) {
             collector.collect_completion(&state);
+        } else if abnormal_exits.contains(&block.id()) {
+            collector.results.merge_abnormal(&state.result_dependencies);
         }
     }
 
@@ -254,6 +261,8 @@ where
             .with_carriers(carriers)
             .with_returned_input(returned_input),
     )
+    .with_report_collections(collector.report_collections)
+    .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
     .with_cleanup_mutations(collector.cleanup_mutations)
     .with_completions(collector.completions);
@@ -355,8 +364,8 @@ where
     pub(super) execution:
         &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     pub(super) dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
-    values: &'analysis crate::dependency::ValueInputs,
-    patterns: &'analysis bray_bound_tree::CheckedPatterns,
+    pub(super) values: &'analysis crate::dependency::ValueInputs,
+    pub(super) patterns: &'analysis bray_bound_tree::CheckedPatterns,
     pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
@@ -370,6 +379,9 @@ where
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
+    pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
+    report_collections: BTreeSet<Option<BoundExpressionId>>,
+    pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) has_normal_effects: bool,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
     pub(super) cleanup_mutations:
@@ -485,6 +497,9 @@ where
             receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
+            report_boundary: None,
+            report_collections: BTreeSet::new(),
+            reporting_completions: BTreeSet::new(),
             has_normal_effects: false,
             references: None,
             memory_decisions: BTreeMap::new(),
@@ -537,35 +552,36 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
-        if matches!(
-            operation.kind(),
+        let kind = operation.kind();
+
+        match kind {
             AnalysisOperationKind::Result {
                 phase: crate::analysis::model::AnalysisResultPhase::Begin,
                 ..
+            } => {
+                self.execution.transfer_operation(
+                    state
+                        .execution
+                        .as_mut()
+                        .expect("reachable storage state has execution facts"),
+                    kind,
+                    None,
+                    None,
+                );
+
+                return;
             }
-        ) {
-            self.execution.transfer_operation(
-                state
-                    .execution
-                    .as_mut()
-                    .expect("reachable storage state has execution facts"),
-                operation.kind(),
-                None,
-                None,
-            );
+            AnalysisOperationKind::Suspension {
+                occurrence,
+                kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
+            } => {
+                // Entry already transferred these inputs. Record live storage
+                // without evaluating or transferring them again.
+                self.record_suspension(state, occurrence);
 
-            return;
-        }
-
-        if let AnalysisOperationKind::Suspension {
-            occurrence,
-            kind: crate::analysis::model::AnalysisSuspensionKind::ScopedCall,
-        } = operation.kind()
-        {
-            // Entry already transferred the invocation's inputs. Suspension records
-            // their live storage without evaluating or transferring them again.
-            self.record_suspension(state, occurrence);
-            return;
+                return;
+            }
+            _ => {}
         }
 
         if let Some(occurrence) = operation.cleanup_suspension() {
@@ -582,8 +598,7 @@ where
             .take()
             .expect("reachable storage state has execution facts");
 
-        let kind = operation.kind();
-
+        self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind);
 
         if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
@@ -706,15 +721,7 @@ where
                         Some(bray_bound_tree::BoundExpression::Assignment(_))
                     )
                 {
-                    self.assignments
-                        .entry(expression)
-                        .and_modify(|previous| {
-                            if *previous != assignment_path {
-                                *previous = None;
-                            }
-                        })
-                        // Target paths share immutable projections with the transition.
-                        .or_insert_with(|| assignment_path.clone());
+                    self.record_assignment_path(expression, assignment_path.as_ref());
                 }
 
                 if let Some(effects) = invalidation
@@ -754,6 +761,17 @@ where
 
         self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
 
+        if completing
+            && self
+                .storage
+                .node_plans(kind.node())
+                .any(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        {
+            // The operator has completed and published retained outputs. End its
+            // remaining input loans before the assignment installs that result.
+            self.end_last_use_borrows(state, kind.occurrence());
+        }
+
         let memory_status = self.apply_storage_operation(
             state,
             operation,
@@ -773,6 +791,22 @@ where
         );
 
         state.refinements = refinements;
+    }
+
+    fn record_assignment_path(
+        &mut self,
+        expression: BoundExpressionId,
+        path: Option<&crate::analysis::storage_flow::memory::Place>,
+    ) {
+        self.assignments
+            .entry(expression)
+            .and_modify(|previous| {
+                if previous.as_ref() != path {
+                    *previous = None;
+                }
+            })
+            // Target paths share immutable projections with the transition.
+            .or_insert_with(|| path.cloned());
     }
 
     fn complete_operation(
@@ -1506,7 +1540,7 @@ where
                 let reaches_last_use = self.liveness.is_last_use(operation, subject);
 
                 capability.entry_binding().is_none()
-                    && !state.retains_borrow_for_cleanup(*borrow, self.input)
+                    && !state.retains_borrow(*borrow, self.input)
                     && ((moved_borrows.contains(borrow)
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
@@ -1537,7 +1571,7 @@ where
             .active_borrows
             .iter()
             .copied()
-            .filter(|borrow| state.retains_borrow_for_cleanup(*borrow, self.input))
+            .filter(|borrow| state.retains_borrow(*borrow, self.input))
             .collect::<BTreeSet<_>>();
 
         state.active_borrows.retain(|borrow| {
@@ -1703,7 +1737,7 @@ where
             state.initialized.iter().copied(),
             state.moved.keys().cloned(),
             state.definitely_active_borrows.iter().copied(),
-            state.retained_cleanup_dependencies(self.input),
+            state.retained_dependencies(self.input),
         );
 
         match self.suspensions.entry(occurrence) {

@@ -31,6 +31,18 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_requirement(encoder, requirement);
             }
 
+            for reports in [&contract.completion_reports, &contract.abnormal_reports] {
+                encoder.write_u32(u32::from(reports.is_some()));
+
+                if let Some(requirements) = reports {
+                    write_count(encoder, requirements.len());
+
+                    for requirement in requirements.iter() {
+                        encode_dependency_requirement(encoder, requirement);
+                    }
+                }
+            }
+
             write_count(encoder, contract.borrows.len());
 
             for relation in &*contract.borrows {
@@ -249,11 +261,13 @@ pub(super) fn encode_dependency_requirement(
             }
         }
         InterfaceDependencyRequirementValue::ResultCall {
+            output,
             callable,
             requirement,
             inputs,
         } => {
             encoder.write_u32(if requirement.is_some() { 3 } else { 4 });
+            encoder.write_u32(output.to_wire());
             encoder.write_u32(callable.raw());
 
             if let Some((subject, application)) = requirement {

@@ -20,6 +20,8 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
+    pub(crate) scoped_error_quiescence:
+        BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -100,6 +102,7 @@ impl Plan {
 
                 self.requires_suspension(access).then_some(scope)
             })
+            .chain(self.scoped_error_quiescence.keys().copied())
             .collect()
     }
 
@@ -168,6 +171,47 @@ impl Plan {
     ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
         self.steps.values().flatten().filter_map(|step| match step {
             Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
+        })
+    }
+
+    pub(in crate::analysis) fn reporting_accesses<'a>(
+        &'a self,
+        dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+    ) -> impl Iterator<Item = StorageAccessId> + 'a {
+        self.steps.iter().filter_map(|(access, steps)| {
+            steps
+                .iter()
+                .any(|step| {
+                    let Step::Lifecycle { ty, .. } = step else {
+                        return false;
+                    };
+
+                    [
+                        TypeAssociatedLifecycleSlot::Finalizer,
+                        TypeAssociatedLifecycleSlot::Destructor,
+                    ]
+                    .into_iter()
+                    .filter_map(|slot| self.lifecycles.get(&(*ty, slot)))
+                    .any(|lifecycle| {
+                        let contract =
+                            &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
+
+                        contract
+                            .completion_reports()
+                            .into_iter()
+                            .chain(contract.abnormal_reports())
+                            .any(|requirements| !requirements.is_empty())
+                            || (lifecycle
+                                .call
+                                .callable
+                                .definition()
+                                .callable_symbol()
+                                .kind()
+                                == bray_symbols::SymbolKind::Finalizer
+                                && !contract.requirements().is_empty())
+                    })
+                })
+                .then_some(*access)
         })
     }
 
@@ -400,6 +444,7 @@ impl Plan {
         }
 
         prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
+        prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
     }

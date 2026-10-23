@@ -72,7 +72,16 @@ impl InterfaceSemantics {
         }
 
         for contract in &*self.dependency_contracts {
-            if !is_strictly_sorted(&contract.requirements) {
+            if !is_strictly_sorted(&contract.requirements)
+                || contract
+                    .completion_reports
+                    .as_deref()
+                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
+                || contract
+                    .abnormal_reports
+                    .as_deref()
+                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
+            {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Constant,
                 ));
@@ -143,7 +152,7 @@ impl InterfaceSemantics {
                 }
             }
 
-            for requirement in &*contract.requirements {
+            for requirement in contract.all_requirements() {
                 self.validate_dependency_requirement(
                     requirement,
                     symbol_count,
@@ -484,6 +493,7 @@ impl InterfaceSemantics {
                 scopes.pop();
             }
             InterfaceDependencyRequirementValue::ResultCall {
+                output: _,
                 callable,
                 requirement,
                 inputs,

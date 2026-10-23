@@ -9,10 +9,18 @@ use super::model::{
 
 pub(super) struct ControlFlowGraphAssembler {
     unit: BoundUnitId,
-    blocks: Vec<Vec<AnalysisOperationId>>,
+    blocks: Vec<(
+        Option<bray_bound_tree::BoundExpressionId>,
+        Vec<AnalysisOperationId>,
+    )>,
     edges: Vec<AnalysisEdge>,
     operations: Vec<AnalysisOperation>,
     exits: Vec<AnalysisExit>,
+    report_boundary: Option<bray_bound_tree::BoundExpressionId>,
+    report_parents: std::collections::BTreeMap<
+        bray_bound_tree::BoundExpressionId,
+        Option<bray_bound_tree::BoundExpressionId>,
+    >,
 }
 
 impl ControlFlowGraphAssembler {
@@ -23,6 +31,8 @@ impl ControlFlowGraphAssembler {
             edges: Vec::new(),
             operations: Vec::new(),
             exits: Vec::new(),
+            report_boundary: None,
+            report_parents: std::collections::BTreeMap::new(),
         }
     }
 
@@ -31,9 +41,22 @@ impl ControlFlowGraphAssembler {
             return AnalysisBlockId::from_slot(self.unit, u32::MAX);
         };
 
-        self.blocks.push(Vec::new());
+        self.blocks.push((self.report_boundary, Vec::new()));
 
         id
+    }
+
+    pub(super) fn replace_report_boundary(
+        &mut self,
+        boundary: Option<bray_bound_tree::BoundExpressionId>,
+    ) -> Option<bray_bound_tree::BoundExpressionId> {
+        let previous = std::mem::replace(&mut self.report_boundary, boundary);
+
+        if let Some(boundary) = boundary {
+            self.report_parents.entry(boundary).or_insert(previous);
+        }
+
+        previous
     }
 
     pub(super) fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
@@ -136,6 +159,16 @@ impl ControlFlowGraphAssembler {
                 completed,
                 bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
                 AnalysisCallPhase::Completion,
+            );
+
+            let operation = self
+                .operations
+                .last_mut()
+                .expect("scoped completion was just emitted");
+
+            *operation = operation.with_scoped_exit(
+                bray_bound_tree::StorageExitPoint::new(block, exit),
+                preserves_exit_value,
             );
 
             completed
@@ -241,15 +274,18 @@ impl ControlFlowGraphAssembler {
             .blocks
             .into_iter()
             .enumerate()
-            .filter_map(|(index, operations)| {
+            .filter_map(|(index, (report_boundary, operations))| {
                 let id = AnalysisBlockId::try_from_index(self.unit, index)?;
 
-                Some(AnalysisBlock::new(
-                    id,
-                    operations,
-                    std::mem::take(&mut predecessors[index]),
-                    std::mem::take(&mut successors[index]),
-                ))
+                Some(
+                    AnalysisBlock::new(
+                        id,
+                        operations,
+                        std::mem::take(&mut predecessors[index]),
+                        std::mem::take(&mut successors[index]),
+                    )
+                    .with_report_boundary(report_boundary),
+                )
             })
             .collect::<Box<[_]>>();
 
@@ -261,6 +297,7 @@ impl ControlFlowGraphAssembler {
             self.operations,
             self.exits,
         )
+        .with_report_parents(self.report_parents)
     }
 
     pub(super) fn push_operation(&mut self, block: AnalysisBlockId, kind: AnalysisOperationKind) {
@@ -287,7 +324,7 @@ impl ControlFlowGraphAssembler {
         self.operations
             .push(AnalysisOperation::new(id, kind, before, after));
 
-        if let Some(operations) = block
+        if let Some((_, operations)) = block
             .to_index()
             .and_then(|index| self.blocks.get_mut(index))
         {

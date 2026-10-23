@@ -306,6 +306,8 @@ pub struct StorageFlow {
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
+    report_collections: Arc<[Option<BoundExpressionId>]>,
+    reporting_completions: Arc<[crate::BoundExecutionSite]>,
     receiver_cleanup: Arc<[bray_symbols::TypeId]>,
     cleanup_mutations:
         std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
@@ -417,6 +419,8 @@ impl StorageFlow {
             checked_memory_operations: Arc::from([]),
             assignment_targets: std::collections::BTreeMap::new(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
+            report_collections: Arc::from([]),
+            reporting_completions: Arc::from([]),
             receiver_cleanup: Arc::from([]),
             cleanup_mutations: Default::default(),
             completions: Default::default(),
@@ -480,6 +484,38 @@ impl StorageFlow {
     /// Returns the checked residual receiver owners, including every reachable cleanup outcome.
     pub fn receiver_cleanup(&self) -> &[bray_symbols::TypeId] {
         &self.receiver_cleanup
+    }
+
+    /// Publishes source and catch collections that can retain owned cleanup reports.
+    pub fn with_report_collections(
+        mut self,
+        collections: impl IntoIterator<Item = Option<BoundExpressionId>>,
+    ) -> Self {
+        self.report_collections = sorted_unique_shared_slice(collections);
+
+        self
+    }
+
+    /// Whether this source or catch boundary needs a pending owned report collection.
+    pub fn has_report_collection(&self, boundary: Option<BoundExpressionId>) -> bool {
+        self.report_collections.binary_search(&boundary).is_ok()
+    }
+
+    /// Publishes invocation completions that transfer a normal owned report.
+    pub fn with_reporting_completions(
+        mut self,
+        occurrences: impl IntoIterator<Item = crate::BoundExecutionSite>,
+    ) -> Self {
+        self.reporting_completions = sorted_unique_shared_slice(occurrences);
+
+        self
+    }
+
+    /// Whether this checked completion transfers a normal owned report.
+    pub fn completion_reports(&self, occurrence: crate::BoundExecutionSite) -> bool {
+        self.reporting_completions
+            .binary_search(&occurrence)
+            .is_ok()
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.

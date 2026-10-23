@@ -124,7 +124,10 @@ impl Lowerer<'_> {
                     .builder
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-                let cancellation = self.suspension_cleanup_edge(&source, expression.into())?;
+                let retention = self.frame_retention(&source, expression.into())?;
+
+                let cancellation =
+                    self.suspension_cleanup_edge(&source, expression.into(), retention.clone())?;
 
                 let dispatch = self
                     .builder
@@ -133,7 +136,6 @@ impl Lowerer<'_> {
                 // Suspension and dispatch retain the same immutable cleanup edge.
                 self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
 
-                let retention = self.frame_retention(&source, expression.into())?;
                 let state = self.next_frame_state()?;
 
                 self.set_terminator(

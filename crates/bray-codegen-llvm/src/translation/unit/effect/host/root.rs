@@ -108,11 +108,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 self.request.target(),
                 bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
-                llvm(
-                    self.builder
-                        .build_int_cast(status, root_type, "root.failure.status"),
-                )?
-                .into(),
+                Some(llvm(self.builder.build_int_cast(
+                    status,
+                    root_type,
+                    "root.failure.status",
+                ))?),
+                None,
             )?;
 
             // Observation replaces this only for a successfully started root. Failed

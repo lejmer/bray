@@ -2,7 +2,7 @@ use super::super::model::{
     Contents, Origin, Place, ReferenceExit, References, State, Target, Transfer,
 };
 use bray_bound_tree::StorageIdentityId;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 impl State {
     pub(super) fn slots_in<'a>(
@@ -54,15 +54,38 @@ impl State {
         roots: impl IntoIterator<Item = Target>,
     ) -> impl Iterator<Item = &'a Place> + 'a {
         let reached = self.reachable_targets(roots);
+        let mut inline = BTreeMap::<StorageIdentityId, Vec<&Target>>::new();
 
-        candidates.iter().filter(move |path| {
-            let candidate = Target::storage((*path).clone());
+        for target in &reached {
+            for root in self.reachable_inline_roots(target) {
+                inline.entry(root).or_default().push(target);
+            }
+        }
 
-            reached.iter().all(|target| {
-                self.target_relationship(target, &candidate)
-                    == bray_bound_tree::StorageRelationship::Disjoint
+        candidates
+            .iter()
+            .filter(|path| {
+                let candidate = Target::storage((*path).clone());
+
+                let disjoint = |target: &Target| {
+                    self.target_relationship(target, &candidate)
+                        == bray_bound_tree::StorageRelationship::Disjoint
+                };
+
+                if self.is_owned_inline_storage(path) {
+                    // Entry and allocation origins cannot reach owned inline storage.
+                    // Returned origins use the same established roots as target_relationship.
+                    inline
+                        .get(&path.root)
+                        .into_iter()
+                        .flatten()
+                        .all(|target| disjoint(target))
+                } else {
+                    reached.iter().all(disjoint)
+                }
             })
-        })
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub(in crate::analysis::storage_flow) fn reachable_targets(

@@ -67,6 +67,7 @@ pub fn lower_heap_storage<C: SyntheticLoweringContext + ?Sized>(
         context,
         abandoned: None,
         collection: None,
+        pending_reports: None,
         frame: None,
         frame_states: Vec::new(),
         continuation: None,
@@ -154,7 +155,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         };
 
-        builder.set_terminator(end, source.clone(), MirTerminatorKind::Return(returned));
+        builder.set_terminator(
+            end,
+            source.clone(),
+            MirTerminatorKind::Return {
+                value: returned,
+                report: None,
+            },
+        );
 
         Ok(builder.finish(entry))
     }
@@ -312,6 +320,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 completed: MirEdge::new(completed, [MirOperand::Value(allocation)]),
                 panicked: MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: MirCallFailureEdge::new(cancelled, report),
+                completed_report: None,
             },
         );
 

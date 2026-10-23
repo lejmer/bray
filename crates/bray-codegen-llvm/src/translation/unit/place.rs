@@ -1,5 +1,5 @@
 use super::core::UnitTranslator;
-use super::support::{extract_value, insert_value, int_value, llvm, pointer_value};
+use super::support::{insert_value, int_value, llvm, pointer_value};
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{
     MirBlockId, MirOperand, MirOperation, MirPlace, MirProjectionKind, MirStorageId, MirValueId,
@@ -595,13 +595,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let storage =
                 self.aligned_alloca(source, layout.alignment().get(), "convert.representation")?;
 
-            llvm(self.builder.build_store(storage, value))?;
+            self.store_value(storage, value, source)?;
 
-            return llvm(self.builder.build_load(
-                self.types.map(target)?,
-                storage,
-                "convert.representation.value",
-            ));
+            return self.place_value(storage, target, "convert.representation.value");
         }
 
         let source_signed = self.signed_integer(source).unwrap_or(false);
@@ -669,7 +665,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         subject_type: bray_symbols::TypeId,
         result_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        if subject.get_type() == self.types.map(result_type)? {
+        if self.types.map(subject_type)? == self.types.map(result_type)? {
             return Ok(subject);
         }
 
@@ -686,11 +682,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .checked_sub(1)
             .expect("checked MIR place translation requires an established mapping or value");
 
-        extract_value(
-            &self.builder,
-            subject,
-            self.aggregate_element(fields, payload)?,
-        )
+        self.aggregate_field_value(subject, subject_type, payload)
     }
 
     pub(super) fn operation_result_type(&self, operation: &MirOperation) -> bray_symbols::TypeId {
@@ -711,7 +703,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_ir::MirValue::ty)
             .expect("checked MIR place translation requires an established mapping or value");
 
-        self.types.map(ty)
+        self.types.value_type(ty)
     }
 
     pub(super) fn signed_integer(&self, ty: bray_symbols::TypeId) -> Result<bool, CodegenFailure> {

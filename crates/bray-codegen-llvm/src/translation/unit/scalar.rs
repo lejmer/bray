@@ -1,7 +1,6 @@
 use super::core::UnitTranslator;
 use super::support::{
-    extract_value, float_predicate, int_value, integer_predicate, llvm, nonzero_integer,
-    pointer_value,
+    float_predicate, int_value, integer_predicate, llvm, nonzero_integer, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
@@ -10,7 +9,7 @@ use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn nullable_present(
-        &self,
+        &mut self,
         subject: BasicValueEnum<'context>,
         subject_type: bray_symbols::TypeId,
     ) -> Result<IntValue<'context>, CodegenFailure> {
@@ -23,8 +22,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
             }
             (CodegenTypeKind::Aggregate(fields), subject) if fields.len() > 1 => {
-                let tag =
-                    extract_value(&self.builder, subject, self.aggregate_element(fields, 0)?)?;
+                let tag = self.aggregate_field_value(subject, subject_type, 0)?;
 
                 let tag = int_value(tag)
                     .expect("checked MIR translation requires an established mapping or value");
@@ -248,11 +246,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer = pointer_value(value)
             .expect("checked MIR translation requires an established mapping or value");
 
-        let value = llvm(self.builder.build_load(
-            self.types.map(target)?,
-            pointer,
-            "intrinsic.operand",
-        ))?;
+        let value = self.place_value(pointer, target, "intrinsic.operand")?;
 
         Ok((target, value))
     }

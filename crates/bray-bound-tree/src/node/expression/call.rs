@@ -181,11 +181,17 @@ impl BoundCallResult {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum CallableValueSource {
+    Declaration(CallableInstanceData),
+    Anonymous(crate::BoundUnitKey, TypeId),
+}
+
 /// The complete callable selection needed to interpret a checked call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundResolvedCall {
     target: BoundCallableTarget,
-    anonymous_body: Option<(crate::BoundUnitKey, TypeId)>,
+    value_source: Option<CallableValueSource>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     result: BoundCallResult,
@@ -203,7 +209,7 @@ impl BoundResolvedCall {
     ) -> Self {
         Self {
             target,
-            anonymous_body: None,
+            value_source: None,
             implementation_witnesses: sorted_unique_shared_slice(implementation_witnesses),
             trait_dispatch: None,
             result,
@@ -217,14 +223,34 @@ impl BoundResolvedCall {
             "only anonymous targets carry an anonymous body"
         );
 
-        self.anonymous_body = Some((unit, ty));
+        self.value_source = Some(CallableValueSource::Anonymous(unit, ty));
 
         self
     }
 
     /// Returns the selected anonymous body, including immutable local aliases.
     pub fn anonymous_body(&self) -> Option<(&crate::BoundUnitKey, TypeId)> {
-        self.anonymous_body.as_ref().map(|(unit, ty)| (unit, *ty))
+        match &self.value_source {
+            Some(CallableValueSource::Anonymous(unit, ty)) => Some((unit, *ty)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_declaration_source(&mut self, callable: CallableInstanceData) {
+        assert!(
+            matches!(self.target, BoundCallableTarget::Indirect(_)),
+            "only an indirect callable value needs a separate declaration source"
+        );
+
+        self.value_source = Some(CallableValueSource::Declaration(callable));
+    }
+
+    /// Returns the exact declaration producing an indirectly invoked immutable value.
+    pub fn declaration_source(&self) -> Option<CallableInstanceData> {
+        match self.value_source {
+            Some(CallableValueSource::Declaration(callable)) => Some(callable),
+            _ => None,
+        }
     }
 
     /// Returns this call with dispatch supplied by one surrounding generic constraint.

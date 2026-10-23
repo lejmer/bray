@@ -138,26 +138,29 @@ pub(super) fn native_run_outcome_value<'context>(
     builder: &Builder<'context>,
     target: &bray_codegen::CodegenTarget,
     state: NativeRunState,
-    payload: BasicValueEnum<'context>,
+    payload: Option<IntValue<'context>>,
+    report: Option<BasicValueEnum<'context>>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
     let outcome = crate::native::run_outcome_type(context, target)
         .const_zero()
         .into();
-
-    let payload_index = if state == NativeRunState::PANICKED || state == NativeRunState::CANCELLED {
-        2
-    } else {
-        1
-    };
 
     let state = context
         .i32_type()
         .const_int(u64::from(state.code()), false)
         .into();
 
-    let outcome = insert_value(builder, outcome, state, 0)?;
+    let mut outcome = insert_value(builder, outcome, state, 0)?;
 
-    insert_value(builder, outcome, payload, payload_index)
+    if let Some(payload) = payload {
+        outcome = insert_value(builder, outcome, payload.into(), 1)?;
+    }
+
+    if let Some(report) = report {
+        outcome = insert_value(builder, outcome, report, 2)?;
+    }
+
+    Ok(outcome)
 }
 
 pub(crate) fn native_run_state_is<'context>(

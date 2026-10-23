@@ -344,7 +344,14 @@ pub(super) fn validate_dependency_template_data(
 
     validate_dependency_variables(data.requirements(), &mut Vec::new());
 
-    let mut pending: Vec<_> = data.requirements().iter().collect();
+    for requirements in [data.completion_reports(), data.abnormal_reports()]
+        .into_iter()
+        .flatten()
+    {
+        validate_dependency_variables(requirements, &mut Vec::new());
+    }
+
+    let mut pending: Vec<_> = data.all_requirements().collect();
 
     while let Some(requirement) = pending.pop() {
         match requirement {
@@ -361,6 +368,7 @@ pub(super) fn validate_dependency_template_data(
             }
             DependencyRequirement::Variable { .. } => {}
             DependencyRequirement::ResultCall {
+                output: _,
                 callable,
                 requirement,
                 inputs,

@@ -5,7 +5,7 @@ use bray_bound_tree::{
     StoragePlan,
 };
 
-pub(super) fn dependency_subjects(
+pub(in crate::analysis) fn dependency_subjects(
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
 ) -> BTreeSet<BoundDependencySubject> {

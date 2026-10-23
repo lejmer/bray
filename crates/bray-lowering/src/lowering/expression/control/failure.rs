@@ -215,8 +215,12 @@ impl Lowerer<'_> {
             self.builder
                 .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
+        let reports = self.allocate_pending_reports(current, &source, Some(id))?;
+
         self.catch_targets.push(CatchTarget {
             block: handler,
+            success,
+            reports: reports.clone(),
             report_type: *report_type,
             scope_depth: self.active_scopes.len(),
         });
@@ -239,12 +243,20 @@ impl Lowerer<'_> {
             )?;
         }
 
+        let mut success_result = Some(MirOperand::Value(success_value));
+
+        let success = if let Some(reports) = &reports {
+            self.forward_cleanup_incidents(success, &source, reports, &mut success_result)?
+        } else {
+            success
+        };
+
         let success_result = self.construct_result(
             success,
             &source,
             result_type,
             true,
-            MirOperand::Value(success_value),
+            success_result.expect("successful catch retains its value"),
         )?;
 
         self.set_terminator(
@@ -355,13 +367,26 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn finish_typed_call_panic_check(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
         value: &MirOperand,
         result_type: TypeId,
         accepted_owner: Option<TypeId>,
+        reports: bool,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let occurrence = occurrence.into();
+
+        let expression = occurrence
+            .expression()
+            .expect("checked call belongs to an expression");
+
+        // The view shares immutable collection paths while failure handlers are constructed.
+        let outcome = reports
+            .then(|| self.completion_report_outcome(occurrence))
+            .flatten()
+            .cloned();
+
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
@@ -379,13 +404,18 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
 
-        let report_storage = self.builder.push_storage(
-            Self::retained_source(source),
-            bray_ir::MirStorageKind::Temporary,
-            report_type,
-        )?;
+        let report = match &outcome {
+            Some(outcome) => outcome.incoming_report(&mut self.builder, source)?,
+            None => {
+                let storage = self.builder.push_storage(
+                    Self::retained_source(source),
+                    bray_ir::MirStorageKind::Temporary,
+                    report_type,
+                )?;
 
-        let report = bray_ir::MirPlace::new(report_storage, [], report_type);
+                bray_ir::MirPlace::new(storage, [], report_type)
+            }
+        };
 
         let cancelled = self
             .builder
@@ -398,6 +428,7 @@ impl Lowerer<'_> {
                 completed: MirEdge::new(completed, [Self::retained_operand(value)]),
                 panicked: MirCallFailureEdge::new(panicked, Self::retained_place(&report)),
                 cancelled: MirCallFailureEdge::new(cancelled, Self::retained_place(&report)),
+                completed_report: outcome.as_ref().map(|_| Self::retained_place(&report)),
             },
         )?;
 
@@ -415,14 +446,48 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_cancellation(
-            cancelled,
-            source,
-            expression.into(),
-            Some(MirOperand::Move(report)),
-        )?;
+        let may_cancel = match (
+            occurrence,
+            self.input.semantic_selections().expression(expression),
+        ) {
+            (
+                bray_bound_tree::BoundExecutionSite::Node(_),
+                Some(bray_bound_tree::SemanticSelection::Call(call)),
+            ) => call.may_enter_current_run_cancellation(),
+            _ => true,
+        };
 
-        Ok((completed, MirOperand::Value(result)))
+        if may_cancel {
+            self.finish_cancellation(
+                cancelled,
+                source,
+                expression.into(),
+                Some(MirOperand::Move(report)),
+            )?;
+        } else {
+            self.set_terminator(
+                cancelled,
+                Self::retained_source(source),
+                MirTerminatorKind::Unreachable,
+            )?;
+        }
+
+        let mut result = Some(MirOperand::Value(result));
+
+        let completed = match outcome {
+            Some(outcome) => outcome.retain_completed_report(
+                &mut self.builder,
+                completed,
+                source,
+                &mut result,
+            )?,
+            None => completed,
+        };
+
+        Ok((
+            completed,
+            result.expect("completed call retains its result"),
+        ))
     }
 
     pub(in crate::lowering) fn construct_result(

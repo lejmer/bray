@@ -10,6 +10,7 @@ use inkwell::context::Context;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 
 use super::core::UnitTranslator;
+use super::support::pointer_value;
 
 pub(super) fn reachable_blocks(
     unit: &MirUnit,
@@ -33,14 +34,18 @@ pub(super) fn reachable_blocks(
                 completed,
                 panicked,
                 cancelled,
-            } if forwards_call_outcomes => {
+                ..
+            } => {
                 pending.push(completed.target());
 
-                if !direct_panic_propagation(unit, panicked) {
+                if !forwards_call_outcomes || !direct_panic_propagation(unit, panicked) {
                     pending.push(panicked.target());
                 }
 
-                if !direct_cancellation_propagation(unit, cancelled) {
+                if !empty_unreachable_target(unit, cancelled.target())
+                    && (!forwards_call_outcomes
+                        || !direct_cancellation_propagation(unit, cancelled))
+                {
                     pending.push(cancelled.target());
                 }
             }
@@ -49,6 +54,16 @@ pub(super) fn reachable_blocks(
     }
 
     reachable
+}
+
+pub(super) fn empty_unreachable_target(unit: &MirUnit, target: MirBlockId) -> bool {
+    let block = unit
+        .block(target)
+        .expect("checked call outcome retains its target block");
+
+    block.operations().is_empty()
+        && block.parameters().is_empty()
+        && matches!(block.terminator().kind(), MirTerminatorKind::Unreachable)
 }
 
 pub(super) fn create_blocks<'context>(
@@ -177,6 +192,7 @@ pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId
             matches!(
                 block.terminator().kind(),
                 bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
+                    | bray_ir::MirTerminatorKind::TakeCallReport { .. }
             )
             .then(|| block.operations().last().copied())
             .flatten()
@@ -188,7 +204,7 @@ use super::support::llvm;
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_goto(&mut self, edge: &MirEdge) -> Result<(), CodegenFailure> {
         self.add_edge_arguments(edge)?;
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         llvm(
             self.builder
@@ -206,16 +222,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .get_insert_block()
             .expect("checked MIR translation requires an established mapping or value");
 
-        Ok((source, std::mem::take(&mut self.pending_moves)))
+        Ok((source, std::mem::take(&mut self.moved_reports)))
     }
 
     pub(super) fn route_edge(
         &mut self,
         edge: &MirEdge,
         name: &str,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         self.add_edge_arguments(edge)?;
         self.finish_route(edge.target())?;
@@ -227,9 +243,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         target: bray_ir::MirBlockId,
         name: &str,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         self.finish_route(target)?;
 
@@ -241,7 +257,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         edge: &MirCallFailureEdge,
         context: PointerValue<'context>,
         state: bray_runtime_abi::NativeRunState,
-        pending_moves: &[MirPlace],
+        moved_reports: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
         let (name, direct) = if state == bray_runtime_abi::NativeRunState::PANICKED {
             ("call.panicked", direct_panic_propagation(self.unit, edge))
@@ -254,23 +270,54 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )
         };
 
-        let route = self.begin_route(name, pending_moves);
+        let route = self.begin_route(name, moved_reports);
 
         // An empty propagation path transfers this same report back to the caller.
         // Keep its ownership in the incoming context instead of materializing a temporary.
         if self.panic_report_context == Some(context) && direct {
-            self.clear_moved_places()?;
+            self.clear_moved_reports()?;
             self.return_propagated_outcome()?;
 
             return Ok(route);
         }
 
-        let destination = self.place(edge.report())?;
+        self.take_call_report(context, edge.report())?;
 
+        self.finish_route(edge.target())?;
+
+        Ok(route)
+    }
+
+    pub(super) fn route_call_completion(
+        &mut self,
+        edge: &MirEdge,
+        report: Option<&MirPlace>,
+        context: PointerValue<'context>,
+        moved_reports: &[MirPlace],
+    ) -> Result<BasicBlock<'context>, CodegenFailure> {
+        let route = self.begin_route("call.completed", moved_reports);
+
+        if let Some(report) = report {
+            self.take_call_report(context, report)?;
+        }
+
+        self.add_edge_arguments(edge)?;
+        self.finish_route(edge.target())?;
+
+        Ok(route)
+    }
+
+    fn take_call_report(
+        &mut self,
+        context: PointerValue<'context>,
+        destination: &MirPlace,
+    ) -> Result<(), CodegenFailure> {
         let layout = self
-            .type_mapping(edge.report().ty())
+            .type_mapping(destination.ty())
             .and_then(bray_codegen::CodegenTypeMapping::layout)
             .expect("call panic report types must have represented codegen layouts");
+
+        let destination = self.place(destination)?;
 
         let alignment = crate::conversion::target_value(
             layout.alignment().get(),
@@ -297,26 +344,67 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         super::support::llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
 
-        self.finish_route(edge.target())?;
-
-        Ok(route)
+        Ok(())
     }
 
-    fn begin_route(&mut self, name: &str, pending_moves: &[MirPlace]) -> BasicBlock<'context> {
-        debug_assert!(self.pending_moves.is_empty());
+    fn begin_route(&mut self, name: &str, moved_reports: &[MirPlace]) -> BasicBlock<'context> {
+        debug_assert!(self.moved_reports.is_empty());
 
         let route = self.types.context().append_basic_block(self.function, name);
 
         self.builder.position_at_end(route);
-        self.pending_moves.extend_from_slice(pending_moves);
+        self.moved_reports.extend_from_slice(moved_reports);
 
         route
     }
 
     fn finish_route(&mut self, target: bray_ir::MirBlockId) -> Result<(), CodegenFailure> {
-        self.clear_moved_places()?;
+        self.clear_moved_reports()?;
 
         llvm(self.builder.build_unconditional_branch(self.block(target)))?;
+
+        Ok(())
+    }
+
+    pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
+        for (id, block) in self.unit.blocks_with_ids() {
+            if !self.reachable_blocks.contains(&id) {
+                continue;
+            }
+
+            let llvm_block = self.block(id);
+
+            self.builder.position_at_end(llvm_block);
+
+            for parameter in block.parameters() {
+                let semantic = self
+                    .unit
+                    .value(*parameter)
+                    .expect("block parameter has its checked type")
+                    .ty();
+
+                if self.types.is_address_value(semantic)? {
+                    let mapped = self.types.map(semantic)?;
+
+                    let storage =
+                        self.allocate_temporary(mapped, &format!("value.{}", parameter.slot()))?;
+
+                    self.values.insert(*parameter, storage.into());
+
+                    continue;
+                }
+
+                let ty = self.value_type(*parameter)?;
+
+                let phi = llvm(
+                    self.builder
+                        .build_phi(ty, &format!("value.{}", parameter.slot())),
+                )?;
+
+                self.phis.insert(*parameter, phi);
+                self.values.insert(*parameter, phi.as_basic_value());
+            }
+        }
 
         Ok(())
     }
@@ -331,17 +419,57 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR translation violated an established compiler contract");
         }
 
-        let mut incoming: Vec<(PhiValue<'context>, BasicValueEnum<'context>)> =
-            Vec::with_capacity(target.parameters().len());
+        let mut incoming: Vec<(PhiValue<'context>, BasicValueEnum<'context>)> = Vec::new();
+        let mut stored = Vec::new();
 
         for (parameter, argument) in target.parameters().iter().zip(edge.arguments()) {
-            let phi = self
-                .phis
-                .get(parameter)
-                .copied()
-                .expect("checked MIR translation requires an established mapping or value");
+            let ty = self
+                .unit
+                .value(*parameter)
+                .expect("block parameter has its checked type")
+                .ty();
 
-            incoming.push((phi, self.operand(argument)?));
+            let value = self.operand(argument)?;
+
+            if self.types.is_address_value(ty)? {
+                let destination = pointer_value(self.values[parameter])
+                    .expect("address-valued block parameter owns its storage");
+
+                let source =
+                    pointer_value(value).expect("address-valued edge input has its storage");
+
+                if source != destination {
+                    stored.push((destination, value, ty));
+                }
+            } else {
+                let phi = self
+                    .phis
+                    .get(parameter)
+                    .copied()
+                    .expect("register block parameter has its LLVM phi");
+
+                incoming.push((phi, value));
+            }
+        }
+
+        let destinations = stored
+            .iter()
+            .map(|(destination, _, _)| *destination)
+            .collect::<std::collections::HashSet<_>>();
+
+        // Snapshot every input that another parameter assignment could overwrite.
+        // These private edge scratches are never published as value carriers, so
+        // re-entering a loop cannot make a scratch alias an incoming value.
+        for (_, value, ty) in &mut stored {
+            if destinations
+                .contains(&pointer_value(*value).expect("stored edge input has its address"))
+            {
+                *value = self.snapshot_value(*value, *ty, "edge.snapshot")?;
+            }
+        }
+
+        for (destination, value, ty) in stored {
+            self.store_value(destination, value, ty)?;
         }
 
         let source = self
@@ -384,6 +512,26 @@ mod tests {
         assert_eq!(
             reachable_blocks(&unit, false, [unit.entry()]),
             [entry, completed, panicked, cancelled].into()
+        );
+    }
+
+    #[test]
+    fn impossible_cancellation_is_not_a_report_route() {
+        let (mut builder, source, [entry, completed, panicked, cancelled], _) =
+            propagation_builder(Some(3));
+
+        builder.set_terminator(cancelled, source, MirTerminatorKind::Unreachable);
+
+        let unit = builder.finish(entry);
+
+        assert_eq!(
+            reachable_blocks(&unit, true, [entry]),
+            [entry, completed].into()
+        );
+
+        assert_eq!(
+            reachable_blocks(&unit, false, [entry]),
+            [entry, completed, panicked].into()
         );
     }
 
@@ -519,6 +667,7 @@ mod tests {
                 completed: MirEdge::new(completed, []),
                 panicked: MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: MirCallFailureEdge::new(cancelled, other),
+                completed_report: None,
             },
         );
 
@@ -579,8 +728,12 @@ mod tests {
                 completed: MirEdge::new(completed, []),
                 panicked: MirCallFailureEdge::new(panicked, report.clone()),
                 cancelled: MirCallFailureEdge::new(cancelled, report.clone()),
+                completed_report: None,
             },
-            MirTerminatorKind::Return(None),
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
             MirTerminatorKind::PropagatePanic {
                 report: MirOperand::Move(report.clone()),
                 runtime: panic,

@@ -275,13 +275,11 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         MirAsyncOperation::DestroyTerminalTask { task } => visit_operand(task, visit),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. } => visit_place_operands(task, visit),
-        MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value)
-            | MirTaskTerminalState::Panicked(value)
-            | MirTaskTerminalState::Cancelled(value) => {
-                visit_operand(value, visit);
+        MirAsyncOperation::PublishTerminalState { state, .. } => {
+            for operand in state.operands() {
+                visit_operand(operand, visit);
             }
-        },
+        }
         MirAsyncOperation::TransferCleanupIncident {
             incident, report, ..
         } => {
@@ -313,6 +311,27 @@ impl MirOperand {
     }
 }
 
+impl MirTaskTerminalState {
+    /// Iterates the owned payload and report supplied to terminal publication.
+    pub fn operands(&self) -> impl Iterator<Item = &MirOperand> {
+        let (value, report) = match self {
+            Self::Completed { value, report } => (value, report.as_ref()),
+            Self::Cancelled(report) | Self::Panicked(report) => (report, None),
+        };
+
+        std::iter::once(value).chain(report)
+    }
+
+    pub(crate) fn operands_mut(&mut self) -> impl Iterator<Item = &mut MirOperand> {
+        let (value, report) = match self {
+            Self::Completed { value, report } => (value, report.as_mut()),
+            Self::Cancelled(report) | Self::Panicked(report) => (report, None),
+        };
+
+        std::iter::once(value).chain(report)
+    }
+}
+
 impl MirTerminatorKind {
     /// Visits inputs evaluated before successor selection, excluding edge arguments.
     pub fn for_each_input(&self, mut visit: impl FnMut(&MirOperand)) {
@@ -321,12 +340,18 @@ impl MirTerminatorKind {
             Self::PatternBranch { subject, .. } => visit_operand(subject, &mut visit),
             Self::Switch { discriminant, .. } => visit_operand(discriminant, &mut visit),
             Self::InlineAssembly(assembly) => visit_operand(assembly.inputs(), &mut visit),
-            Self::Return(value) | Self::Suspend { payload: value, .. } => {
-                if let Some(value) = value {
-                    visit_operand(value, &mut visit);
+            Self::Return { value, report } => {
+                for operand in value.iter().chain(report) {
+                    visit_operand(operand, &mut visit);
+                }
+            }
+            Self::Suspend { payload, .. } => {
+                if let Some(payload) = payload {
+                    visit_operand(payload, &mut visit);
                 }
             }
             Self::ForwardRunResult { result, .. } => visit_operand(result, &mut visit),
+            Self::TakeCallReport { report, .. } => visit_place_operands(report, &mut visit),
             Self::Panic { report, .. }
             | Self::PropagatePanic { report, .. }
             | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
@@ -526,12 +551,22 @@ pub fn for_each_terminator_storage(
             visit_edge_storage(edges.panicked().edge(), &mut visit);
             visit_edge_storage(edges.cancelled().edge(), &mut visit);
         }
+        MirTerminatorKind::TakeCallReport { completed, report } => {
+            visit_edge_storage(completed, &mut visit);
+            visit_place_storage(report, &mut visit);
+        }
         MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
             cancelled,
+            completed_report,
         } => {
             visit_edge_storage(completed, &mut visit);
+
+            if let Some(report) = completed_report {
+                visit_place_storage(report, &mut visit);
+            }
+
             visit_place_storage(panicked.report(), &mut visit);
             visit_place_storage(cancelled.report(), &mut visit);
         }
@@ -542,7 +577,7 @@ pub fn for_each_terminator_storage(
             visit_edge_storage(cleanup.edge(), &mut visit);
         }
         MirTerminatorKind::InlineAssembly(_)
-        | MirTerminatorKind::Return(_)
+        | MirTerminatorKind::Return { .. }
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::PropagatePanic { .. }
         | MirTerminatorKind::PropagateCancellation { .. } => {}
@@ -622,6 +657,7 @@ mod tests {
             completed: MirEdge::new(MirBlockId::from_slot(unit, 1), []),
             panicked: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 2), report.clone()),
             cancelled: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 3), report),
+            completed_report: None,
         };
 
         let mut storages = Vec::new();
@@ -685,7 +721,10 @@ mod tests {
         ));
 
         let operation = MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
-            state: MirTaskTerminalState::Completed(value.clone()),
+            state: MirTaskTerminalState::Completed {
+                value: value.clone(),
+                report: None,
+            },
             runtime: MirRuntimeReference::new(
                 RuntimeAbiRole::TerminalPublication,
                 RuntimeAbiVersion::new(1, 0),
@@ -754,7 +793,14 @@ mod tests {
             panic!("test MIR block must be valid");
         };
 
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: None,
+                report: None,
+            },
+        );
 
         builder.finish(entry)
     }

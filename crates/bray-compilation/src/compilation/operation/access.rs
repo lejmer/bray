@@ -1498,7 +1498,18 @@ impl Compilation {
             ),
             BoundStructuredExpressionKind::SliceIndex => {
                 let Some(bound) = selectors.first().copied() else {
-                    return Ok(None);
+                    // No present selector supplies the custom contract's bound type.
+                    // Publish selection failure rather than an apparently checked access.
+                    return self.select_operation(
+                        key,
+                        binding_context,
+                        unit,
+                        types,
+                        index.operands().iter().copied(),
+                        None::<OperationCandidate>,
+                        cancellation,
+                        diagnostics,
+                    );
                 };
 
                 let nullable_bound = binding_context

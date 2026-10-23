@@ -16,7 +16,7 @@ use crate::callbr::{CallBrError, build_callbr};
 use crate::mapping::type_attribute;
 
 use super::super::super::core::UnitTranslator;
-use super::super::super::support::{extract_value, insert_value, llvm};
+use super::super::super::support::{extract_value, llvm};
 use super::constraint::{append_clobber, assembly_constraints, output_descriptors};
 
 #[derive(Clone, Copy)]
@@ -79,12 +79,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let phi = self
-            .phis
-            .get(parameter)
-            .copied()
-            .expect("checked MIR memory translation requires an established mapping or value");
-
         let normal = self.block(assembly.normal());
 
         let fallthrough = self
@@ -107,10 +101,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 AssemblySite::Terminator(block),
                 Some((fallthrough, &alternates)),
             )?
-            .unwrap_or(self.types.map(assembly.output_type())?.const_zero());
+            .expect("fallthrough assembly produces its checked output value");
+
+        if self.types.is_address_value(assembly.output_type())? {
+            let destination = super::super::super::support::pointer_value(self.values[parameter])
+                .expect("stored assembly output parameter owns its storage");
+
+            self.store_value(destination, output, assembly.output_type())?;
+        } else {
+            let phi = self
+                .phis
+                .get(parameter)
+                .copied()
+                .expect("register assembly output parameter has its LLVM phi");
+
+            phi.add_incoming(&[(&output, fallthrough)]);
+        }
 
         llvm(self.builder.build_unconditional_branch(normal))?;
-        phi.add_incoming(&[(&output, fallthrough)]);
 
         Ok(())
     }
@@ -272,7 +280,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         if destinations.is_some() {
-            self.clear_moved_places()?;
+            self.clear_moved_reports()?;
         }
 
         let fallthrough = destinations.map(|(default, _)| default);
@@ -316,7 +324,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let Some(raw_output) = raw_output else {
             return match output_type {
-                Some(output) => Ok(Some(self.types.map(output)?.const_zero())),
+                Some(output) => {
+                    let zero = self.types.map(output)?.const_zero();
+
+                    self.initialize_value(zero, output, "assembly.empty")
+                        .map(Some)
+                }
                 None => Ok(None),
             };
         };
@@ -335,17 +348,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         aggregate_type: bray_symbols::TypeId,
         index: u16,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(aggregate_type)
-            .expect("checked MIR memory translation requires an established mapping or value");
-
-        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        };
-
-        let index = self.aggregate_element(fields, usize::from(index))?;
-
-        extract_value(&self.builder, aggregate, index)
+        self.aggregate_field_value(aggregate, aggregate_type, usize::from(index))
     }
 
     fn assembly_output(
@@ -364,7 +367,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let mut result = mapped.const_zero();
+        let fields = fields.clone();
+
+        let mut result =
+            self.initialize_value(mapped.const_zero(), output_type, "assembly.result")?;
 
         for (ordinal, _) in outputs.iter().enumerate() {
             let value = if outputs.len() == 1 {
@@ -377,12 +383,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?
             };
 
-            let destination = self.aggregate_element(fields, ordinal)?;
-
-            let destination =
-                crate::conversion::resource_limit(destination, "assembly_destination_ordinal")?;
-
-            result = insert_value(&self.builder, result, value, destination)?;
+            result = self.insert_aggregate_field(result, &fields, ordinal, value)?;
         }
 
         Ok(result)

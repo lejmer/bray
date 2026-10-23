@@ -31,7 +31,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
         let mut relations = Vec::new();
-        let mut requirements = std::mem::take(&mut self.results).requirements();
+        let summary = std::mem::take(&mut self.results).summary();
+        let mut requirements = summary.requirements().to_vec();
 
         for (slot, target, exact) in self
             .references
@@ -69,11 +70,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        Ok(
-            bray_symbols::DependencyContractTemplateData::new(requirements)
-                .with_borrows(relations)
-                .with_normal_completion(self.references.is_some()),
-        )
+        Ok(summary
+            .with_requirements(requirements)
+            .with_borrows(relations)
+            .with_normal_completion(self.references.is_some()))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn result_type(

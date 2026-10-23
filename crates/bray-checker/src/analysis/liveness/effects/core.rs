@@ -30,6 +30,8 @@ pub(crate) struct OperationEffects {
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
+    pub(super) report_owner_inputs:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StorageIdentityId>>,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
@@ -46,6 +48,8 @@ impl OperationEffects {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
+        graph: &crate::analysis::model::ControlFlowGraph,
+        cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) -> Self
     where
         C: CheckerRequestContext + ?Sized,
@@ -55,6 +59,15 @@ impl OperationEffects {
 
         effects.value_inputs = value_inputs;
         effects.add_selected_call_dependencies(selections, storage, dependencies);
+
+        effects.retain_report_dependencies(
+            request,
+            graph,
+            selections,
+            storage,
+            dependencies,
+            cleanup,
+        );
 
         for plan in storage.access_plans() {
             let access = storage
@@ -109,7 +122,7 @@ impl OperationEffects {
         }
 
         effects.retain_owned_call_dependencies(request, storage);
-        effects.retain_input_dependencies(request.unit());
+        effects.retain_input_dependencies(request.unit(), dependencies);
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -289,17 +302,22 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_input_dependencies(&mut self, unit: &BoundUnit) {
+    pub(in crate::analysis::liveness) fn retain_input_dependencies(
+        &mut self,
+        unit: &BoundUnit,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) {
         let inputs = unit
             .tree()
             .expressions()
-            .filter(|(_, node)| {
-                matches!(
-                    node,
-                    BoundExpression::Call(_)
-                        | BoundExpression::Await(_)
-                        | BoundExpression::Assignment(_)
-                )
+            .filter(|(expression, node)| {
+                dependencies.calls().contains_key(&(*expression).into())
+                    || matches!(
+                        node,
+                        BoundExpression::Call(_)
+                            | BoundExpression::Await(_)
+                            | BoundExpression::Assignment(_)
+                    )
             })
             .map(|(expression, node)| {
                 let subjects = node

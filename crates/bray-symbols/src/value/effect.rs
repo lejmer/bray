@@ -54,6 +54,22 @@ pub enum DependencyStorageEffect<
     },
 }
 
+impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Describes a transition whose particular storage target is unresolved.
+    /// Atomic updates and address escape retain their distinct meanings.
+    pub fn unresolved(kind: DependencyMutationKind<Type>) -> Self {
+        match kind {
+            DependencyMutationKind::Atomic => Self::Atomic,
+            DependencyMutationKind::Escape => Self::Escape,
+            DependencyMutationKind::Write
+            | DependencyMutationKind::Replace(_)
+            | DependencyMutationKind::Clear
+            | DependencyMutationKind::Consume
+            | DependencyMutationKind::Retire => Self::Unknown,
+        }
+    }
+}
+
 impl<Type> DependencyMutationKind<Type> {
     /// Whether contents change without ending the containing storage lifetime.
     pub const fn is_write(&self) -> bool {
@@ -159,5 +175,21 @@ mod tests {
                 .as_ref(),
             &[DependencyStorageEffect::Unknown, write]
         );
+    }
+    #[test]
+    fn unresolved_targets_preserve_atomic_and_escape_effects() {
+        type Effect = DependencyStorageEffect<(), (), ()>;
+
+        for (kind, expected) in [
+            (DependencyMutationKind::Atomic, Effect::Atomic),
+            (DependencyMutationKind::Escape, Effect::Escape),
+            (DependencyMutationKind::Write, Effect::Unknown),
+            (DependencyMutationKind::Replace(()), Effect::Unknown),
+            (DependencyMutationKind::Clear, Effect::Unknown),
+            (DependencyMutationKind::Consume, Effect::Unknown),
+            (DependencyMutationKind::Retire, Effect::Unknown),
+        ] {
+            assert_eq!(Effect::unresolved(kind), expected);
+        }
     }
 }

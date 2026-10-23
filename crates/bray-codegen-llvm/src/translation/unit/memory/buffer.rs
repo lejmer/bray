@@ -31,7 +31,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let value = self.operand(value)?;
 
-        llvm(self.builder.build_store(pointer, value))?;
+        self.store_value(pointer, value, element)?;
 
         let initialized = llvm(self.builder.build_int_add(
             initialized,
@@ -72,11 +72,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer =
             self.dynamic_offset_pointer(pointer, initialized, self.memory_layout(element).size())?;
 
-        let value = llvm(self.builder.build_load(
-            self.types.map(element)?,
-            pointer,
-            "memory.buffer.value",
-        ))?;
+        let value = self.load_value(pointer, element, "memory.buffer.value")?;
 
         self.store_raw_buffer_initialized_count(
             buffer,

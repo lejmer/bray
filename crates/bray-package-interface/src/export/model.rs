@@ -445,7 +445,12 @@ fn require_owned_semantic_record(
 
 fn canonicalize_owner_addressed_semantics(mut semantics: InterfaceSemantics) -> InterfaceSemantics {
     for contract in Arc::make_mut(&mut semantics.dependency_contracts) {
-        Arc::make_mut(&mut contract.requirements).sort();
+        for requirements in std::iter::once(&mut contract.requirements)
+            .chain(contract.completion_reports.iter_mut())
+            .chain(contract.abnormal_reports.iter_mut())
+        {
+            Arc::make_mut(requirements).sort();
+        }
     }
 
     Arc::make_mut(&mut semantics.constraints).sort();

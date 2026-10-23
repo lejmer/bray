@@ -1,5 +1,4 @@
 use super::core::UnitTranslator;
-use super::support::llvm;
 use bray_codegen::{CodegenFailure, CodegenHelperMapping};
 use bray_ir::{MirGeneratorKind, MirGeneratorOperation, MirHelperReference, MirPlace};
 use inkwell::values::BasicValueEnum;
@@ -138,7 +137,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let value = self.operand(value)?;
 
-        llvm(self.builder.build_store(storage, value))?;
+        self.store_value(storage, value, element)?;
 
         let destination = self.place(destination)?.into();
 
@@ -174,11 +173,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR translation violated an established compiler contract");
         }
 
-        let value = llvm(self.builder.build_load(
-            self.types.map(destination.ty())?,
-            destination_pointer,
-            "generator.result",
-        ))?;
+        let value = self.load_value(destination_pointer, destination.ty(), "generator.result")?;
 
         Ok(Some(value))
     }

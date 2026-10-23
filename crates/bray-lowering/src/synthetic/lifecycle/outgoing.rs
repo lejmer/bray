@@ -17,7 +17,7 @@ pub(super) fn discharge_owner(
         .filter_map(|(id, terminal)| {
             matches!(
                 terminal.kind(),
-                MirTerminatorKind::Return(_)
+                MirTerminatorKind::Return { .. }
                     | MirTerminatorKind::PropagatePanic { .. }
                     | MirTerminatorKind::PropagateCancellation { .. }
             )

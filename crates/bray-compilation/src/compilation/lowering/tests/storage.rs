@@ -173,7 +173,7 @@ fn structured_values_lower_to_aggregates_construction_and_projections() {
         .blocks()
         .iter()
         .filter_map(|block| match block.terminator().kind() {
-            MirTerminatorKind::Return(value) => Some(value),
+            MirTerminatorKind::Return { value, .. } => Some(value),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -545,8 +545,10 @@ func main() -> i32?
 
     let mir = lowered_mir(&lowered);
 
-    let Some(MirTerminatorKind::Return(Some(MirOperand::Copy(place)))) =
-        mir.blocks().last().map(|block| block.terminator().kind())
+    let Some(MirTerminatorKind::Return {
+        value: Some(MirOperand::Copy(place)),
+        report: None,
+    }) = mir.blocks().last().map(|block| block.terminator().kind())
     else {
         panic!("nullable local constant must lower through typed storage: {mir:#?}");
     };
