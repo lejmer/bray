@@ -1,5 +1,11 @@
 module std.random;
 
+using core.memory;
+using std.io;
+using std.memory;
+using std.numeric;
+using internal std.platform;
+
 const SEED_BYTES: usize = 32;
 
 union EntropyError

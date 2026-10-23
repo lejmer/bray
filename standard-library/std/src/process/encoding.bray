@@ -1,5 +1,8 @@
 trusted module std.process;
 
+using std.numeric;
+using internal std.platform;
+using internal std.process.context_order;
 using std.memory;
 using std.path;
 using std.order;
@@ -204,6 +207,8 @@ trusted internal func table_value(pos table: &ProcessContextTable, pos entry: Pr
 
 internal module std.process.context_order
 {
+
+    using std.process;
     using std.order;
 
     internal struct ContextEntryOrder

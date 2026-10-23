@@ -1,5 +1,9 @@
 trusted module std.time;
 
+using core.memory;
+using std.memory;
+using internal std.platform;
+
 const MAXIMUM_UTC_OFFSET_SECONDS: i32 = 86399;
 
 const TIME_ZONE_DATABASE_VERSION: string = "2026c";

@@ -58,6 +58,66 @@ impl ExpressionBinder {
         }
     }
 
+    fn check_access_dependency<C>(
+        &self,
+        binder: &mut Binder<'_, C>,
+        context: crate::lookup::PathBindingContext,
+        syntax: &AccessExpressionSyntax,
+        current: BoundExpressionId,
+        route_tokens: &[bray_syntax::SyntaxToken],
+    ) -> bool
+    where
+        C: BindingQueryContext + ?Sized,
+    {
+        let Some(module) = context.module() else {
+            return true;
+        };
+
+        let Some(BoundExpression::Name(name)) = binder.unit_view().expression(current) else {
+            return true;
+        };
+
+        let bray_bound_tree::BoundReferenceTarget::Surface(namespace) = name.target() else {
+            return true;
+        };
+
+        let components = route_tokens
+            .iter()
+            .filter_map(|token| token.text(syntax.source().text()))
+            .collect::<Vec<_>>();
+
+        let lookup = bray_symbols::MemberLookupResult::Found(crate::lookup::ResolvedName::Surface(
+            namespace,
+        ));
+
+        if crate::lookup::lookup_dependency_declared(
+            binder.binding_context().symbols(),
+            binder.binding_context().declarations(),
+            module,
+            &components,
+            &lookup,
+        ) {
+            return true;
+        }
+
+        let reference = crate::lookup::NameReference::new(
+            components.join("."),
+            syntax.source().source_id(),
+            syntax.full_range(),
+        );
+
+        binder.add_diagnostic(
+            crate::lookup::lookup_diagnostic(
+                &reference,
+                bray_diagnostics::DiagnosticNameKind::Module,
+                &bray_symbols::MemberLookupResult::<crate::lookup::ResolvedName>::UndeclaredDependency,
+            )
+            .expect("undeclared dependency produces a diagnostic"),
+        );
+
+        false
+    }
+
     pub(super) fn bind_primary<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
@@ -407,14 +467,19 @@ impl ExpressionBinder {
 
             if let Some(module) = context.module()
                 && crate::lookup::module_using_access(
-                    binder.binding_context(),
+                    binder.binding_context().symbols(),
+                    binder.binding_context().declarations(),
                     module,
                     &components,
-                )?
+                )
                 .is_some_and(|(_, internal)| internal)
             {
                 lookup_access = NameAccess::Internal;
             }
+        }
+
+        if !self.check_access_dependency(binder, context, syntax, current, &route_tokens) {
+            return self.push_error(binder, Some(syntax));
         }
 
         let mut failure = None;

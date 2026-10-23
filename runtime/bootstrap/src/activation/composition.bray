@@ -1,6 +1,11 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation.composition;
 
+using core.target;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.entry;
+using internal bray.runtime.bootstrap.pool;
+using core.memory;
 using std.memory;
 
 // The current run exclusively dispatches this parent and retains this exact

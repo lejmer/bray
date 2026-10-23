@@ -1,5 +1,7 @@
 module static_cleanup_failure;
 
+using core.target;
+
 @layout(stable, align = 64)
 struct Failure
 {

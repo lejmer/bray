@@ -14,6 +14,7 @@ fn incompatible_pointer_handle_reports_a_call_error_before_lowering() {
         &[
             r#"trusted module app;
 
+using core.memory;
 using internal app.platform;
 
 trusted func main()
@@ -89,7 +90,10 @@ fn yielded_diverging_calls_preserve_never_at_a_value_join() {
         "loop { if choice { break 1; } break trusted core.target.abort(); }",
     ] {
         let source = format!(
-            "trusted module app;\ntrusted func choose(pos choice: bool) -> usize {{ return {expression}; }}"
+            r#"trusted module app;
+
+using core.target;
+trusted func choose(pos choice: bool) -> usize {{ return {expression}; }}"#
         );
 
         let compilation = compilation(&source);

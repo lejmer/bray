@@ -19,9 +19,7 @@ use std::sync::Arc;
 #[test]
 fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,
@@ -148,9 +146,7 @@ fn native_reuse_defers_optional_executable_body_decoding() {
 #[test]
 fn imported_native_binding_retains_references_but_excludes_disconnected_package_units() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,
@@ -207,9 +203,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 #[test]
 fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,
@@ -242,9 +236,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 #[test]
 fn static_library_reuses_imported_binding_without_flattening_dependency_archive() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,
@@ -419,9 +411,7 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 #[test]
 fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,
@@ -453,9 +443,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 #[test]
 fn selected_native_binding_with_wrong_producer_reports_exact_import_failure() {
     let fixture = GenericDependencyFixture {
-        source: "module templates;
-public func hot(pos value: i32) -> i32 { return value + 1; }
-",
+        source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
         runtime_frames: None,
         executable_templates: 1,
         platform_service: None,

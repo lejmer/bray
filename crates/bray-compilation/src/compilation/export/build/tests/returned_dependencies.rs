@@ -820,7 +820,10 @@ fn imported_generic_addresses_retain_authority_only_while_the_owner_lives() {
             &format!(
                 r#"
             trusted module app;
+
+            using core.memory;
             using example.package.api;
+
             trusted func caller() -> u8 uses(raw_memory) {{ {body} }}
         "#
             ),
@@ -954,6 +957,8 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
     let provider = compilation(
         r#"
         module api;
+
+        using core.memory;
         func pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
@@ -1573,6 +1578,8 @@ fn imported_escape_effects_distinguish_retained_arguments_from_opaque_execution(
         r#"
         trusted module api;
 
+        using core.memory;
+
         struct Marker
         {
         }
@@ -1695,6 +1702,8 @@ fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
     let provider = compilation(
         r#"
         module api;
+
+        using core.atomic;
 
         struct Owner
         {

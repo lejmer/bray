@@ -1,6 +1,9 @@
 @target(target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME == "aarch64-apple-darwin")
 trusted internal module bray.runtime.bootstrap.atomic;
 
+using core.memory;
+using std.os.darwin;
+
 @abi(c)
 trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
     requires(

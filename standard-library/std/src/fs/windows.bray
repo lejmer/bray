@@ -1,6 +1,16 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.fs;
 
+using core.memory;
+using std.bytes;
+using std.io;
+using std.memory;
+using std.numeric;
+using std.os.windows;
+using std.path;
+using internal std.platform;
+using std.time;
+
 @abi(c)
 trusted internal func platform_file_read(
     pos handle: u64,

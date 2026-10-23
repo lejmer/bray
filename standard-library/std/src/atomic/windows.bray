@@ -1,6 +1,8 @@
 @target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
 module std.atomic;
 
+using core.atomic;
+using std.memory;
 using std.os.windows;
 
 trusted internal func platform_wait_word_for(

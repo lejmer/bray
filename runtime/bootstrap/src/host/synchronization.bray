@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using core.atomic;
+using core.memory;
 using std.memory;
 
 internal struct Synchronization

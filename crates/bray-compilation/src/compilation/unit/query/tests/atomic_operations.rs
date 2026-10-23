@@ -8,14 +8,17 @@ use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
 fn invalid_atomic_orders_publish_structured_diagnostics_before_lowering() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "func main()\n",
-        "{\n",
-        "    let storage = core.atomic.initialize<u32>(1);\n",
-        "    let value = core.atomic.load<u32, 2>(&storage);\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+func main()
+{
+    let storage = core.atomic.initialize<u32>(1);
+    let value = core.atomic.load<u32, 2>(&storage);
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -31,13 +34,16 @@ fn invalid_atomic_orders_publish_structured_diagnostics_before_lowering() {
 
 #[test]
 fn open_generic_atomic_operations_defer_representation_validation() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "func initialize<T>(pos value: T) -> core.atomic.Atomic<T>\n",
-        "{\n",
-        "    return core.atomic.initialize<T>(value);\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+func initialize<T>(pos value: T) -> core.atomic.Atomic<T>
+{
+    return core.atomic.initialize<T>(value);
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_function_body_key(&compilation, "initialize"))
@@ -60,13 +66,14 @@ fn open_generic_atomic_operations_defer_representation_validation() {
 #[test]
 fn unavailable_atomic_representations_fail_before_lowering() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "module app;\n",
-            "func main()\n",
-            "{\n",
-            "    let storage = core.atomic.initialize<u128>(1);\n",
-            "}\n",
-        ),
+        r#"module app;
+
+using core.atomic;
+func main()
+{
+    let storage = core.atomic.initialize<u128>(1);
+}
+"#,
         true,
         true,
     );
@@ -86,13 +93,14 @@ fn unavailable_atomic_representations_fail_before_lowering() {
 #[test]
 fn non_atomic_scalar_representations_fail_before_lowering() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "module app;\n",
-            "func main()\n",
-            "{\n",
-            "    let storage = core.atomic.initialize<r32>(1.0);\n",
-            "}\n",
-        ),
+        r#"module app;
+
+using core.atomic;
+func main()
+{
+    let storage = core.atomic.initialize<r32>(1.0);
+}
+"#,
         true,
         true,
     );
@@ -112,21 +120,22 @@ fn non_atomic_scalar_representations_fail_before_lowering() {
 #[test]
 fn transparent_integer_representations_support_atomic_fetch_operations() {
     let compilation = compilation_with_target_operations(
-        concat!(
-            "module app;\n",
-            "@copy\n",
-            "@layout(transparent)\n",
-            "struct Counter\n",
-            "{\n",
-            "    value: u32;\n",
-            "}\n",
-            "func main()\n",
-            "{\n",
-            "    let storage = core.atomic.initialize<Counter>(Counter { value = 1 });\n",
-            "    let previous = core.atomic.fetch_add<Counter, 0>(\n",
-            "        &storage, Counter { value = 2 });\n",
-            "}\n",
-        ),
+        r#"module app;
+
+using core.atomic;
+@copy
+@layout(transparent)
+struct Counter
+{
+    value: u32;
+}
+func main()
+{
+    let storage = core.atomic.initialize<Counter>(Counter { value = 1 });
+    let previous = core.atomic.fetch_add<Counter, 0>(
+        &storage, Counter { value = 2 });
+}
+"#,
         true,
         true,
     );
@@ -154,14 +163,17 @@ fn transparent_integer_representations_support_atomic_fetch_operations() {
 
 #[test]
 fn target_sized_integer_fetch_uses_integer_atomic_representation() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "func main()\n",
-        "{\n",
-        "    let storage = core.atomic.initialize<usize>(1);\n",
-        "    let previous = core.atomic.fetch_add<usize, 0>(&storage, 2);\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+func main()
+{
+    let storage = core.atomic.initialize<usize>(1);
+    let previous = core.atomic.fetch_add<usize, 0>(&storage, 2);
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -186,23 +198,26 @@ fn target_sized_integer_fetch_uses_integer_atomic_representation() {
 
 #[test]
 fn plain_storage_representations_support_non_fetch_atomic_operations() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "@copy\n",
-        "@layout(stable)\n",
-        "struct Pair\n",
-        "{\n",
-        "    low: u16;\n",
-        "    high: u16;\n",
-        "}\n",
-        "func main()\n",
-        "{\n",
-        "    let storage = core.atomic.initialize<Pair>(Pair { low = 1, high = 2 });\n",
-        "    let value = core.atomic.load<Pair, 1>(&storage);\n",
-        "    let prior = core.atomic.exchange<Pair, 3>(\n",
-        "        &storage, Pair { low = 3, high = 4 });\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+@copy
+@layout(stable)
+struct Pair
+{
+    low: u16;
+    high: u16;
+}
+func main()
+{
+    let storage = core.atomic.initialize<Pair>(Pair { low = 1, high = 2 });
+    let value = core.atomic.load<Pair, 1>(&storage);
+    let prior = core.atomic.exchange<Pair, 3>(
+        &storage, Pair { low = 3, high = 4 });
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -219,21 +234,24 @@ fn plain_storage_representations_support_non_fetch_atomic_operations() {
 
 #[test]
 fn padded_plain_storage_atomic_representations_fail_before_lowering() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "@copy\n",
-        "@layout(stable)\n",
-        "struct Padded\n",
-        "{\n",
-        "    first: u8;\n",
-        "    second: u32;\n",
-        "}\n",
-        "func main()\n",
-        "{\n",
-        "    let storage = core.atomic.initialize<Padded>(\n",
-        "        Padded { first = 1, second = 2 });\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+@copy
+@layout(stable)
+struct Padded
+{
+    first: u8;
+    second: u32;
+}
+func main()
+{
+    let storage = core.atomic.initialize<Padded>(
+        Padded { first = 1, second = 2 });
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -249,22 +267,25 @@ fn padded_plain_storage_atomic_representations_fail_before_lowering() {
 
 #[test]
 fn unsupported_atomic_plain_storage_sizes_fail_before_lowering() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "@copy\n",
-        "@layout(stable)\n",
-        "struct Triple\n",
-        "{\n",
-        "    first: u8;\n",
-        "    second: u8;\n",
-        "    third: u8;\n",
-        "}\n",
-        "func main()\n",
-        "{\n",
-        "    let storage = core.atomic.initialize<Triple>(\n",
-        "        Triple { first = 1, second = 2, third = 3 });\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"module app;
+
+using core.atomic;
+@copy
+@layout(stable)
+struct Triple
+{
+    first: u8;
+    second: u8;
+    third: u8;
+}
+func main()
+{
+    let storage = core.atomic.initialize<Triple>(
+        Triple { first = 1, second = 2, third = 3 });
+}
+"#,
+    );
 
     let operations = compilation
         .memory_operations(source_callable_body_key(&compilation))
@@ -292,7 +313,11 @@ fn atomic_value_initialization_is_pure_but_observation_and_mutation_are_not() {
         ),
     ] {
         let application = compilation(&format!(
-            "module app; func root(pos existing: &core.atomic.Atomic<u32>) -> core.atomic.Atomic<u32> executes(pure, total) {{ {operation} }}"
+            r#"module app;
+
+using core.atomic;
+
+ func root(pos existing: &core.atomic.Atomic<u32>) -> core.atomic.Atomic<u32> executes(pure, total) {{ {operation} }}"#
         ));
 
         let diagnostics = application.check_diagnostics();

@@ -1,6 +1,8 @@
 @target(target.c.LONG == "i32")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `long` when `target.c.LONG` selects `i32`.

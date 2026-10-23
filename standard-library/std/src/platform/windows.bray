@@ -1,6 +1,11 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module std.platform;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+using std.os.windows;
+
 internal struct LocalAllocation
 {
     identity: NativeTextOwner;

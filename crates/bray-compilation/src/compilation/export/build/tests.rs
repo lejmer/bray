@@ -2,6 +2,7 @@ mod accessibility;
 mod constants;
 mod default_arguments;
 mod default_borrows;
+mod dependencies;
 mod discovery;
 mod fixtures;
 mod generics;

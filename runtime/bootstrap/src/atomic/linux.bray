@@ -1,6 +1,9 @@
 @target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
 trusted internal module bray.runtime.bootstrap.atomic;
 
+using core.memory;
+using std.os.linux;
+
 @abi(c)
 trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
     requires(

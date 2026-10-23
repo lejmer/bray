@@ -331,6 +331,27 @@ mod tests {
     }
 
     #[test]
+    fn generated_bindings_declare_their_source_dependencies() {
+        let loaded = super::load().expect("checked-in binding descriptions must render");
+
+        for (target, rendered) in loaded.description.targets.iter().zip(&loaded.rendered) {
+            assert_eq!(target.target, rendered.target);
+            assert!(target.usings.contains("core.memory"));
+            assert!(target.usings.contains("std.dynamic"));
+            assert!(target.usings.contains("std.ffi"));
+
+            assert_eq!(
+                target.usings.contains("std.numeric"),
+                target.system != "windows"
+            );
+
+            for dependency in &target.usings {
+                assert!(rendered.bray.contains(&format!("using {dependency};")));
+            }
+        }
+    }
+
+    #[test]
     fn manifest_sources_stay_beneath_the_manifest_directory() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));

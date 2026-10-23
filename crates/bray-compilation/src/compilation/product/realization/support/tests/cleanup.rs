@@ -277,7 +277,11 @@ fn source_standard_buffer_cleanup_uses_the_imported_structural_allowance() {
                     1,
                 ),
                 source_input(
-                    "module std.test; func dispose(pos buffer: std.memory.RawBuffer<u8>) {}",
+                    r#"module std.test;
+
+using std.memory;
+
+ func dispose(pos buffer: std.memory.RawBuffer<u8>) {}"#,
                     2,
                 ),
             ],
@@ -400,8 +404,16 @@ fn imported_raw_storage_formation_requires_allocation_ownership() {
     let dependency = super::lifecycle_fixtures::standard_memory_dependency();
 
     for source in [
-        "trusted module app; using internal std.memory; func forge() -> std.memory.RawAllocation { return { pointer = core.memory.null<u8>(), bytes = 8, align = 8 }; }",
-        "trusted module app; using internal std.memory; func forge() -> std.memory.RawBuffer<u8> { return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 0 }; }",
+        r#"trusted module app;
+
+using core.memory;
+
+ using internal std.memory; func forge() -> std.memory.RawAllocation { return { pointer = core.memory.null<u8>(), bytes = 8, align = 8 }; }"#,
+        r#"trusted module app;
+
+using core.memory;
+
+ using internal std.memory; func forge() -> std.memory.RawBuffer<u8> { return { pointer = core.memory.null<u8>(), capacity = 1, initialized = 0 }; }"#,
     ] {
         let compilation = Compilation::load(
             CompilationRequest::new(
@@ -421,6 +433,8 @@ fn imported_raw_storage_formation_requires_allocation_ownership() {
     let compilation = Compilation::load(CompilationRequest::new(
         crate::test_support::package_identity(), vec![source_input(r#"
             trusted module app;
+
+            using core.memory;
             using internal std.memory;
             func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
@@ -447,6 +461,8 @@ fn imported_standard_buffer_accepts_live_generic_storage() {
     let compilation = Compilation::load(CompilationRequest::new(
         crate::test_support::package_identity(), vec![source_input(r"
             trusted module app;
+
+            using core.memory;
             using internal std.memory;
             func pack<T>(pointer: RawPointer<T>, capacity: usize) -> std.memory.RawBuffer<T>
                 requires(
@@ -479,6 +495,8 @@ fn imported_standard_buffer_requires_bounded_initialized_prefix() {
         let source = format!(
             r"
             trusted module app;
+
+            using core.memory;
             using internal std.memory;
             func pack<T>(pointer: RawPointer<T>, capacity: usize, initialized: usize) -> std.memory.RawBuffer<T>
                 requires(
@@ -532,6 +550,8 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
         let source = format!(
             r"
             trusted module app;
+
+            using core.memory;
             using internal std.memory;
             func duplicate(pointer: RawPointer<u8>, capacity: usize) -> std.memory.RawBuffer<u8>
                 requires(

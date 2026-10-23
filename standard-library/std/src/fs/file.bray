@@ -1,5 +1,11 @@
 trusted module std.fs;
 
+using std.io;
+using std.memory;
+using std.numeric;
+using std.path;
+using internal std.platform;
+
 struct File
 {
     internal mut handle: u64;

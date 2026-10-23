@@ -14,9 +14,9 @@
 
 ## Identity and ambient availability
 
-**Core model:** Compiler-known declarations have closed language-defined identities and contracts. They enter every module's ordinary lookup environment without an import when target-available, while recognized standard-library declarations remain ordinary visible package declarations whose stable identities let the compiler apply their specified contracts.
+**Core model:** Compiler-known declarations have closed language-defined identities and contracts. Names supplied directly in the ambient scope need no `using` when target-available. References into named compiler-known modules such as `core.memory`, `core.atomic` and `core.target` require a matching `using`. Recognized standard-library declarations remain ordinary visible package declarations whose stable identities let the compiler apply their specified contracts.
 
-Compiler-known names are not imports or dependencies. They cannot be redeclared in the same declaration scope, shadowed by package declarations, re-exported, or inferred from matching source spelling. No compiler-known declaration belongs to the reserved `std` package namespace.
+Compiler-known identities are supplied independently of package dependencies. A `using` for a named compiler-known module declares the source namespace dependency. They cannot be redeclared in the same declaration scope, shadowed by package declarations, re-exported, or inferred from matching source spelling. No compiler-known declaration belongs to the reserved `std` package namespace.
 
 ```bray
 const ENABLED: bool = true;
@@ -55,7 +55,7 @@ func blocking_operation()
 }
 ```
 
-The ambient surface includes scalar and structural type forms, `string`, integer ranges, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, `core.memory`, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
+The ambient surface includes scalar and structural type forms, `string`, integer ranges, raw pointers, result and conversion types, async and run-boundary types, execution predicates, compiler-known traits, special values, and the `target` property path. Each entity still follows its owning type, expression, contract, memory, or target rules.
 
 Use the closed [conformance catalog](https://github.com/lejmer/bray/blob/develop/docs/language/compiler-known-and-standard-library/conformance-catalog.md) when exact membership is needed.
 
@@ -176,13 +176,13 @@ See [target-conditional declarations](https://github.com/lejmer/bray/blob/develo
 
 ## Choose the declaration category
 
-| Category                                | How source gains access                            | What the compiler knows                                        |
-|-----------------------------------------|----------------------------------------------------|----------------------------------------------------------------|
-| Compiler-known declaration              | Ambient when target-available                      | Exact language identity and contract                           |
-| Compiler-provided declaration           | Ambient compiler-known surface                     | Exact contract and compiler-supplied implementation            |
-| Protected-representation declaration    | Its ordinary compiler-known public surface         | Exact public contract plus compiler-private representation     |
-| Compiler-known trait implementation     | Ordinary coherence and implementation rules        | Exact trait and member identities, not implementation spelling |
-| Recognized standard-library declaration | Ordinary `std` package, path, and visibility rules | Exact stable declaration identity and specified behavior       |
-| Ordinary source declaration             | Ordinary scope, path, import, and visibility rules | Only its checked source contract                               |
+| Category                                  | How source gains access                              | What the compiler knows                                          |
+| ----------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| Compiler-known declaration                | Ambient name or matching module `using`              | Exact language identity and contract                             |
+| Compiler-provided declaration             | Ordinary compiler-known scope and `using` rules      | Exact contract and compiler-supplied implementation              |
+| Protected-representation declaration      | Its ordinary compiler-known public surface           | Exact public contract plus compiler-private representation       |
+| Compiler-known trait implementation       | Ordinary coherence and implementation rules          | Exact trait and member identities, not implementation spelling   |
+| Recognized standard-library declaration   | Ordinary `std` package, path, and visibility rules   | Exact stable declaration identity and specified behavior         |
+| Ordinary source declaration               | Ordinary scope, path, import, and visibility rules   | Only its checked source contract                                 |
 
 **Remember:** Compiler-known means exact language identity, not special spelling. Compiler-provided means the compiler supplies the implementation while source uses only its ordinary declaration surface. Protected representation hides invariant-bearing storage, not the public type. Recognized `std` declarations remain ordinary visible package declarations, and target availability is established before source uses them.

@@ -335,6 +335,8 @@ Matches over closed unions and nullable values receive coverage checking. Unguar
 ### Propagation, panic boundaries, trust, and async execution
 
 ```bray
+using core.memory;
+
 func optional_name(pos id: UserId) -> string?
 {
     let user: User = find_user(id)?;
@@ -398,6 +400,8 @@ func require_nonzero(pos value: i32) -> i32
 ### Scoped use and callable expressions
 
 ```bray
+using core.memory;
+
 func callable_forms(pos path: Path) -> usize
 {
     let lines: usize = with file: File = File.open(path)

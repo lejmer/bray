@@ -91,8 +91,7 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
             ),
         ] {
             let source = format!(
-                "module app; struct Item {{}} {declaration}
-                    func unpack(pos wrapper: Wrapper) -> Item {{ {body} }}"
+                "module app; struct Item {{}} {declaration}\n                    func unpack(pos wrapper: Wrapper) -> Item {{ {body} }}"
             );
 
             let compilation = compilation(&source);

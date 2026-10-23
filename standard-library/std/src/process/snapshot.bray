@@ -1,5 +1,7 @@
 trusted module std.process;
 
+using internal std.platform;
+using std.sync;
 using std.memory;
 using std.path;
 

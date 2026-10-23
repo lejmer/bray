@@ -82,6 +82,7 @@ where
             using_declaration: SyntaxAnchor::from_node(declaration),
         }),
         MemberLookupResult::NotFound
+        | MemberLookupResult::UndeclaredDependency
         | MemberLookupResult::WrongKind(_)
         | MemberLookupResult::Ambiguous(_)
         | MemberLookupResult::Inaccessible(_)
@@ -102,6 +103,7 @@ where
         }
         MemberLookupResult::Found(_)
         | MemberLookupResult::NotFound
+        | MemberLookupResult::UndeclaredDependency
         | MemberLookupResult::WrongKind(_)
         | MemberLookupResult::Ambiguous(_)
         | MemberLookupResult::Inaccessible(_)
@@ -134,6 +136,7 @@ fn classify_named_trait_implementation(
             MemberLookupResult::Malformed(Box::new([]))
         }
         MemberLookupResult::NotFound => MemberLookupResult::NotFound,
+        MemberLookupResult::UndeclaredDependency => MemberLookupResult::UndeclaredDependency,
         MemberLookupResult::WrongKind(candidates) => MemberLookupResult::WrongKind(
             surface_candidates(candidates).unwrap_or_else(|| Box::new([])),
         ),

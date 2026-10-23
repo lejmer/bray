@@ -120,6 +120,9 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
     let compilation = production_host_compilation(
         r#"
         trusted internal module bray.runtime.bootstrap;
+
+        using internal bray.runtime.bootstrap.pool;
+        using internal bray.runtime.bootstrap.report.incident;
         trusted func production_probe(pos pointer: RawPointer<bray.runtime.bootstrap.report.incident.Record>) -> u32
             requires(trusted bray.runtime.bootstrap.pool.protocol_access())
         {
@@ -164,6 +167,9 @@ fn retained_incident_values_require_the_exact_ownership_witness() {
         let compilation = production_host_compilation(&format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.pool;
+            using internal bray.runtime.bootstrap.report.incident;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.report.incident.Record>,
                 pos forged: bray.runtime.bootstrap.report.incident.Record,
@@ -208,6 +214,8 @@ fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
     let compilation = production_host_compilation(
         r#"
         trusted internal module bray.runtime.bootstrap;
+
+        using internal bray.runtime.bootstrap.report.incident;
         trusted func production_probe(pos outcome: &mut ReportOutcome) {
             let pair = trusted bray.runtime.bootstrap.report.incident.destinations(outcome, outcome);
         }
@@ -321,7 +329,12 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
 
 #[test]
 fn production_retained_exit_execution_contracts_are_verified() {
-    let compilation = production_host_compilation("module app;");
+    let compilation = production_host_compilation(
+        r#"module app;
+
+using core.target;
+"#,
+    );
 
     for name in [
         "host_anchor",
@@ -351,7 +364,7 @@ fn production_host_statics_require_mutation_authority() {
         "let storage = &bray.runtime.bootstrap.host.SYNCHRONIZATION; core.atomic.store<u64, 2>(&storage.main, 0);",
     ] {
         let caller = format!(
-            "module app; using internal bray.runtime.bootstrap.host; func production_probe() {{ {operation} }}"
+            "module app; using core.atomic; using internal bray.runtime.bootstrap.host; func production_probe() {{ {operation} }}"
         );
 
         let compilation = production_host_compilation(&caller);
@@ -370,6 +383,13 @@ fn production_host_statics_require_mutation_authority() {
             .collect::<Vec<_>>();
 
         assert!(
+            diagnostics.iter().all(|diagnostic| {
+                diagnostic.kind() != DiagnosticKind::BindingUndeclaredDependency
+            }),
+            "{diagnostics:?}"
+        );
+
+        assert!(
             !diagnostics.is_empty(),
             "safe internal access must not mutate protected storage: {operation}: {:?}",
             diagnostics
@@ -382,6 +402,9 @@ fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
     for memory in ["core.memory", "std.memory"] {
         let source = r#"
         module app;
+
+        using core.atomic;
+        using MEMORY;
         using internal bray.runtime.bootstrap.host;
 
         func production_probe()
@@ -485,7 +508,10 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ),
     ] {
         let source = format!(
-            "module app; using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe() {{ {operation} }}"
+            r#"module app;
+
+using std.memory;
+ using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe() {{ {operation} }}"#
         );
 
         let compilation = production_host_compilation(&source);
@@ -626,7 +652,12 @@ fn production_owner_transfers_do_not_run_disposal_inside_the_transfer() {
 
 #[test]
 fn production_host_borrow_remains_total() {
-    let compilation = production_host_compilation("module app;");
+    let compilation = production_host_compilation(
+        r#"module app;
+
+using core.target;
+"#,
+    );
 
     for name in ["host_value"] {
         let checked = compilation
@@ -698,7 +729,10 @@ fn opaque_attachment_ordinals_complete_without_becoming_pure_observations() {
     ] {
         for (property, expected) in [("total", true), ("pure", false)] {
             let source = format!(
-                "module app; func production_probe(pos {parameter}) -> {result} executes({property}) uses(intrinsic) {{ return {body}; }}"
+                r#"module app;
+
+using core.target;
+ func production_probe(pos {parameter}) -> {result} executes({property}) uses(intrinsic) {{ return {body}; }}"#
             );
 
             let compilation = crate::test_support::compilation(&source);
@@ -726,7 +760,11 @@ fn callback_reconstruction_requires_the_actual_callable_address_evidence() {
         ("", false),
     ] {
         let source = format!(
-            "trusted internal module bray.runtime.bootstrap.host; callable Callback = @abi(c) func() -> u32; func production_probe(pos pointer: RawPointer<Callback>) -> Callback {requirement} executes(pure, total) uses(layout_reinterpret) {{ return trusted std.memory.callable_from_pointer<Callback>(pointer); }}"
+            r#"trusted internal module bray.runtime.bootstrap.host;
+
+using std.memory;
+
+ callable Callback = @abi(c) func() -> u32; func production_probe(pos pointer: RawPointer<Callback>) -> Callback {requirement} executes(pure, total) uses(layout_reinterpret) {{ return trusted std.memory.callable_from_pointer<Callback>(pointer); }}"#
         );
 
         let compilation = production_host_compilation(&source);
@@ -1113,6 +1151,8 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
     let compilation = crate::test_support::compilation(
         r#"
         module app;
+
+        using core.target;
         func production_probe() executes(total) uses(intrinsic) { trusted core.target.abort(); }
     "#,
     );
@@ -1276,6 +1316,8 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
     ] {
         let caller = format!(
             r#"trusted internal module bray.runtime.bootstrap.host;
+
+using core.atomic;
             func production_probe(pos mut selected: AttachmentExit, pos lease: &HostLease, pos anchor: &mut HostAnchor, pos main: &core.atomic.Atomic<u64>)
                 requires(
                     selected.ready,
@@ -1335,6 +1377,8 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.host;
+
+            using core.memory;
             func production_probe(pos lease: &HostLease, pos other: &HostLease,
                 pos selected: &AttachmentSelection, pos mut owner: AttachmentExit) -> u32
                 requires(
@@ -1838,6 +1882,8 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.heap;
+
+            using std.memory;
             func probe() {{
                 let pointer = trusted allocate(64, align = 32);
                 if !std.memory.is_null<u8>(pointer) {{ {body} }}
@@ -1898,6 +1944,9 @@ fn production_storage_lease_requires_admission_evidence() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.storage;
+
+            using internal bray.runtime.bootstrap.pool;
+            using std.memory;
             func probe() requires(trusted bray.runtime.bootstrap.pool.protocol_access()) {{
                 let descriptor: Descriptor = {{ identity = [0; 32], bytes = 64, align = 32 }};
                 let mut lease: Lease = empty_lease();
@@ -2028,6 +2077,8 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
         let compilation = production_host_compilation(&format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
             using std.memory;
             trusted func production_probe(
                 pos original: &mut bray.runtime.bootstrap.activation.run.Cursor,
@@ -2073,6 +2124,9 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.pool;
             trusted func production_probe(
                 pos token: &bray.runtime.bootstrap.activation.Inactive,
                 pos origin: u64,
@@ -2124,6 +2178,9 @@ fn activation_publication_requires_the_exact_producer_witness() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.pool;
             trusted func production_probe(
                 pos token: &bray.runtime.bootstrap.activation.Inactive,
                 pos other: &bray.runtime.bootstrap.activation.Inactive,
@@ -2173,6 +2230,9 @@ fn activation_dispatch_requires_exact_native_ownership() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: &bray.runtime.bootstrap.activation.run.Cursor,
@@ -2237,6 +2297,10 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.pool;
+            using core.memory;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
@@ -2299,6 +2363,10 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
+            using core.memory;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
@@ -2353,6 +2421,9 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
@@ -2398,6 +2469,11 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
     let compilation = production_host_compilation(
         r#"
         trusted internal module bray.runtime.bootstrap;
+
+        using internal bray.runtime.bootstrap.activation.callback;
+        using internal bray.runtime.bootstrap.activation.execution;
+        using internal bray.runtime.bootstrap.activation.run;
+        using internal bray.runtime.bootstrap.entry;
         trusted func production_probe(
             pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
             pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
@@ -2543,6 +2619,9 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
@@ -2621,6 +2700,10 @@ fn activation_retirement_requires_retained_native_destinations() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
+            using core.memory;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -2690,6 +2773,10 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.pool;
+            using core.memory;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
@@ -2746,6 +2833,9 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.pool;
             trusted func production_probe(
                 pos token: &bray.runtime.bootstrap.activation.Inactive,
                 pos other: &bray.runtime.bootstrap.activation.Inactive,
@@ -2803,6 +2893,9 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using core.memory;
             trusted func production_probe(
                 pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -2899,6 +2992,11 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
+            using internal bray.runtime.bootstrap.pool;
+            using core.memory;
             trusted func production_probe(
                 pos parent: RawPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -2965,6 +3063,9 @@ fn activation_completion_requires_the_exact_admitted_destination() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
+            using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -3031,6 +3132,8 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
         let compilation = production_host_compilation(&format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.activation;
             trusted func production_probe(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: RawPointer<bray.runtime.bootstrap.activation.Header>,
@@ -3066,6 +3169,9 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.activation.inactive;
+
+            using internal bray.runtime.bootstrap;
+            using core.memory;
             using std.memory;
 
             func production_probe(
@@ -3119,6 +3225,9 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.activation.inactive;
+
+            using internal bray.runtime.bootstrap;
+            using core.memory;
             using std.memory;
 
             func production_probe(

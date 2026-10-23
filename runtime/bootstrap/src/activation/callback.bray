@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation.callback;
 
+using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap;

@@ -110,7 +110,9 @@ where
             diagnostics,
             candidates,
         )?,
-        MemberLookupResult::NotFound => DeclarationCandidateOutcome::Ignored,
+        MemberLookupResult::NotFound | MemberLookupResult::UndeclaredDependency => {
+            DeclarationCandidateOutcome::Ignored
+        }
     };
 
     Ok(outcome.absence())

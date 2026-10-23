@@ -1,5 +1,7 @@
 trusted module std.sync.condition;
 
+using core.atomic;
+
 struct Marker
 {
 }

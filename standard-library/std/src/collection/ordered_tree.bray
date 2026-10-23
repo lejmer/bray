@@ -1,5 +1,8 @@
 module std.collection;
 
+using core.memory;
+using std.memory;
+
 union Bound<Value>
 {
     Unbounded;

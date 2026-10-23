@@ -5,6 +5,12 @@
 )
 trusted module std.dynamic;
 
+using core.memory;
+using std.fs;
+using std.memory;
+using internal std.os.unix;
+using internal std.platform;
+
 trusted internal func prepare_dynamic_library_open_path(
     pos path: std.fs.PlatformPath,
     pos policy: u32,

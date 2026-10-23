@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation.run;
 
+using internal bray.runtime.bootstrap;
 using std.memory;
 
 // Only unresolved value ownership changes to abandonment. A committed child has

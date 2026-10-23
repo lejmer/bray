@@ -1,6 +1,7 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module bray.runtime.bootstrap.thread.destruction;
 
+using core.memory;
 using std.memory;
 using std.os.windows;
 

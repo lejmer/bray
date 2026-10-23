@@ -1,5 +1,6 @@
 trusted internal module bray.runtime.bootstrap.heap;
 
+using core.memory;
 using std.memory;
 using internal std.runtime.memory;
 

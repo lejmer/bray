@@ -99,6 +99,8 @@ Data layout is controlled by `@layout(...)` and the standard layout helpers.
 An ellipsis after one or more fixed parameters declares a variadic foreign callable contract.
 
 ```bray
+using std.ffi.c;
+
 @abi(c)
 extern trusted func printf(
     pos format: RawPointer<std.ffi.c.Char>,

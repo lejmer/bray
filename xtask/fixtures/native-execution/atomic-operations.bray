@@ -1,5 +1,8 @@
 module application;
 
+using core.atomic;
+using core.memory;
+
 @copy
 @layout(transparent)
 struct Counter

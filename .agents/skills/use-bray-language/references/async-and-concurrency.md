@@ -239,6 +239,9 @@ See [low-level runtime](https://github.com/lejmer/bray/blob/develop/docs/languag
 Cancellation is an idempotent request observed at explicit or implicit checkpoints. Cleanup runs under a shield so it can restore invariants without being interrupted by the same request.
 
 ```bray
+using std.run;
+using std.task;
+
 async func process(pos items: &mut Queue<Item>) -> Result<unit, ProcessError>
 {
     while !items.empty()
@@ -297,6 +300,8 @@ See [cross-run memory model](https://github.com/lejmer/bray/blob/develop/docs/la
 Use `std.atomic.Atomic<T>` for the safe ordinary atomic surface. Operations are available only for target-supported representations and never fall back to locks.
 
 ```bray
+using std.atomic;
+
 func new_counter() -> Atomic<u64>
 {
     return std.atomic.Atomic<u64>(0);
@@ -373,6 +378,8 @@ See [atomic operation contracts](https://github.com/lejmer/bray/blob/develop/doc
 The concurrency library exposes ordinary declarations for synchronization owners, one-time initialization, bounded channels, task combinators, threads, child processes, and typed parallelism budgets.
 
 ```bray
+using std;
+
 static CONFIGURATION: std.sync.Once<Configuration> = std.sync.Once<Configuration>.empty();
 
 func configuration() -> &Configuration

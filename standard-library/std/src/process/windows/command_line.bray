@@ -1,6 +1,9 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.process;
 
+using std.memory;
+using internal std.platform;
+
 trusted internal func windows_command_line(
     pos executable: (&[u8]),
     pos arguments: &[(&[u8])],

@@ -1,5 +1,7 @@
 trusted module memory.readiness;
 
+using core.memory;
+
 trusted func main()
     uses(manual_alloc, raw_memory)
 {

@@ -1,5 +1,7 @@
 trusted module std.sync;
 
+using core.atomic;
+
 @copy
 union SemaphoreError
 {

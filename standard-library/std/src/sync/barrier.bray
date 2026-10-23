@@ -1,5 +1,8 @@
 trusted module std.sync;
 
+using core.atomic;
+using std.sync.mutex;
+
 @copy
 union BarrierWait
 {

@@ -1,5 +1,7 @@
 module value_replacement;
 
+using core.atomic;
+
 static DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 static FINALIZATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);

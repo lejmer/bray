@@ -1,5 +1,7 @@
 trusted module target_control_invalid_dialect;
 
+using core.target;
+
 trusted func invalid_dialect() -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {

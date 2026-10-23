@@ -1,5 +1,7 @@
 module operation_cleanup;
 
+using core.atomic;
+
 internal static SOURCES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 internal static TARGETS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);

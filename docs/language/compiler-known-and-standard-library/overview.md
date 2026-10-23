@@ -4,7 +4,9 @@ Bray distinguishes compiler-known declarations from standard-library declaration
 
 The compiler can reason about both categories, but they enter name resolution differently.
 
-Compiler-known declarations are available without import, subject to their target availability rules.
+Compiler-known names supplied directly in the ambient scope are available without `using`, subject to target
+availability rules. References into named compiler-known modules, such as `core.memory`, require a matching `using`
+under the ordinary cross-module dependency rules.
 
 Standard-library declarations are ordinary declarations supplied by standard-library packages and must be visible
 through normal import and path rules before source code can use them.

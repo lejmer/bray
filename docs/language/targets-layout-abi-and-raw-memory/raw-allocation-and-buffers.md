@@ -5,6 +5,8 @@
 ```bray
 module std.memory;
 
+using core.memory;
+
 struct RawAllocation
 {
     pointer: RawPointer<u8>;
@@ -70,6 +72,8 @@ Copying the raw pointer field does not copy allocation ownership.
 
 ```bray
 module std.memory;
+
+using core.memory;
 
 struct RawBuffer<T>
 {

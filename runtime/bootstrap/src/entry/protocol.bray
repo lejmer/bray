@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.entry;
 
+using core.memory;
+
 // The native caller owns the outcome destination and retains the callback and its
 // context. Invocation stays synchronous on this thread and contains native unwind.
 trusted internal predicate native_entry();

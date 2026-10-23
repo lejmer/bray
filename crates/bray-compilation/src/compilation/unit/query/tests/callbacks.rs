@@ -56,6 +56,8 @@ fn callback_state_requires_the_exported_entry_context_parameter() {
     let compilation = standard_callback_compilation(
         r#"trusted module std.test;
 
+using std.ffi;
+
 @symbol(name = "valid_callback")
 @abi(c)
 trusted func valid_callback(pos context: RawPointer<i32>) -> bool uses(raw_memory)

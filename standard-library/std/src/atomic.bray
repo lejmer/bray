@@ -1,5 +1,8 @@
 module std.atomic;
 
+using core.atomic;
+using std.memory;
+
 @copy
 union LoadOrder
 {

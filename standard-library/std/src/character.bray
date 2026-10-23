@@ -1,5 +1,7 @@
 module std.character;
 
+using std.numeric;
+
 struct Utf8Encoding
 {
     internal bytes: bytes<4>;

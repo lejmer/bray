@@ -1,5 +1,9 @@
 trusted internal module std.runtime.text;
 
+using core.memory;
+using std.memory;
+using std.numeric;
+
 internal struct OwnedText
 {
     data: RawPointer<u8>;

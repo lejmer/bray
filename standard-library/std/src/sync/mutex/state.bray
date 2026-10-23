@@ -1,5 +1,8 @@
 trusted module std.sync.mutex;
 
+using core.atomic;
+using std.sync;
+
 struct State<T>
 {
     tickets: core.atomic.Atomic<u32>;

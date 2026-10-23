@@ -104,6 +104,10 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
         let source = format!(
             r#"
         trusted module app;
+
+        using core.memory;
+        using std.memory;
+
         func forged_buffer() {{
             let mut buffer: std.memory.RawBuffer<u8> = {{
                 pointer = core.memory.null<u8>(), capacity = 1, initialized = {initialized},
@@ -135,6 +139,8 @@ fn raw_addresses_do_not_extend_borrows_or_retain_local_storage() {
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             module app;
+
+            using std.memory;
 
             func shared_address() -> RawPointer<i32> {
                 let local: i32 = 1;
@@ -180,6 +186,8 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
             r#"
             trusted module app;
 
+            using std.memory;
+
             struct Holder<T> {{ mut storage: std.memory.RawBuffer<(T?)>; }}
 
             trusted func element<T>(pos holder: &{borrow}Holder<T>) -> &{borrow}T
@@ -224,6 +232,9 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
+
+            using core.memory;
+            using std.memory;
 
             func consume_pair(pos pointer: RawPointer<i32>)
                 requires(
@@ -271,6 +282,9 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
         r#"
             trusted module app;
 
+            using core.memory;
+            using std.memory;
+
             func observe(pos pointer: RawPointer<i32>)
                 requires(trusted core.memory.valid_read<i32>(pointer = pointer, count = 2)) {}
 
@@ -296,6 +310,8 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
 fn raw_buffer_subslices_preserve_disjoint_field_authority() {
     let source = r#"
 trusted module std.slice_field_probe;
+
+using std.memory;
 
 trait Writer { mut func write(pos values: &[u8]); }
 struct Buffer
@@ -376,6 +392,10 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
     let compilation = standard_library_compilation(sources.into_iter().chain([r#"
         module app;
 
+        using core.target;
+
+        using std.sync;
+
         func increment(pos lock: &std.sync.SpinLock<i32>)
             requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
             let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
@@ -398,6 +418,10 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             r#"
             module app;
 
+            using core.target;
+
+            using std.sync;
+
             func escape() -> &mut i32 {
                 let lock: std.sync.SpinLock<i32> = std.sync.SpinLock<i32>(7);
                 let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
@@ -410,6 +434,10 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         (
             r#"
             module app;
+
+            using core.target;
+
+            using std.sync;
 
             func use_after_unlock(pos lock: &std.sync.SpinLock<i32>)
                 requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
@@ -467,6 +495,8 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
             r#"
             module std.collection;
 
+            using std.memory;
+
             internal func escape() -> Result< &i32, std.memory.MemoryLayoutError> {
                 let table: HashTable<i32> = try trusted HashTable<i32>(capacity = 4);
                 return Ok(trusted hash_table_item(&table, index = 0));
@@ -503,6 +533,9 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
         r#"
             trusted module app;
 
+            using std.bytes;
+            using std.memory;
+
             func exercise() -> Result<usize, std.memory.MemoryLayoutError> {
                 let bytes: [u8; 2] = [1, 2];
                 let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&bytes[..]);
@@ -531,6 +564,8 @@ fn integer_truncation_certifies_execution_without_certifying_other_calls_or_nume
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         r#"
         module app;
+
+        using std.numeric;
 
         func narrow(pos value: u128) -> u8 executes(pure, total) {
             return std.numeric.truncate_to<u8>(value);
@@ -565,6 +600,8 @@ fn integer_truncation_certifies_execution_without_certifying_other_calls_or_nume
         r#"
         module app;
 
+        using std.numeric;
+
         func floating_truncation(pos value: r64) -> i32 executes(pure, total) {
             return std.numeric.truncate_to<i32>(value);
         }
@@ -592,6 +629,8 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
     let declarations = r#"
         trusted module app;
 
+        using core.memory;
+
         trusted func preserve_text(pos pointer: RawPointer<u8>) -> RawPointer<u8>
             requires(trusted core.memory.nul_terminated_read(pointer = pointer))
             ensures(trusted core.memory.nul_terminated_read(pointer = result))
@@ -610,6 +649,8 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
         let copying = r#"
         trusted module app;
+
+        using core.memory;
 
         trusted func copy_address(pos pointer: RawPointer<u8>) -> RawPointer<u8>
             requires(trusted core.memory.nul_terminated_read(pointer = pointer))
@@ -648,6 +689,9 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
         "#,
             r#"
         trusted module app;
+
+        using core.memory;
+        using std.memory;
 
         trusted func changed_termination(pos pointer: RawPointer<u8>) -> RawPointer<u8>
             requires(
@@ -691,6 +735,8 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
 
             @link(name = "c", kind = system)
             @symbol(name = "getcwd")
@@ -779,7 +825,18 @@ fn native_environment_cursor_requires_live_provider_storage() {
     let os = include_str!("../../../../../../../standard-library/std/src/os/unix/linux.bray");
 
     let native = format!(
-        "module std.os {{}} trusted module std.os.linux {{\n@link(name = \"c\", kind = system)\n{}\n@link(name = \"c\", kind = system)\n{}\n}}\ntrusted module std.os.unix {{\n{}\n}}",
+        r#"module std.os {{}} trusted module std.os.linux {{
+using core.memory;
+@link(name = "c", kind = system)
+{}
+@link(name = "c", kind = system)
+{}
+}}
+trusted module std.os.unix {{
+using core.memory;
+using std.os.linux;
+{}
+}}"#,
         section(
             sdk,
             "@symbol(name = \"strnlen\")",
@@ -794,7 +851,16 @@ fn native_environment_cursor_requires_live_provider_storage() {
     );
 
     let linux_platform = format!(
-        "trusted internal module std.platform;\n{}\n{}\n{}\n{}\ntrusted internal func observe_cursor() {{ BODY let _ = trusted internal native_text_cursor_entry(&cursor); }}",
+        r#"trusted internal module std.platform;
+using core.memory;
+using std.memory;
+using std.os.linux;
+using std.os.unix;
+{}
+{}
+{}
+{}
+trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_text_cursor_entry(&cursor); }}"#,
         section(
             unix,
             "internal struct NativeTextCursor",
@@ -824,7 +890,8 @@ fn native_environment_cursor_requires_live_provider_storage() {
         "../../../../../../../standard-library/std/src/os/generated/x86_64_pc_windows_msvc.bray"
     );
 
-    let mut windows_native = "module std.os {} trusted module std.os.windows {".to_owned();
+    let mut windows_native =
+        "module std.os {} trusted module std.os.windows { using core.memory; ".to_owned();
 
     windows_native.push_str(section(
         windows_sdk,
@@ -851,7 +918,7 @@ fn native_environment_cursor_requires_live_provider_storage() {
     windows_native.push('}');
 
     let mut windows_platform = format!(
-        "trusted internal module std.platform; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_environment_entry(&owner); }}",
+        "trusted internal module std.platform; using core.memory; using std.memory; using std.numeric; using std.os.windows; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_environment_entry(&owner); }}",
         section(
             representation,
             "@copy\n@layout(c)\ninternal struct PlatformStatus",
@@ -1016,7 +1083,12 @@ fn native_thread_payloads_keep_their_allocation_owner() {
         .0;
 
     let thread = format!(
-        "trusted internal module std.thread;\n@layout(stable)\ninternal struct TransferredThreadValue{owner}\ntrusted internal func allocate_thread_value{operations}"
+        r#"trusted internal module std.thread;
+using core.memory;
+using std.memory;
+@layout(stable)
+internal struct TransferredThreadValue{owner}
+trusted internal func allocate_thread_value{operations}"#
     );
 
     for (ty, value, capabilities) in [
@@ -1029,7 +1101,14 @@ fn native_thread_payloads_keep_their_allocation_owner() {
         ),
     ] {
         let source = format!(
-            "trusted module app; trusted func round_trip() -> {ty} {capabilities} {{ return trusted internal std.thread.take_transferred_value<{ty}>(trusted internal std.thread.allocate_thread_value<{ty}>({value})); }}"
+            r#"trusted module app;
+
+using core.memory;
+using std.memory;
+
+using internal std.thread;
+
+ trusted func round_trip() -> {ty} {capabilities} {{ return trusted internal std.thread.take_transferred_value<{ty}>(trusted internal std.thread.allocate_thread_value<{ty}>({value})); }}"#
         );
 
         let compilation = standard_library_compilation([
@@ -1057,6 +1136,9 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
         let source = format!(
             r#"
             trusted module std.platform;
+
+            using core.memory;
+            using std.memory;
 
             trusted func fill_prefix(
                 pos buffer: &mut std.memory.RawBuffer<u8>, count: usize,
@@ -1105,7 +1187,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
             module app;
 
             using std.memory;
-            using std.platform;
+            using internal std.platform;
 
             trusted func consume_prefix(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize)
                 uses(unchecked_init)
@@ -1191,6 +1273,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         let source = format!(
             r#"
             module std.memory;
+
+            using core.memory;
             trusted internal func read_prefix(pos pointer: RawPointer<u8>, count: usize) -> u8
                 requires(
                     trusted core.memory.valid_read<u8>(pointer = pointer, count = count),
@@ -1223,6 +1307,9 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
     let compilation = standard_library_compilation(sources.into_iter().chain([r#"
         module std.memory;
+
+        using core.memory;
+        using std.numeric;
 
         trusted internal func fill_widened_count(pos destination: RawPointer<u8>, length: u64)
             requires(trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize))
@@ -1378,6 +1465,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         "#,
         r#"
         module std.memory;
+
+        using core.memory;
         internal func read_without_initialization(pos pointer: RawPointer<u8>) -> u8
             requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {
             return trusted internal byte_buffer_read(pointer, index = 0);
@@ -1385,6 +1474,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         "#,
         r#"
         module std.memory;
+
+        using core.memory;
         internal func copy_without_initialization(pos source: RawPointer<u8>, pos destination: RawPointer<u8>)
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = 1),
@@ -1395,6 +1486,8 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         "#,
         r#"
         module std.memory;
+
+        using core.memory;
         internal func overflowing_index(pos pointer: RawPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 0),
@@ -1475,6 +1568,9 @@ fn copying_raw_reads_preserve_initialization() {
         r#"
             trusted module app;
 
+            using core.atomic;
+            using std.memory;
+
             trusted func read_twice() -> i32 uses(raw_memory) {
                 let state: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
                 let value: i32 = 7;
@@ -1507,6 +1603,9 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
+            using std.memory;
 
             struct Token {{ value: i32; }}
 
@@ -1553,6 +1652,9 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
             r#"
             trusted module app;
 
+            using core.memory;
+            using std.memory;
+
             func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
             {{
@@ -1591,6 +1693,9 @@ fn scoped_raw_allocation_requirements_reject_copied_owner_fields() {
     for mode in ["", "consume "] {
         let source = format!(
             r#"trusted module app;
+
+using core.memory;
+using std.memory;
 
 struct Resource
 {{
@@ -1641,6 +1746,9 @@ fn raw_allocation_address_copies_preserve_whole_owner_transfer() {
         r#"
             trusted module app;
 
+            using core.memory;
+            using std.memory;
+
             trusted func dispose(pos owner: std.memory.RawAllocation)
                 requires(trusted core.memory.owned_allocation(pointer = owner.pointer, bytes = owner.bytes, align = owner.align))
                 uses(manual_alloc)
@@ -1674,6 +1782,9 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
             r#"
             trusted module app;
 
+            using core.memory;
+            using std.memory;
+
             func duplicate(pos first: {ownership}std.memory.RawAllocation) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = first.pointer, bytes = first.bytes, align = first.align))
             {{
@@ -1705,6 +1816,9 @@ fn raw_allocation_field_construction_requires_ownership() {
         r#"
             trusted module app;
 
+            using core.memory;
+            using std.memory;
+
             func forge() -> std.memory.RawAllocation {
                 return { pointer = core.memory.null<u8>(), bytes = 8, align = 8 };
             }
@@ -1725,6 +1839,9 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
+
+            using core.memory;
+            using std.memory;
 
             func pack(pointer: RawPointer<u8>, bytes: usize, align: usize) -> std.memory.RawAllocation
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
@@ -1750,6 +1867,8 @@ fn ordinary_struct_names_do_not_imply_raw_storage_ownership() {
         r#"
             module app;
 
+            using core.memory;
+
             struct RawBuffer { pointer: RawPointer<u8>; capacity: usize; initialized: usize; }
 
             func ordinary() -> RawBuffer {
@@ -1773,6 +1892,9 @@ fn raw_allocation_field_construction_transfers_ownership_once() {
         include_str!("../../../../../../../standard-library/std/src/memory.bray"),
         r#"
             trusted module app;
+
+            using core.memory;
+            using std.memory;
 
             func duplicate(pointer: RawPointer<u8>, bytes: usize, align: usize)
                 requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
@@ -2631,6 +2753,10 @@ fn empty_raw_copies_preserve_deallocation_authority() {
         let source = format!(
             r#"
             trusted module app;
+
+            using std.memory;
+
+            using core.memory;
             trusted func copy_nothing(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, pos count: usize)
                 requires(
                     count == 0,
@@ -2685,6 +2811,9 @@ fn thread_storage_load_only_initializes_successful_outputs() {
 
     let preparation = r#"
         trusted internal module std.thread;
+
+        using core.memory;
+        using internal std.platform;
         trusted internal func need_initialized(pos pointer: RawPointer<RawPointer<u8>>)
             requires(trusted core.memory.initialized_as<RawPointer<u8>>(pointer = pointer)) {}
         trusted internal func prepare_thread_storage_load(
@@ -2707,6 +2836,9 @@ fn thread_storage_load_only_initializes_successful_outputs() {
         let caller = format!(
             r#"
             trusted internal module std.thread;
+
+            using core.memory;
+            using std.memory;
             trusted internal func load_uninitialized_slot(pos pointer: RawPointer<RawPointer<u8>>) -> RawPointer<u8>
                 requires(
                     trusted core.memory.valid_read<RawPointer<u8>>(pointer = pointer, count = 1),
@@ -2851,7 +2983,7 @@ fn unix_native_outputs_remain_in_typed_storage() {
         let system = if darwin { "darwin" } else { "linux" };
 
         let mut native = format!(
-            "trusted module std.os.{system}; struct PThreadAttribute; {}",
+            "trusted module std.os.{system}; using core.memory; struct PThreadAttribute; {}",
             section(
                 sdk,
                 "callable ThreadStartRoutine =",
@@ -2883,8 +3015,14 @@ fn unix_native_outputs_remain_in_typed_storage() {
             }
         }
 
+        let platform_dependencies = if darwin {
+            "using core.target; using internal std.platform;"
+        } else {
+            ""
+        };
+
         let wrapper = format!(
-            "trusted internal module std.os.unix; {} {}",
+            "trusted internal module std.os.unix; using std.memory; using std.os.{system}; {platform_dependencies} {} {}",
             section(
                 wrappers,
                 "trusted func socket_pair(",
@@ -2898,7 +3036,7 @@ fn unix_native_outputs_remain_in_typed_storage() {
         );
 
         let helper = format!(
-            "trusted internal module std.platform; {}",
+            "trusted internal module std.platform; using core.memory; using std.memory; {}",
             section(
                 include_str!(
                     "../../../../../../../standard-library/std/src/platform/representation.bray"
@@ -2942,7 +3080,13 @@ fn unix_native_outputs_remain_in_typed_storage() {
         export(&compilation);
 
         let forged = format!(
-            "trusted internal module std.os.unix; trusted func forged_output(pos output: RawPointer<{}>, pos entry: ThreadStartRoutine) uses(foreign_call) {{ let native_entry = trusted std.memory.callable_from_pointer(trusted std.memory.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(trusted std.memory.pointer_from_callable(entry))); let _ = trusted std.os.{system}.pthread_create(output, attributes = std.memory.null<std.os.{system}.PThreadAttribute>(), entry = native_entry, context = std.memory.null<u8>()); }}",
+            r#"trusted internal module std.os.unix;
+
+using std.os;
+
+using std.memory;
+
+ trusted func forged_output(pos output: RawPointer<{}>, pos entry: ThreadStartRoutine) uses(foreign_call) {{ let native_entry = trusted std.memory.callable_from_pointer(trusted std.memory.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(trusted std.memory.pointer_from_callable(entry))); let _ = trusted std.os.{system}.pthread_create(output, attributes = std.memory.null<std.os.{system}.PThreadAttribute>(), entry = native_entry, context = std.memory.null<u8>()); }}"#,
             if darwin { "RawPointer<u8>" } else { "u64" }
         );
 

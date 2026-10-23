@@ -1,6 +1,7 @@
 @link(name = "bray_allocation_probe")
 trusted module scoped_cleanup;
 
+using core.atomic;
 using std.memory;
 using std.task;
 using std.testing;

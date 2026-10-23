@@ -675,17 +675,24 @@ fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
+
             struct Writer {{
                 slot: &mut Uninit<u32>;
+
                 trusted destruct()
                     ensures(trusted core.memory.uninit_initialized<u32>(storage = &self.slot))
                 {{
                     core.memory.uninit_write<u32>(self.slot, 42);
                 }}
             }}
+
             trusted func caller(pos flag: bool) -> u32 uses(unchecked_init) {{
                 let mut slot = core.memory.uninit<u32>();
+
                 {cleanup}
+
                 return core.memory.move_initialized<u32>(&mut slot);
             }}
         "#
@@ -831,6 +838,8 @@ fn task_cleanup_revokes_preceding_guarantees() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
             trusted predicate ready(state: &core.atomic.Atomic<u64>);
             async func work() {{}}
             trusted func establish(pos state: &core.atomic.Atomic<u64>) ensures(trusted ready(state)) executes(total) {{}}
@@ -1054,7 +1063,13 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
 
 #[test]
 fn production_lock_declarations_check_their_own_bodies() {
-    let compilation = production_sync_compilation("module app;");
+    let compilation = production_sync_compilation(
+        r#"module app;
+
+using core.target;
+"#,
+    );
+
     let mut failures = Vec::new();
 
     for key in compilation.declared_unit_keys_for_test().unwrap() {
@@ -1164,7 +1179,12 @@ fn independent_production_guards_keep_their_authority() {
 
 #[test]
 fn production_synchronization_declarations_check_their_own_bodies() {
-    let compilation = production_sync_compilation("module app;");
+    let compilation = production_sync_compilation(
+        r#"module app;
+
+using core.target;
+"#,
+    );
 
     for key in compilation.declared_unit_keys_for_test().unwrap() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
@@ -1266,6 +1286,8 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     let application = production_sync_compilation(
         r#"
         trusted module app;
+
+        using std.memory;
         trusted func exact(pos owner: &bool, pos payload: &bool) -> &bool
             uses(raw_memory, unchecked_alias) {
             let pointer = std.memory.address_of<bool>(payload);
@@ -1836,6 +1858,8 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted predicate live(value: &Lease);
             struct Lease {{ mut active: bool; }}
             struct Access {{ mut payload: u64; mut lease: Lease; }}
@@ -1973,6 +1997,8 @@ fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
     let compilation = production_sync_compilation(
         r#"
         module app;
+
+        using core.atomic;
         func production_probe(pos word: &core.atomic.Atomic<u32>, pos expected: u32)
             requires(blocking_execution())
         {
@@ -2067,6 +2093,8 @@ fn generic_cleanup_effects_specialize_through_forwarding() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
             trusted predicate ready(value: &core.atomic.Atomic<u32>);
             trusted func establish(pos value: &core.atomic.Atomic<u32>)
                 ensures(trusted ready(value)) executes(pure, total) {{}}
@@ -2167,6 +2195,10 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
+            using core.memory;
+            using std.memory;
             struct Marker {{}}
             trusted predicate held(value: &Marker);
             trusted predicate ready(value: &core.atomic.Atomic<u32>);
@@ -2224,6 +2256,9 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
+            using std.memory;
             struct Anchor {{}}
             trusted func anchored(pos owner: &Anchor, pos payload: &u32) -> &u32
                 uses(raw_memory, unchecked_alias) {{
@@ -2437,6 +2472,8 @@ fn production_once_and_lazy_owners_keep_cleanup_authority() {
         let source = format!(
             r#"
         module app;
+
+        using std.sync;
         func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
             {body}
         }}
@@ -2544,6 +2581,9 @@ fn production_once_rejects_fabricated_instance_and_attempt_authority() {
         let source = format!(
             r#"
             module app;
+
+            using std.memory;
+            using std.sync;
             func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
                 {body}
             }}
@@ -2568,6 +2608,8 @@ fn barrier_preserves_its_nested_mutex_authority() {
     let compilation = production_sync_compilation(
         r#"
         module app;
+
+        using std.sync;
         func caller() requires(blocking_execution()) {
             match consume std.sync.Barrier(participants = 1) {
                 case Ok(barrier) { let _ = barrier.wait(); }
@@ -2759,6 +2801,8 @@ fn static_once_keeps_initializer_authority() {
     let application = production_sync_compilation(
         r#"
         module app;
+
+        using std.sync;
         static CELL: std.sync.Once<u32> = std.sync.Once<u32>.empty();
         func caller(pos callback: func() -> u32) requires(blocking_execution()) {
             let value = CELL.get_or_init(callback);
@@ -2797,6 +2841,8 @@ fn static_initializers_preserve_only_established_owner_authority() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Marker {{}}
             struct Owner {{ marker: Marker; }}
             trusted predicate held(marker: &Marker);
@@ -2838,6 +2884,9 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
     let application = production_sync_compilation(
         r#"
         trusted module app;
+
+        using core.memory;
+        using std.memory;
         @abi(c)
         trusted func sink(destination: RawPointer<u8>, length: u64, transferred: RawPointer<u64>)
             requires(
@@ -2955,6 +3004,8 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
         r#"
         module app;
+
+        using std.channel;
         func genuine() -> Result<unit, std.channel.ChannelError> {
             let (sender, receiver) = try std.channel.bounded<u32>(capacity = 2);
             let duplicate = sender.duplicate();
@@ -3073,6 +3124,8 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
         let application = compilation(&format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Marker {{}}
             struct Owner {{ instance: Marker; }}
             trusted predicate live(marker: &Marker);
@@ -3343,6 +3396,8 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
         let application = production_sync_compilation(&format!(
             r#"
             trusted module app;
+
+            using std.sync;
             struct Pending<T> {{ mut value: T?; }}
             struct Payload<T> {{ mut inner: Inner; mut value: T?; }}
             struct Inner {{
@@ -3400,6 +3455,10 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
+
+            using core.atomic;
             extern trusted func opaque();
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
             func signal() {{ core.atomic.store<u32, 2>(&WORD, 1); }}
@@ -3469,6 +3528,8 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
     let application = compilation(
         r#"
         trusted module app;
+
+        using std.memory;
         struct Owner { mut first: u32; mut second: u32; mut third: usize; mut fourth: usize; mut pointer: RawPointer<u8>; }
         trusted predicate live(owner: &Owner);
         trusted func make() -> (u32, Owner) ensures(trusted live(&result.1)) {
@@ -3568,6 +3629,10 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
         r#"
         module app;
+
+        using std.channel;
+        using std.sync;
+        using std.testing;
         static ONCE: std.sync.Once<u32> = std.sync.Once<u32>.empty();
         func initialized_value() -> u32 { return 37; }
         func static_once_case() requires(blocking_execution()) {

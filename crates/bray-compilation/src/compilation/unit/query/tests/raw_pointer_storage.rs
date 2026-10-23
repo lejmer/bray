@@ -7,6 +7,9 @@ use bray_symbols::PackageIdentity;
 fn in_place_write_returns_initialized_borrowed_storage() {
     let compilation = standard_memory_compilation(
         r#"trusted module std.test;
+
+        using std.memory;
+
         func main()
         {
             let mut storage: Uninit<u32> = std.memory.uninit<u32>();
@@ -35,74 +38,87 @@ fn in_place_write_returns_initialized_borrowed_storage() {
 
 #[test]
 fn raw_pointer_use_does_not_extend_the_source_borrow() {
-    assert_standard_memory_body_has_no_conflicting_borrow(concat!(
-        "module std.test;\n",
-        "func main()\n",
-        "{\n",
-        "    let mut value: i32 = 1;\n",
-        "    let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);\n",
-        "    std.memory.is_null<i32>(pointer);\n",
-        "    value = 2;\n",
-        "}\n",
-    ));
+    assert_standard_memory_body_has_no_conflicting_borrow(
+        r#"module std.test;
+
+using std.memory;
+func main()
+{
+    let mut value: i32 = 1;
+    let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);
+    std.memory.is_null<i32>(pointer);
+    value = 2;
+}
+"#,
+    );
 }
 
 #[test]
 fn raw_pointer_assignment_preserves_addressed_storage_initialization() {
     assert_standard_memory_body_has_no_diagnostic(
-        concat!(
-            "trusted module std.test;\n",
-            "trusted func main(pos value: &usize) -> usize uses(raw_memory)\n",
-            "{\n",
-            "    let pointer: RawPointer<usize> = std.memory.address_of<usize>(value);\n",
-            "\n",
-            "    return trusted std.memory.read<usize>(pointer);\n",
-            "}\n",
-        ),
+        r#"trusted module std.test;
+
+using std.memory;
+trusted func main(pos value: &usize) -> usize uses(raw_memory)
+{
+    let pointer: RawPointer<usize> = std.memory.address_of<usize>(value);
+
+    return trusted std.memory.read<usize>(pointer);
+}
+"#,
         DiagnosticKind::CheckingUninitializedRawStorage,
     );
 }
 
 #[test]
 fn borrow_of_recovered_storage_preserves_the_original_diagnostic() {
-    assert_standard_memory_body_has_no_conflicting_borrow(concat!(
-        "trusted module std.test;\n",
-        "trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {\n",
-        "    let mut report: Missing = {};\n",
-        "    return trusted std.memory.reinterpret<u8, Missing>(std.memory.address_of_mut(&mut report));\n",
-        "}\n",
-    ));
+    assert_standard_memory_body_has_no_conflicting_borrow(
+        r#"trusted module std.test;
+
+using std.memory;
+trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {
+    let mut report: Missing = {};
+    return trusted std.memory.reinterpret<u8, Missing>(std.memory.address_of_mut(&mut report));
+}
+"#,
+    );
 }
 
 #[test]
 fn mutable_owned_aggregate_can_be_addressed_inside_pointer_reinterpretation() {
-    assert_standard_memory_body_has_no_conflicting_borrow(concat!(
-        "trusted module std.test;\n",
-        "struct Report { mut cause: u32; }\n",
-        "trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {\n",
-        "    let mut report: Report = empty_report();\n",
-        "    if report.cause == 0 { report.cause = 1; }\n",
-        "    let result: RawPointer<u8> = trusted std.memory.reinterpret<u8, Report>(std.memory.address_of_mut(&mut report));\n",
-        "    return result;\n",
-        "}\n",
-        "func empty_report() -> Report { return { cause = 0 }; }\n",
-    ));
+    assert_standard_memory_body_has_no_conflicting_borrow(
+        r#"trusted module std.test;
+
+using std.memory;
+struct Report { mut cause: u32; }
+trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {
+    let mut report: Report = empty_report();
+    if report.cause == 0 { report.cause = 1; }
+    let result: RawPointer<u8> = trusted std.memory.reinterpret<u8, Report>(std.memory.address_of_mut(&mut report));
+    return result;
+}
+func empty_report() -> Report { return { cause = 0 }; }
+"#,
+    );
 }
 
 #[test]
 fn mutable_slice_element_can_be_reborrowed_for_a_raw_pointer() {
-    assert_standard_memory_body_has_no_conflicting_borrow(concat!(
-        "module std.test;\n",
-        "func main(pos bytes: & mut [u8]) -> RawPointer<u8>\n",
-        "{\n",
-        "    if bytes.is_empty()\n",
-        "    {\n",
-        "        return std.memory.null<u8>();\n",
-        "    }\n",
-        "\n",
-        "    return std.memory.address_of_mut<u8>(& mut bytes[0]);\n",
-        "}\n",
-    ));
+    assert_standard_memory_body_has_no_conflicting_borrow(
+        r#"module std.test;
+
+using std.memory;
+func main(pos bytes: & mut [u8]) -> RawPointer<u8>
+{
+    if bytes.is_empty()
+    {
+        return std.memory.null<u8>();
+    }
+
+    return std.memory.address_of_mut<u8>(& mut bytes[0]);
+}
+"#,
+    );
 }
 
 fn assert_standard_memory_body_has_no_conflicting_borrow(source: &str) {
@@ -179,6 +195,8 @@ fn terminal_destructor_rejects_protected_payload_initialization() {
         r#"
         trusted module std.test;
 
+        using std.memory;
+
         struct Child
         {
             finalize() {}
@@ -214,6 +232,8 @@ fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
     let compilation = standard_memory_compilation(
         r#"
         trusted module std.test;
+
+        using std.memory;
 
         @abi(c)
         @symbol(name = "change")
@@ -251,6 +271,8 @@ fn terminal_destructor_distinguishes_local_address_formation_from_escape() {
         let compilation = standard_memory_compilation(&format!(
             r#"
             trusted module std.test;
+
+            using std.memory;
 
             @abi(c)
             @symbol(name = "opaque")

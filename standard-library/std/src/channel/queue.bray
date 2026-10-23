@@ -1,5 +1,8 @@
 trusted module std.channel;
 
+using std.collection;
+using std.memory;
+
 @copy
 internal union WaiterKind
 {

@@ -1,5 +1,7 @@
 trusted internal module std.platform.virtual_memory;
 
+using internal std.platform;
+
 @copy
 union Access
 {

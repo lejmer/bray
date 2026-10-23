@@ -420,6 +420,7 @@ where
                 if matches!(
                     result,
                     bray_symbols::MemberLookupResult::NotFound
+                        | bray_symbols::MemberLookupResult::UndeclaredDependency
                         | bray_symbols::MemberLookupResult::WrongKind(_)
                 ) {
                     bindings.push(occurrence);
@@ -540,6 +541,7 @@ where
                 (Some(target), false, is_contextual_name)
             }
             bray_symbols::MemberLookupResult::NotFound
+            | bray_symbols::MemberLookupResult::UndeclaredDependency
             | bray_symbols::MemberLookupResult::WrongKind(_) => (None, true, is_contextual_name),
             bray_symbols::MemberLookupResult::Ambiguous(_)
             | bray_symbols::MemberLookupResult::Inaccessible(_)

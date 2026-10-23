@@ -1,5 +1,7 @@
 trusted module target_control_invalid_diverging_pure;
 
+using core.target;
+
 trusted func invalid_diverging_assembly() -> never
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {

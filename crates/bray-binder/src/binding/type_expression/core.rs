@@ -22,14 +22,25 @@ use crate::{
     BindingError, BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot,
 };
 
-/// Supplies imported symbols only when type binding reaches an imported path or declaration.
+/// Supplies source dependencies and demand-loaded semantic paths for type binding.
 pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
+    /// Returns the immutable source dependency declarations.
+    fn declarations(&self) -> &bray_declarations::DeclarationTable;
+
     /// Selects an imported package root for a qualified source path.
     fn imported_path_root(
         &self,
         module: ModuleSymbolId,
         components: &[&str],
     ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>, Upstream>;
+
+    /// Resolves checked re-exports and associated declarations beyond the identity graph.
+    fn semantic_member_lookup(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+        access: bray_symbols::NameAccess,
+    ) -> BindingQueryResult<bray_symbols::MemberLookupResult<AnySymbolId>, Upstream>;
 
     /// Returns the imported identity skeleton when imported declaration details are required.
     fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, Upstream>;
@@ -55,12 +66,25 @@ impl<T> TypeExpressionImports<T::UpstreamError> for T
 where
     T: BindingQueryContext + ?Sized,
 {
+    fn declarations(&self) -> &bray_declarations::DeclarationTable {
+        BindingQueryContext::declarations(self)
+    }
+
     fn imported_path_root(
         &self,
         module: ModuleSymbolId,
         components: &[&str],
     ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>, T::UpstreamError> {
         crate::lookup::visible_imported_path_root(self, module, components)
+    }
+
+    fn semantic_member_lookup(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+        access: bray_symbols::NameAccess,
+    ) -> BindingQueryResult<bray_symbols::MemberLookupResult<AnySymbolId>, T::UpstreamError> {
+        BindingQueryContext::semantic_member_lookup(self, owner, name, access)
     }
 
     fn imported_symbols(

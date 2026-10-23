@@ -1,6 +1,10 @@
 @target(target.platform.dynamic_loading)
 trusted module std.dynamic;
 
+using std.ffi;
+using std.memory;
+using internal std.platform;
+
 trusted internal func resolve_dynamic_symbol<T>(
     pos library: &DynamicLibrary,
     pos name: &[u8],

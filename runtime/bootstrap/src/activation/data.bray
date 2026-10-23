@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation;
 
+using internal bray.runtime.bootstrap;
 using std.memory;
 
 // All pointers in this record refer to immutable compiler or native-provider data.

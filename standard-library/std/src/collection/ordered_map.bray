@@ -1,5 +1,7 @@
 module std.collection;
 
+using std.memory;
+
 internal struct OrderedMapItem<Key, Value>
 {
     key: Key;

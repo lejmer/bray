@@ -1,6 +1,15 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted module std.fs;
 
+using core.memory;
+using std.io;
+using std.memory;
+using std.numeric;
+using internal std.os.unix;
+using std.path;
+using internal std.platform;
+using std.time;
+
 @abi(c)
 trusted internal func platform_file_read(
     pos handle: u64,

@@ -387,12 +387,7 @@ mod tests {
     #[test]
     fn unique_valid_main_is_the_executable_fallback() {
         let compilation = compilation_with_product(
-            "module app;
-
-func main()
-{
-}
-",
+            "module app;\n\nfunc main()\n{\n}\n",
             ProductKind::Executable,
         );
 

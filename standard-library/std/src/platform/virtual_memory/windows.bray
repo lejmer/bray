@@ -1,6 +1,10 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module std.platform.virtual_memory;
 
+using std.memory;
+using std.os.windows;
+using internal std.platform;
+
 trusted internal func platform_map(
     pos bytes: usize,
     access: Access,

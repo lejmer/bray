@@ -422,14 +422,17 @@ mod tests {
 
     #[test]
     fn foreign_aggregate_atomic_members_use_target_required_alignment() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "@layout(c)\n",
-            "struct SharedState\n",
-            "{\n",
-            "    value: core.atomic.Atomic<u64>;\n",
-            "}\n",
-        ));
+        let compilation = compilation(
+            r#"module app;
+
+using core.atomic;
+@layout(c)
+struct SharedState
+{
+    value: core.atomic.Atomic<u64>;
+}
+"#,
+        );
 
         let symbols = compilation
             .symbol_graph()

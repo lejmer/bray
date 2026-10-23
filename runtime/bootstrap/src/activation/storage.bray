@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.activation;
 
+using core.target;
+using internal bray.runtime.bootstrap;
 using std.memory;
 
 // Validate offsets before deriving a pointer into admitted backing. Checking the

@@ -366,20 +366,21 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
 
 #[test]
 fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
-    let source = concat!(
-        "trusted module app;\n",
-        "internal static STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);\n",
-        "@abi(c)\n",
-        "trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32\n",
-        "{\n",
-        "    let _: usize = timer_capacity;\n",
-        "    if worker_capacity == 0\n",
-        "    {\n",
-        "        let _: u32 = core.atomic.load<u32, 1>(&STATE);\n",
-        "    }\n",
-        "    return core.atomic.load<u32, 1>(&STATE);\n",
-        "}\n",
-    );
+    let source = r#"trusted module app;
+
+using core.atomic;
+internal static STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+@abi(c)
+trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+{
+    let _: usize = timer_capacity;
+    if worker_capacity == 0
+    {
+        let _: u32 = core.atomic.load<u32, 1>(&STATE);
+    }
+    return core.atomic.load<u32, 1>(&STATE);
+}
+"#;
 
     let role = RuntimeAbiRole::RuntimeInitialization;
 
@@ -420,6 +421,8 @@ fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
 fn native_atomic_word_calls_survive_generic_specialization() {
     let source = r#"
         module app;
+
+        using core.atomic;
         func generic<T>(pos word: &core.atomic.Atomic<T>, pos expected: T)
             requires(blocking_execution())
         {

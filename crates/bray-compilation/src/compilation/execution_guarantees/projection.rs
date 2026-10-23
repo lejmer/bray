@@ -135,8 +135,12 @@ mod tests {
             "core.atomic.fetch_xor<u32, 0>(storage, 1)",
         ] {
             let compilation = compilation(&format!(
-                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
-                 executes(total) {{ let _ = {operation}; }}"
+                r#"module app;
+
+using core.atomic;
+
+ func operation(pos storage: &core.atomic.Atomic<u32>)
+                 executes(total) {{ let _ = {operation}; }}"#
             ));
 
             assert!(
@@ -156,8 +160,12 @@ mod tests {
             ("pure", "core.atomic.notify_all<u32>(storage)"),
         ] {
             let compilation = compilation(&format!(
-                "module app; func operation(pos storage: &core.atomic.Atomic<u32>) \
-                 requires(blocking_execution()) executes({property}) {{ let _ = {operation}; }}"
+                r#"module app;
+
+using core.atomic;
+
+ func operation(pos storage: &core.atomic.Atomic<u32>)
+                 requires(blocking_execution()) executes({property}) {{ let _ = {operation}; }}"#
             ));
 
             assert!(
@@ -175,6 +183,9 @@ mod tests {
         let notification = compilation(
             r#"
             module app;
+
+            using core.atomic;
+
             func notify(pos storage: &core.atomic.Atomic<u32>) executes(total) {
                 core.atomic.notify_one<u32>(storage);
                 core.atomic.notify_all<u32>(storage);
@@ -194,6 +205,9 @@ mod tests {
         let compilation = compilation(
             r#"
             trusted module app;
+
+            using core.memory;
+
             callable Callback = @abi(c) func();
             @abi(c)
             func entry() {}
@@ -221,6 +235,9 @@ mod tests {
         let compilation = compilation(
             r#"
             trusted module app;
+
+            using core.memory;
+
             callable Callback = @abi(c) func();
 
             trusted func caller(pos pointer: RawPointer<u8>) -> Callback

@@ -3,6 +3,8 @@
 The compiler-known raw memory access declarations are under `core.memory`.
 
 ```bray
+using core.memory;
+
 trusted func read<T>(pos pointer: RawPointer<T>) -> T
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
@@ -39,6 +41,8 @@ finalization, and ownership obligations before `write` overwrites the storage.
 The compiler-known raw memory copy declarations are under `core.memory`.
 
 ```bray
+using core.memory;
+
 trusted func copy<T>(
     pos source: RawPointer<T>,
     pos destination: RawPointer<T>,

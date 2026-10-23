@@ -1,5 +1,8 @@
 trusted module std.time;
 
+using core.memory;
+using std.io;
+using internal std.platform;
 using std.memory;
 
 const TEMPORAL_SUCCESS: u32 = 0;

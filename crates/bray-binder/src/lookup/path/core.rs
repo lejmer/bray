@@ -5,7 +5,7 @@ use bray_symbols::{
     AnySymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleOwnerId, ModuleSymbolId,
     SymbolGraph,
 };
-use bray_syntax::{PathSyntax, SyntaxToken, UsingDeclarationSyntax};
+use bray_syntax::{PathSyntax, SyntaxToken};
 
 use super::super::binding::{
     NameLookupResult, combine_name_lookups, lookup_surface_name, lookup_unqualified_name,
@@ -109,34 +109,39 @@ where
     )
 }
 
-pub(crate) fn bind_source_path(
+pub(crate) fn bind_source_path<Upstream>(
     symbols: &SymbolGraph,
+    declarations: &bray_declarations::DeclarationTable,
     imported_root: Option<ImportedPathRoot<'_>>,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
     ordinary: NameLookupResult<ResolvedName>,
-) -> NameLookupResult<ResolvedName> {
-    let Some(module) = symbols.module(module) else {
-        return malformed_lookup();
-    };
+    members: &mut impl FnMut(
+        AnySymbolId,
+        &str,
+        NameAccess,
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
+) -> BindingQueryResult<NameLookupResult<ResolvedName>, Upstream> {
+    let module = symbols
+        .module(module)
+        .expect("source path has a module in its symbol graph");
 
     let Some(references) = path_references(path) else {
-        return malformed_lookup();
+        return Ok(malformed_lookup());
     };
 
-    match bind_path_with_ordinary::<std::convert::Infallible>(
+    Ok(bind_path_with_ordinary(
         symbols,
         imported_root,
         module.owner(),
+        Some((declarations, module.id())),
         access,
         references,
         ordinary,
-        &mut |_, _, _| Ok(MemberLookupResult::NotFound),
-    ) {
-        Ok(lookup) => lookup.result,
-        Err(_) => malformed_lookup(),
-    }
+        members,
+    )?
+    .result)
 }
 
 pub(crate) fn visible_imported_path_root<'binding_context, C>(
@@ -147,80 +152,19 @@ pub(crate) fn visible_imported_path_root<'binding_context, C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    let Some((acknowledged_components, internal)) =
-        module_using_access(binding_context, module, components)?
-    else {
-        return Ok(None);
-    };
+    let acknowledged = super::dependency::module_using_access(
+        binding_context.symbols(),
+        binding_context.declarations(),
+        module,
+        components,
+    );
 
     Ok(binding_context.imported_path_root(components)?.map(|root| {
-        root.with_internal_access(internal && acknowledged_components > root.consumed_components())
+        root.with_internal_access(
+            acknowledged
+                .is_some_and(|(length, internal)| internal && length > root.consumed_components()),
+        )
     }))
-}
-
-pub(crate) fn module_using_access<C>(
-    binding_context: &C,
-    module: ModuleSymbolId,
-    components: &[&str],
-) -> BindingQueryResult<Option<(usize, bool)>, C::UpstreamError>
-where
-    C: BindingQueryContext + ?Sized,
-{
-    let mut matched = None;
-
-    let module =
-        binding_context
-            .symbols()
-            .module(module)
-            .ok_or(crate::BindingQueryError::Binding(
-                crate::BindingError::SymbolRecordUnavailable(module.into()),
-            ))?;
-
-    for part in module.module_parts() {
-        let declarations = binding_context
-            .declarations()
-            .using_declarations(*part)
-            .ok_or(crate::BindingQueryError::Binding(
-                crate::BindingError::ModulePartRecordUnavailable(*part),
-            ))?;
-
-        for declaration in declarations {
-            let declaration = binding_context
-                .declarations()
-                .declaration(*declaration)
-                .ok_or(crate::BindingQueryError::Binding(
-                    crate::BindingError::DeclarationRecordUnavailable(*declaration),
-                ))?;
-
-            let Some(using) = declaration
-                .syntax_anchor()
-                .find_descendant::<UsingDeclarationSyntax>(binding_context.syntax())
-            else {
-                continue;
-            };
-
-            let Some(references) = path_references(&using.path()) else {
-                continue;
-            };
-
-            if references.len() <= components.len()
-                && references
-                    .iter()
-                    .map(NameReference::text)
-                    .eq(components.iter().take(references.len()).copied())
-            {
-                let candidate = (references.len(), using.internal_keyword().is_some());
-
-                if matched.is_none_or(|current: (usize, bool)| {
-                    (candidate.1, candidate.0) > (current.1, current.0)
-                }) {
-                    matched = Some(candidate);
-                }
-            }
-        }
-    }
-
-    Ok(matched)
 }
 
 /// Resolves one module-relative surface path with caller-provided semantic member lookup.
@@ -263,6 +207,7 @@ pub(super) fn surface_lookup(
             MemberLookupResult::Malformed(Box::new([]))
         }
         MemberLookupResult::NotFound => MemberLookupResult::NotFound,
+        MemberLookupResult::UndeclaredDependency => MemberLookupResult::UndeclaredDependency,
         MemberLookupResult::WrongKind(candidates) => {
             MemberLookupResult::WrongKind(surface_candidates(candidates))
         }
@@ -370,6 +315,7 @@ where
         binding_context.symbols(),
         imported_root,
         module.owner(),
+        Some((binding_context.declarations(), module.id())),
         access,
         references,
         ordinary,
@@ -394,6 +340,7 @@ where
             result,
             MemberLookupResult::Ambiguous(_)
                 | MemberLookupResult::Inaccessible(_)
+                | MemberLookupResult::UndeclaredDependency
                 | MemberLookupResult::Malformed(_)
         ) && let Some(reference) = lookup.reference
         {
@@ -687,6 +634,9 @@ where
             self.binding_context().symbols(),
             imported_root,
             context.module_owner,
+            context
+                .module
+                .map(|module| (self.binding_context().declarations(), module)),
             context.access,
             references,
             ordinary,
@@ -715,6 +665,7 @@ fn bind_path_with_ordinary<Upstream>(
     symbols: &SymbolGraph,
     imported_root: Option<ImportedPathRoot<'_>>,
     module_owner: ModuleOwnerId,
+    module_scope: Option<(&bray_declarations::DeclarationTable, ModuleSymbolId)>,
     access: NameAccess,
     references: Vec<NameReference>,
     ordinary: NameLookupResult<ResolvedName>,
@@ -742,6 +693,27 @@ fn bind_path_with_ordinary<Upstream>(
         .chain(imported_prefix);
 
     let (result, consumed) = combine_path_prefixes(prefixes);
+
+    if let Some((declarations, module)) = module_scope {
+        let components = references
+            .iter()
+            .map(NameReference::text)
+            .collect::<Vec<_>>();
+
+        if !super::dependency::lookup_dependency_declared(
+            symbols,
+            declarations,
+            module,
+            &components,
+            &result,
+        ) {
+            return Ok(path_lookup(
+                MemberLookupResult::UndeclaredDependency,
+                references,
+                consumed.saturating_sub(1),
+            ));
+        }
+    }
 
     bind_remaining_path(
         symbols,
@@ -1067,11 +1039,11 @@ mod tests {
             "dependency.api.DisplayVec",
         );
 
-        assert_eq!(result, MemberLookupResult::NotFound);
+        assert_eq!(result, MemberLookupResult::UndeclaredDependency);
 
         assert_eq!(
             bray_testing::diagnostic_at(output.diagnostics(), 0).kind(),
-            DiagnosticKind::BindingUnresolvedName
+            DiagnosticKind::BindingUndeclaredDependency
         );
     }
 
@@ -1139,7 +1111,9 @@ mod tests {
 
     #[test]
     fn source_modules_resolve_compiler_known_module_paths() {
-        let query_fixture = QueryFixture::new();
+        let query_fixture =
+            QueryFixture::from_source("module app; using core.memory; const ready: bool = true;");
+
         let binding_context = query_fixture.context();
 
         let unit_fixture = fixture();
@@ -1465,6 +1439,7 @@ mod tests {
         let query_fixture = QueryFixture::from_source(concat!(
             "module foo\n",
             "{\n",
+            "    using foo.bar;\n",
             "    const bar: bool = true;\n",
             "}\n",
             "module foo.bar\n",

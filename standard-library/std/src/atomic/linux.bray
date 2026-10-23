@@ -1,6 +1,10 @@
 @target(target.identity.NAME == "x86_64-unknown-linux-gnu" || target.identity.NAME == "aarch64-unknown-linux-gnu")
 module std.atomic;
 
+using core.atomic;
+using std.memory;
+using std.os.linux;
+
 trusted internal func platform_wait_word_for(
     pos storage: &core.atomic.Atomic<u32>,
     pos expected: u32,

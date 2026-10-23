@@ -3,6 +3,8 @@
 Contract lists use parentheses and commas.
 
 ```bray
+using core.memory;
+
 requires(
     length <= capacity,
     trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),

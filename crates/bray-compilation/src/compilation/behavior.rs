@@ -995,7 +995,11 @@ mod tests {
             ("trusted func main() uses(manual_alloc)", None),
         ] {
             let compilation = compilation(&format!(
-                "trusted module app;\n{declaration} {{ trusted core.memory.allocate(bytes = 0, align = 1); }}\n"
+                r#"trusted module app;
+
+using core.memory;
+{declaration} {{ trusted core.memory.allocate(bytes = 0, align = 1); }}
+"#
             ));
 
             let diagnostics = compilation.check_diagnostics();

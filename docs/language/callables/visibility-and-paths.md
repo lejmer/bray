@@ -30,13 +30,15 @@ func exported() -> i32
 Use of internal functions outside their intended scope requires explicit acknowledgement.
 
 ```bray
-let x = internal some.module.helper();
+using some.api;
+
+let x = internal some.api.helper();
 ```
 
 A module can acknowledge internal use through `using internal`.
 
 ```bray
-using internal some.module.helper;
+using internal some.api.helper;
 ```
 
 `using internal` acknowledges specific internal modules, declarations, or declaration paths.
@@ -48,15 +50,22 @@ using internal some.module.helper;
 Bray uses `.` for module paths, package paths, type paths, member access, and nested access.
 
 ```bray
+using math;
+using pkg.api;
+
 math.sin(x);
-pkg.module.function(value = x);
-pkg.module.Type;
+pkg.api.function(value = x);
+pkg.api.Type;
 ```
 
 The binder resolves whether the left side is a module, package, type, value, or access path.
 
-A referenced external path must either be declared by a `using` declaration or be reachable through the current package
-or module context.
+A named path into another logical module requires a matching `using` declaration, including paths within the current
+package. A fully qualified path identifies its target but does not declare the dependency. Local `internal` and `trusted`
+do not supply a missing dependency declaration.
+
+References within the current logical module need no self-import. See
+[Using declarations](../modules-and-packages/using-declarations.md) for path coverage and split-module scope.
 
 ## Navigation
 

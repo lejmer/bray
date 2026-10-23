@@ -388,8 +388,16 @@ mod tests {
             let source = format!(
                 r#"
                 module app;
-                func fail() -> u32 {{ panic("argument failed"); }}
-                func root(pos storage: &core.atomic.Atomic<u32>) {requirement} {{
+
+                using core.atomic;
+
+                func fail() -> u32
+                {{
+                    panic("argument failed");
+                }}
+
+                func root(pos storage: &core.atomic.Atomic<u32>) {requirement}
+                {{
                     core.atomic.wait<u32, 1>(storage, {argument});
                 }}
             "#

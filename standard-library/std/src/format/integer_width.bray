@@ -1,5 +1,7 @@
 module std.format;
 
+using std.numeric;
+
 internal func native_digit_byte(pos value: u64, pos uppercase: bool) -> u8
 {
     return match value

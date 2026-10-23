@@ -483,7 +483,7 @@ fn member_lookup_spans(
 ) -> Vec<SourceSpan> {
     let candidates: &[AnySymbolId] = match result {
         MemberLookupResult::Found(candidate) => std::slice::from_ref(candidate),
-        MemberLookupResult::NotFound => &[],
+        MemberLookupResult::NotFound | MemberLookupResult::UndeclaredDependency => &[],
         MemberLookupResult::WrongKind(candidates)
         | MemberLookupResult::Ambiguous(candidates)
         | MemberLookupResult::Inaccessible(candidates)
@@ -591,7 +591,12 @@ mod tests {
         let compilation = compilation([
             concat!("module a;\n", "\n", "func run()\n", "{\n", "}\n",),
             concat!("module b;\n", "\n", "using a.run;\n", "export a.run;\n",),
-            concat!("module c;\n", "\n", "export b.run;\n",),
+            r#"module c;
+
+using b;
+
+export b.run;
+"#,
         ]);
 
         let symbols = symbol_graph(&compilation);
@@ -667,7 +672,12 @@ mod tests {
 
         let unacknowledged = compilation([
             concat!("module a;\n", "\n", "internal func run()\n", "{\n", "}\n",),
-            concat!("module b;\n", "\n", "export a.run;\n",),
+            r#"module b;
+
+using a;
+
+export a.run;
+"#,
         ]);
 
         let symbols = symbol_graph(&unacknowledged);
@@ -699,12 +709,13 @@ mod tests {
                 "using internal a.run;\n",
                 "export a.run;\n",
             ),
-            concat!(
-                "module c;\n",
-                "\n",
-                "using internal a.run;\n",
-                "export b.run;\n",
-            ),
+            r#"module c;
+
+using b;
+
+using internal a.run;
+export b.run;
+"#,
         ]);
 
         let symbols = symbol_graph(&non_propagating);
@@ -766,15 +777,16 @@ mod tests {
     fn conflicting_and_cyclic_exports_produce_structured_diagnostics() {
         let conflicting = compilation([
             concat!("module a;\n", "\n", "func run()\n", "{\n", "}\n",),
-            concat!(
-                "module b;\n",
-                "\n",
-                "func run()\n",
-                "{\n",
-                "}\n",
-                "\n",
-                "export a.run;\n",
-            ),
+            r#"module b;
+
+using a;
+
+func run()
+{
+}
+
+export a.run;
+"#,
         ]);
 
         let conflicting_diagnostics = assert_surface_diagnostic(
@@ -800,7 +812,12 @@ mod tests {
         );
 
         let child_module_conflict = compilation([
-            concat!("module root;\n", "\n", "export source.child;\n",),
+            r#"module root;
+
+using source.child;
+
+export source.child;
+"#,
             "module root.child;\n",
             "module source.child;\n",
         ]);
@@ -817,7 +834,13 @@ mod tests {
 
         let duplicate_export = compilation([
             concat!("module a;\n", "\n", "func run()\n", "{\n", "}\n",),
-            concat!("module b;\n", "\n", "export a.run;\n", "export a.run;\n",),
+            r#"module b;
+
+using a;
+
+export a.run;
+export a.run;
+"#,
         ]);
 
         let duplicate_export_diagnostics = assert_surface_diagnostic(
@@ -831,8 +854,18 @@ mod tests {
         assert_eq!(duplicate_export.related_locations().len(), 1);
 
         let cyclic = compilation([
-            concat!("module a;\n", "\n", "export b.run;\n",),
-            concat!("module b;\n", "\n", "export a.run;\n",),
+            r#"module a;
+
+using b;
+
+export b.run;
+"#,
+            r#"module b;
+
+using a;
+
+export a.run;
+"#,
         ]);
 
         let cyclic_diagnostics =

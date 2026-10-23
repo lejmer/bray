@@ -1,5 +1,7 @@
 module bray.standard_library_tests.outcomes;
 
+using core.atomic;
+using core.memory;
 using std.channel;
 using std.memory;
 using std.run;

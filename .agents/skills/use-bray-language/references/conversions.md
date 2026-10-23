@@ -7,6 +7,7 @@
 ```bray
 module conversion_example;
 
+using std.numeric;
 using std.convert;
 using std.numeric.I32Integer;
 using std.numeric.I32IntegerBits;

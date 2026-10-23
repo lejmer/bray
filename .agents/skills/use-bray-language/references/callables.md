@@ -87,6 +87,9 @@ Explicit arguments evaluate in source order. Omitted defaults then evaluate in p
 ```bray
 module callable_example;
 
+using core.memory;
+using std.ffi.c;
+
 const func clamp(pos value: i32, minimum: i32, maximum: i32) -> i32
     requires(minimum <= maximum)
     ensures(result >= minimum, result <= maximum)
@@ -248,6 +251,8 @@ A named `callable` declaration names one reusable callable type and creates no f
 ```bray
 module callable_example;
 
+using core.memory;
+
 struct Counter
 {
     mut value: i32;
@@ -316,6 +321,8 @@ func receiver_forms(pos mut counter: Counter) -> i32
 
 ```bray
 module callable_example;
+
+using core.memory;
 
 func local_callables() -> i32
 {

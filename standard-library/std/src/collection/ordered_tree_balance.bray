@@ -1,5 +1,8 @@
 module std.collection;
 
+using std.memory;
+using std.order;
+
 internal func ordered_tree_node_height(pos nodes: &[OrderedTreeNode], pos index: usize?) -> usize
 {
     return match index

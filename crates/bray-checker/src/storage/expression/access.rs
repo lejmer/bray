@@ -238,6 +238,7 @@ where
             }
             MemberLookupResult::Found(_) => Ok(MemberStorage::Value),
             MemberLookupResult::NotFound
+            | MemberLookupResult::UndeclaredDependency
             | MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
             | MemberLookupResult::Inaccessible(_)

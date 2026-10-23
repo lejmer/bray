@@ -124,6 +124,10 @@ pub(super) fn classify_reference_result(
         MemberLookupResult::NotFound => {
             ReferenceResolution::Unresolved(BoundUnresolvedReferenceKind::NotFound, Vec::new())
         }
+        MemberLookupResult::UndeclaredDependency => ReferenceResolution::Unresolved(
+            BoundUnresolvedReferenceKind::UndeclaredDependency,
+            Vec::new(),
+        ),
         MemberLookupResult::WrongKind(candidates) => ReferenceResolution::Unresolved(
             BoundUnresolvedReferenceKind::WrongKind,
             candidates.into_vec(),

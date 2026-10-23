@@ -11,6 +11,8 @@ trusted expression
 Example:
 
 ```bray
+using core.memory;
+
 let byte = trusted core.memory.read<u8>(pointer);
 ```
 
@@ -40,6 +42,8 @@ For a single call, the scope is that call expression.
 For a block operand, the scope is the block expression.
 
 ```bray
+using core.memory;
+
 trusted
 {
     let first = core.memory.read<u8>(first_pointer);

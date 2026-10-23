@@ -1,5 +1,13 @@
 trusted module std.channel;
 
+using core.atomic;
+using core.memory;
+using std.atomic;
+using std.channel.owner;
+using std.memory;
+using std.run;
+using std.sync.spin_lock;
+
 internal const WAIT_TIMEOUT_MILLISECONDS: u32 = 50;
 
 internal struct PendingValue<T>

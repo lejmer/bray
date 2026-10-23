@@ -1,6 +1,8 @@
 @target(target.c.UNSIGNED_INT == "u32")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `unsigned int` when `target.c.UNSIGNED_INT` selects `u32`.

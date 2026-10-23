@@ -1,6 +1,10 @@
 @target(target.platform.native_threads && (target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin"))
 trusted module std.thread;
 
+using core.memory;
+using std.ffi.c;
+using internal std.os.unix;
+using internal std.platform;
 using std.memory;
 
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>

@@ -16,6 +16,8 @@ fn initialized_protected_storage_transfers_and_consumes_its_witness() {
             r#"
                 trusted module app;
 
+                using core.memory;
+
                 trusted func probe() -> u32
                     uses(unchecked_init)
                 {{
@@ -57,6 +59,8 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
             struct HostOwner {{ mut value: u64; }}
             trusted predicate acquired(owner: &HostAccess);
             struct HostAccess {{
@@ -106,6 +110,8 @@ fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
             r#"
                 trusted module app;
 
+                using core.memory;
+
                 func observe(pos count: usize) -> usize
                     {postcondition}
                     executes(pure, total)
@@ -152,6 +158,8 @@ fn closed_writes_preserve_storage_validity_but_opaque_calls_revoke_it() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             func harmless() {{}}
             extern func opaque();
             trusted func roundtrip(pos pointer: RawPointer<u8>) -> u8
@@ -190,6 +198,8 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Marker {{}}
             struct Owner {{ marker: Marker; value: u32; }}
             trusted predicate live(marker: &Marker);
@@ -251,6 +261,8 @@ fn returned_terminal_storage_keeps_initialization_with_its_owner() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func produce() -> (u32, Uninit<u32>)
                 ensures(result.0 != 1 || trusted core.memory.uninit_initialized<u32>(storage = &result.1))
             {{
@@ -330,6 +342,8 @@ fn conditional_initialization_guarantees_from_field_observers() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             const COMPLETE: u32 = 1;
             const OTHER: u32 = 2;
             struct Slots<T> {{ mut value: Uninit<T>; state: u32; }}
@@ -372,6 +386,8 @@ fn conditional_initialization_guarantees_reach_borrowed_fields() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Slots {{ mut value: Uninit<u8>; }}
 
             trusted func initialize(pos storage: &mut Slots, fail: bool) -> u32
@@ -420,6 +436,8 @@ fn initialized_storage_requirements_supply_consuming_operations() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func consume_initialized({signature}) -> u8
                 requires(trusted core.memory.uninit_initialized<u8>(storage = {argument}))
                 uses(unchecked_init)
@@ -455,6 +473,8 @@ fn conditional_memory_obligations_accept_smaller_proven_ranges() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             extern trusted func consume_range(pos pointer: RawPointer<u8>, count: usize)
                 requires({condition});
 
@@ -483,6 +503,8 @@ fn conditional_memory_obligations_accept_smaller_proven_ranges() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         extern trusted func consume_range(pos pointer: RawPointer<u8>, count: usize)
             requires(count == 0 || trusted core.memory.valid_write<u8>(pointer = pointer, count = count));
 
@@ -507,6 +529,8 @@ fn closed_memory_ranges_can_supply_smaller_checked_ranges() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func write_byte(pos pointer: RawPointer<u8>)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = {range}),
@@ -536,6 +560,8 @@ fn checked_nonempty_ranges_supply_one_element_obligations() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func write_byte(pos pointer: RawPointer<u8>, count: usize)
                 requires(
                     trusted core.memory.valid_write<u8>(pointer = pointer, count = count),
@@ -565,6 +591,8 @@ fn borrowed_addresses_establish_live_access_conditions() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func caller() -> u8 uses(raw_memory, unchecked_init) {{
                 let mut value: u8 = 1;
                 let pointer = core.memory.address_of_mut<u8>(&mut value);
@@ -588,6 +616,8 @@ fn writing_through_an_address_does_not_extend_its_owner_lifetime() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted func caller() -> u8 uses(raw_memory, unchecked_init) {
             let unrelated: u8 = 1;
             let mut pointer = core.memory.null<u8>();
@@ -612,6 +642,8 @@ fn copied_range_extents_describe_storage_without_owning_it() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
 
         trusted func extent(pos value: &u8) -> usize
             ensures(
@@ -691,6 +723,8 @@ fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() 
 fn cursor_witness_survives_observation_and_independent_loop_counters() {
     let source = r#"
         trusted module app;
+
+        using core.memory;
         struct Cursor
         {
             first: RawPointer<u8>;
@@ -791,6 +825,8 @@ fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
     ] {
         let source = r#"
         trusted module app;
+
+        using core.memory;
         struct Owner { value: u8; }
         trusted predicate valid(owner: &Owner);
 
@@ -833,6 +869,8 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
+
+            using core.memory;
             callable Callback = @abi(c) func();
 
             @abi(c)
@@ -869,6 +907,8 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted predicate live(pointer: RawPointer<u8>);
         trusted func owner() -> RawPointer<u8> ensures(trusted live(result))
         {
@@ -894,6 +934,9 @@ fn conditional_storage_guarantees_preserve_copyable_addresses() {
             let compilation = compilation(&format!(
                 r#"
                 trusted module app;
+
+                using core.memory;
+                using core.target;
                 predicate enabled(flag: bool) = flag;
                 extern trusted func address(pos flag: bool) -> {ty}
                     ensures(!{guard} || trusted {predicate}(pointer = result, count = 1));
@@ -935,6 +978,8 @@ fn address_guarantees_expire_with_the_borrowed_storage_owner() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Owner {{ byte: Uninit<u8>; }}
             trusted func address_view(pos owner: &Owner) -> RawPointer<u8>
                 executes(pure, total)
@@ -2100,6 +2145,8 @@ fn raw_read_uses_declared_storage_obligations() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted func read_byte(pos pointer: RawPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
@@ -2554,6 +2601,8 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         struct Header { capacity: usize; }
         trusted func write_unknown_storage(pos header: &mut Header, pos destination: RawPointer<u8>) -> usize
             requires(trusted core.memory.valid_write<u8>(pointer = destination, count = 1))
@@ -2622,6 +2671,8 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted func read_byte(pos pointer: RawPointer<u8>) -> u8
                 requires({requirements}) executes(pure, total) uses(raw_memory)
             {{ return trusted core.memory.read<u8>(pointer); }}
@@ -2655,6 +2706,8 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             struct Owner {{ value: u8; }}
             trusted func mutate(pos pointer: RawPointer<{pointee}>) -> {result}
                 requires(
@@ -2678,6 +2731,8 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted func allocate() -> RawPointer<u8> executes(total) uses(manual_alloc)
         { return trusted core.memory.allocate(bytes = 1, align = 1); }
     "#,
@@ -2973,6 +3028,8 @@ fn returned_addresses_preserve_only_the_checked_input_authority() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             func forward(pos pointer: RawPointer<u8>, pos other: RawPointer<u8>) -> RawPointer<u8>
                 executes(pure, total)
             {{ return {returned}; }}
@@ -3008,6 +3065,8 @@ fn returned_address_authority_expires_with_its_original_owner() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         func forward(pos pointer: RawPointer<u8>) -> RawPointer<u8>
             executes(pure, total)
         { return pointer; }
@@ -3033,6 +3092,8 @@ fn address_formation_keeps_the_value_owner_distinct_from_the_address_witness() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         struct Bytes { first: u8; }
         func observe(pos pointer: RawPointer<Bytes>)
             requires(trusted core.memory.valid_read<Bytes>(pointer = pointer, count = 1)) {}
@@ -3063,6 +3124,8 @@ fn deferred_body_effects_apply_when_driven_and_harmless_await_preserves_evidence
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
             struct Owner {{ epoch: core.atomic.Atomic<u64>; }}
             trusted predicate live(value: &Owner);
             trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = core.atomic.initialize<u64>(1) }}; }}
@@ -3229,6 +3292,8 @@ fn returned_borrow_alias_keeps_address_authority_tied_to_physical_storage() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             func identity(pos value: &u8) -> &u8 {{ return value; }}
             func locate(pos value: &u8) -> RawPointer<u8>
                 ensures(
@@ -3447,6 +3512,8 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
             extern func publish(pos pointer: RawPointer<RawPointer<u8>>);
             trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
@@ -3483,6 +3550,8 @@ fn content_writes_keep_spatial_facts_about_copied_pointer_values() {
         let source = format!(
             r#"
             trusted module app;
+
+            using core.memory;
             extern func opaque();
             struct Pointer {{ value: RawPointer<u8>; }}
             trusted func run(pos owner: &Pointer, pos slot: RawPointer<RawPointer<u8>>, pos replacement: RawPointer<u8>)
@@ -3532,6 +3601,10 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
         let source = format!(
             r#"
             trusted module app;
+
+            using core.atomic;
+
+            using core.memory;
             struct Owner {{ mut value: {field}; }}
             trusted predicate acquired(owner: &Owner);
             trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
@@ -3633,6 +3706,8 @@ fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
     let compilation = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted predicate destination_owned();
         trusted func destination_pointer(pos pointer: RawPointer<u8>) -> RawPointer<u8>
             requires(trusted destination_owned())
@@ -3683,6 +3758,8 @@ fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
+
+            using core.target;
             struct Owner {{ pointer: RawPointer<u8>; }}
             trusted predicate live(owner: &Owner);
             {helper}

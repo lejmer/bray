@@ -126,6 +126,7 @@ impl ExpressionBinder {
                     access,
                 ),
                 MemberLookupResult::NotFound
+                | MemberLookupResult::UndeclaredDependency
                 | MemberLookupResult::WrongKind(_)
                 | MemberLookupResult::Ambiguous(_)
                 | MemberLookupResult::Inaccessible(_)

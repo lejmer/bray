@@ -1,5 +1,10 @@
 trusted module std.channel.owner;
 
+using core.atomic;
+using core.memory;
+using std.channel;
+using std.memory;
+
 struct Marker
 {
 }

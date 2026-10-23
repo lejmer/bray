@@ -1,6 +1,7 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted internal module bray.runtime.bootstrap.thread.destruction;
 
+using core.memory;
 using std.memory;
 using std.os.unix;
 

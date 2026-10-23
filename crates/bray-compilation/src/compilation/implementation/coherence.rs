@@ -674,6 +674,7 @@ fn bind_surface_path(
     match result.value() {
         MemberLookupResult::Found(symbol) => Ok(Some(*symbol)),
         MemberLookupResult::NotFound
+        | MemberLookupResult::UndeclaredDependency
         | MemberLookupResult::WrongKind(_)
         | MemberLookupResult::Ambiguous(_)
         | MemberLookupResult::Inaccessible(_)

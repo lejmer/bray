@@ -256,16 +256,17 @@ fn borrowed_union_patterns_emit_valid_native_units() {
 #[test]
 fn indexed_static_accesses_emit_valid_native_units() {
     assert_source_emits_valid_native_units(
-        concat!(
-            "module app;\n",
-            "internal static VALUES: [core.atomic.Atomic<usize>; 1] = [\n",
-            "    core.atomic.initialize<usize>(7)\n",
-            "];\n",
-            "public trusted func read() -> usize\n",
-            "{\n",
-            "    return core.atomic.load<usize, 0>(&VALUES[0]);\n",
-            "}\n",
-        ),
+        r#"module app;
+
+using core.atomic;
+internal static VALUES: [core.atomic.Atomic<usize>; 1] = [
+    core.atomic.initialize<usize>(7)
+];
+public trusted func read() -> usize
+{
+    return core.atomic.load<usize, 0>(&VALUES[0]);
+}
+"#,
         crate::BuildConfiguration::Development,
     );
 }
@@ -274,6 +275,8 @@ fn indexed_static_accesses_emit_valid_native_units() {
 fn aggregate_static_borrows_emit_valid_native_units_in_either_declaration_order() {
     let types = r#"
             module app;
+
+            using core.atomic;
             struct Counter { value: core.atomic.Atomic<usize>; }
             struct Guard { count: usize; counter: &Counter; }
         "#;
@@ -310,6 +313,8 @@ fn imported_aggregate_static_borrows_emit_valid_native_units() {
         GenericDependencyFixture {
             source: r#"
                     module templates;
+
+                    using core.atomic;
                     public struct Counter { public value: core.atomic.Atomic<usize>; }
                     public static COUNTER: Counter = Counter
                     {
@@ -432,22 +437,23 @@ fn aggregate_static_relocation_preserves_native_export_names() {
 #[test]
 fn never_calls_in_typed_return_paths_emit_valid_native_units() {
     assert_source_emits_valid_native_units(
-        concat!(
-            "trusted module app;\n",
-            "trusted func terminate() -> never uses(intrinsic)\n",
-            "{\n",
-            "    trusted core.target.abort();\n",
-            "}\n",
-            "public trusted func select(pos terminate_now: bool) -> u64\n",
-            "{\n",
-            "    if terminate_now\n",
-            "    {\n",
-            "        return trusted terminate();\n",
-            "    }\n",
-            "\n",
-            "    return 7;\n",
-            "}\n",
-        ),
+        r#"trusted module app;
+
+using core.target;
+trusted func terminate() -> never uses(intrinsic)
+{
+    trusted core.target.abort();
+}
+public trusted func select(pos terminate_now: bool) -> u64
+{
+    if terminate_now
+    {
+        return trusted terminate();
+    }
+
+    return 7;
+}
+"#,
         crate::BuildConfiguration::Development,
     );
 }

@@ -1,6 +1,10 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.process;
 
+using std.memory;
+using std.numeric;
+using internal std.platform;
+
 trusted internal func windows_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
     uses(layout_reinterpret)
 {

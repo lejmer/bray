@@ -1,5 +1,8 @@
 trusted internal module std.runtime.memory;
 
+using std.memory;
+using internal std.platform.heap;
+
 trusted func allocate(pos bytes: usize, pos align: usize) -> RawPointer<u8>
 {
     let allocation: RawPointer<u8> = trusted try_allocate(bytes, align);

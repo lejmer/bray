@@ -1870,6 +1870,9 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
     let application = compilation(
         r#"
         module app;
+
+        using core.memory;
+
         struct Cell<T> {
             storage: Uninit<T>;
             func pointer() -> RawPointer<T> executes(pure, total) {
@@ -1879,6 +1882,7 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
                 return self.pointer();
             }
         }
+
         struct Holder<T> {
             cell: &Cell<T>;
             func storage() -> &Uninit<T> executes(pure, total) {
@@ -1888,18 +1892,23 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
                 return direct<T>(self.storage());
             }
         }
+
         func holder_method<T>(pos holder: &Holder<T>) -> RawPointer<T> {
             return holder.pointer();
         }
+
         func direct<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
+
         func method<T>(pos cell: &Cell<T>) -> RawPointer<T> {
             return cell.forwarded();
         }
+
         func forwarded<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
             return direct<T>(storage);
         }
+
         func field<T>(pos holder: &Holder<T>) -> RawPointer<T> {
             return forwarded<T>(&holder.cell.storage);
         }
@@ -1959,6 +1968,8 @@ fn protected_payload_values_preserve_reference_origins_and_reject_local_escape()
     let application = compilation(
         r#"
         trusted module app;
+
+        using core.memory;
         trusted func identity(pos value: &bool) -> &bool uses(unchecked_init) {
             let storage = core.memory.uninit_from<(&bool)>(value);
             return trusted core.memory.assume_initialized<(&bool)>(storage);

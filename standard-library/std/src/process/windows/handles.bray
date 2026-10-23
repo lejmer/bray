@@ -1,6 +1,10 @@
 @target(target.identity.SYSTEM == "windows")
 trusted module std.process;
 
+using std.memory;
+using std.os.windows;
+using internal std.platform;
+
 trusted internal func windows_child_handles(
     pos policy: u32,
     stream: u32,

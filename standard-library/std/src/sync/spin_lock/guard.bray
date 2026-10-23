@@ -1,5 +1,8 @@
 trusted module std.sync;
 
+using core.atomic;
+using core.memory;
+using std.memory;
 using internal std.sync.spin_lock;
 
 struct SpinLockGuard<T>

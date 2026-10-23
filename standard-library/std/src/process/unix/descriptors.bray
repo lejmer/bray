@@ -1,6 +1,11 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted module std.process;
 
+using std.memory;
+using std.numeric;
+using internal std.os.unix;
+using internal std.platform;
+
 trusted internal func child_descriptors(
     pos policy: u32,
     target: i32,

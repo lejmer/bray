@@ -3,6 +3,8 @@
 A trusted caller obligation is a trusted predicate requirement in a contract clause.
 
 ```bray
+using core.memory;
+
 requires(
     trusted core.memory.valid_read(pointer = source, count = count),
 )
@@ -50,6 +52,8 @@ Calling that function is ordinary because the function's public contract does no
 A declaration exposes trusted caller obligations when its contract requires trusted guarantees.
 
 ```bray
+using core.memory;
+
 trusted func copy_bytes_unchecked(
     destination: RawPointer<u8>,
     source: RawPointer<u8>,

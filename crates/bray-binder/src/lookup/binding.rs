@@ -176,6 +176,12 @@ pub(crate) fn combine_name_lookups(
     first: NameLookupResult<ResolvedName>,
     second: NameLookupResult<ResolvedName>,
 ) -> NameLookupResult<ResolvedName> {
+    if matches!(first, MemberLookupResult::UndeclaredDependency)
+        || matches!(second, MemberLookupResult::UndeclaredDependency)
+    {
+        return MemberLookupResult::UndeclaredDependency;
+    }
+
     let mut accessible = Vec::new();
     let mut inaccessible = Vec::new();
     let mut has_malformed = false;
@@ -220,6 +226,9 @@ fn collect_lookup_candidates(
     match result {
         MemberLookupResult::Found(candidate) => accessible.push(candidate),
         MemberLookupResult::NotFound => {}
+        MemberLookupResult::UndeclaredDependency => {
+            panic!("dependency failure must be propagated before collecting name candidates");
+        }
         MemberLookupResult::WrongKind(candidates) | MemberLookupResult::Ambiguous(candidates) => {
             accessible.extend(candidates)
         }

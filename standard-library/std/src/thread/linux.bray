@@ -1,6 +1,8 @@
 @target(target.platform.native_threads && target.identity.SYSTEM == "linux")
 trusted module std.thread;
 
+using std.os.linux;
+
 /// Returns the current native thread's opaque platform identity.
 /// Only equality comparisons are portable across targets.
 trusted func current_platform_identity() -> u64

@@ -1,5 +1,10 @@
 trusted module std.channel;
 
+using core.atomic;
+using std.channel.owner;
+using std.memory;
+using std.sync;
+
 union SendError<T>
 {
     Closed(pos value: T);

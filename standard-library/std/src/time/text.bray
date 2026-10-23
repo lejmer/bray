@@ -1,5 +1,10 @@
 trusted module std.time;
 
+using core.memory;
+using std.io;
+using std.memory;
+using internal std.platform;
+
 trusted internal func parse_temporal_value(pos kind: u32, pos text: &string) -> Result<PlatformTemporalValue, TimeError>
     uses(foreign_call)
 {

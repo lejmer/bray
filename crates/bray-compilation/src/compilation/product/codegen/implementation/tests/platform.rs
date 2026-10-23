@@ -22,249 +22,258 @@ use bray_runtime_interface::{
 use bray_symbols::{NamedTypeSymbolId, ProductKind};
 use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
 
-const TARGET_FENCE_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "@copy\n",
-    "public union FenceChoice\n",
-    "{\n",
-    "    Acquire;\n",
-    "    Release;\n",
-    "    AcquireRelease;\n",
-    "    SequentiallyConsistent;\n",
-    "}\n",
-    "\n",
-    "public trusted func fence(order: FenceChoice) uses(intrinsic)\n",
-    "{\n",
-    "    match order\n",
-    "    {\n",
-    "        case FenceChoice.Acquire\n",
-    "        {\n",
-    "            trusted core.target.hardware_fence(MemoryOrder.Acquire);\n",
-    "        }\n",
-    "        case FenceChoice.Release\n",
-    "        {\n",
-    "            trusted core.target.hardware_fence(MemoryOrder.Release);\n",
-    "        }\n",
-    "        case FenceChoice.AcquireRelease\n",
-    "        {\n",
-    "            trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);\n",
-    "        }\n",
-    "        case FenceChoice.SequentiallyConsistent\n",
-    "        {\n",
-    "            trusted core.target.hardware_fence(\n",
-    "                MemoryOrder.SequentiallyConsistent,\n",
-    "            );\n",
-    "        }\n",
-    "    }\n",
-    "}\n",
-);
+const TARGET_FENCE_SOURCE: &str = r#"module app;
 
-const ATOMIC_GENERIC_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "func entry()\n",
-    "{\n",
-    "    main();\n",
-    "}\n",
-    "\n",
-    "func initialize<T>(pos value: T) -> core.atomic.Atomic<T>\n",
-    "{\n",
-    "    return core.atomic.initialize<T>(value);\n",
-    "}\n",
-    "\n",
-    "func main()\n",
-    "{\n",
-    "    let storage = initialize<u32>(1);\n",
-    "}\n",
-);
+using core.target;
 
-const ATOMIC_LIBRARY_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "public func initialize<T>(pos value: T) -> core.atomic.Atomic<T>\n",
-    "{\n",
-    "    return core.atomic.initialize<T>(value);\n",
-    "}\n",
-);
+@copy
+public union FenceChoice
+{
+    Acquire;
+    Release;
+    AcquireRelease;
+    SequentiallyConsistent;
+}
 
-const ATOMIC_FENCE_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "@copy\n",
-    "public union FenceOrder\n",
-    "{\n",
-    "    Acquire;\n",
-    "    Release;\n",
-    "    AcquireRelease;\n",
-    "    SequentiallyConsistent;\n",
-    "}\n",
-    "\n",
-    "public func fence(order: FenceOrder)\n",
-    "{\n",
-    "    match order\n",
-    "    {\n",
-    "        case FenceOrder.Acquire { core.atomic.fence<1>(); }\n",
-    "        case FenceOrder.Release { core.atomic.fence<2>(); }\n",
-    "        case FenceOrder.AcquireRelease { core.atomic.fence<3>(); }\n",
-    "        case FenceOrder.SequentiallyConsistent { core.atomic.fence<4>(); }\n",
-    "    }\n",
-    "}\n",
-);
+public trusted func fence(order: FenceChoice) uses(intrinsic)
+{
+    match order
+    {
+        case FenceChoice.Acquire
+        {
+            trusted core.target.hardware_fence(MemoryOrder.Acquire);
+        }
+        case FenceChoice.Release
+        {
+            trusted core.target.hardware_fence(MemoryOrder.Release);
+        }
+        case FenceChoice.AcquireRelease
+        {
+            trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
+        }
+        case FenceChoice.SequentiallyConsistent
+        {
+            trusted core.target.hardware_fence(
+                MemoryOrder.SequentiallyConsistent,
+            );
+        }
+    }
+}
+"#;
 
-const STRUCTURAL_ASSEMBLY_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "public trusted func assemble(pos value: i32) -> i32\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    let outputs: (i32, i32) = trusted core.target.assembly<\n",
-    "        (i32, i32, i32),\n",
-    "        (i32, i32),\n",
-    "    >(\n",
-    "        template = \"\",\n",
-    "        constraints = \"+reg,=reg,reg,i\",\n",
-    "        clobbers = \"\",\n",
-    "        features = \"\",\n",
-    "        options = 1,\n",
-    "        inputs = (value, if value == 0 { yield 1; } else { yield value; }, 7),\n",
-    "    );\n",
-    "\n",
-    "    return outputs.0;\n",
-    "}\n",
-    "\n",
-    "func alternate() -> never\n",
-    "{\n",
-    "    loop {}\n",
-    "}\n",
-    "\n",
-    "func generic_alternate<T>(pos value: T) -> never\n",
-    "{\n",
-    "    loop {}\n",
-    "}\n",
-    "\n",
-    "public trusted func assemble_addresses(pos pointer: RawPointer<u8>)\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    let ignored: (i32,) = trusted core.target.assembly<\n",
-    "        (func() -> never, func(pos value: i32) -> never, RawPointer<u8>),\n",
-    "        (i32,),\n",
-    "    >(\n",
-    "        template = \"\",\n",
-    "        constraints = \"=reg,s,s,m\",\n",
-    "        clobbers = \"\",\n",
-    "        features = \"\",\n",
-    "        options = 1,\n",
-    "        inputs = (alternate, generic_alternate, pointer),\n",
-    "    );\n",
-    "}\n",
-    "\n",
-    "public trusted func branch(pos value: i32) -> i32\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    let output: (i32,) = trusted core.target.branching_assembly<\n",
-    "        (i32,),\n",
-    "        (i32,),\n",
-    "        (func() -> never,),\n",
-    "    >(\n",
-    "        template = \"\",\n",
-    "        constraints = \"+reg,label\",\n",
-    "        clobbers = \"\",\n",
-    "        features = \"\",\n",
-    "        options = 1,\n",
-    "        inputs = (value,),\n",
-    "        labels = (alternate,),\n",
-    "    );\n",
-    "\n",
-    "    return output.0;\n",
-    "}\n",
-);
+const ATOMIC_GENERIC_SOURCE: &str = r#"module app;
 
-const MEMORY_ASSEMBLY_SOURCE: &str = concat!(
-    "trusted module memory_assembly;\n",
-    "\n",
-    "public trusted func assemble_memory(pos pointer: RawPointer<u8>)\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    trusted core.target.assembly<(RawPointer<u8>,), unit>(\n",
-    "        template = \"incb $0\",\n",
-    "        constraints = \"m\",\n",
-    "        clobbers = \"memory\",\n",
-    "        features = \"\",\n",
-    "        options = 0,\n",
-    "        inputs = (pointer,),\n",
-    "    );\n",
-    "}\n",
-);
+using core.atomic;
 
-const VOID_BRANCHING_ASSEMBLY_SOURCE: &str = concat!(
-    "trusted module void_branching_assembly;\n",
-    "\n",
-    "func alternate() -> never\n",
-    "{\n",
-    "    loop {}\n",
-    "}\n",
-    "\n",
-    "public trusted func branch_void(pos pointer: RawPointer<u8>)\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    trusted core.target.branching_assembly<\n",
-    "        (RawPointer<u8>,),\n",
-    "        unit,\n",
-    "        (func() -> never,),\n",
-    "    >(\n",
-    "        template = \"\",\n",
-    "        constraints = \"m,label\",\n",
-    "        clobbers = \"\",\n",
-    "        features = \"\",\n",
-    "        options = 0,\n",
-    "        inputs = (pointer,),\n",
-    "        labels = (alternate,),\n",
-    "    );\n",
-    "}\n",
-);
+func entry()
+{
+    main();
+}
 
-const DIVERGING_ASSEMBLY_SOURCE: &str = concat!(
-    "trusted module diverging_assembly;\n",
-    "\n",
-    "public trusted func diverge() -> never\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    trusted core.target.diverging_assembly<(i32,)>(\n",
-    "        template = \"ud2\",\n",
-    "        constraints = \"reg\",\n",
-    "        clobbers = \"\",\n",
-    "        features = \"\",\n",
-    "        options = 0,\n",
-    "        inputs = (0,),\n",
-    "    );\n",
-    "}\n",
-);
+func initialize<T>(pos value: T) -> core.atomic.Atomic<T>
+{
+    return core.atomic.initialize<T>(value);
+}
 
-const DEVICE_VOLATILE_CONTRACT_SOURCE: &str = concat!(
-    "trusted module device_contract;\n",
-    "\n",
-    "trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> u8\n",
-    "    requires(\n",
-    "        trusted core.target.device_valid_read<u8>(pointer = pointer, count = 1),\n",
-    "        trusted core.target.device_valid_write<u8>(pointer = pointer, count = 1),\n",
-    "        trusted core.target.device_aligned_for<u8>(pointer = pointer),\n",
-    "    )\n",
-    "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-    "{\n",
-    "    trusted core.target.device_volatile_store<u8>(pointer, value);\n",
-    "    let result = trusted core.target.device_volatile_load<u8>(pointer);\n",
-    "    trusted core.target.assembly<(DevicePointer<u8>,), unit>(\n",
-    "        template = \"\",\n",
-    "        constraints = \"m\",\n",
-    "        clobbers = \"memory\",\n",
-    "        features = \"\",\n",
-    "        options = 0,\n",
-    "        inputs = (pointer,),\n",
-    "    );\n",
-    "    return result;\n",
-    "}\n",
-);
+func main()
+{
+    let storage = initialize<u32>(1);
+}
+"#;
+
+const ATOMIC_LIBRARY_SOURCE: &str = r#"module app;
+
+using core.atomic;
+
+public func initialize<T>(pos value: T) -> core.atomic.Atomic<T>
+{
+    return core.atomic.initialize<T>(value);
+}
+"#;
+
+const ATOMIC_FENCE_SOURCE: &str = r#"module app;
+
+using core.atomic;
+
+@copy
+public union FenceOrder
+{
+    Acquire;
+    Release;
+    AcquireRelease;
+    SequentiallyConsistent;
+}
+
+public func fence(order: FenceOrder)
+{
+    match order
+    {
+        case FenceOrder.Acquire { core.atomic.fence<1>(); }
+        case FenceOrder.Release { core.atomic.fence<2>(); }
+        case FenceOrder.AcquireRelease { core.atomic.fence<3>(); }
+        case FenceOrder.SequentiallyConsistent { core.atomic.fence<4>(); }
+    }
+}
+"#;
+
+const STRUCTURAL_ASSEMBLY_SOURCE: &str = r#"module app;
+
+using core.target;
+
+public trusted func assemble(pos value: i32) -> i32
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    let outputs: (i32, i32) = trusted core.target.assembly<
+        (i32, i32, i32),
+        (i32, i32),
+    >(
+        template = "",
+        constraints = "+reg,=reg,reg,i",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (value, if value == 0 { yield 1; } else { yield value; }, 7),
+    );
+
+    return outputs.0;
+}
+
+func alternate() -> never
+{
+    loop {}
+}
+
+func generic_alternate<T>(pos value: T) -> never
+{
+    loop {}
+}
+
+public trusted func assemble_addresses(pos pointer: RawPointer<u8>)
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    let ignored: (i32,) = trusted core.target.assembly<
+        (func() -> never, func(pos value: i32) -> never, RawPointer<u8>),
+        (i32,),
+    >(
+        template = "",
+        constraints = "=reg,s,s,m",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (alternate, generic_alternate, pointer),
+    );
+}
+
+public trusted func branch(pos value: i32) -> i32
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    let output: (i32,) = trusted core.target.branching_assembly<
+        (i32,),
+        (i32,),
+        (func() -> never,),
+    >(
+        template = "",
+        constraints = "+reg,label",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (value,),
+        labels = (alternate,),
+    );
+
+    return output.0;
+}
+"#;
+
+const MEMORY_ASSEMBLY_SOURCE: &str = r#"trusted module memory_assembly;
+
+using core.target;
+
+public trusted func assemble_memory(pos pointer: RawPointer<u8>)
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.assembly<(RawPointer<u8>,), unit>(
+        template = "incb $0",
+        constraints = "m",
+        clobbers = "memory",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+    );
+}
+"#;
+
+const VOID_BRANCHING_ASSEMBLY_SOURCE: &str = r#"trusted module void_branching_assembly;
+
+using core.target;
+
+func alternate() -> never
+{
+    loop {}
+}
+
+public trusted func branch_void(pos pointer: RawPointer<u8>)
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.branching_assembly<
+        (RawPointer<u8>,),
+        unit,
+        (func() -> never,),
+    >(
+        template = "",
+        constraints = "m,label",
+        clobbers = "",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+        labels = (alternate,),
+    );
+}
+"#;
+
+const DIVERGING_ASSEMBLY_SOURCE: &str = r#"trusted module diverging_assembly;
+
+using core.target;
+
+public trusted func diverge() -> never
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.diverging_assembly<(i32,)>(
+        template = "ud2",
+        constraints = "reg",
+        clobbers = "",
+        features = "",
+        options = 0,
+        inputs = (0,),
+    );
+}
+"#;
+
+const DEVICE_VOLATILE_CONTRACT_SOURCE: &str = r#"trusted module device_contract;
+
+using core.target;
+
+trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> u8
+    requires(
+        trusted core.target.device_valid_read<u8>(pointer = pointer, count = 1),
+        trusted core.target.device_valid_write<u8>(pointer = pointer, count = 1),
+        trusted core.target.device_aligned_for<u8>(pointer = pointer),
+    )
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.device_volatile_store<u8>(pointer, value);
+    let result = trusted core.target.device_volatile_load<u8>(pointer);
+    trusted core.target.assembly<(DevicePointer<u8>,), unit>(
+        template = "",
+        constraints = "m",
+        clobbers = "memory",
+        features = "",
+        options = 0,
+        inputs = (pointer,),
+    );
+    return result;
+}
+"#;
 
 #[test]
 fn target_fence_wrapper_emits_valid_native_units() {

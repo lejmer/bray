@@ -1,5 +1,7 @@
 module std.collection;
 
+using std.memory;
+
 trusted internal func ordered_tree_reserve<Item>(
     pos tree: &mut OrderedTree<Item>,
     additional: usize

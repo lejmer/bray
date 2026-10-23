@@ -34,6 +34,27 @@ where
 
     let ordinary = lookup_surface_name(binding_context.symbols(), owner, first.text(), access);
 
+    if let Some(module) = binding_context.symbols().containing_module(owner) {
+        let components = references
+            .iter()
+            .map(super::super::diagnostic::NameReference::text)
+            .collect::<Vec<_>>();
+
+        if !super::dependency::lookup_dependency_declared(
+            binding_context.symbols(),
+            binding_context.declarations(),
+            module.id(),
+            &components,
+            &ordinary,
+        ) {
+            return Ok(super::prefix::path_lookup(
+                MemberLookupResult::UndeclaredDependency,
+                references,
+                0,
+            ));
+        }
+    }
+
     let lookup = bind_remaining_path(
         binding_context.symbols(),
         None,

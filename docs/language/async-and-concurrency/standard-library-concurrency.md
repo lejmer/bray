@@ -556,6 +556,10 @@ The public `std.process` owner and descriptor types are `Executable`, `Codec<T>`
 are:
 
 ```bray
+using std.bytes;
+using std.path;
+using std.time;
+
 struct ProtocolFingerprint
 {
     internal bytes: bytes<32>;
@@ -741,6 +745,8 @@ not return.
 The layers remain intentionally distinct:
 
 ```bray
+using std.process;
+
 let process = try await std.process.start(program, input);
 let child_run = try await process.join();
 let value = try child_run;

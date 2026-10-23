@@ -1,5 +1,8 @@
 trusted module guarded_part_cleanup;
 
+using core.atomic;
+using core.memory;
+
 internal static RELEASES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);

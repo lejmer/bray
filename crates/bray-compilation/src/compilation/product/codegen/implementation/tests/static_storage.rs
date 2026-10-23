@@ -14,7 +14,14 @@ fn initialized_protected_statics_preserve_scalar_and_product_representations() {
     let source = r#"
         trusted module app;
 
-        struct State { count: u64; ready: bool; }
+        using core.atomic;
+        using core.memory;
+
+        struct State
+        {
+            count: u64;
+            ready: bool;
+        }
 
         static COUNTER: Uninit<core.atomic.Atomic<u64>> =
             core.memory.uninit_from<core.atomic.Atomic<u64>>(core.atomic.initialize<u64>(17));
@@ -132,20 +139,21 @@ fn exact_thread_static_emits_attachment_owned_cleanup() {
 
 #[test]
 fn repeated_static_references_emit_one_native_instance() {
-    let source = concat!(
-        "module app;\n",
-        "static ANSWER: i32 = 42;\n",
-        "func answer_address() -> RawPointer<i32>\n",
-        "{\n",
-        "    return core.memory.address_of<i32>(&ANSWER);\n",
-        "}\n",
-        "public func main() -> i32\n",
-        "{\n",
-        "    let first = core.memory.address_of<i32>(&ANSWER);\n",
-        "    let second = answer_address();\n",
-        "    return ANSWER;\n",
-        "}\n",
-    );
+    let source = r#"module app;
+
+using core.memory;
+static ANSWER: i32 = 42;
+func answer_address() -> RawPointer<i32>
+{
+    return core.memory.address_of<i32>(&ANSWER);
+}
+public func main() -> i32
+{
+    let first = core.memory.address_of<i32>(&ANSWER);
+    let second = answer_address();
+    return ANSWER;
+}
+"#;
 
     let (backend, plan) = runtime_native_plan_for_target(
         source,

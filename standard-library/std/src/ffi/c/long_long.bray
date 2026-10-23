@@ -1,6 +1,8 @@
 @target(target.c.LONG_LONG == "i64")
 module std.ffi.c;
 
+using std.numeric;
+
 @copy
 @layout(transparent)
 /// Target-exact wrapper for C `long long` when `target.c.LONG_LONG` selects `i64`.

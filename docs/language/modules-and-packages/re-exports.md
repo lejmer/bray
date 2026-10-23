@@ -15,7 +15,11 @@ export declaration-path ';'
 
 The exported declaration is made reachable through the current module using its original final name.
 
-The exported declaration path must resolve from the exporting module.
+The exported declaration path must resolve from the exporting module. A cross-module export path requires a matching
+`using` in that module. The export does not itself declare that dependency.
+
+A consumer declares its own dependency on the re-exporting namespace path it names. The exporting module's dependency
+declarations do not become the consumer's declarations.
 
 The exported declaration must be visible to the exporting module.
 

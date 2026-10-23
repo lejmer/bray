@@ -1,5 +1,11 @@
 trusted module std.channel;
 
+using core.atomic;
+using core.memory;
+using std.channel.owner;
+using std.collection;
+using std.memory;
+using std.sync;
 using internal std.collection.ring;
 
 internal struct ChannelState<T>

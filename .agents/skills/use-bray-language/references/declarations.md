@@ -74,6 +74,8 @@ This fragment covers every module-level declaration form:
 ```bray
 module declaration_example;
 
+using std.ffi.c;
+
 const DEFAULT_LIMIT: usize = 10;
 
 static PROCESS_TOTAL: usize = 0;

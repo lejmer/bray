@@ -226,6 +226,8 @@ Lossy numeric policies such as rounding, truncating, saturating, and wrapping ar
 They are not conversion expression modes.
 
 ```bray
+using std.numeric;
+
 let rounded: r32 = std.numeric.round_to<r32>(value, rule = NearestEven);
 let truncated: i32 = std.numeric.truncate_to<i32>(value);
 let saturated: u8 = std.numeric.saturate_to<u8>(value);
