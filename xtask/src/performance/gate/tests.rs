@@ -365,10 +365,84 @@ fn policy_scope_and_strict_waiver_schema_reject_silent_extensions() {
 }
 
 #[test]
+fn structural_operations_count_executions_instead_of_profiled_time() {
+    let baseline = report(BASE, 10_000_000, 10);
+    let mut candidate = report(CANDIDATE, 10_000_000, 10);
+    let metric = "compiler.operation.compile.executions";
+
+    let operation_policy = || {
+        let mut policy = policy();
+
+        policy
+            .structural
+            .get_mut("small_output")
+            .expect("workload policy")
+            .insert(
+                metric.to_owned(),
+                super::model::StructuralLimit {
+                    maximum_increase: 0,
+                    maximum_value: None,
+                },
+            );
+
+        policy
+    };
+
+    candidate.workloads[0].compiler_profile.operations[0].self_nanoseconds += 1;
+
+    let initial = evaluate(
+        &baseline,
+        &candidate,
+        None,
+        operation_policy(),
+        BASE,
+        CANDIDATE,
+        None,
+    )
+    .expect("profiled time does not change the execution count");
+
+    assert!(!initial.blocking);
+
+    for executions in [0, 2] {
+        let operation = &mut candidate.workloads[0].compiler_profile.operations[0];
+
+        operation.executions = executions;
+        operation.completed = executions;
+
+        if executions == 0 {
+            candidate.workloads[0].compiler_profile.operations.clear();
+        }
+
+        let gate = evaluate(
+            &baseline,
+            &candidate,
+            None,
+            operation_policy(),
+            BASE,
+            CANDIDATE,
+            None,
+        )
+        .expect("known operations retain comparable counts");
+
+        let decision = gate
+            .decisions
+            .iter()
+            .find(|decision| decision.metric == metric)
+            .expect("operation execution decision");
+
+        assert_eq!((decision.baseline, decision.candidate), (1, executions));
+        assert_eq!(gate.blocking, executions > 1);
+
+        candidate.workloads[0].compiler_profile.operations =
+            baseline.workloads[0].compiler_profile.operations.clone();
+    }
+}
+
+#[test]
 fn timing_metrics_cannot_bypass_confirmation_as_structural_rules() {
     let mut baseline = report(BASE, 10_000_000, 10);
     let mut candidate = report(CANDIDATE, 12_000_000, 10);
-    let mut policy = policy();
+    let mut policy_config = policy();
 
     baseline.workloads[0].compiler_profile.descriptors.metrics[0].unit =
         bray_compilation::CompilationProfileUnit::Nanoseconds;
@@ -376,7 +450,7 @@ fn timing_metrics_cannot_bypass_confirmation_as_structural_rules() {
     candidate.workloads[0].compiler_profile.descriptors.metrics[0].unit =
         bray_compilation::CompilationProfileUnit::Nanoseconds;
 
-    policy
+    policy_config
         .structural
         .get_mut("small_output")
         .expect("workload policy")
@@ -389,8 +463,36 @@ fn timing_metrics_cannot_bypass_confirmation_as_structural_rules() {
         );
 
     assert!(
+        evaluate(
+            &baseline,
+            &candidate,
+            None,
+            policy_config,
+            BASE,
+            CANDIDATE,
+            None
+        )
+        .expect_err("timing is not a structural count")
+        .contains("no comparable measurement")
+    );
+
+    let mut policy = policy();
+
+    policy
+        .structural
+        .get_mut("small_output")
+        .expect("workload policy")
+        .insert(
+            "compiler.operation.compile".to_owned(),
+            super::model::StructuralLimit {
+                maximum_increase: 0,
+                maximum_value: None,
+            },
+        );
+
+    assert!(
         evaluate(&baseline, &candidate, None, policy, BASE, CANDIDATE, None)
-            .expect_err("timing is not a structural count")
+            .expect_err("operation timing is not a structural count")
             .contains("no comparable measurement")
     );
 }

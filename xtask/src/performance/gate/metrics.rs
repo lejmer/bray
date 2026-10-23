@@ -32,11 +32,16 @@ pub(super) fn structural(
         }
     }
 
-    for (name, metric) in &comparison.compiler_operations {
-        metrics.insert(
-            format!("compiler.operation.{name}"),
-            (metric.baseline, metric.candidate),
-        );
+    let baseline_operations = operation_executions(&baseline.compiler_profile);
+    let candidate_operations = operation_executions(&candidate.compiler_profile);
+
+    for (name, baseline) in baseline_operations {
+        if let Some(candidate) = candidate_operations.get(&name) {
+            metrics.insert(
+                format!("compiler.operation.{name}.executions"),
+                (baseline, *candidate),
+            );
+        }
     }
 
     for (name, metric) in &comparison.compiler_metrics {
@@ -93,6 +98,28 @@ pub(super) fn structural(
     }
 
     metrics
+}
+
+fn operation_executions(
+    profile: &bray_compilation::CompilationProfileReport,
+) -> BTreeMap<String, u64> {
+    let executions = profile
+        .operations
+        .iter()
+        .map(|operation| (operation.id, operation.executions))
+        .collect::<BTreeMap<_, _>>();
+
+    profile
+        .descriptors
+        .operations
+        .iter()
+        .map(|descriptor| {
+            (
+                descriptor.name.clone(),
+                executions.get(&descriptor.id).copied().unwrap_or(0),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn timing(

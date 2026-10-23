@@ -72,21 +72,30 @@ HEAD`, measure that exact clean commit, and measure the clean candidate. Give bo
 describing the controlled machine class and scheduling environment. Retain the source-identified reports, toolchain, and
 measurement artifacts. Refresh the base ref before gating. A stale global baseline cannot replace the computed merge base.
 
+Gating starts with merge bases that contain the schema-2 measurement producer. A merge base predating that producer,
+including this gate's introduction, cannot supply an accepted baseline; retain its absolute reports and assess the change
+manually. After the producer lands, measure both revisions with their own checkout's runner. Do not backfill missing
+identity fields, relabel an older report, or run the candidate runner against an older checkout: the runner embeds its
+compiler, so that would misidentify the measured implementation.
+
 ```text
 cargo xtask performance gate --base-ref origin/develop --baseline profiles/base/candidate.json --candidate profiles/candidate/candidate.json --output profiles/gate
 ```
 
 Reports must match corpus, compiler mode, target, LLVM and Rust toolchain, optimization, runtime linkage, runtime input
 contents, standard-library manifest, worker budget, host class, and sampling configuration. Report schema 2 records these
-identities and measurement start time. Earlier reports need fresh measurements. A runtime or bundle mismatch is an
-incomparable experiment and fails identity validation. Establish equivalent inputs before calling that difference a
-candidate regression. Keep whole-toolchain migration evidence separately when its inputs intentionally differ.
+identities and measurement start time. Earlier reports need fresh measurements from a revision containing that producer.
+A runtime or bundle mismatch is an incomparable experiment and fails identity validation. Establish equivalent inputs
+before calling that difference a candidate regression. Keep whole-toolchain migration evidence separately when its inputs
+intentionally differ.
 
 The repository owns the limits in [performance-policy.json](../../xtask/performance-policy.json). The initial structural
 policy permits no executable-size increase for each named workload. Additional deterministic limits use exact metric
-names from the structured comparison: `object.bytes`, `executable.section.<name>.bytes`, `compiler.operation.<name>`,
+names: `object.bytes`, `executable.section.<name>.bytes`, `compiler.operation.<name>.executions`,
 `compiler.metric.<name>`, and `observation.<name>`. Each limit declares `maximum_increase` and an optional `maximum_value`.
-Compiler metric units must match and describe counts or bytes. Timing metrics cannot become structural limits.
+Operation limits count executions, including zero for a known operation absent from the sparse statistics. Compiler
+metric units must match and describe counts or bytes. The detailed comparison's operation rows remain timing attribution;
+timing metrics cannot become structural limits.
 A configured metric without comparable evidence fails validation. Unconfigured metrics remain visible as attribution
 and do not silently become merge limits. No aggregate improvement can excuse an individual workload's failure.
 

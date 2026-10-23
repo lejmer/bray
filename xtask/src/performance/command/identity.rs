@@ -54,7 +54,7 @@ pub(super) fn report_identity(
         worker_budget: bray_compilation::WorkerBudget::available_parallelism().get(),
         rustc_version: command_text(Command::new("rustc").arg("--version"))?,
         standard_library_sha256: file_digest(&standard_library.join("manifest.json"))?,
-        runtime_sha256: directory_digest(runtime)?,
+        runtime_sha256: runtime_digest(runtime)?,
         build_configuration: "release".to_owned(),
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         source_revision,
@@ -81,7 +81,11 @@ fn file_digest(path: &Path) -> Result<String, String> {
     Ok(hex(Sha256::digest(bytes).into()))
 }
 
-fn directory_digest(directory: &Path) -> Result<String, String> {
+fn runtime_digest(metadata: &Path) -> Result<String, String> {
+    let directory = metadata
+        .parent()
+        .expect("prepared runtime metadata has a package directory");
+
     let mut paths = std::fs::read_dir(directory)
         .map_err(|error| format!("could not inspect {}: {error}", directory.display()))?
         .map(|entry| entry.map(|entry| entry.path()))
@@ -231,4 +235,40 @@ fn command_text(command: &mut Command) -> Result<String, String> {
 
 fn hex(bytes: [u8; 32]) -> String {
     lowercase_hex(&bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn runtime_identity_fingerprints_the_metadata_package_and_ignores_cache_stamps() {
+        let package = tempfile::tempdir().expect("runtime package");
+        let metadata = package.path().join("bray-runtime.brayrt");
+        let archive = package.path().join("libbray_runtime.a");
+
+        std::fs::write(&metadata, b"metadata").expect("runtime metadata");
+        std::fs::write(&archive, b"archive").expect("runtime archive");
+
+        let original = super::runtime_digest(&metadata).expect("metadata file identifies package");
+
+        std::fs::write(package.path().join("input.sha256"), b"cache stamp")
+            .expect("runtime cache stamp");
+
+        assert_eq!(
+            super::runtime_digest(&metadata).expect("package identity"),
+            original
+        );
+
+        std::fs::write(&archive, b"changed archive").expect("changed runtime archive");
+
+        let changed = super::runtime_digest(&metadata).expect("changed package identity");
+
+        assert_ne!(changed, original);
+
+        std::fs::write(&metadata, b"changed metadata").expect("changed runtime metadata");
+
+        assert_ne!(
+            super::runtime_digest(&metadata).expect("changed metadata identity"),
+            changed
+        );
+    }
 }
