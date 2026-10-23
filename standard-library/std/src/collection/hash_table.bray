@@ -4,14 +4,14 @@ using std.numeric;
 using std.memory;
 using internal std.collection.slot;
 
-const HASH_TABLE_EMPTY: usize = 0;
+internal const HASH_TABLE_EMPTY: usize = 0;
 
 // Factory bucket counts divide the modulus of the retained low hash bits.
-const HASH_TABLE_HASH_MASK: usize = std.numeric.USIZE_MAX >> 1;
+internal const HASH_TABLE_HASH_MASK: usize = std.numeric.USIZE_MAX >> 1;
 
-const HASH_TABLE_OCCUPIED: usize = ~HASH_TABLE_HASH_MASK;
+internal const HASH_TABLE_OCCUPIED: usize = ~HASH_TABLE_HASH_MASK;
 
-const HASH_TABLE_MINIMUM_BUCKETS: usize = 8;
+internal const HASH_TABLE_MINIMUM_BUCKETS: usize = 8;
 
 internal struct HashTable<Item>
 {
