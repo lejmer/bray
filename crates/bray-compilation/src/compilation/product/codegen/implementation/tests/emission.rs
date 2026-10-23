@@ -867,3 +867,37 @@ fn predicate_power_handles_zero_and_one_bit_counts_without_full_width_shifts() {
         }
     }
 }
+
+#[test]
+fn predicate_signed_complement_preserves_exact_intermediates() {
+    for (ty, bits, maximum) in [
+        ("i8", 8, i64::from(i8::MAX)),
+        ("i16", 16, i64::from(i16::MAX)),
+        ("i32", 32, i64::from(i32::MAX)),
+        ("i64", 64, i64::MAX),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            const func check(pos value: {ty}) -> bool
+                requires(~(value + {maximum}) < 0, ~(-value) == value - 1)
+            {{
+                return true;
+            }}
+
+            const EXPECTED: bool = check(1);
+
+            public func caller(pos value: {ty}) -> bool
+            {{
+                return check(value);
+            }}
+        "#
+        );
+
+        let ir = unoptimized_library_ir(&source);
+
+        assert!(ir.contains(&format!("xor i{} ", bits + 1)), "{ty}: {ir}");
+        assert!(!ir.contains(&format!("xor i{bits} ")), "{ty}: {ir}");
+    }
+}

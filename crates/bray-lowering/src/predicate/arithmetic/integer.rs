@@ -173,6 +173,13 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             (MirUnaryOperator::Negate, Some((bits, _))) => {
                 self.integer_type(u64::from(bits) + 1, true)?
             }
+            (MirUnaryOperator::BitwiseNot, Some((bits, signed)))
+                if self
+                    .integer_type_shape(ty)
+                    .is_some_and(|(_, signed)| signed) =>
+            {
+                self.integer_type(u64::from(bits) + u64::from(!signed), true)?
+            }
             _ => ty,
         };
 
