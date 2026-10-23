@@ -7,15 +7,18 @@ Physical backing, entry authority and incident consumption landed in
 [#608](https://github.com/lejmer/bray/pull/608), [#609](https://github.com/lejmer/bray/pull/609)
 and [#610](https://github.com/lejmer/bray/pull/610).
 BRA-561 is implemented and independently reviewed in [#611](https://github.com/lejmer/bray/pull/611).
-Continue BRA-505 in [#612](https://github.com/lejmer/bray/pull/612), then [BRA-626](https://linear.app/bray-lang/issue/BRA-626), then BRA-619,
-with one reviewed stacked PR per issue. Do not merge without user approval.
+BRA-626 is implemented and independently reviewed in [#613](https://github.com/lejmer/bray/pull/613),
+stacked on BRA-505. Its conversion, authority, import and native cleanup acceptance passes.
+Finish BRA-505's remaining native boundary audit in [#612](https://github.com/lejmer/bray/pull/612),
+then BRA-619, with one reviewed stacked PR per issue. Do not merge without user approval.
 
 Use [the active BRA-505 record](BRA-505-retained-incidents.md) for the branch,
 requirements, evidence and next work. [BRA-619 acceptance](BRA-619-remaining-work.md)
 remains required after the shared incident prerequisite and the BRA-626 construction-conversion repair.
-BRA-626 blocks BRA-619 in Linear. Its acceptance includes a repo-wide audit and removal of construction
-conversion workarounds, including the prepared nullable local in ordinary-finalization.bray.
-Keep deliberate ownership and witness boundaries. Do not finish BRA-619 while any identified workaround remains.
+BRA-626 blocks BRA-619 in Linear. Its repo-wide workaround audit is recorded in #613, with the
+ordinary-finalization preparation locals and two reference fixture detours removed. Its independent
+review is 5565548084. Preserve these direct inputs when completing BRA-619. Deliberate state,
+ownership and witness boundaries remain. No identified construction workaround remains.
 Its earlier selected-scope
 implementation is already included. Do not replay the old stack.
 

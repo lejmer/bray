@@ -341,21 +341,47 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .calls
                 .get(&expression.into())?;
 
+            let mut arguments = contract
+                .arguments
+                .iter()
+                .map(|(input, expression)| {
+                    (
+                        ExecutionPlace::from(*input),
+                        self.invocation_value(state, *expression),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            if let bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(construction),
+            ) = selection
+            {
+                for input in construction.inputs() {
+                    if let bray_bound_tree::SelectedConstructionInput::Explicit {
+                        input,
+                        conversion,
+                        ..
+                    } = input
+                    {
+                        let place = BoundReferenceTarget::Surface(input.symbol()).into();
+
+                        if let Some(value) = arguments.get_mut(&place) {
+                            *value = std::mem::replace(value, ExecutionCondition::Unknown).coerce(
+                                self.request.semantic_values(),
+                                conversion.source_type(),
+                                conversion.target_type(),
+                            );
+                        }
+                    }
+                }
+            }
+
             return Some(crate::ExecutionCallEvidence {
                 returned: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: !state.trust_boundaries.is_empty(),
                 pending_execution: false,
-                arguments: contract
-                    .arguments
-                    .iter()
-                    .map(|(input, expression)| {
-                        (
-                            ExecutionPlace::from(*input),
-                            self.invocation_value(state, *expression),
-                        )
-                    })
-                    .collect(),
+                arguments,
                 assumptions: state.assumptions.clone(),
                 trusted_assumptions: state.call_trusted_assumptions([]),
             });

@@ -81,6 +81,29 @@ async func ordinary()
     };
 }
 
+struct OptionalOwner
+{
+    first: Owner?;
+    second: usize;
+}
+
+async func partial()
+{
+    let _ = catch
+    {
+        let owner = OptionalOwner
+        {
+            first = Owner
+            {
+                value = 8
+            },
+            second = rejected()
+        };
+
+        yield unit;
+    };
+}
+
 async func child(pos owner: Owner) -> [u64; 1024]
 {
     panic("inactive body entered");
@@ -181,17 +204,13 @@ struct FailingOwner
 trusted async func fail()
     uses(foreign_call)
 {
-    let captured = retained_body(
-        RetainedCapture
-        {
-        }
-    );
-
-    let pending: Future<unit>? = captured;
-
     let owner = FailingOwner
     {
-        pending = pending
+        pending = retained_body(
+            RetainedCapture
+            {
+            }
+        )
     };
 
     core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
@@ -213,8 +232,11 @@ trusted async func main()
     await ordinary();
     assert(core.atomic.load<usize, 1>(&COUNT) == 4, "ordinary ownership ends did not finalize exactly once");
 
+    await partial();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 5, "converted partial input did not finalize exactly once");
+
     await inactive();
-    assert(core.atomic.load<usize, 1>(&COUNT) == 7, "inactive captures did not finalize exactly once");
+    assert(core.atomic.load<usize, 1>(&COUNT) == 8, "inactive captures did not finalize exactly once");
 
     await trusted handle_failure();
 

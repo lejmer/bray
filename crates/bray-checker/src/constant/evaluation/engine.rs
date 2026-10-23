@@ -2087,7 +2087,11 @@ mod tests {
             [SelectedConstructionInput::Explicit {
                 expression: value,
                 input: ConstructionInputId::StructField(field),
-                ty: field_type,
+                conversion: bray_bound_tree::SelectedConversion::new(
+                    field_type,
+                    field_type,
+                    bray_bound_tree::ConversionTarget::Identity,
+                ),
                 ordinal: 0,
             }],
         );

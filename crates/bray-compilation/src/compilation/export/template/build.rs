@@ -381,6 +381,28 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         Ok(node)
     }
 
+    fn converted_expression(
+        &mut self,
+        expression: BoundExpressionId,
+        conversion: &bray_bound_tree::SelectedConversion,
+    ) -> Result<CheckedTemplateNodeId, PackageInterfaceExportError> {
+        let value = self.expression(expression)?;
+
+        if conversion.target() == &bray_bound_tree::ConversionTarget::Identity {
+            return Ok(value);
+        }
+
+        let target = self.export.type_id(conversion.target_type())?;
+        let node = CheckedTemplateNodeId::new(index(self.nodes.len())?);
+
+        self.nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Convert { value, target },
+            target,
+        ));
+
+        Ok(node)
+    }
+
     fn operation(
         &mut self,
         expression_id: BoundExpressionId,
@@ -553,7 +575,10 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
 
         for input in construction.inputs() {
             let SelectedConstructionInput::Explicit {
-                expression, input, ..
+                expression,
+                input,
+                conversion,
+                ..
             } = input
             else {
                 return Err(incomplete("default_product_construction_input"));
@@ -563,9 +588,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 return Err(incomplete("invalid_product_construction_input"));
             };
 
+            let value = self.converted_expression(*expression, conversion)?;
+
             fields.push(ConstantField::new(
                 InterfaceTemplateReference::Symbol(self.export.symbol_reference((*field).into())?),
-                self.expression(*expression)?,
+                value,
             ));
         }
 
@@ -720,11 +747,16 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         }
 
         for argument in call.arguments() {
-            let SelectedArgument::Explicit { expression, .. } = argument else {
+            let SelectedArgument::Explicit {
+                expression,
+                conversion,
+                ..
+            } = argument
+            else {
                 return Err(incomplete("non_explicit_template_argument"));
             };
 
-            arguments.push(self.expression(*expression)?);
+            arguments.push(self.converted_expression(*expression, conversion)?);
         }
 
         let implementation = match call.witnesses() {

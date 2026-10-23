@@ -43,9 +43,9 @@ pub(super) fn constructed_condition(
                     bray_bound_tree::SelectedConstructionInput::Explicit {
                         input,
                         expression,
-                        ty,
+                        conversion,
                         ..
-                    } => (*input, Some(*expression), *ty),
+                    } => (*input, Some(*expression), conversion.target_type()),
                     bray_bound_tree::SelectedConstructionInput::Default { input, ty, .. } => {
                         (*input, None, *ty)
                     }
@@ -317,10 +317,10 @@ pub(crate) fn pattern_conditions(
 }
 
 pub(super) fn conversion_condition(
-    expression: bray_bound_tree::BoundExpressionId,
-    bound: &bray_bound_tree::BoundExpression,
-    semantics: &bray_bound_tree::CheckedExpressionSemantics,
-    resolve: &mut impl FnMut(bray_bound_tree::BoundExpressionId) -> ExecutionCondition,
+    expression: BoundExpressionId,
+    bound: &BoundExpression,
+    semantics: &CheckedExpressionSemantics,
+    resolve: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
 ) -> Option<ExecutionCondition> {
     use bray_bound_tree::{
         BoundExpression, ConversionTarget, SelectedOperation, SemanticSelection,

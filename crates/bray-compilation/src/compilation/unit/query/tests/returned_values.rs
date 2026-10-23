@@ -1269,15 +1269,10 @@ fn nullable_borrow_origins_preserve_payload_paths() {
             1,
         ),
         ("(&bool)?", "return optional(first, condition);", true, 1),
-        (
-            "Holder",
-            "let wrapped: (&bool)? = first; return { value = wrapped };",
-            true,
-            1,
-        ),
+        ("Holder", "return { value = first };", true, 1),
         (
             "Holder?",
-            "if condition { return none; } let wrapped: (&bool)? = first; let value: Holder = { value = wrapped }; return value;",
+            "if condition { return none; } let value: Holder = { value = first }; return value;",
             true,
             2,
         ),
@@ -2422,4 +2417,48 @@ fn mutable_callable_values_do_not_reuse_the_initial_anonymous_body() {
         &diagnostics,
         DiagnosticKind::CheckingEscapingStorageDependency,
     );
+}
+
+#[test]
+fn construction_inputs_preserve_exact_nullable_reference_origins() {
+    for (input, field, depth) in [("&bool", "(&bool)?", 2), ("(&bool)?", "((&bool)?)?", 3)] {
+        let source = format!(
+            r#"
+            module app;
+            struct Holder {{ reference: {field}; }}
+            func returned(pos value: {input}) -> Holder {{ return {{ reference = value }}; }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let flow = application
+            .storage_flow(source_function_body_key(&application, "returned"))
+            .unwrap();
+
+        assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
+
+        let references = flow
+            .value()
+            .dependencies()
+            .borrows()
+            .iter()
+            .filter(|relation| {
+                relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 1, "{source}\n{references:?}");
+
+        assert_eq!(
+            references[0].entry().subject_root(),
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+        );
+
+        assert_eq!(
+            references[0].exit().projections().len(),
+            depth,
+            "{source}\n{references:?}"
+        );
+    }
 }

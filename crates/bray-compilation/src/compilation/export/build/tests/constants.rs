@@ -341,3 +341,57 @@ fn imported_constant_tuple_projections_retain_checked_ordinals() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn construction_inputs_preserve_nullable_constant_values_across_imports() {
+    let provider = compilation(
+        r#"
+        module api;
+        public struct Holder { value: i32?; }
+        public union Choice { Some(value: i32?); None; }
+
+        public const func hold(pos value: i32) -> Holder { return { value = value }; }
+        public const func choose(pos value: i32) -> Choice { return Some(value = value); }
+        public const func optional(pos value: i32?) -> i32? { return value; }
+        const VALUE: Holder = { value = 17 };
+        public const func forwarded(pos value: i32) -> i32? { return optional(value); }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &artifact,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_bundle_dependency(bundle)
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        const DIRECT: example.package.api.Holder = { value = 23 };
+        const HELD: example.package.api.Holder = example.package.api.hold(23);
+        const CHOSEN: example.package.api.Choice = example.package.api.choose(23);
+        const OPTIONAL: i32? = example.package.api.forwarded(23);
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}

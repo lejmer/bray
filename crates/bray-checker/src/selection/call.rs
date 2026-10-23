@@ -765,7 +765,13 @@ fn map_arguments(
         };
 
         let expected = parameters[parameter_index].ty();
-        let conversion = argument_conversion(request, actual.ty(), expected);
+
+        let conversion = super::operation::implicit_input_conversion(
+            request,
+            argument.expression(),
+            actual.ty(),
+            expected,
+        );
 
         if !actual.is_recovered() && conversion.is_none() {
             let ordinal = super::capacity::selection_ordinal_u64(source_ordinal);
@@ -871,28 +877,6 @@ fn map_arguments(
     }
 
     ArgumentMapping::Mapped { recovered }
-}
-
-fn argument_conversion<C>(
-    request: CheckerUnitView<'_, C>,
-    actual: bray_symbols::TypeId,
-    expected: bray_symbols::TypeId,
-) -> Option<SelectedConversion>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    if actual == expected {
-        return Some(SelectedConversion::new(
-            actual,
-            expected,
-            ConversionTarget::Identity,
-        ));
-    }
-
-    let data = request.semantic_values().type_data(expected);
-
-    matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == actual)
-        .then(|| SelectedConversion::new(actual, expected, ConversionTarget::NullablePresent))
 }
 
 fn map_argument_parameter_indices_for_diagnostic(

@@ -219,6 +219,8 @@ mod tests {
             ("storage: i32 = 7", "42, storage = 1", true),
             ("pos storage: i32", "42, 1", true),
             ("pos storage: i32", "42, storage = 1", true),
+            ("storage: i32?", "42, storage = supplied()", true),
+            ("storage: i32? = none", "42", true),
             ("storage: i32", "42", false),
             ("storage: i32", "42, 1", false),
             ("storage: i32", "42, unknown = 1", false),
@@ -247,6 +249,7 @@ mod tests {
                     trusted static func release(pos storage: Self) {{ loop {{}} }}
                 }}
 
+                func supplied() -> i32 {{ return 7; }}
                 func make() {{ let value = box[Policy]({arguments}); }}
                 "#
             );

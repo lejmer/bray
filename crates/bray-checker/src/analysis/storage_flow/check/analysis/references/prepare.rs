@@ -177,16 +177,26 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            for (projection, operand) in values.constructed_fields(expression) {
+            for (projection, operand, suffix) in values.constructed_fields(expression) {
                 let Some(path) = project(request, Place::root(identity), &[projection])? else {
                     continue;
                 };
 
                 let ty = crate::storage::projected_value_type(request, owner, projection)?;
 
-                let Some(ty) = *ty.value() else {
+                let Some(mut ty) = *ty.value() else {
                     continue;
                 };
+
+                let Some(path) = project(request, path, suffix)? else {
+                    continue;
+                };
+
+                for projection in suffix {
+                    ty = crate::storage::projected_value_type(request, ty, *projection)?
+                        .value()
+                        .expect("selected input conversion retains its projected value type");
+                }
 
                 self.reference_constructions
                     .entry(expression)

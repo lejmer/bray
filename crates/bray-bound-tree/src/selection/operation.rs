@@ -327,6 +327,15 @@ pub enum ConstructionInputId {
 }
 
 impl ConstructionInputId {
+    /// Returns the declaration symbol initialized by this input.
+    pub const fn symbol(self) -> AnySymbolId {
+        match self {
+            Self::StructField(symbol) => AnySymbolId::StructField(symbol),
+            Self::UnionPayloadField(symbol) => AnySymbolId::UnionPayloadField(symbol),
+            Self::CallableParameter(symbol) => AnySymbolId::CallableParameter(symbol),
+        }
+    }
+
     /// Returns whether this input category owns the supplied default provider category.
     pub const fn accepts_default(self, provider: DefaultValueProvider) -> bool {
         matches!(
@@ -369,7 +378,7 @@ impl DefaultValueProvider {
 }
 
 /// One supplied or defaulted construction value in evaluation order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelectedConstructionInput {
     /// A source initializer mapped to its exact declaration input.
     Explicit {
@@ -377,8 +386,8 @@ pub enum SelectedConstructionInput {
         expression: BoundExpressionId,
         /// The exact initialized field or parameter.
         input: ConstructionInputId,
-        /// The exact expected input type.
-        ty: TypeId,
+        /// The checked adaptation from the supplied value to the declared input.
+        conversion: SelectedConversion,
         /// The initialized input's declaration-order ordinal.
         ordinal: u32,
     },
@@ -393,6 +402,16 @@ pub enum SelectedConstructionInput {
         /// The initialized input's declaration-order ordinal.
         ordinal: u32,
     },
+}
+
+impl SelectedConstructionInput {
+    /// Returns the declared input type after its checked adaptation.
+    pub fn ty(&self) -> TypeId {
+        match self {
+            Self::Explicit { conversion, .. } => conversion.target_type(),
+            Self::Default { ty, .. } => *ty,
+        }
+    }
 }
 
 /// One exact construction target and normalized initializer mapping.

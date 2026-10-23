@@ -213,3 +213,34 @@ fn anonymous_callable_values_and_nested_bodies_lower_independently() {
         bray_ir::MirUnitKey::Bound(key) if key == &nested
     ));
 }
+
+#[test]
+fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Holder { value: i32?; }
+        union Choice { Some(value: i32?); None; }
+        func structure(pos value: i32) -> Holder { return { value = value }; }
+        func variant(pos value: i32) -> Choice { return Some(value = value); }
+    "#,
+    );
+
+    assert!(
+        application.check_diagnostics().is_empty(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    for name in ["structure", "variant"] {
+        let lowered = application
+            .lowered_unit(source_function_body_key(&application, name))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        assert_eq!(mir.operations().iter().filter(|operation| matches!(operation.kind(),
+            MirOperationKind::Aggregate(aggregate) if aggregate.kind() == bray_ir::MirAggregateKind::NullablePresent
+        )).count(), 1, "{name}: {mir:#?}");
+    }
+}

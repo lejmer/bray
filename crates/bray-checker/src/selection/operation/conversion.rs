@@ -4,6 +4,27 @@ use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
+pub(in crate::selection) fn implicit_input_conversion<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expression: bray_bound_tree::BoundExpressionId,
+    source: TypeId,
+    target: TypeId,
+) -> Option<SelectedConversion> {
+    let kind = if source == target {
+        ConversionTarget::Identity
+    } else if matches!(request.semantic_values().type_data(target).as_ref(),
+        TypeData::Nullable(contained) if *contained == source)
+    {
+        ConversionTarget::NullablePresent
+    } else if crate::type_check::numeric_literal_accepts_type(request, expression, target) {
+        ConversionTarget::BuiltInScalar
+    } else {
+        return None;
+    };
+
+    Some(SelectedConversion::new(source, target, kind))
+}
+
 /// Resolves the complete compiler-defined conversion plan when one applies.
 pub fn built_in_conversion_plan<C>(
     request: CheckerUnitView<'_, C>,

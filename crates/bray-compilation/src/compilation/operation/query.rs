@@ -234,8 +234,10 @@ impl Compilation {
                 .iter()
                 .filter_map(|input| match input {
                     bray_bound_tree::SelectedConstructionInput::Explicit {
-                        expression, ty, ..
-                    } => Some((*expression, *ty)),
+                        expression,
+                        conversion,
+                        ..
+                    } => Some((*expression, conversion.target_type())),
                     bray_bound_tree::SelectedConstructionInput::Default { .. } => None,
                 })
                 .collect::<Vec<_>>(),
