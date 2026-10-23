@@ -27,8 +27,8 @@ use bray_symbols::{
 
 use super::support::{
     ConcreteReferenceContext, collect_constant_references, constant_definition_id, expression_root,
-    imported_constant_definition, selected_implementation_for_reference,
-    substitute_expression_types,
+    imported_constant_definition, instantiate_expression_types,
+    selected_implementation_for_reference,
 };
 use crate::compilation::Compilation;
 use crate::compilation::binder::{
@@ -450,13 +450,14 @@ impl Compilation {
 
         let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
-        let types = substitute_expression_types(
-            self.semantic_value_store()?,
+        let (types, type_diagnostics) = instantiate_expression_types(
+            &context,
             semantics.result().value().types(),
             instance.substitution(),
-        )?;
+        )?
+        .into_parts();
 
-        if term.result().diagnostics().has_errors() {
+        if term.result().diagnostics().has_errors() || type_diagnostics.has_errors() {
             let root = expression_root(bound.result().value())?;
 
             let ty = types
@@ -477,8 +478,9 @@ impl Compilation {
                 .intern_error_constant_value(ty)
                 .map_err(FactQueryError::SemanticValueStore)?;
 
-            return Ok(DiagnosticResult::without_diagnostics(
+            return Ok(DiagnosticResult::new(
                 EvaluatedConstantCall::new(value, Default::default()),
+                type_diagnostics.merged(term.result().diagnostics()),
             ));
         }
 
@@ -506,7 +508,11 @@ impl Compilation {
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
         )?;
 
-        let diagnostics = dependency_diagnostics.merged(evaluated.diagnostics());
+        let diagnostics = DiagnosticBag::merged_all([
+            &type_diagnostics,
+            &dependency_diagnostics,
+            evaluated.diagnostics(),
+        ]);
 
         Ok(DiagnosticResult::new(
             EvaluatedConstantCall::new(evaluated.value().value(), evaluated.value().usage()),
@@ -2345,8 +2351,8 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             .unwrap_or_else(|error| panic!("i32 substitution must be interned: {error:?}"));
 
         values
-            .intern_type(bray_symbols::TypeData::Named {
-                definition: bray_symbols::NamedTypeSymbolId::Struct(definition),
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(definition),
                 substitution,
             })
             .unwrap_or_else(|error| panic!("i32 type must be interned: {error:?}"))

@@ -23,6 +23,7 @@ pub(super) fn constant_term_is_closed(
 }
 
 fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: ConcreteWork) -> bool {
+    let closed_terms = matches!(root, ConcreteWork::Term(_));
     let mut pending = vec![root];
 
     let mut terms = HashSet::new();
@@ -143,7 +144,14 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                     TypeData::Array { element, length } => {
                         pending.push(ConcreteWork::Type(*element));
 
-                        if !append_closed_array_length_type(tables, store, *length, &mut pending) {
+                        if closed_terms {
+                            pending.push(ConcreteWork::Term(*length));
+                        } else if !append_closed_array_length_type(
+                            tables,
+                            store,
+                            *length,
+                            &mut pending,
+                        ) {
                             return false;
                         }
                     }
@@ -179,6 +187,9 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                 for binding in substitution.bindings() {
                     match binding.argument() {
                         GenericArgument::Type(ty) => pending.push(ConcreteWork::Type(ty)),
+                        GenericArgument::Constant(term) if closed_terms => {
+                            pending.push(ConcreteWork::Term(term));
+                        }
                         GenericArgument::Constant(term) => {
                             let ConstantTermData::Value(value) =
                                 tables.constant_terms.get(store, term)
@@ -211,7 +222,7 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
 fn append_closed_array_length_type(
     tables: &SemanticTables,
     store: SemanticValueStoreId,
-    mut term: super::super::ConstantTermId,
+    mut term: ConstantTermId,
     pending: &mut Vec<ConcreteWork>,
 ) -> bool {
     loop {

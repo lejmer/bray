@@ -21,6 +21,41 @@ impl<C> TemplateEvaluator<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(in crate::constant::template_evaluation) fn evaluate_typed_term(
+        &mut self,
+        term: ConstantTermId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let value = self.evaluate_term(term, ty)?;
+        let values = self.context.semantic_values();
+        let data = values.constant_value_data(value);
+
+        if data.ty() == ty
+            && matches!(
+                values.constant_term_data(term).as_ref(),
+                ConstantTermData::Value(_)
+            )
+        {
+            return Ok(value);
+        }
+
+        let Some(role) = crate::representation::type_representation_for_context(self.context, ty)
+            .filter(|role| role.integer_representation().is_some())
+        else {
+            return Ok(value);
+        };
+
+        let kind = super::super::conversion::convert_scalar(data.kind(), role, || {
+            self.context
+                .selected_target()
+                .machine()
+                .pointer_width_bits()
+        })
+        .map_err(|error| self.conversion_failure(error, ty))?;
+
+        Ok(self.intern_value(ty, kind))
+    }
+
     fn evaluate_invocation(
         &mut self,
         target: crate::ConstantCallTarget,
@@ -137,10 +172,12 @@ where
                 evaluator.selected_implementation = self.selected_implementation;
                 evaluator.arguments = self.arguments;
 
-                let result = evaluator.evaluate_result(
-                    bray_bound_tree::CheckedTemplateKind::CallableContract,
-                    boolean,
-                );
+                let result = evaluator.evaluate_generic_inputs().and_then(|()| {
+                    evaluator.evaluate_result(
+                        bray_bound_tree::CheckedTemplateKind::CallableContract,
+                        boolean,
+                    )
+                });
 
                 self.diagnostics.add_range(evaluator.diagnostics);
                 self.upstream_failure = evaluator.upstream_failure;
@@ -223,7 +260,7 @@ where
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
-            let ty = evaluator.substitute_type(*ty);
+            let ty = evaluator.instantiate_type(*ty)?;
 
             evaluator.evaluate_term(*term, ty)
         }
@@ -265,7 +302,7 @@ where
         }
         ConstantTermData::Conversion { operand, target } => {
             let operand = evaluator.evaluate_term(*operand, ty)?;
-            let target = evaluator.substitute_type(*target);
+            let target = evaluator.instantiate_type(*target)?;
 
             evaluator.evaluate_conversion(operand, target)
         }

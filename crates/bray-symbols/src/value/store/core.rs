@@ -797,6 +797,68 @@ mod tests {
     }
 
     #[test]
+    fn closed_helper_arguments_do_not_weaken_concrete_substitution_requirements() {
+        let store = store();
+        let ty = concrete_named_type(&store, 93);
+        let definition = crate::FunctionSymbolId::from_symbol_id(SymbolId::new(94));
+        let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(95));
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Integer(IntegerConstant::from_u64(1)),
+            ))
+            .unwrap();
+
+        let value = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let open = store
+            .intern_constant_term(ConstantTermData::Parameter(parameter))
+            .unwrap();
+
+        for (operand, closed) in [(value, true), (open, false)] {
+            let sum = store
+                .intern_constant_term(ConstantTermData::Binary {
+                    operation: ConstantBinaryOperation::Add,
+                    left: operand,
+                    right: value,
+                })
+                .unwrap();
+
+            let substitution = store
+                .intern_generic_substitution(
+                    GenericSubstitutionData::try_new(
+                        generic_owner(definition.into()),
+                        [parameter.into()],
+                        [GenericArgument::Constant(sum)],
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let callable = store
+                .intern_callable_instance(crate::CallableInstanceData::new(
+                    crate::CallableDefinitionId::try_new(definition.into()).unwrap(),
+                    substitution,
+                ))
+                .unwrap();
+
+            let term = store
+                .intern_constant_term(ConstantTermData::Call {
+                    callable,
+                    selected_implementation: None,
+                    arguments: [].into(),
+                })
+                .unwrap();
+
+            assert_eq!(store.constant_term_is_closed(term), closed);
+            assert!(!store.substitution_is_concrete(substitution));
+        }
+    }
+
+    #[test]
     fn only_array_lengths_accept_concrete_integer_literal_terms() {
         let store = store();
         let owner = generic_owner(StructSymbolId::from_symbol_id(SymbolId::new(70)).into());

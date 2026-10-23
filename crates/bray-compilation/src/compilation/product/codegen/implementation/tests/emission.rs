@@ -914,15 +914,24 @@ fn closed_array_extents_reach_native_layout_and_cleanup() {
             return value;
         }
 
-        func retain<const length: usize>(pos values: [u8; length + 1]) -> [u8; length + 1]
+        const func extent<const length: usize>() -> usize
+        {
+            return length;
+        }
+
+        const func retain<const length: usize>(
+            pos values: [u8; extent<length + 1>()],
+        ) -> [u8; extent<length + 1>()]
         {
             return values;
         }
 
+        const PAIR: [u8; 2] = retain<1>([2, 3]);
+
         public func sample() -> u8
         {
             let mut buffer: bytes<BUFFER_CAPACITY> = [0; BUFFER_CAPACITY];
-            let pair: [u8; count(2)] = retain<1>([2, 3]);
+            let pair: [u8; count(2)] = retain<1>(PAIR);
 
             buffer[0] = pair[1];
 

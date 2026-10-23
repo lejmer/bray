@@ -195,7 +195,7 @@ where
                     .map_err(|error| self.record_query_failure(error))?;
 
                 let requirement = bray_symbols::ImplementationRequirementKey::new(
-                    self.substitute_type(requirement.subject()),
+                    self.instantiate_type(requirement.subject())?,
                     values
                         .substitute_trait_application(
                             requirement.trait_application(),

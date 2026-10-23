@@ -851,3 +851,104 @@ fn imported_array_extents_normalize_closed_definitions_calls_and_substitutions()
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn imported_const_array_extents_normalize_return_values_and_nested_helpers() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        const COUNT: usize = 1;
+        const SOURCE: [u8; COUNT] = [7];
+
+        const func make() -> [u8; COUNT]
+        {
+            return SOURCE;
+        }
+
+        const func extent<const amount: usize>() -> usize
+        {
+            return amount;
+        }
+
+        const func retain<const count: usize>(
+            pos values: [u8; extent<count + 1>()],
+        ) -> [u8; extent<count + 1>()]
+        {
+            return values;
+        }
+
+        const func defaulted(pos values: [u8; COUNT] = SOURCE) -> [u8; COUNT]
+        {
+            return values;
+        }
+
+        const func fixed_extent<const amount: u8>() -> usize
+        {
+            return 1;
+        }
+
+        func accept<const count: u8>(pos values: [u8; fixed_extent<count + 1>()]) {}
+    "#,
+    );
+
+    let dependency = implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const VALUES: [u8; 1] = example.package.api.make();
+        const PAIR: [u8; 2] = example.package.api.retain<1>([2, 3]);
+        const DEFAULTED: [u8; 1] = example.package.api.defaulted();
+        const SOURCE: [u8; 1] = example.package.api.SOURCE;
+
+        func sample()
+        {
+            example.package.api.accept<1>([0]);
+        }
+    "#,
+        [dependency.clone()],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let invalid = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func sample()
+        {
+            example.package.api.accept<255>([0]);
+        }
+    "#,
+        [dependency],
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        invalid.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable,
+    );
+
+    let diagnostic = invalid
+        .check_diagnostics()
+        .by_kind(bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable)
+        .next()
+        .expect("invalid u8 argument has a conversion diagnostic");
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&bray_diagnostics::DiagnosticArg::actual_type(
+                bray_diagnostics::DiagnosticType::U8,
+            ))
+    );
+}

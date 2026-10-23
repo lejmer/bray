@@ -20,7 +20,7 @@ pub fn evaluate_constant_callable_template<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let substitution = request.substitution();
+    let substitution = request.target().substitution();
 
     let limits = request.limits();
 
@@ -39,7 +39,8 @@ where
     evaluator.arguments = request.arguments();
 
     let evaluated = evaluator
-        .evaluate_requirements(request.target(), requirements)
+        .evaluate_generic_inputs()
+        .and_then(|()| evaluator.evaluate_requirements(request.target(), requirements))
         .and_then(|valid| {
             if !valid {
                 return Ok(recovery_value(
@@ -63,7 +64,11 @@ where
             )
         });
 
-    super::super::diagnostic::anchor_diagnostics(&mut evaluator.diagnostics, || diagnostic_span);
+    crate::diagnostic::anchor_diagnostics(
+        &mut evaluator.diagnostics,
+        bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+        || diagnostic_span,
+    );
 
     let mut states = Vec::new();
 
@@ -252,7 +257,10 @@ where
         &mut budget,
     );
 
-    let evaluated = evaluator.evaluate_result(kind, result_type);
+    let evaluated = evaluator
+        .evaluate_generic_inputs()
+        .and_then(|()| evaluator.instantiate_type(result_type))
+        .and_then(|ty| evaluator.evaluate_result(kind, ty));
 
     complete_closed_evaluation(evaluator, evaluated, result_type, diagnostic_span)
 }
@@ -278,25 +286,7 @@ where
     let mut budget = EvaluationBudget::from_limits(limits);
     let mut evaluator = TemplateEvaluator::new(context, None, None, resolver, limits, &mut budget);
 
-    let evaluated = evaluator
-        .evaluate_term(term, result_type)
-        .and_then(|value| {
-            let value = context.semantic_values().constant_value_data(value);
-
-            let kind = super::super::conversion::convert_scalar(
-                value.kind(),
-                bray_compiler_known::RepresentationRole::ScalarUsize,
-                || context.selected_target().machine().pointer_width_bits(),
-            )
-            .map_err(|error| {
-                super::support::operation_failure(
-                    bray_diagnostics::DiagnosticConstantOperation::Conversion,
-                    error,
-                )
-            })?;
-
-            Ok(evaluator.intern_value(result_type, kind))
-        });
+    let evaluated = evaluator.evaluate_typed_term(term, result_type);
 
     complete_closed_evaluation(evaluator, evaluated, result_type, diagnostic_span)
 }
@@ -313,7 +303,11 @@ where
     let context = evaluator.context;
     let limits = evaluator.limits;
 
-    super::super::diagnostic::anchor_diagnostics(&mut evaluator.diagnostics, || diagnostic_span);
+    crate::diagnostic::anchor_diagnostics(
+        &mut evaluator.diagnostics,
+        bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+        || diagnostic_span,
+    );
 
     match evaluated {
         Ok(value) => CheckerOutcome::complete(

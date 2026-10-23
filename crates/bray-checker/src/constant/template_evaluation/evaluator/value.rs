@@ -197,9 +197,17 @@ where
                     panic!("generic constant {parameter:?} must have a constant substitution argument");
                 };
 
-                let ty = self.substitute_type(input.ty());
+                if let Some(value) = self.generic_inputs.get(index).copied().flatten() {
+                    return Ok(value);
+                }
 
-                self.evaluate_term(term, ty)
+                let ty = self.instantiate_type(input.ty())?;
+                let value = self.evaluate_typed_term(term, ty)?;
+
+                self.generic_inputs.resize(self.template().inputs().len(), None);
+                self.generic_inputs[index] = Some(value);
+
+                Ok(value)
             }
             CheckedTemplateInputKind::Receiver => Ok(*self.arguments.first()
                 .expect("checked constant method application supplies its receiver")),
@@ -369,6 +377,31 @@ where
         Ok(self.intern_value(ty, kind))
     }
 
+    pub(in crate::constant::template_evaluation) fn conversion_failure(
+        &mut self,
+        error: super::super::super::operation::ConstantOperationError,
+        target: TypeId,
+    ) -> TemplateEvaluationFailure {
+        let problem = super::super::super::diagnostic::ConstantDiagnostic::operation(
+            bray_diagnostics::DiagnosticConstantOperation::Conversion,
+            error,
+        );
+
+        match problem.render(
+            self.context,
+            bray_diagnostics::DiagnosticId::new(0),
+            None,
+            || Ok(target),
+        ) {
+            Ok(diagnostic) => {
+                self.diagnostics.add(diagnostic);
+
+                TemplateEvaluationFailure::Diagnosed
+            }
+            Err(error) => self.record_query_failure(error),
+        }
+    }
+
     pub(in crate::constant::template_evaluation) fn evaluate_conversion(
         &mut self,
         value: ConstantValueId,
@@ -491,12 +524,7 @@ where
                 .machine()
                 .pointer_width_bits()
         })
-        .map_err(|error| {
-            operation_failure(
-                bray_diagnostics::DiagnosticConstantOperation::Conversion,
-                error,
-            )
-        })?;
+        .map_err(|error| self.conversion_failure(error, target))?;
 
         Ok(self.intern_value(target, kind))
     }

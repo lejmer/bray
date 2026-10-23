@@ -107,7 +107,7 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
                 )
                 .map_err(checker_call_query_error)?
             }
-            _ => request.substitution(),
+            _ => request.target().substitution(),
         };
 
         let selected = self

@@ -29,6 +29,8 @@ where
     pub(in crate::constant::template_evaluation) limits: ConstantEvaluationLimits,
     pub(in crate::constant::template_evaluation) budget: &'evaluation mut EvaluationBudget,
     pub(in crate::constant::template_evaluation) values: Vec<Option<ConstantValueId>>,
+    types: crate::TypeNormalizer<'evaluation, C>,
+    pub(super) generic_inputs: Vec<Option<ConstantValueId>>,
     pub(in crate::constant::template_evaluation) outputs:
         std::collections::BTreeMap<CheckedTemplateNodeId, Vec<Option<ConstantValueId>>>,
     pub(in crate::constant::template_evaluation) checked_materialization: BTreeSet<ConstantValueId>,
@@ -59,6 +61,8 @@ where
             limits,
             budget,
             values: vec![None; template.map_or(0, |template| template.nodes().len())],
+            types: crate::TypeNormalizer::new(context, substitution),
+            generic_inputs: Vec::new(),
             outputs: Default::default(),
             checked_materialization: BTreeSet::new(),
             diagnostics: DiagnosticBag::new(),
@@ -74,13 +78,28 @@ where
             .expect("node evaluation retains its checked template")
     }
 
-    pub(in crate::constant::template_evaluation) fn substitute_type(&self, ty: TypeId) -> TypeId {
-        self.substitution.map_or(ty, |substitution| {
+    pub(in crate::constant::template_evaluation) fn instantiate_type(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<TypeId, TemplateEvaluationFailure> {
+        let ty = self.substitution.map_or(ty, |substitution| {
             self.context
                 .semantic_values()
                 .substitute_type(ty, substitution)
                 .expect("checked evaluation retains a valid type substitution")
-        })
+        });
+
+        let normalized = self.types.normalize_type(ty);
+
+        self.diagnostics.extend(self.types.take_diagnostics());
+
+        let ty = normalized.map_err(|error| self.record_query_failure(error))?;
+
+        if self.diagnostics.has_errors() {
+            return Err(TemplateEvaluationFailure::Diagnosed);
+        }
+
+        Ok(ty)
     }
 
     pub(in crate::constant::template_evaluation) fn substitute_term(
@@ -105,6 +124,23 @@ where
                 .substitute_generic_substitution(arguments, substitution)
                 .expect("checked evaluation retains valid generic arguments")
         })
+    }
+
+    pub(in crate::constant::template_evaluation) fn evaluate_generic_inputs(
+        &mut self,
+    ) -> Result<(), TemplateEvaluationFailure> {
+        for (index, input) in self.template().inputs().iter().enumerate() {
+            if matches!(
+                input.kind(),
+                bray_bound_tree::CheckedTemplateInputKind::GenericConstant(_)
+            ) {
+                self.evaluate_input(bray_bound_tree::CheckedTemplateInputId::new(
+                    u32::try_from(index).expect("checked input ordinal fits its template"),
+                ))?;
+            }
+        }
+
+        Ok(())
     }
 
     pub(in crate::constant::template_evaluation) fn evaluate_result(
@@ -161,7 +197,7 @@ where
             )
         });
 
-        let ty = self.substitute_type(node.ty());
+        let ty = self.instantiate_type(node.ty())?;
 
         let value = self.evaluate_operation(
             CheckedTemplateNodeId::new(u32::try_from(index).expect("checked node fits its ID")),
@@ -287,7 +323,7 @@ where
             ),
             CheckedTemplateOperation::Convert { value, target } => {
                 let value = self.evaluate_node(*value)?;
-                let target = self.substitute_type(*target);
+                let target = self.instantiate_type(*target)?;
 
                 self.evaluate_conversion(value, target)
             }
