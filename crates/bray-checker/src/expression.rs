@@ -8,6 +8,7 @@ mod nested;
 mod pattern_reference;
 mod template;
 
+pub use candidate::generic_constraint_outcome;
 pub(crate) use check::check_expression_semantics;
 pub(crate) use generic_inference::infer_generic_arguments_from_type;
 pub(crate) use literal::check_literal_values;

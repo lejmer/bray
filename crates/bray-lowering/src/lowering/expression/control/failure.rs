@@ -16,10 +16,8 @@ use super::super::super::lowerer::{CatchTarget, Lowerer};
 pub(in crate::lowering) enum CallOutcome {
     /// The selected source invocation owns its report and cancellation semantics.
     Selected,
-    /// A runtime allocation or admission can fail without entering current-run cancellation.
+    /// Independent runtime work can report panic without entering current-run cancellation.
     Runtime,
-    /// An observational helper has an outcome independent of the selected invocation.
-    Predicate,
 }
 
 impl Lowerer<'_> {
@@ -474,7 +472,6 @@ impl Lowerer<'_> {
         // Protocol helpers have their own outcome, independent of the source invocation.
         let may_cancel = match outcome_kind {
             CallOutcome::Runtime => false,
-            CallOutcome::Predicate => true,
             CallOutcome::Selected
                 if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
                     && self.input.call_cannot_cancel(expression) =>

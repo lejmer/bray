@@ -16,13 +16,12 @@ mod expression;
 mod lifecycle;
 mod memory;
 mod memory_diagnostics;
+mod numeric;
 mod outcome;
+pub use numeric::{normalize_numeric_phase_requirements, normalize_numeric_requirements};
 mod pattern;
 mod representation;
-pub use representation::{
-    integer_conversion_representations, representation_type_for_context,
-    type_representation_for_values,
-};
+pub use representation::{integer_conversion_representations, representation_type_for_context};
 mod selection;
 mod semantic_context;
 mod service;
@@ -57,12 +56,11 @@ pub use constant::{
     ConstantLiteralError, ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
     constant_eligibility_diagnostic, constant_invocation_targets, evaluate_array_length,
-    evaluate_constant_callable_template, evaluate_constant_definition_template,
-    evaluate_constant_intrinsic, evaluate_generic_constraint_template,
-    evaluate_static_initializer_template, fold_machine_integer_binary,
-    fold_machine_integer_truncate, fold_machine_integer_unary, normalize_integer_literal,
-    resolve_callable_signature_template, resolve_trait_application_template,
-    resolve_type_expression_template,
+    evaluate_constant_call, evaluate_constant_definition_template, evaluate_constant_intrinsic,
+    evaluate_generic_constraint_template, evaluate_static_initializer_template,
+    fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
+    normalize_integer_literal, resolve_callable_signature_template,
+    resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
     CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
@@ -80,7 +78,9 @@ pub use execution_guarantees::{
     map_execution_condition_references, predicate_conditions, predicate_conditions_with_inputs,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
-pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
+pub use expression::{
+    NestedCallableEvidence, call_result, check_generic_arguments, generic_constraint_outcome,
+};
 pub use lifecycle::{
     FinalizerCompletion, LifecycleSelectionContext, check_implicit_finalization,
     invocation_execution_requirements, select_lifecycle_action,

@@ -4,13 +4,25 @@ The standard library can provide operations whose contracts are known to the com
 
 The exact recognized identities are listed by the [conformance catalog](conformance-catalog.md).
 
-`std.convert<Target, Source>(source)` is an ordinary standard-library facade over `CheckedConvertTo<Target>` and is not compiler-recognized.
+`std.convert<Target, Source>(source)` is an ordinary standard-library facade over `CheckedConvertTo<Target>` and is not
+compiler-recognized.
 
-The recognized numeric-policy operations are `std.numeric.round_to`, `std.numeric.truncate_to`, `std.numeric.saturate_to`, and `std.numeric.wrap_to`.
+The recognized numeric-policy operations are `std.numeric.round_to`, `std.numeric.truncate_to`,
+`std.numeric.saturate_to`, and `std.numeric.wrap_to`.
 
-`std.numeric.truncate_to` exposes `const`. Predicate and constant evaluation certify the selected source and target
-representations. Integer truncation uses the defined integer policy. A floating conversion does not gain totality from
-the modifier and is rejected in these contexts unless its conversion domain can be established.
+`std.numeric.truncate_to` exposes `const`. Integer-to-integer truncation retains the low target bits under the integer
+truncation policy. Real-to-integer truncation discards the fractional part toward zero. Its ordinary requirement accepts
+exactly finite inputs whose truncated result is representable in the target integer type. This includes negative
+fractions that truncate to unsigned zero and fractions that truncate to the minimum signed integer. NaN, infinity and
+other out-of-domain inputs fail the requirement before conversion.
+
+Conversions targeting a real type require a lossless source-to-target type conversion. Precision-losing real conversions
+belong to an explicitly named rounding policy. Boolean, character, complex and aggregate types do not participate.
+`std.numeric.supports_truncation<Target, Source>()` reports the supported type domain, and
+`std.numeric.in_truncation_domain<Target, Source>(source)` observes the value domain for a supported pair.
+
+Ordinary calls, callable values, constant evaluation and imported contracts use the same domains. Predicate calls must
+establish the selected input requirements. The `const` modifier does not itself confer totality.
 
 `std.numeric.round_to` accepts the recognized `std.numeric.RoundingRule` union.
 

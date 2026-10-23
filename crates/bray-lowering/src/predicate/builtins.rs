@@ -22,6 +22,16 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             return Ok(None);
         };
 
+        if hook.is_numeric_policy()
+            && !crate::numeric::can_lower_directly(
+                self.context.semantic_values(),
+                callable.instance(),
+                hook,
+            )
+        {
+            return Ok(None);
+        }
+
         // The operation retains cheap operand descriptors independently of the selected call.
         let inputs = call
             .arguments()
@@ -102,21 +112,26 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 .map(Some);
         }
 
-        if hook == ImplementationHook::NumericTruncate {
-            let [value] = inputs.as_slice() else {
-                panic!("checked numeric policy retains one argument");
-            };
+        if hook.is_numeric_policy() {
+            let plan = bray_symbols::NumericTruncation::for_instance(
+                self.context.semantic_values(),
+                self.context.compiler_known_symbols(),
+                callable.instance(),
+                self.builder.target().machine().pointer_width_bits().get(),
+            );
 
-            return self
-                .value(
-                    block,
-                    MirOperationKind::NumericConversion {
-                        kind: bray_ir::MirNumericConversionKind::Truncate,
-                        operand: value.clone(),
-                    },
-                    result,
-                )
-                .map(Some);
+            return crate::numeric::lower_numeric_value(
+                &mut self.builder,
+                self.context.semantic_values(),
+                block,
+                &self.source,
+                hook,
+                plan,
+                &inputs,
+                result,
+            )
+            .map(Some)
+            .map_err(|error| crate::SyntheticLoweringError::from(error).into());
         }
 
         let memory = self.memory_kind(callable.instance(), hook, &types, result)?;

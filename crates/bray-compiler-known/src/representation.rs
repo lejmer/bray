@@ -140,6 +140,17 @@ impl RepresentationRole {
         }
     }
 
+    /// Returns IEEE storage width and significand precision for a real scalar.
+    pub const fn real_format(self) -> Option<(u16, u16)> {
+        match self {
+            Self::ScalarR16 => Some((16, 11)),
+            Self::ScalarR32 => Some((32, 24)),
+            Self::ScalarR64 => Some((64, 53)),
+            Self::ScalarR128 => Some((128, 113)),
+            _ => None,
+        }
+    }
+
     /// Returns the real component representation of a complex scalar role.
     pub const fn complex_component(self) -> Option<Self> {
         match self {

@@ -22,14 +22,11 @@ pub(super) fn fold_unary(
     representation: Option<RepresentationRole>,
     target_width: NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantOperationError> {
+    if let Some(value) = fold_numeric_sign(operator, operand) {
+        return Ok(value);
+    }
+
     let result = match (operator, operand) {
-        (BoundOperator::Add, ConstantValueKind::Integer(value)) => {
-            // Integer constants are immutable, Arc-backed canonical payloads.
-            ConstantValueKind::Integer(value.clone())
-        }
-        (BoundOperator::Subtract, ConstantValueKind::Integer(value)) => {
-            ConstantValueKind::Integer(value.negated())
-        }
         (BoundOperator::LogicalNot, ConstantValueKind::Boolean(value)) => {
             ConstantValueKind::Boolean(!value)
         }
@@ -41,6 +38,24 @@ pub(super) fn fold_unary(
             };
 
             integer(bitwise_not(value, integer_representation, target_width))
+        }
+        _ => return Err(ConstantOperationError::Invalid),
+    };
+
+    Ok(result)
+}
+
+pub(crate) fn fold_numeric_sign(
+    operator: BoundOperator,
+    operand: &ConstantValueKind,
+) -> Option<ConstantValueKind> {
+    Some(match (operator, operand) {
+        (BoundOperator::Add, ConstantValueKind::Integer(value)) => {
+            // Integer constants are immutable, Arc-backed canonical payloads.
+            ConstantValueKind::Integer(value.clone())
+        }
+        (BoundOperator::Subtract, ConstantValueKind::Integer(value)) => {
+            ConstantValueKind::Integer(value.negated())
         }
         (BoundOperator::Subtract, ConstantValueKind::Real(value)) => {
             ConstantValueKind::Real(negate_real(*value))
@@ -58,10 +73,8 @@ pub(super) fn fold_unary(
                 imaginary: *imaginary,
             }
         }
-        _ => return Err(ConstantOperationError::Invalid),
-    };
-
-    Ok(result)
+        _ => return None,
+    })
 }
 
 pub(crate) fn fold_binary(

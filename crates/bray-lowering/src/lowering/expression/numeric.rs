@@ -1,8 +1,6 @@
 use bray_bound_tree::{BoundExpressionId, SelectedArgument, SelectedCall};
-use bray_compiler_known::ImplementationHook;
-use bray_ir::{
-    MirBlockId, MirNumericConversionKind, MirOperand, MirOperationKind, MirSourceAnchor,
-};
+use bray_ir::{MirBlockId, MirSourceAnchor};
+use bray_symbols::NumericTruncation;
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -12,84 +10,93 @@ impl Lowerer<'_> {
     pub(super) fn lower_numeric_call(
         &mut self,
         id: BoundExpressionId,
-        current: MirBlockId,
+        mut current: MirBlockId,
         source: MirSourceAnchor,
         selection: &SelectedCall,
     ) -> Result<Option<LoweredExpression>, LoweringError> {
-        let Some(kind) = numeric_conversion_kind(selection.implementation_hook()) else {
+        let Some(hook) = selection
+            .implementation_hook()
+            .filter(|hook| hook.is_numeric_policy())
+        else {
             return Ok(None);
         };
 
-        let [
-            SelectedArgument::Explicit {
-                expression,
-                conversion,
-                reborrow,
-                ..
-            },
-        ] = selection.arguments()
-        else {
-            panic!(
-                "lowering contract violation: MissingSemanticSelection {value:?}",
-                value = id
-            );
+        let Some(callable) = selection.resolution().declaration_source() else {
+            // Callable values invoke their demanded compiler-provided body through the ordinary call path.
+            return Ok(None);
         };
 
-        let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
+        if !crate::numeric::can_lower_directly(self.input.semantic_values(), callable, hook) {
+            return Ok(None);
+        }
 
-        let Some(current) = lowered.block else {
-            return Ok(Some(lowered));
+        let plan = NumericTruncation::for_instance(
+            self.input.semantic_values(),
+            self.input.available_compiler_known_symbols(),
+            callable,
+            self.input.target().machine().pointer_width_bits().get(),
+        );
+
+        let mut operand = match selection.arguments() {
+            [] => None,
+            [
+                SelectedArgument::Explicit {
+                    expression,
+                    conversion,
+                    reborrow,
+                    ..
+                },
+            ] => {
+                let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
+
+                let Some(block) = lowered.block else {
+                    return Ok(Some(lowered));
+                };
+
+                let operand = lowered
+                    .value
+                    .expect("checked numeric input produces its scalar value");
+
+                let (block, operand) = self.convert_operand(
+                    id,
+                    block,
+                    Self::retained_source(&source),
+                    operand,
+                    conversion,
+                )?;
+
+                current = block;
+
+                Some(operand)
+            }
+            _ => panic!("recognized numeric policy retains zero or one explicit scalar input"),
         };
 
-        let Some(operand) = lowered.value else {
-            panic!(
-                "lowering contract violation: MissingOperationResult {value:?}",
-                value = *expression
-            );
-        };
-
-        let (current, mut operand) = self.convert_operand(
-            id,
-            current,
-            Self::retained_source(&source),
-            operand,
-            conversion,
-        )?;
-
-        let current = self.lower_primitive_requirements(
+        current = self.lower_primitive_requirements(
             id,
             current,
             &source,
             selection,
-            std::slice::from_mut(&mut operand),
+            operand.as_mut_slice(),
         )?;
 
         let result_type = self.expression_type(id);
 
-        let commit = self.push_operation(
+        let value = crate::numeric::lower_numeric_value(
+            &mut self.builder,
+            self.input.semantic_values(),
             current,
-            Self::retained_source(&source),
-            MirOperationKind::NumericConversion { kind, operand },
-            Some(result_type),
+            &source,
+            hook,
+            plan,
+            operand.as_slice(),
+            result_type,
         )?;
-
-        let result = commit.result().map(MirOperand::Value).unwrap_or_else(|| {
-            panic!(
-                "lowering contract violation: MissingOperationResult {value:?}",
-                value = id
-            )
-        });
 
         Ok(Some(LoweredExpression::continuing(
             current,
-            Some(result),
+            Some(value),
             source,
         )))
-    }
-}
-fn numeric_conversion_kind(hook: Option<ImplementationHook>) -> Option<MirNumericConversionKind> {
-    match hook {
-        Some(ImplementationHook::NumericTruncate) => Some(MirNumericConversionKind::Truncate),
-        _ => None,
     }
 }

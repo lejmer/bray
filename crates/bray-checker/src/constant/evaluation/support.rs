@@ -117,11 +117,24 @@ where
             return Ok(term);
         }
 
+        if self.term_value(term).is_some_and(|value| {
+            matches!(
+                self.request
+                    .semantic_values()
+                    .constant_value_data(value)
+                    .kind(),
+                ConstantValueKind::Error
+            )
+        }) {
+            return Ok(self.recovery_term(target_type));
+        }
+
         let target = self.request.semantic_values().type_data(target_type);
 
         if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
             panic!(
-                "nullable adaptation must contain source type {source_type:?}, target type: {target_type:?}"
+                "nullable adaptation must contain source type {source_type:?} ({:?}), target type {target_type:?} ({target:?})",
+                self.request.semantic_values().type_data(source_type)
             );
         }
 

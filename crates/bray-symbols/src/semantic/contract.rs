@@ -138,6 +138,13 @@ define_resolve_symbol_query_contract! {
         kind: GenericDeclarationTemplate,
         erase: |owner: GenericOwnerId| owner.symbol(),
     }
+    /// Checked trait and type-equality premises, independent of predicate checking.
+    GenericTypeConstraintsQuery {
+        owner: GenericOwnerId,
+        value: GenericConstraintSet,
+        kind: GenericTypeConstraints,
+        erase: |owner: GenericOwnerId| owner.symbol(),
+    }
     /// Checked generic constraints for one generic declaration owner.
     GenericConstraintsQuery {
         owner: GenericOwnerId,

@@ -353,7 +353,7 @@ impl Compilation {
                             )?
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
-                            self.codegen_heap_method_mir(
+                            self.codegen_compiler_provided_mir(
                                 &realization,
                                 MirUnitId::new(0),
                                 cancellation,

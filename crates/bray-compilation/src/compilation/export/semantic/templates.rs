@@ -141,11 +141,11 @@ pub(super) fn checked_constraint_expression(
         return Err(incomplete(expression.owner()));
     }
 
-    let root = crate::compilation::generic_constraint::constraint_expression(
-        bound.result().value(),
-        expression.syntax(),
-    )
-    .ok_or_else(|| incomplete(expression.owner()))?;
+    let root = bound
+        .result()
+        .value()
+        .declaration_expression(expression.syntax())
+        .ok_or_else(|| incomplete(expression.owner()))?;
 
     let values = compilation
         .semantic_value_store()

@@ -85,6 +85,7 @@ func parse_u128(pos text: &string, radix: u8 = 10) -> Result<u128, ParseError>
 }
 
 internal func parse_unsigned<Value>(pos text: &string, pos maximum: u128, radix: u8) -> Result<Value, ParseError>
+    with(u128: IntegerFromBits<Value>)
 {
     let parsed: Result<u128, ParseError> = parse_u128(text, radix = radix);
 
@@ -97,7 +98,7 @@ internal func parse_unsigned<Value>(pos text: &string, pos maximum: u128, radix:
                 return Error(ParseError.Overflow);
             }
 
-            return Ok(std.numeric.truncate_to<Value>(value));
+            return Ok(value(IntegerFromBits<Value>).into_integer());
         }
         case Error(error) { return Error(error); }
     }
@@ -194,6 +195,7 @@ internal func parse_signed<Value>(
     pos maximum: i128,
     radix: u8,
 ) -> Result<Value, ParseError>
+    with(u128: IntegerFromBits<Value>)
 {
     let parsed: Result<i128, ParseError> = parse_i128(text, radix = radix);
 
@@ -206,7 +208,9 @@ internal func parse_signed<Value>(
                 return Error(ParseError.Overflow);
             }
 
-            return Ok(std.numeric.truncate_to<Value>(value));
+            let bits: u128 = std.numeric.truncate_to<u128>(value);
+
+            return Ok(bits(IntegerFromBits<Value>).into_integer());
         }
         case Error(error) { return Error(error); }
     }

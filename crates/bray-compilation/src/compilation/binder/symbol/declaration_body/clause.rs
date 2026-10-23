@@ -1,4 +1,7 @@
-use bray_binder::{BindingQueryContext, BindingQueryError, bind_contract_clause_expressions};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, PredicateClauseBindingContext,
+    bind_predicate_clause_expressions,
+};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{AnySymbolId, PredicateSemanticSummary};
@@ -6,35 +9,43 @@ use bray_syntax::{ExpressionSyntax, SyntaxNodeView};
 
 use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
 
-/// Check catalog caller predicates with the same binder and normalization as source clauses.
-pub(in crate::compilation::binder::symbol) fn checked_catalog_predicates(
+/// Checks a predicate sequence through the shared binder, checker and condition normalization.
+pub(in crate::compilation::binder::symbol) fn checked_bound_predicates(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     clause: SyntaxNodeView<'_>,
     expressions: Vec<ExpressionSyntax>,
+    kind: PredicateClauseBindingContext,
 ) -> BindingQueryResult<DiagnosticResult<Vec<PredicateSemanticSummary>>> {
     let compilation = context.compilation();
 
     let owner_key = context
         .symbols()
         .symbol_key(owner)
-        .expect("catalog contract owner must have a semantic identity");
+        .expect("checked predicate owner has a semantic identity");
 
     let source = BoundSourceAnchor::new(
         bray_declarations::SyntaxAnchor::from_node(&clause),
         clause.source().version(),
     );
 
-    let key = BoundUnitKey::contract_clause(owner_key.clone(), source)
-        .expect("catalog callable must own its predicate clause");
+    // The bound unit retains its immutable declaration identity independently.
+    let key = match kind {
+        PredicateClauseBindingContext::GenericConstraint => {
+            BoundUnitKey::constraint(owner_key.clone(), source)
+        }
+        PredicateClauseBindingContext::CallableContract(_) => {
+            BoundUnitKey::contract_clause(owner_key.clone(), source)
+        }
+    }
+    .expect("checked declaration owns its predicate clause");
 
     let computation =
-        bind_contract_clause_expressions(context, BoundUnitId::new(0), key, expressions)
+        bind_predicate_clause_expressions(context, BoundUnitId::new(0), key, expressions)
             .map_err(crate::compilation::unit::map_binding_error)
             .map_err(super::super::binding::binder_error)?;
 
     let bound = computation.result().value();
-
     let declared = crate::compilation::binder::bind_declared_value_type_templates(context, bound)?;
 
     let ((semantics, patterns), mut diagnostics) =

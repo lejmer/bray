@@ -535,7 +535,7 @@ mod tests {
 
         assert_eq!(
             catalog.recognized_standard_library_declarations().len(),
-            153
+            155
         );
 
         let raw_pointer = declaration(&catalog, "DataPointer");

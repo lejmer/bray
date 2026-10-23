@@ -1,8 +1,8 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, CheckedMemoryOperations, CheckedSemanticSelections,
-    OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
-    StorageIdentity, StoragePlan, StorageProjection,
+    OperatorTarget, SelectedConversion, SelectedOperation, SemanticSelection, StorageIdentity,
+    StoragePlan, StorageProjection,
 };
 use bray_symbols::AnySymbolId;
 
@@ -124,13 +124,6 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         Some(SemanticSelection::Call(call)) => {
             if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
                 return false;
-            }
-
-            if call.implementation_hook()
-                == Some(bray_compiler_known::ImplementationHook::NumericTruncate)
-                && integer_truncation(request, call)
-            {
-                return true;
             }
 
             dependencies.push(ExecutionDependency {
@@ -268,27 +261,6 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     true
 }
 
-fn integer_truncation<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    call: &bray_bound_tree::SelectedCall,
-) -> bool {
-    let [SelectedArgument::Explicit { conversion, .. }] = call.arguments() else {
-        panic!("selected numeric truncation retains its single explicit argument");
-    };
-
-    let BoundCallResult::Immediate(target) = call.resolution().result() else {
-        panic!("selected numeric truncation returns its result immediately");
-    };
-
-    crate::representation::integer_conversion_representations(
-        request.semantic_values(),
-        request.available_compiler_known_symbols(),
-        conversion.target_type(),
-        target,
-    )
-    .is_some()
-}
-
 fn check_operation(
     operation: &SelectedOperation,
     property: ExecutionProperty,
@@ -371,7 +343,7 @@ fn collect_conversion_dependencies(
     let resolved = crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
 
     dependencies.extend(calls.iter().map(|call| ExecutionDependency {
-        target: (call.target()).into(),
+        target: call.target().into(),
         obligation: crate::ExecutionObligation::Property(property, None),
         occurrence,
     }));

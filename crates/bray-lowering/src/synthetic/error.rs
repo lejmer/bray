@@ -22,3 +22,12 @@ impl<C: super::SyntheticLoweringContext + ?Sized> super::SyntheticLowerer<'_, C>
         SyntheticLoweringError::Capacity(cause).into()
     }
 }
+
+impl From<crate::LoweringError> for SyntheticLoweringError {
+    fn from(error: crate::LoweringError) -> Self {
+        match error {
+            crate::LoweringError::SemanticValue(error) => Self::SemanticValue(error),
+            crate::LoweringError::MirCapacity(error) => Self::Capacity(error),
+        }
+    }
+}

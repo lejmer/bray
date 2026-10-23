@@ -225,7 +225,7 @@ impl Lowerer<'_> {
                 &condition,
                 boolean,
                 None,
-                crate::lowering::expression::CallOutcome::Predicate,
+                crate::lowering::expression::CallOutcome::Runtime,
             )?;
 
             block = continued;

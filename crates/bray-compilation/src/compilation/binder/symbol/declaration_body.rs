@@ -1,7 +1,7 @@
 #[macro_use]
 mod macros;
 mod callable_type;
-mod catalog;
+mod clause;
 mod default;
 mod dependency;
 mod lookup;
@@ -12,7 +12,7 @@ pub(in crate::compilation) use callable_type::{
     bind_callable_clause_unit, callable_clause_header, callable_requirement_source,
     checked_callable_type_contracts,
 };
-pub(super) use catalog::checked_catalog_predicates;
+pub(super) use clause::checked_bound_predicates;
 pub(in crate::compilation) use dependency::extend_dependency_contract_with_statics;
 pub(in crate::compilation) use dependency::static_dependency_root;
 pub(super) use lookup::runtime_default_provider;

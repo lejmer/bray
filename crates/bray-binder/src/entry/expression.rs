@@ -253,7 +253,7 @@ where
 
     configure_scope(&mut binder, root_scope)?;
 
-    let path_context = path_context(&binder, root_scope)?;
+    let path_context = path_context(&binder, root_scope);
     let error_type = error_type(binding_context)?;
 
     let mut expression_binder = match binder.unit().key().kind() {
@@ -384,8 +384,8 @@ where
     )
 }
 
-/// Binds an explicit declaration-surface clause using the same contract scopes as source units.
-pub fn bind_contract_clause_expressions<C>(
+/// Binds an explicit predicate sequence with its static or callable source scope.
+pub fn bind_predicate_clause_expressions<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
@@ -406,13 +406,21 @@ where
         false
     };
 
+    let callable = key.kind() != bray_bound_tree::BoundUnitKind::Constraint;
+
     let (output, root) = bind_expression_sequence(
         binding_context,
         unit,
         key,
-        true,
+        callable,
         has_result,
-        |binder, scope| push_callable_inputs(binder, scope).map(|_| ()),
+        |binder, scope| {
+            if callable {
+                push_callable_inputs(binder, scope).map(|_| ())
+            } else {
+                Ok(())
+            }
+        },
         expressions.into_iter().collect(),
     )?;
 
@@ -524,7 +532,7 @@ where
 
     configure_scope(&mut binder, expression_scope)?;
 
-    let path_context = path_context(&binder, expression_scope)?;
+    let path_context = path_context(&binder, expression_scope);
     let error_type = error_type(binding_context)?;
 
     let mut expression_binder = ExpressionBinder::new(path_context, error_type);
@@ -572,6 +580,10 @@ where
     C: BindingQueryContext + ?Sized,
 {
     match anchor.syntax_kind() {
+        SyntaxKind::Expression => {
+            anchored_descendant::<_, ExpressionSyntax>(binding_context, anchor)
+                .map(|expression| vec![expression])
+        }
         SyntaxKind::WhenClause => {
             anchored_descendant::<_, bray_syntax::WhenClauseSyntax>(binding_context, anchor)
                 .map(|clause| vec![clause.condition()])
@@ -585,8 +597,12 @@ where
                 .map(|clause| clause.expressions().collect())
         }
         SyntaxKind::WithClause => {
-            anchored_descendant::<_, WithClauseSyntax>(binding_context, anchor)
-                .map(|clause| clause.expressions().collect())
+            anchored_descendant::<_, WithClauseSyntax>(binding_context, anchor).map(|clause| {
+                clause
+                    .expressions()
+                    .filter(|expression| expression.trait_satisfaction_constraint().is_none())
+                    .collect()
+            })
         }
         _ => None,
     }
