@@ -16,6 +16,7 @@
         "headers": [
           "dirent.h",
           "dlfcn.h",
+          "errno.h",
           "fcntl.h",
           "linux/futex.h",
           "linux/version.h",

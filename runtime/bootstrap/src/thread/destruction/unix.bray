@@ -4,7 +4,7 @@ trusted internal module bray.runtime.bootstrap.thread.destruction;
 using core.memory;
 using std.memory;
 using std.memory.function;
-using std.os.unix;
+using internal std.os.unix;
 
 internal callable ExitCallback = @abi(c) trusted func(pos value: DataPointer<u8>)
     requires(trusted native_attachment_exit());

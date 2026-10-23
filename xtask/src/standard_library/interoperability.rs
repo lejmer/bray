@@ -91,13 +91,11 @@ pub(super) fn audit(
         ));
     }
 
-    let mut command = Command::new(repeated.executable.path());
+    let command = subprocess::Exec::cmd(repeated.executable.path()).cwd(&output);
 
-    command.current_dir(&output);
-
-    crate::command::require_success(command, "executing foreign interoperability fixture")
+    crate::validation_process::success(command, crate::validation_process::TIMEOUT)
         .map(|_| ())
-        .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
+        .map_err(|error| BuildError::conformance("foreign interoperability", error.to_string()))?;
 
     audit_target_modules(root)
 }

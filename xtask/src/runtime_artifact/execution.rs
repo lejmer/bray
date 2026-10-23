@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use subprocess::Exec;
 
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{
@@ -122,10 +122,7 @@ pub(super) fn smoke_test(
                         CommandError::EntrySmoke(format!("could not resolve {name}: {error:?}"))
                     })?;
 
-            let result = command_output(
-                &mut Command::new(executable.path()),
-                "generated async execution",
-            )?;
+            let result = command_output(Exec::cmd(executable.path()), "generated async execution")?;
 
             let expected_stderr = if name == "scoped-cleanup" {
                 let stderr = String::from_utf8_lossy(&result.stderr);
@@ -143,7 +140,10 @@ pub(super) fn smoke_test(
 
             if result.status.code() != Some(expected) || !expected_stderr {
                 return Err(CommandError::EntrySmoke(crate::command::failure(
-                    &format!("{name} ({mode}, expected exit {expected})"),
+                    &format!(
+                        "{name} ({}; {mode}, expected exit {expected})",
+                        executable.path().display()
+                    ),
                     &result,
                 )));
             }

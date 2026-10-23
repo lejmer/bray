@@ -62,7 +62,14 @@ pub(super) fn audit_standard_hello_world(
 
     let result = product_output(&executable, "executing Bray Tack build output")?;
 
-    require_hello_world_output(&result, "executing Bray Tack build output", None)?;
+    require_hello_world_output(
+        &result,
+        &format!(
+            "executing Bray Tack build output ({})",
+            executable.display()
+        ),
+        None,
+    )?;
 
     let mut run = Command::new(bray);
 

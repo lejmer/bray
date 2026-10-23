@@ -1,14 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output};
+use subprocess::Exec;
 
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind};
-
-const EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
@@ -45,20 +43,14 @@ pub(super) fn smoke_test(
         &package.native_links,
     )?;
 
-    let output =
-        Command::new(&executable)
-            .output()
-            .map_err(|error| CommandError::SmokeExecution {
-                name: "asynchronous",
-                error,
-            })?;
-
-    if !output.status.success() {
-        return Err(CommandError::SmokeExecutionFailed {
-            name: "asynchronous",
-            status: output.status,
-        });
-    }
+    let output = crate::validation_process::success(
+        Exec::cmd(&executable),
+        crate::validation_process::TIMEOUT,
+    )
+    .map_err(|error| CommandError::SmokeExecution {
+        name: "asynchronous",
+        error,
+    })?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -88,20 +80,11 @@ pub(super) fn smoke_test(
         &package.native_links,
     )?;
 
-    let status =
-        Command::new(&executable)
-            .status()
-            .map_err(|error| CommandError::SmokeExecution {
-                name: "synchronous",
-                error,
-            })?;
-
-    if !status.success() {
-        return Err(CommandError::SmokeExecutionFailed {
+    crate::validation_process::success(Exec::cmd(&executable), crate::validation_process::TIMEOUT)
+        .map_err(|error| CommandError::SmokeExecution {
             name: "synchronous",
-            status,
-        });
-    }
+            error,
+        })?;
 
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
@@ -179,15 +162,14 @@ fn smoke_test_bootstrap(
         &package.native_links,
     )?;
 
-    let output = Command::new(&executable)
-        .output()
-        .map_err(CommandError::BootstrapSmokeExecution)?;
-
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-
-        return Err(CommandError::BootstrapSmokeExecutionFailed(output.status));
-    }
+    let output = crate::validation_process::success(
+        Exec::cmd(&executable),
+        crate::validation_process::TIMEOUT,
+    )
+    .map_err(|error| CommandError::SmokeExecution {
+        name: "bootstrap",
+        error,
+    })?;
 
     let mut expected = (0..16385)
         .map(|index| b'a' + (index % 26) as u8)
@@ -533,41 +515,9 @@ pub(super) fn audit_link_symbols(
     Ok(())
 }
 
-pub(super) fn command_output(
-    command: &mut Command,
-    name: &'static str,
-) -> Result<Output, CommandError> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| CommandError::SmokeExecution { name, error })?;
-
-    let deadline = Instant::now() + EXECUTION_TIMEOUT;
-
-    loop {
-        if child
-            .try_wait()
-            .map_err(|error| CommandError::SmokeExecution { name, error })?
-            .is_some()
-        {
-            return child
-                .wait_with_output()
-                .map_err(|error| CommandError::SmokeExecution { name, error });
-        }
-
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-
-            return Err(CommandError::SmokeTimeout {
-                name,
-                seconds: EXECUTION_TIMEOUT.as_secs(),
-            });
-        }
-
-        std::thread::sleep(Duration::from_millis(10));
-    }
+pub(super) fn command_output(command: Exec, name: &'static str) -> Result<Output, CommandError> {
+    crate::validation_process::output(command, crate::validation_process::TIMEOUT)
+        .map_err(|error| CommandError::SmokeExecution { name, error })
 }
 
 pub(super) fn standard_library(

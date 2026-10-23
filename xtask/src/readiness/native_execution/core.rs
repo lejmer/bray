@@ -424,13 +424,22 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         let output = product_output(first.executable(), name)?;
 
         if output.status.code() != Some(expected) {
-            return Err(crate::command::failure(name, &output));
+            return Err(crate::command::failure(
+                &format!("{name} ({})", first.executable().display()),
+                &output,
+            ));
         }
 
         if let Some(required) = stderr
             && !output_contains(&output, required)
         {
-            return Err(format!("{name} did not report required stderr evidence"));
+            return Err(crate::command::failure(
+                &format!(
+                    "{name} ({}) did not report required stderr evidence",
+                    first.executable().display()
+                ),
+                &output,
+            ));
         }
     }
 
@@ -656,13 +665,18 @@ pub(super) fn execute_product(
         return Ok(());
     }
 
-    Err(crate::command::failure(operation, &output))
+    Err(crate::command::failure(
+        &format!("{operation} ({})", executable.display()),
+        &output,
+    ))
 }
 
 pub(super) fn product_output(executable: &Path, operation: &str) -> Result<Output, String> {
-    Command::new(executable)
-        .output()
-        .map_err(|error| format!("could not start {operation}: {error}"))
+    crate::validation_process::output(
+        subprocess::Exec::cmd(executable),
+        crate::validation_process::TIMEOUT,
+    )
+    .map_err(|error| format!("{operation}: {error}"))
 }
 
 pub(super) fn executable_path(
