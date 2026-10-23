@@ -1,6 +1,7 @@
 module std.collection;
 
 using std.memory;
+using internal std.collection.slot;
 
 trusted internal func ordered_tree_reserve<Item>(
     pos tree: &mut OrderedTree<Item>,
@@ -34,7 +35,7 @@ trusted internal func ordered_tree_reallocate<Item>(
 {
     let mut replacement_nodes: std.memory.RawBuffer<OrderedTreeNode> = try trusted ordered_tree_nodes(capacity);
 
-    let mut replacement_items: std.memory.RawBuffer<Uninit<Item>> = try trusted internal std.memory.uninit_buffer<Item>(
+    let mut replacement_items: std.memory.RawBuffer<(Item?)> = try trusted internal std.memory.nullable_buffer<Item>(
         capacity = capacity
     );
 
@@ -43,7 +44,7 @@ trusted internal func ordered_tree_reallocate<Item>(
             &mut replacement_nodes
         );
 
-        let destination_slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(
+        let destination_slots: &mut [(Item?)] = trusted std.memory.initialized_slice_mut<(Item?)>(
             &mut replacement_items
         );
 
@@ -54,10 +55,11 @@ trusted internal func ordered_tree_reallocate<Item>(
         {
             let node: OrderedTreeNode = ordered_tree_node<Item>(&tree, index = index);
 
-            if node.occupied
+            if trusted internal std.collection.slot.is_present<Item>(&tree.items, index = index)
             {
-                let item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = index);
-                let _: &mut Item = std.memory.uninit_write<Item>(&mut destination_slots[index], item);
+                let item: Item = trusted internal std.collection.slot.take<Item>(&mut tree.items, index = index);
+
+                destination_slots[index] = item;
 
                 destination_nodes[index] = node;
             }
@@ -71,7 +73,7 @@ trusted internal func ordered_tree_reallocate<Item>(
         source = &mut replacement_nodes,
     );
 
-    trusted internal std.memory.raw_buffer_replace<Uninit<Item>>(
+    trusted internal std.memory.raw_buffer_replace<(Item?)>(
         destination = &mut tree.items,
         source = &mut replacement_items,
     );
@@ -93,7 +95,7 @@ trusted internal func ordered_tree_rebuild_free<Item>(pos tree: &mut OrderedTree
     {
         index -= 1;
 
-        if !nodes[index].occupied
+        if !trusted internal std.collection.slot.is_present<Item>(&tree.items, index = index)
         {
             nodes[index].next_free = free;
             free = index;
@@ -127,7 +129,7 @@ trusted internal func ordered_tree_insert_at<Item>(
         yield nodes[index].next_free;
     };
 
-    trusted ordered_tree_write_item<Item>(&mut tree, item, index = index);
+    trusted internal std.collection.slot.write<Item>(&mut tree.items, item, index = index);
 
     {
         let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
@@ -138,7 +140,6 @@ trusted internal func ordered_tree_insert_at<Item>(
             left = none,
             right = none,
             height = 1,
-            occupied = true,
             next_free = none,
         };
 
@@ -265,7 +266,7 @@ trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<It
         case none {}
     }
 
-    let item: Item = trusted ordered_tree_take_item<Item>(&mut tree.nodes, &mut tree.items, index = removed_index);
+    let item: Item = trusted internal std.collection.slot.take<Item>(&mut tree.items, index = removed_index);
 
     {
         let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
@@ -284,7 +285,7 @@ trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<It
 
 trusted internal func ordered_tree_take_for_iteration<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> Item
 {
-    let item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = index);
+    let item: Item = trusted internal std.collection.slot.take<Item>(&mut tree.items, index = index);
 
     tree.count -= 1;
 
@@ -300,7 +301,7 @@ trusted internal func ordered_tree_clear<Item>(pos tree: &mut OrderedTree<Item>)
 
 trusted internal func ordered_tree_clear_storage<Item>(
     pos nodes: &mut std.memory.RawBuffer<OrderedTreeNode>,
-    pos items: &mut std.memory.RawBuffer<Uninit<Item>>
+    pos items: &mut std.memory.RawBuffer<(Item?)>
 ) -> usize?
     uses(raw_memory)
 {
@@ -314,16 +315,11 @@ trusted internal func ordered_tree_clear_storage<Item>(
         {
             index -= 1;
 
-            let occupied =
-            {
-                let entries = trusted std.memory.initialized_slice<OrderedTreeNode>(&nodes);
-
-                yield entries[index].occupied;
-            };
+            let occupied = trusted internal std.collection.slot.is_present<Item>(&items, index = index);
 
             if occupied
             {
-                let _: Item = trusted ordered_tree_take_item(nodes, items, index = index);
+                let _: Item = trusted internal std.collection.slot.take<Item>(items, index = index);
             }
 
             let entries: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(nodes);

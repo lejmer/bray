@@ -16,7 +16,7 @@ struct SpinLockGuard<T>
         executes(total)
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.prepared.storage);
 
         let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
@@ -52,7 +52,7 @@ struct SpinLockGuard<T>
         executes(pure, total)
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.prepared.storage);
 
         let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(

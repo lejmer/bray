@@ -13,13 +13,13 @@ struct Attempt<T>
 
     trusted destruct()
         requires(trusted acquired(&self.acquisition))
-        ensures(trusted valid(&self.once.instance))
+        ensures(trusted valid(&self.once.prepared.instance))
         executes(total)
         uses(raw_memory, unchecked_alias)
     {
         let state =
         {
-            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
+            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.prepared.storage);
 
             let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
                 ensures(
@@ -49,12 +49,12 @@ struct Attempt<T>
 
     trusted consume func publish(pos value: T) -> &T
         requires(trusted acquired(&self.acquisition))
-        ensures(trusted valid(&self.once.instance))
+        ensures(trusted valid(&self.once.prepared.instance))
         uses(raw_memory, unchecked_alias, unchecked_init)
     {
         let state =
         {
-            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.storage);
+            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.prepared.storage);
 
             let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
                 ensures(

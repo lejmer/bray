@@ -9,43 +9,40 @@ using internal std.sync.tickets;
 
 struct SpinLock<T>
 {
-    instance: std.sync.spin_lock.Marker;
-    storage: Uninit<std.sync.spin_lock.State<T>>;
+    prepared: std.sync.spin_lock.Prepared<T>;
 
     trusted construct(pos value: T) -> Self
-        ensures(trusted std.sync.spin_lock.valid(&result.instance))
+        ensures(trusted std.sync.spin_lock.valid(&result.prepared.instance))
     {
-        let prepared = SpinLock<T>.prepare(value);
-
         return
         {
-            instance = prepared.0,
-            storage = prepared.1,
+            prepared = SpinLock<T>.prepare(value)
         };
     }
 
-    /// Prepares initialized fields for ownership formation, including static materialization.
-    static trusted const func prepare(pos value: T) -> (std.sync.spin_lock.Marker, Uninit<std.sync.spin_lock.State<T>>)
-        ensures(trusted std.sync.spin_lock.valid(marker = &result.0))
+    /// Prepares an immutable witness and storage carrier for ownership formation.
+    static trusted const func prepare(pos value: T) -> std.sync.spin_lock.Prepared<T>
+        ensures(trusted std.sync.spin_lock.valid(marker = &result.instance))
     {
-        return (
-            std.sync.spin_lock.Marker
+        return
+        {
+            instance = std.sync.spin_lock.Marker
             {
             },
-            std.memory.uninit_from<std.sync.spin_lock.State<T>>(
+            storage = std.memory.uninit_from<std.sync.spin_lock.State<T>>(
                 {
                     tickets = core.atomic.initialize<u32>(0),
                     value = std.memory.uninit_from<T>(value),
                 }
             ),
-        );
+        };
     }
 
     trusted destruct()
-        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        requires(trusted std.sync.spin_lock.valid(&self.prepared.instance))
         uses(raw_memory, unchecked_init)
     {
-        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.prepared.storage);
 
         let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
@@ -69,14 +66,14 @@ struct SpinLock<T>
     }
 
     trusted func lock() -> SpinLockGuard<T>
-        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        requires(trusted std.sync.spin_lock.valid(&self.prepared.instance))
         ensures(
-            trusted std.sync.spin_lock.valid(&self.instance),
+            trusted std.sync.spin_lock.valid(&self.prepared.instance),
             trusted std.sync.spin_lock.acquired(&result.acquisition),
         )
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.prepared.storage);
 
         let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
@@ -141,14 +138,14 @@ struct SpinLock<T>
     }
 
     trusted func try_lock() -> SpinLockGuard<T>?
-        requires(trusted std.sync.spin_lock.valid(&self.instance))
+        requires(trusted std.sync.spin_lock.valid(&self.prepared.instance))
         ensures(
-            trusted std.sync.spin_lock.valid(&self.instance),
+            trusted std.sync.spin_lock.valid(&self.prepared.instance),
             result matches none || trusted std.sync.spin_lock.acquired(std.sync.spin_lock.marker<T>(&result)),
         )
         uses(raw_memory, unchecked_alias)
     {
-        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
+        let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.prepared.storage);
 
         let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(

@@ -1,0 +1,55 @@
+module std.collection.slot;
+
+using std.memory;
+
+trusted internal func is_present<T>(pos storage: &std.memory.RawBuffer<(T?)>, index: usize) -> bool
+    uses(raw_memory)
+{
+    return std.memory.initialized_slice<(T?)>(storage)[index].is_present();
+}
+
+trusted internal func get<T>(pos storage: &std.memory.RawBuffer<(T?)>, index: usize) -> &T
+    uses(raw_memory)
+{
+    let slots: &[(T?)] = trusted std.memory.initialized_slice<(T?)>(storage);
+
+    return match slots[index]
+    {
+        case ?value { yield &value; }
+        case none { panic("collection slot is empty"); }
+    };
+}
+
+trusted internal func get_mut<T>(pos storage: &mut std.memory.RawBuffer<(T?)>, index: usize) -> &mut T
+    uses(raw_memory)
+{
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut<(T?)>(storage);
+
+    return match slots[index]
+    {
+        case ?value { yield &mut value; }
+        case none { panic("collection slot is empty"); }
+    };
+}
+
+trusted internal func write<T>(pos storage: &mut std.memory.RawBuffer<(T?)>, pos value: T, index: usize)
+    uses(raw_memory)
+{
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut<(T?)>(storage);
+
+    assert(slots[index].is_absent(), "collection slot is occupied");
+    slots[index] = value;
+}
+
+trusted internal func take<T>(pos storage: &mut std.memory.RawBuffer<(T?)>, index: usize) -> T
+    uses(raw_memory)
+{
+    let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut<(T?)>(storage);
+    let pending = std.memory.take_nullable<T>(&mut slots[index]);
+
+    return match consume pending
+    {
+        case ?value { yield value; }
+        case none { panic("collection slot is empty"); }
+    };
+}

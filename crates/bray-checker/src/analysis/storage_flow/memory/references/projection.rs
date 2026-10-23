@@ -49,10 +49,7 @@ impl State {
             && !path.projections.contains(&StorageProjection::OwnedTarget)
     }
 
-    pub(super) fn returned_input_regions(
-        &self,
-        reference: &Place,
-    ) -> &std::collections::BTreeSet<Target> {
+    pub(super) fn returned_reference_bounds(&self, reference: &Place) -> &References {
         self.returned_inputs.get(reference).unwrap_or_else(|| {
             panic!("returned reference {reference:?} has no complete input-region bound")
         })
@@ -65,7 +62,7 @@ impl State {
         let (storage, returned) = match &target.origin {
             Origin::Storage(path) => (Some(path.root), None),
             Origin::Returned { reference, .. } => {
-                (None, Some(self.returned_input_regions(reference)))
+                (None, Some(self.returned_reference_bounds(reference)))
             }
             Origin::Entry { .. } | Origin::Allocation(_) => (None, None),
         };
@@ -73,7 +70,7 @@ impl State {
         storage.into_iter().chain(
             returned
                 .into_iter()
-                .flatten()
+                .flat_map(|bounds| &bounds.targets)
                 .filter_map(|target| target.storage_path().map(|path| path.root)),
         )
     }
@@ -83,13 +80,13 @@ impl State {
         target: &'a Target,
     ) -> impl Iterator<Item = &'a Target> {
         let returned = match &target.origin {
-            Origin::Returned { reference, .. } => Some(self.returned_input_regions(reference)),
+            Origin::Returned { reference, .. } => Some(self.returned_reference_bounds(reference)),
             _ => None,
         };
 
         std::iter::once(target)
             .filter(|target| !matches!(target.origin, Origin::Returned { .. }))
-            .chain(returned.into_iter().flatten())
+            .chain(returned.into_iter().flat_map(|bounds| &bounds.targets))
     }
 
     pub(in crate::analysis::storage_flow) fn target_relationship(
@@ -111,11 +108,15 @@ impl State {
                 .contents
                 .get(&Target::storage(Place::root(slot.root)))
                 .is_some_and(|contents| contents.escaped)
-            && !self.returned_input_regions(reference).iter().any(|target| {
-                target.storage_path().is_some_and(|path| {
-                    path.root == slot.root && self.is_owned_inline_storage(path)
+            && !self
+                .returned_reference_bounds(reference)
+                .targets
+                .iter()
+                .any(|target| {
+                    target.storage_path().is_some_and(|path| {
+                        path.root == slot.root && self.is_owned_inline_storage(path)
+                    })
                 })
-            })
         {
             return bray_bound_tree::StorageRelationship::Disjoint;
         }

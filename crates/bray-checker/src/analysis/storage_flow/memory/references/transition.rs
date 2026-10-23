@@ -2,7 +2,6 @@ use super::super::model::{Contents, Effect, Origin, Place, References, State, Ta
 use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
-use std::collections::BTreeSet;
 
 impl State {
     pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
@@ -92,51 +91,79 @@ impl State {
         references: impl IntoIterator<Item = (Place, TypeId)>,
         inputs: impl IntoIterator<Item = Target>,
     ) {
-        // An inconclusive forwarded reference still has the ordinary call's reachability
-        // bounds. Only a complete relation replaces those bounds with a precise target.
+        // Exact forwarding and known absence need no symbolic result. Region bounds
+        // retain the result's declared cell type without asserting an input address.
         let references = references
             .into_iter()
-            .filter(|(destination, _)| {
-                !self.pending.get(&call).is_some_and(|pending| {
-                    pending
-                        .values
-                        .get(&Target::storage(destination.clone()))
-                        .is_some_and(|references| !references.unknown)
-                })
+            .filter_map(|(destination, ty)| {
+                let forwarded = self
+                    .pending
+                    .get(&call)
+                    .and_then(|pending| pending.values.get(&Target::storage(destination.clone())));
+
+                if forwarded.is_some_and(|references| {
+                    !references.unknown && (references.targets.is_empty() || references.is_exact())
+                }) {
+                    return None;
+                }
+
+                Some((destination, ty, forwarded.and_then(References::regions)))
             })
             .collect::<Vec<_>>();
 
-        if references.is_empty() {
-            return;
-        }
+        let opaque_bounds = references
+            .iter()
+            .any(|(_, _, bounds)| bounds.is_none())
+            .then(|| {
+                let mut bounds =
+                    self.expand_returned_regions(self.transitive_regions(inputs, |_| true).0);
 
-        let mut roots = BTreeSet::new();
+                bounds.unknown = true;
 
-        for target in self.transitive_regions(inputs, |_| true).0 {
-            match &target.origin {
-                Origin::Returned { reference, .. } => {
-                    roots.extend(self.returned_input_regions(reference).iter().cloned());
+                bounds
+            });
+
+        for (destination, ty, forwarded) in references {
+            let bounds = match forwarded {
+                Some(regions) => self.expand_returned_regions(regions),
+                None => {
+                    // Each output retains independent bounds across later joins and retirement.
+                    opaque_bounds
+                        .as_ref()
+                        .expect("opaque results prepare their input bounds")
+                        .clone()
                 }
-                _ => {
-                    roots.insert(target);
-                }
-            }
-        }
+            };
 
-        for (destination, ty) in references {
-            // Replace the inconclusive forwarding attempt with the complete call-input bound.
             if let Some(pending) = self.pending.get_mut(&call) {
                 pending.values.remove(&Target::storage(destination.clone()));
             }
 
-            self.stage_returned_reference(
+            self.stage_bounded_reference(
                 call,
                 Target::storage(destination.clone()),
                 destination,
                 ty,
-                roots.iter().cloned(),
+                bounds,
             );
         }
+    }
+
+    fn expand_returned_regions(&self, regions: impl IntoIterator<Item = Target>) -> References {
+        let mut bounds = References::default();
+
+        for target in regions {
+            match &target.origin {
+                Origin::Returned { reference, .. } => {
+                    bounds.merge(self.returned_reference_bounds(reference));
+                }
+                _ => {
+                    bounds.targets.insert(target);
+                }
+            }
+        }
+
+        bounds
     }
 
     pub(in crate::analysis::storage_flow) fn stage_returned_reference(
@@ -147,12 +174,32 @@ impl State {
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
     ) {
-        // The finite union bounds older executions at loop joins. An empty bound
-        // excludes caller inputs without claiming a fresh allocation or exact identity.
+        self.stage_bounded_reference(
+            call,
+            destination,
+            reference,
+            ty,
+            References {
+                targets: inputs.into_iter().collect(),
+                unknown: true,
+                ..References::default()
+            },
+        );
+    }
+
+    fn stage_bounded_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        reference: Place,
+        ty: TypeId,
+        bounds: References,
+    ) {
+        // Joining executions unions their origins and whether an outside origin is possible.
         self.returned_inputs
             .entry(reference.clone())
             .or_default()
-            .extend(inputs);
+            .merge(&bounds);
 
         let target = Target {
             previous: false,

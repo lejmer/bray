@@ -9,17 +9,17 @@ using internal std.sync.once;
 impl Once<T>
 {
     internal trusted func claim() -> std.sync.once.Attempt<T>?
-        requires(blocking_execution(), trusted std.sync.once.valid(&self.instance))
+        requires(blocking_execution(), trusted std.sync.once.valid(&self.prepared.instance))
         ensures(
-            trusted std.sync.once.valid(&self.instance),
+            trusted std.sync.once.valid(&self.prepared.instance),
             result matches none || trusted std.sync.once.acquired(std.sync.once.marker<T>(&result)),
-            !(result matches none) || trusted std.sync.once.ready(&self.instance),
+            !(result matches none) || trusted std.sync.once.ready(&self.prepared.instance),
         )
         uses(raw_memory, unchecked_alias, intrinsic)
     {
         let state =
         {
-            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.storage);
+            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.prepared.storage);
 
             let authorize = trusted lambda(pos pointer: DataPointer<std.sync.once.State<T>>)
                 ensures(

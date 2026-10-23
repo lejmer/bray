@@ -436,7 +436,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
         using std.sync;
 
         func increment(pos lock: &std.sync.SpinLock<i32>)
-            requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
+            requires(trusted std.sync.spin_lock.valid(marker = &lock.prepared.instance)) {
             let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
             let value: &mut i32 = guard.get();
 
@@ -483,7 +483,7 @@ fn lock_guard_borrows_end_before_unlock_and_keep_the_lock_alive() {
             using std.sync;
 
             func use_after_unlock(pos lock: &std.sync.SpinLock<i32>)
-                requires(trusted std.sync.spin_lock.valid(marker = &lock.instance)) {
+                requires(trusted std.sync.spin_lock.valid(marker = &lock.prepared.instance)) {
                 let mut guard: std.sync.SpinLockGuard<i32> = lock.lock();
                 let value: &mut i32 = guard.get();
 
@@ -512,6 +512,7 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
         include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../../standard-library/std/src/collection/slot.bray"),
         include_str!("../../../../../../../standard-library/std/src/collection/hash_table.bray"),
     ];
 
@@ -538,36 +539,90 @@ fn sparse_hash_table_access_retains_its_owner_and_rejects_removal_while_borrowed
         compilation.check_diagnostics(),
     );
 
+    let provider = standard_library_compilation(sources);
+
     for (source, kind) in [
         (
             r#"
-            module std.collection;
+            module app;
 
             using std.memory;
+            using internal std.collection;
 
             internal func escape() -> Result< &i32, std.memory.MemoryLayoutError> {
-                let table: HashTable<i32> = try trusted HashTable<i32>(capacity = 4);
-                return Ok(trusted hash_table_item(&table, index = 0));
+                let table = try trusted std.collection.HashTable<i32>(capacity = 4);
+                return Ok(trusted std.collection.hash_table_item<i32>(&table, index = 0));
             }
             "#,
             bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
         ),
         (
             r#"
-            module std.collection;
+            module app;
 
-            internal func use_after_remove(pos table: &mut HashTable<i32>, index: usize) {
-                let value: &mut i32 = trusted hash_table_item_mut(table, index = index);
-                let removed: i32 = trusted hash_table_take(table, index = index);
+            using internal std.collection;
+
+            internal func use_after_remove(pos table: &mut std.collection.HashTable<i32>, index: usize) {
+                let value: &mut i32 = trusted std.collection.hash_table_item_mut<i32>(table, index = index);
+                let removed: i32 = trusted std.collection.hash_table_take<i32>(table, index = index);
                 value += removed;
             }
             "#,
             bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
         ),
-    ] {
-        let compilation = standard_library_compilation(sources.into_iter().chain([source]));
+        (
+            r#"
+            module app;
 
-        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), kind);
+            using internal std.collection;
+
+            internal func metadata_while_borrowed(pos table: &mut std.collection.HashTable<i32>, index: usize) {
+                let value = trusted std.collection.hash_table_item_mut<i32>(table, index = index);
+                table.count = 0;
+                value += 1;
+            }
+            "#,
+            bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow,
+        ),
+    ] {
+        for compilation in [
+            standard_library_compilation(sources.into_iter().chain([source])),
+            super::fixtures::execution_consumer(&provider, source),
+        ] {
+            bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), kind);
+        }
+    }
+
+    let source = r#"
+        module app;
+
+        using internal std.collection;
+
+        internal func metadata(pos table: &mut std.collection.HashTable<i32>, index: usize) {
+            let value = trusted std.collection.hash_table_item_mut<i32>(table, index = index);
+            value += 1;
+            table.count = 0;
+        }
+        internal func independent(
+            pos left: &mut std.collection.HashTable<i32>,
+            pos right: &mut std.collection.HashTable<i32>,
+            index: usize
+        ) {
+            let value = trusted std.collection.hash_table_item_mut<i32>(left, index = index);
+            let removed = trusted std.collection.hash_table_take<i32>(right, index = index);
+            value += removed;
+        }
+    "#;
+
+    for compilation in [
+        standard_library_compilation(sources.into_iter().chain([source])),
+        super::fixtures::execution_consumer(&provider, source),
+    ] {
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
     }
 }
 
@@ -3476,13 +3531,9 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     let caller = r#"
         trusted module app;
         using std.sync;
+        using std.memory;
         using internal std.sync.spin_lock;
-        static LOCK: std.sync.SpinLock<u32> =
-        {
-            let prepared = std.sync.SpinLock<u32>.prepare(0);
-
-            yield { instance = prepared.0, storage = prepared.1 };
-        };
+        static LOCK: std.sync.SpinLock<u32> = { prepared = std.sync.SpinLock<u32>.prepare(0) };
         trusted func acquire() -> std.sync.SpinLockGuard<u32>
             ensures(trusted std.sync.spin_lock.acquired(&result.acquisition)) { return LOCK.lock(); }
         func static_caller(pos callback: func() -> unit) {
@@ -3500,11 +3551,50 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
             let mut guard = lock.lock();
             change(access(&mut guard), callback);
         }
+        func prepared_caller() {
+            let prepared = std.sync.SpinLock<u32>.prepare(7);
+            let moved = prepared;
+            let owner: std.sync.SpinLock<u32> = { prepared = moved };
+            let mut guard = owner.lock();
+            let value = guard.get();
+            value += 1;
+        }
+        func reconstructed_preparation() {
+            let original = std.sync.SpinLock<u32>.prepare(7);
+            let owner: std.sync.SpinLock<u32> = {
+                prepared = {
+                    instance = original.instance,
+                    storage = std.memory.uninit<std.sync.spin_lock.State<u32>>(),
+                },
+            };
+            let _ = owner.lock();
+        }
+        func fabricated_owner() {
+            let owner: std.sync.SpinLock<u32> = {
+                prepared = {
+                    instance = std.sync.spin_lock.Marker {},
+                    storage = std.memory.uninit<std.sync.spin_lock.State<u32>>(),
+                },
+            };
+            let _ = owner.lock();
+        }
+        func fabricated_guard() {
+            let owner = std.sync.SpinLock<u32>(7);
+            let mut guard: std.sync.SpinLockGuard<u32> = {
+                lock = &owner, acquisition = std.sync.spin_lock.Marker {},
+            };
+            let _ = guard.get();
+        }
+        func replaced_storage() {
+            let mut owner = std.sync.SpinLock<u32>(7);
+            owner.prepared.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();
+            let _ = owner.lock();
+        }
     "#;
 
     let source = standard_library_compilation(declarations.into_iter().chain([caller]));
 
-    for name in ["caller", "static_caller"] {
+    for name in ["caller", "static_caller", "prepared_caller"] {
         let checked = source
             .lowered_unit(source_function_body_key(&source, name))
             .unwrap();
@@ -3519,7 +3609,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     let provider = standard_library_compilation(declarations);
     let consumer = super::fixtures::execution_consumer(&provider, caller);
 
-    for name in ["caller", "static_caller"] {
+    for name in ["caller", "static_caller", "prepared_caller"] {
         let checked = consumer
             .lowered_unit(source_function_body_key(&consumer, name))
             .unwrap();
@@ -3529,6 +3619,33 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
             "{name}: {:?}",
             checked.diagnostics()
         );
+    }
+
+    for application in [&source, &consumer] {
+        for (name, kind) in [
+            (
+                "reconstructed_preparation",
+                bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            ),
+            (
+                "fabricated_owner",
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            ),
+            (
+                "fabricated_guard",
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            ),
+            (
+                "replaced_storage",
+                bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority,
+            ),
+        ] {
+            let checked = application
+                .lowered_unit(source_function_body_key(application, name))
+                .unwrap();
+
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), kind);
+        }
     }
 }
 

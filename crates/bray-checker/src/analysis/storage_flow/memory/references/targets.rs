@@ -112,16 +112,15 @@ impl State {
 
             contents.exposed = true;
 
-            if let Some(previous) = contents.storage_type {
-                assert_eq!(
-                    previous, ty,
-                    "address formation preserves the declared storage type"
-                );
-            }
-
-            contents.storage_type = Some(ty);
-
             if exact {
+                if let Some(previous) = contents.storage_type {
+                    assert_eq!(
+                        previous, ty,
+                        "exact address formation preserves the declared storage type: {target:?}"
+                    );
+                }
+
+                contents.storage_type = Some(ty);
                 contents.initialized.insert(ty);
             }
 

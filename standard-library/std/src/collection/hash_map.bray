@@ -14,7 +14,7 @@ struct HashMap<Key, Value>
 {
     internal mut table: HashTable<MapItem<Key, Value>>;
 
-    trusted internal func find(pos key: &Key, hash: u128) -> usize?
+    trusted internal func find(pos key: &Key, hash: usize) -> usize?
         with(Key: Equatable<Key>)
     {
         let mut previous: usize? = none;
@@ -78,7 +78,7 @@ struct HashMap<Key, Value>
     func get(pos key: &Key) -> (&Value)?
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(key));
         let index: usize = (trusted self.find(key, hash = hash))?;
 
         let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(&self.table, index = index);
@@ -94,7 +94,7 @@ struct HashMap<Key, Value>
     mut func get_mut(pos key: &Key) -> (&mut Value)?
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(key));
         let index: usize = (trusted self.find(key, hash = hash))?;
 
         let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
@@ -114,7 +114,7 @@ struct HashMap<Key, Value>
     func contains_key(pos key: &Key) -> bool
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(key));
 
         return (trusted self.find(key, hash = hash)).is_present();
     }
@@ -123,7 +123,7 @@ struct HashMap<Key, Value>
     trusted mut func insert(pos key: Key, pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(&key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(&key));
 
         match trusted self.find(&key, hash = hash)
         {
@@ -177,7 +177,7 @@ struct HashMap<Key, Value>
     trusted mut func remove_entry(pos key: &Key) -> (Key, Value)?
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(key));
         let index: usize = (trusted self.find(key, hash = hash))?;
 
         let item: MapItem<Key, Value> = trusted hash_table_remove_at<MapItem<Key, Value>>(
@@ -196,7 +196,7 @@ struct HashMap<Key, Value>
     trusted mut func entry(pos key: Key) -> Result<Entry<Key, Value>, std.memory.MemoryLayoutError>
         with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
     {
-        let hash: u128 = std.hash.stable_hash<Key>(&key);
+        let hash: usize = hash_table_fingerprint(std.hash.stable_hash<Key>(&key));
 
         match trusted self.find(&key, hash = hash)
         {
@@ -229,7 +229,7 @@ internal func occupied_map_entry<Key, Value>(pos map: &mut HashMap<Key, Value>, 
 internal func vacant_map_entry<Key, Value>(
     pos map: &mut HashMap<Key, Value>,
     pos key: Key,
-    hash: u128
+    hash: usize
 ) -> Entry<Key, Value>
 {
     return Entry.Vacant(
@@ -323,7 +323,7 @@ struct VacantEntry<Key, Value>
 {
     internal mut map: &mut HashMap<Key, Value>;
     internal pending_key: Key;
-    internal hash: u128;
+    internal hash: usize;
 
     /// Borrows the key that would be inserted.
     func key() -> &Key
@@ -407,7 +407,7 @@ impl HashMapReadCursorIterator = HashMapReadCursor<Key, Value>(Iterator)
 
     mut func next() -> HashMapReference<Key, Value>?
     {
-        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+        let bucket_count: usize = std.memory.capacity<usize>(&self.map.table.buckets);
 
         while self.index < bucket_count
         {
@@ -415,7 +415,7 @@ impl HashMapReadCursorIterator = HashMapReadCursor<Key, Value>(Iterator)
 
             self.index += 1;
 
-            if trusted hash_table_occupied(&self.map.table.states, index = index)
+            if trusted hash_table_occupied(&self.map.table.buckets, index = index)
             {
                 let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(
                     &self.map.table,
@@ -474,7 +474,7 @@ impl HashMapWriteCursorIterator = HashMapWriteCursor<Key, Value>(Iterator)
 
     mut func next() -> HashMapReferenceMut<Key, Value>?
     {
-        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+        let bucket_count: usize = std.memory.capacity<usize>(&self.map.table.buckets);
 
         while self.index < bucket_count
         {
@@ -482,7 +482,7 @@ impl HashMapWriteCursorIterator = HashMapWriteCursor<Key, Value>(Iterator)
 
             self.index += 1;
 
-            if trusted hash_table_occupied(&self.map.table.states, index = index)
+            if trusted hash_table_occupied(&self.map.table.buckets, index = index)
             {
                 let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
                     &mut self.map.table,
@@ -534,12 +534,12 @@ impl HashMapMoveCursorIterator = HashMapMoveCursor<Key, Value>(Iterator)
 
     mut func next() -> (Key, Value)?
     {
-        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+        let bucket_count: usize = std.memory.capacity<usize>(&self.map.table.buckets);
 
         while self.index < bucket_count
         {
             let index: usize = self.index;
-            let occupied: bool = trusted hash_table_occupied(&self.map.table.states, index = index);
+            let occupied: bool = trusted hash_table_occupied(&self.map.table.buckets, index = index);
 
             self.index += 1;
 

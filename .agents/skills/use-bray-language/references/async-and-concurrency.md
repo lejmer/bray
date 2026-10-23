@@ -388,13 +388,7 @@ using std.thread;
 
 static CONFIGURATION: std.sync.Once<Configuration> =
 {
-    let prepared = std.sync.Once<Configuration>.prepare();
-
-    yield
-    {
-        instance = prepared.0,
-        storage = prepared.1,
-    };
+    prepared = std.sync.Once<Configuration>.prepare(),
 };
 
 func configuration() -> &Configuration
