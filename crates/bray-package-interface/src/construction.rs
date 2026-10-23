@@ -306,6 +306,7 @@ fn construction_input(
                 edge.owner(),
                 edge.name().clone(),
                 target,
+                edge.visibility(),
             ))
         })
         .collect::<Result<Vec<_>, ImportedSymbolConstructionError>>()?;
@@ -632,12 +633,14 @@ mod tests {
                 package_key,
                 SymbolKind::Package,
                 None,
+                bray_symbols::MemberVisibility::Public,
             ),
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(1),
                 module_key.clone(),
                 SymbolKind::Module,
                 Some(InterfaceSymbolId::new(0)),
+                bray_symbols::MemberVisibility::Public,
             ),
         ];
 
@@ -654,6 +657,7 @@ mod tests {
                 function_key(package_name, "run"),
                 SymbolKind::Function,
                 Some(InterfaceSymbolId::new(1)),
+                bray_symbols::MemberVisibility::Public,
             ));
 
             relationships.push(SymbolRelationship::new(
@@ -674,6 +678,7 @@ mod tests {
                     ExportedLookupKind::ReExport
                 },
                 target,
+                bray_symbols::MemberVisibility::Public,
             )
         });
 

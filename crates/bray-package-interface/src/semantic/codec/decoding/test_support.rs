@@ -239,9 +239,13 @@ pub(super) fn interface_surface(
 
     keys.insert(ExternalSymbolKey::package(package.clone()));
 
-    let records = keys
-        .iter()
-        .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
+    let records = keys.iter().map(|key| {
+        ExportSymbolInput::new(
+            key.clone(),
+            key.owner().cloned(),
+            bray_symbols::MemberVisibility::Public,
+        )
+    });
 
     let dependencies = dependencies.into_iter().map(|dependency| {
         InterfaceDependency::new(

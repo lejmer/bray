@@ -41,7 +41,7 @@ where
         references,
         ordinary,
         1,
-        &mut |module, name, access| binding_context.module_re_export_lookup(module, name, access),
+        &mut |owner, name, access| binding_context.semantic_member_lookup(owner, name, access),
     )?;
 
     if !matches!(lookup.result, MemberLookupResult::NotFound) {
@@ -57,7 +57,7 @@ where
         module.id(),
         path,
         access,
-        &mut |module, name, access| binding_context.module_re_export_lookup(module, name, access),
+        &mut |owner, name, access| binding_context.semantic_member_lookup(owner, name, access),
     )
 }
 

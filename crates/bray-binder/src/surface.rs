@@ -216,12 +216,12 @@ where
 
     let path = match symbols.containing_module(owner) {
         Some(module) => {
-            PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Internal)
+            PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Local)
         }
         None => PathBindingContext::without_module(
             scope,
             symbols.compiler_known_environment().id().into(),
-            NameAccess::Internal,
+            NameAccess::Local,
         ),
     };
 

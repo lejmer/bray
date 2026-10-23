@@ -66,6 +66,8 @@ pub enum DiagnosticInterfaceValidationField {
     SymbolName,
     /// Symbol category.
     SymbolKind,
+    /// Declaration or lookup-path accessibility.
+    Visibility,
     /// Containing declaration or container.
     Container,
     /// Owning record or declaration.
@@ -155,6 +157,7 @@ impl DiagnosticInterfaceValidationField {
             Self::ProductName => "product_name",
             Self::SymbolName => "symbol_name",
             Self::SymbolKind => "symbol_kind",
+            Self::Visibility => "visibility",
             Self::Container => "container",
             Self::Owner => "owner",
             Self::Subject => "subject",

@@ -5,9 +5,9 @@ use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
-    NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
-    TypeExpressionTemplate,
+    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurface,
+    ModuleSymbolId, NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey,
+    TypeAssociatedSurface, TypeExpressionTemplate,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -115,13 +115,52 @@ pub trait BindingQueryContext: Send + Sync {
         definition: CallableContractSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Self::UpstreamError>;
 
-    /// Resolves one name introduced by a source module export declaration.
-    fn module_re_export_lookup(
+    /// Returns the checked lexical imports and re-exports of one source module.
+    fn module_surface(
         &self,
         module: ModuleSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<ModuleSurface>>, Self::UpstreamError>;
+
+    /// Resolves checked re-exports or type-associated members beyond the identity graph.
+    fn semantic_member_lookup(
+        &self,
+        owner: AnySymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError>;
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError> {
+        if let AnySymbolId::Module(module) = owner {
+            let surface = self.module_surface(module)?;
+
+            if surface.value().re_exports().is_empty() {
+                return Ok(MemberLookupResult::NotFound);
+            }
+
+            let imported = self.imported_symbols()?;
+
+            return Ok(surface
+                .value()
+                .lookup_with_access(name, |member, visibility| {
+                    access.allows(visibility, bray_symbols::SymbolOrigin::Source)
+                        && crate::lookup::can_access_symbol(
+                            Some(self.symbols()),
+                            imported,
+                            member,
+                            access,
+                        )
+                }));
+        }
+
+        let Some(subject) = NamedTypeSymbolId::try_from_any(owner) else {
+            return Ok(MemberLookupResult::NotFound);
+        };
+
+        let surface = self.type_associated_surface(subject)?;
+        let imported = self.imported_symbols()?;
+
+        Ok(surface.value().lookup_with_access(name, |member, _| {
+            crate::lookup::can_access_symbol(Some(self.symbols()), imported, member, access)
+        }))
+    }
 
     /// Returns the complete declaration-level member surface associated with a named type.
     fn type_associated_surface(

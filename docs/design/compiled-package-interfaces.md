@@ -6,7 +6,7 @@ repeating definition-site binding.
 
 ## Artifact and component boundaries
 
-A `.brayi` interface describes one checked library product's public declaration graph, relationships, contracts, and
+A `.brayi` interface describes one checked library product's ordinary declaration graph, relationships, contracts, and
 required declaration-owned templates. A separate `.brayimpl` bundle carries executable templates needed for downstream
 generic specialization or constant evaluation. Interface-only queries do not load those bodies.
 
@@ -33,22 +33,27 @@ reassignment without reducing identity to a rendered path or signature hash. Art
 references only within the exact issuing interface. Dependency references preserve the defining external key and
 selected dependency identity.
 
-Imported modules represent logical merged modules, not source contributions. Re-exports project lookup edges to the
-original declaration rather than cloning it. Synthesized identities required by public contracts belong in the skeleton
+Imported modules represent logical merged modules, not source contributions. Their identities retain declared module
+paths and ancestry; package-relative spelling belongs to name lookup. Re-exports project lookup edges to the original
+declaration rather than cloning it. Synthesized identities required by public contracts belong in the skeleton
 without becoming ordinary lookup candidates.
 
-## Public and support graphs
+## Declaration and support graphs
 
-The public graph includes the relationships needed for lookup, overloads, implementations, coherence, and contract use.
-Checked templates may also require private support entities. Those entities occupy a separate graph and do not become
-importable, reflectable declarations simply because a public template refers to them.
+The declaration graph retains public and internal accessibility on declarations, modules, and re-export edges. Both
+remain ordinary declarations. Owning name analysis applies lexical acknowledgement and the declaration's owner and
+module caps equally to source and imported identities. An exporting module's acknowledgement is not a consumer grant.
+
+The graph includes the relationships needed for lookup, overloads, implementations, coherence, and contract use.
+Checked templates may also require compiler-only support entities. Those entities do not become ordinary lookup
+candidates simply because a declaration-owned template refers to them.
 
 Export construction requests the reachable semantic records, then freezes an error-free bundle. That narrow query does
 not waive the complete product check required for final emission. Recovery values and unresolved public dependencies
 cannot become a successful importable artifact.
 
-Private runtime role bindings stay in trusted product metadata. A public wrapper exports its ordinary inferred contract,
-not its binary role identity. The interface records the answers consumers need without distributing private source
+Compiler-owned runtime role bindings stay in trusted product metadata. A public wrapper exports its ordinary inferred contract,
+not its binary role identity. The interface records the answers consumers need without distributing dependency source
 syntax or checker-local flow state.
 
 ## Semantic records and checked templates

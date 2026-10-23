@@ -12,8 +12,8 @@ use crate::relationship::{
     VariantRelationships,
 };
 use crate::{
-    AnySymbolId, ImportedInterfaceId, ImportedSemanticKey, InterfaceSymbolId, SymbolKey,
-    SymbolName, SymbolOrigin,
+    AnySymbolId, ImportedInterfaceId, ImportedSemanticKey, InterfaceSymbolId, MemberVisibility,
+    SymbolKey, SymbolName, SymbolOrigin,
 };
 
 macro_rules! for_each_declaration_symbol {
@@ -74,6 +74,7 @@ pub(crate) enum DeclarationSymbolIdentity {
         containing_symbol: AnySymbolId,
         declaration: DeclarationId,
         syntax: SyntaxAnchor,
+        visibility: MemberVisibility,
     },
     InferredImplementationParameter {
         key: SymbolKey,
@@ -94,6 +95,7 @@ pub(crate) enum DeclarationSymbolIdentity {
         key: SymbolKey,
         containing_symbol: AnySymbolId,
         backing: ImportedSymbolBacking,
+        visibility: MemberVisibility,
     },
 }
 
@@ -119,12 +121,14 @@ impl DeclarationSymbolIdentity {
         containing_symbol: AnySymbolId,
         declaration: DeclarationId,
         syntax: SyntaxAnchor,
+        visibility: MemberVisibility,
     ) -> Self {
         Self::Source {
             key,
             containing_symbol,
             declaration,
             syntax,
+            visibility,
         }
     }
 
@@ -185,11 +189,22 @@ impl DeclarationSymbolIdentity {
         key: SymbolKey,
         containing_symbol: AnySymbolId,
         backing: ImportedSymbolBacking,
+        visibility: MemberVisibility,
     ) -> Self {
         Self::Imported {
             key,
             containing_symbol,
             backing,
+            visibility,
+        }
+    }
+
+    const fn visibility(&self) -> MemberVisibility {
+        match self {
+            Self::Source { visibility, .. } | Self::Imported { visibility, .. } => *visibility,
+            Self::InferredImplementationParameter { .. } | Self::CompilerKnown { .. } => {
+                MemberVisibility::Public
+            }
         }
     }
 
@@ -312,6 +327,11 @@ macro_rules! define_declaration_symbol_records {
                 /// Returns this symbol's stable semantic key.
                 pub const fn key(&self) -> &SymbolKey {
                     self.identity.key()
+                }
+
+                /// Returns the declaration's accessibility at its own boundary.
+                pub const fn visibility(&self) -> MemberVisibility {
+                    self.identity.visibility()
                 }
 
                 /// Returns this symbol's origin.

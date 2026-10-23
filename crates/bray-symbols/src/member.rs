@@ -27,6 +27,32 @@ impl MemberVisibility {
     }
 }
 
+/// Accessibility available at one lexical name reference.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NameAccess {
+    /// Only publicly visible declarations can be resolved.
+    Public,
+    /// Ordinary definition-site access to source declarations.
+    ///
+    /// Imported internal declarations still require explicit acknowledgement.
+    Local,
+    /// The reference explicitly acknowledges internal use.
+    Internal,
+}
+
+impl NameAccess {
+    /// Returns whether this reference permits the declaration's visibility and origin.
+    pub const fn allows(self, visibility: MemberVisibility, origin: crate::SymbolOrigin) -> bool {
+        match self {
+            Self::Public => visibility.is_public(),
+            Self::Local => {
+                !matches!(origin, crate::SymbolOrigin::Imported) || visibility.is_public()
+            }
+            Self::Internal => true,
+        }
+    }
+}
+
 /// Whether a member has a usable declaration surface for ordinary lookup.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MemberValidity {

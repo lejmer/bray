@@ -1109,6 +1109,7 @@ mod tests {
                 BoundReferenceTarget::Surface(function.into()),
                 Some(callable_type),
                 false,
+                bray_symbols::NameAccess::Local,
             )),
         );
 

@@ -98,7 +98,7 @@ pub use local::{
 };
 pub use member::{
     MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,
-    MemberVisibility, TypedMemberCollection,
+    MemberVisibility, NameAccess, TypedMemberCollection,
 };
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;

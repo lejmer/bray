@@ -84,8 +84,6 @@ impl Compilation {
             .symbol_graph()
             .map_err(super::super::super::invalid_compilation_fact_error)?;
 
-        let identity = build_identity_surface(self, symbols, product.value().public_symbols())?;
-
         let dependencies = self
             .loaded_interface_views(&self.state.cancellation)
             .map_err(super::super::super::invalid_compilation_fact_error)?
@@ -105,6 +103,13 @@ impl Compilation {
                 )
             })
             .collect::<Vec<_>>();
+
+        let identity = build_identity_surface(
+            self,
+            symbols,
+            product.value().public_symbols(),
+            &dependencies,
+        )?;
 
         // Package-interface identities are Arc-backed and retained by the immutable surface.
         let package_identity = request.identity().clone();

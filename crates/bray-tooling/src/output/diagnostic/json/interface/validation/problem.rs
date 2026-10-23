@@ -266,6 +266,24 @@ pub(in crate::output::diagnostic::json) fn interface_symbol_graph_problem_json(
             "surface_invalid_direct_export_target",
             [problem_count("target", *target)],
         ),
+        Problem::SurfaceDirectExportVisibilityMismatch {
+            name,
+            expected_public,
+            actual_public,
+        } => problem(
+            "surface_direct_export_visibility_mismatch",
+            [
+                problem_text("name", name),
+                DiagnosticProblemFieldJson {
+                    name: "expected_public",
+                    value: DiagnosticProblemFieldValueJson::Boolean(*expected_public),
+                },
+                DiagnosticProblemFieldJson {
+                    name: "actual_public",
+                    value: DiagnosticProblemFieldValueJson::Boolean(*actual_public),
+                },
+            ],
+        ),
         Problem::SurfaceDuplicateExportName { owner, name } => problem(
             "surface_duplicate_export_name",
             [problem_count("owner", *owner), problem_text("name", name)],
@@ -578,4 +596,35 @@ fn type_mismatch_problem(
             problem_count("actual_type", actual),
         ],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::interface_symbol_graph_problem_json;
+    use bray_diagnostics::DiagnosticInterfaceSymbolGraphProblem;
+
+    #[test]
+    fn visibility_mismatches_retain_their_name_and_both_boolean_values_in_json() {
+        let value = interface_symbol_graph_problem_json(
+            &DiagnosticInterfaceSymbolGraphProblem::SurfaceDirectExportVisibilityMismatch {
+                name: "Widget".to_owned(),
+                expected_public: true,
+                actual_public: false,
+            },
+        );
+
+        let value = serde_json::to_value(value).unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "reason": "surface_direct_export_visibility_mismatch",
+                "context": [
+                    {"name": "name", "value": {"kind": "text", "value": "Widget"}},
+                    {"name": "expected_public", "value": {"kind": "boolean", "value": true}},
+                    {"name": "actual_public", "value": {"kind": "boolean", "value": false}}
+                ]
+            })
+        );
+    }
 }

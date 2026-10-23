@@ -24,8 +24,29 @@ where
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
+    pub(super) fn member_is_accessible(
+        &mut self,
+        reference: bray_bound_tree::BoundPatternId,
+        owner: AnySymbolId,
+        member: AnySymbolId,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        let checked = self.request.context().check_member_access(
+            self.request.view(),
+            reference.into(),
+            owner,
+            member,
+        )?;
+
+        let (accessible, diagnostics) = checked.into_parts();
+
+        self.diagnostics.extend(diagnostics);
+
+        Ok(accessible)
+    }
+
     pub(super) fn child_subjects(
         &mut self,
+        id: bray_bound_tree::BoundPatternId,
         pattern: &BoundPattern,
         parent: PatternSubject,
         target: Option<BoundPatternTarget>,
@@ -146,6 +167,11 @@ where
                         }
                     };
 
+                    if !self.member_is_accessible(id, (*structure).into(), field.into())? {
+                        self.push_recovered_entry(entry, &mut children);
+                        continue;
+                    }
+
                     let subject = self.field_subject(
                         SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
                         *substitution,
@@ -190,6 +216,16 @@ where
 
                         continue;
                     };
+
+                    if !self.member_is_accessible(id, variant.into(), field.into())? {
+                        self.push_recovered_entry(entry, &mut children);
+
+                        if consumes_position {
+                            position += 1;
+                        }
+
+                        continue;
+                    }
 
                     let subject = self.field_subject(
                         SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field),

@@ -356,6 +356,7 @@ mod tests {
                         )),
                         None,
                         false,
+                        bray_symbols::NameAccess::Local,
                     )),
                 ));
 

@@ -12,6 +12,7 @@ pub(in crate::output::diagnostic::json) struct DiagnosticProblemFieldJson {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub(in crate::output::diagnostic::json) enum DiagnosticProblemFieldValueJson {
     Count(u64),
+    Boolean(bool),
     Text(String),
     Type(DiagnosticTypeJson),
     Types(Vec<DiagnosticTypeJson>),

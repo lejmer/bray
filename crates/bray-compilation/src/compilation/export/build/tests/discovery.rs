@@ -224,7 +224,7 @@ fn library_interfaces_exclude_test_only_block_module_suffixes() {
 }
 
 #[test]
-fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
+fn internal_owner_chains_retain_identity_and_declared_visibility() {
     let compilation = compilation(
         r#"
             module app;
@@ -241,7 +241,15 @@ fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
     let bundle = export(&compilation);
 
     assert_eq!(bundle.surface().symbols().symbols().len(), 5);
-    assert!(bundle.surface().exports().is_empty());
+
+    assert!(
+        bundle
+            .surface()
+            .exports()
+            .iter()
+            .any(|edge| edge.name().as_str() == "Hidden"
+                && edge.visibility() == bray_symbols::MemberVisibility::Internal)
+    );
 }
 
 #[test]

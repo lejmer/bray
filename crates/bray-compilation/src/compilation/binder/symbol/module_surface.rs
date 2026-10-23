@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
     BindingError, BindingQueryContext, BindingQueryError, NameAccess,
-    bind_surface_path_with_re_exports,
+    bind_surface_path_with_member_lookup,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord};
 use bray_diagnostics::{
@@ -337,7 +337,7 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
         let cycle_count = self.detected_cycles;
         let context = self.context;
 
-        let result = bind_surface_path_with_re_exports(
+        let result = bind_surface_path_with_member_lookup(
             context,
             module,
             path,
@@ -360,15 +360,19 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
 
     fn lookup(
         &mut self,
-        module: ModuleSymbolId,
+        owner: AnySymbolId,
         name: &str,
         access: NameAccess,
     ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
+        let AnySymbolId::Module(module) = owner else {
+            return self.context.semantic_member_lookup(owner, name, access);
+        };
+
         let surface = self.bind(module)?;
 
         Ok(match access {
             NameAccess::Public => surface.value().lookup_public(name),
-            NameAccess::Internal => surface.value().lookup(name),
+            NameAccess::Local | NameAccess::Internal => surface.value().lookup(name),
         })
     }
 

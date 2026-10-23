@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallablePosition, ExternalSymbolKey, InterfaceSymbolId, SymbolKind, SymbolName,
+    CallablePosition, ExternalSymbolKey, InterfaceSymbolId, MemberVisibility, SymbolKind,
+    SymbolName,
 };
 
 use crate::{
@@ -16,20 +17,31 @@ use crate::{
 pub struct ExportSymbolInput {
     key: ExternalSymbolKey,
     containing_symbol: Option<ExternalSymbolKey>,
+    visibility: MemberVisibility,
 }
 
 impl ExportSymbolInput {
     /// Creates one selected symbol using stable identities rather than table positions.
-    pub const fn new(key: ExternalSymbolKey, containing_symbol: Option<ExternalSymbolKey>) -> Self {
+    pub const fn new(
+        key: ExternalSymbolKey,
+        containing_symbol: Option<ExternalSymbolKey>,
+        visibility: MemberVisibility,
+    ) -> Self {
         Self {
             key,
             containing_symbol,
+            visibility,
         }
     }
 
     /// Returns the selected symbol's stable external identity.
     pub const fn key(&self) -> &ExternalSymbolKey {
         &self.key
+    }
+
+    /// Returns the selected declaration's accessibility.
+    pub const fn visibility(&self) -> MemberVisibility {
+        self.visibility
     }
 
     /// Returns the stable identity of the selected containing symbol.
@@ -127,6 +139,7 @@ pub struct ExportLookupInput {
     name: SymbolName,
     kind: ExportedLookupKind,
     target: ExportSymbolReferenceInput,
+    visibility: MemberVisibility,
 }
 
 impl ExportLookupInput {
@@ -136,12 +149,14 @@ impl ExportLookupInput {
         name: SymbolName,
         kind: ExportedLookupKind,
         target: ExportSymbolReferenceInput,
+        visibility: MemberVisibility,
     ) -> Self {
         Self {
             owner,
             name,
             kind,
             target,
+            visibility,
         }
     }
 
@@ -155,6 +170,10 @@ impl ExportLookupInput {
 
     pub(super) const fn kind(&self) -> ExportedLookupKind {
         self.kind
+    }
+
+    pub(super) const fn visibility(&self) -> MemberVisibility {
+        self.visibility
     }
 
     pub(super) const fn target(&self) -> &ExportSymbolReferenceInput {

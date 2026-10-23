@@ -1,3 +1,4 @@
+mod accessibility;
 mod constants;
 mod default_arguments;
 mod default_borrows;

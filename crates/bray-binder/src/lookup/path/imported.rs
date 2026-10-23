@@ -6,6 +6,7 @@ pub struct ImportedPathRoot<'symbols> {
     symbols: &'symbols ImportedSymbolSkeleton,
     package: PackageSymbolId,
     consumed_components: usize,
+    permits_internal_access: bool,
 }
 
 impl<'symbols> ImportedPathRoot<'symbols> {
@@ -50,7 +51,25 @@ impl<'symbols> ImportedPathRoot<'symbols> {
             symbols,
             package,
             consumed_components,
+            permits_internal_access: false,
         })
+    }
+
+    pub(crate) const fn with_internal_access(mut self, permitted: bool) -> Self {
+        self.permits_internal_access = permitted;
+
+        self
+    }
+
+    pub(crate) const fn name_access(
+        self,
+        requested: bray_symbols::NameAccess,
+    ) -> bray_symbols::NameAccess {
+        if matches!(requested, bray_symbols::NameAccess::Local) && self.permits_internal_access {
+            bray_symbols::NameAccess::Internal
+        } else {
+            requested
+        }
     }
 
     /// Returns the imported identity provider for the selected package.

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_binder::{
     BindingError, BindingQueryContext, BindingQueryError, ImportedPathRoot, NameAccess,
-    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_re_exports,
+    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_member_lookup,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
@@ -63,12 +63,12 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         path: &PathSyntax,
         access: NameAccess,
     ) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
-        bind_surface_path_with_re_exports(
+        bind_surface_path_with_member_lookup(
             self,
             module,
             path,
             access,
-            &mut |module, name, access| self.module_re_export_lookup(module, name, access),
+            &mut |owner, name, access| self.semantic_member_lookup(owner, name, access),
         )
     }
 
@@ -427,19 +427,11 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         )
     }
 
-    fn module_re_export_lookup(
+    fn module_surface(
         &self,
         module: ModuleSymbolId,
-        name: &str,
-        access: NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
-        let surface =
-            self.resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module))?;
-
-        Ok(match access {
-            NameAccess::Public => surface.value().lookup_public(name),
-            NameAccess::Internal => surface.value().lookup(name),
-        })
+    ) -> BindingQueryResult<Arc<DiagnosticResult<bray_symbols::ModuleSurface>>> {
+        self.resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module))
     }
 
     fn type_associated_surface(
@@ -1188,6 +1180,7 @@ mod tests {
                 BoundReferenceTarget::Surface(imported),
                 None,
                 false,
+                bray_symbols::NameAccess::Local,
             )),
         );
 

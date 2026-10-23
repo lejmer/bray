@@ -57,6 +57,32 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    /// Returns lexical name access for a reference, selection, or construction head.
+    ///
+    /// Call and aggregate syntax retain the access of their explicit head. Other expressions
+    /// provide ordinary definition-site access and do not propagate an acknowledgement.
+    pub fn name_access(
+        self,
+        mut expression: BoundExpressionId,
+    ) -> Option<bray_symbols::NameAccess> {
+        loop {
+            match self.expression(expression)? {
+                BoundExpression::Name(name) => return Some(name.name_access()),
+                BoundExpression::MemberAccess(member) => return Some(member.name_access()),
+                BoundExpression::TraitQualifiedMember(member) => return Some(member.name_access()),
+                BoundExpression::Call(call) => expression = call.callee(),
+                BoundExpression::StructConstruction(construction) => {
+                    let Some(head) = construction.head() else {
+                        return Some(bray_symbols::NameAccess::Local);
+                    };
+
+                    expression = head;
+                }
+                _ => return Some(bray_symbols::NameAccess::Local),
+            }
+        }
+    }
+
     /// Returns the direct expression parent of one committed expression, when present.
     pub fn expression_parent(self, id: BoundExpressionId) -> Option<BoundExpressionId> {
         match self.storage {

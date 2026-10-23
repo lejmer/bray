@@ -107,6 +107,7 @@ pub struct BoundNameExpression {
     ty: Option<TypeId>,
     generic_argument_list: Option<bray_declarations::SyntaxAnchor>,
     is_recovered: bool,
+    name_access: bray_symbols::NameAccess,
 }
 
 impl BoundNameExpression {
@@ -116,6 +117,7 @@ impl BoundNameExpression {
         target: BoundReferenceTarget,
         ty: Option<TypeId>,
         is_recovered: bool,
+        name_access: bray_symbols::NameAccess,
     ) -> Self {
         Self {
             origin,
@@ -123,7 +125,13 @@ impl BoundNameExpression {
             ty,
             generic_argument_list: None,
             is_recovered,
+            name_access,
         }
+    }
+
+    /// Returns the lexical accessibility retained for this reference or selection.
+    pub const fn name_access(&self) -> bray_symbols::NameAccess {
+        self.name_access
     }
 
     /// Returns the source or synthesized origin.
@@ -271,6 +279,7 @@ pub struct BoundMemberAccessExpression {
     selector: Option<BoundMemberSelector>,
     ty: Option<TypeId>,
     is_recovered: bool,
+    name_access: bray_symbols::NameAccess,
 }
 
 impl BoundMemberAccessExpression {
@@ -281,6 +290,7 @@ impl BoundMemberAccessExpression {
         selector: Option<BoundMemberSelector>,
         ty: Option<TypeId>,
         is_recovered: bool,
+        name_access: bray_symbols::NameAccess,
     ) -> Self {
         Self {
             origin,
@@ -288,7 +298,13 @@ impl BoundMemberAccessExpression {
             selector,
             ty,
             is_recovered,
+            name_access,
         }
+    }
+
+    /// Returns the lexical accessibility retained for this reference or selection.
+    pub const fn name_access(&self) -> bray_symbols::NameAccess {
+        self.name_access
     }
 
     /// Returns the source or synthesized origin.
@@ -330,6 +346,7 @@ pub struct BoundTraitQualifiedMemberExpression {
     selector: Option<BoundMemberSelector>,
     ty: Option<TypeId>,
     is_recovered: bool,
+    name_access: bray_symbols::NameAccess,
 }
 
 impl BoundTraitQualifiedMemberExpression {
@@ -341,6 +358,7 @@ impl BoundTraitQualifiedMemberExpression {
         selector: Option<BoundMemberSelector>,
         ty: Option<TypeId>,
         is_recovered: bool,
+        name_access: bray_symbols::NameAccess,
     ) -> Self {
         Self {
             origin,
@@ -349,7 +367,13 @@ impl BoundTraitQualifiedMemberExpression {
             selector,
             ty,
             is_recovered,
+            name_access,
         }
+    }
+
+    /// Returns the lexical accessibility retained for this reference or selection.
+    pub const fn name_access(&self) -> bray_symbols::NameAccess {
+        self.name_access
     }
 
     /// Returns the source or synthesized origin.

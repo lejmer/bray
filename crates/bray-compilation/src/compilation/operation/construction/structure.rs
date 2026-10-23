@@ -17,6 +17,10 @@ impl Compilation {
     pub(super) fn struct_construction_candidate(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        site: (
+            bray_bound_tree::BoundUnitView<'_>,
+            bray_bound_tree::BoundExpressionId,
+        ),
         result_type: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationCandidate>, FactQueryError> {
@@ -49,6 +53,49 @@ impl Compilation {
                     SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
                 )
             })?;
+
+        let Some(bray_bound_tree::BoundExpression::StructConstruction(construction)) =
+            site.0.expression(site.1)
+        else {
+            panic!("struct construction candidate requires aggregate syntax");
+        };
+
+        if !bray_binder::check_member_access(
+            binding_context,
+            site.0,
+            site.1.into(),
+            (*structure).into(),
+            (*structure).into(),
+            diagnostics,
+        )
+        .map_err(binding_query_error)?
+        {
+            return Ok(None);
+        }
+
+        for field in record.fields() {
+            let name = binding_context
+                .member_name((*field).into())
+                .map_err(binding_query_error)?
+                .expect("struct field has a declaration name");
+
+            if construction
+                .fields()
+                .iter()
+                .any(|input| input.name() == Some(name))
+                && !bray_binder::check_member_access(
+                    binding_context,
+                    site.0,
+                    site.1.into(),
+                    (*structure).into(),
+                    (*field).into(),
+                    diagnostics,
+                )
+                .map_err(binding_query_error)?
+            {
+                return Ok(None);
+            }
+        }
 
         let inputs = record
             .fields()

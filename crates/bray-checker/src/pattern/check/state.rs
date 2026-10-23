@@ -387,6 +387,15 @@ where
 
         let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref())?;
 
+        let target = match target {
+            Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant)))
+                if !self.member_is_accessible(id, variant.into(), variant.into())? =>
+            {
+                None
+            }
+            target => target,
+        };
+
         let kind = effective_pattern_kind(pattern, target);
         let only_union_variant = self.only_union_variant(type_data.as_ref(), target)?;
 
@@ -437,7 +446,8 @@ where
             matched_subject
         };
 
-        let children = self.child_subjects(pattern, child_parent, target, type_data.as_ref())?;
+        let children =
+            self.child_subjects(id, pattern, child_parent, target, type_data.as_ref())?;
 
         let mut child_refutability = Vec::with_capacity(pattern.children().len());
         let mut child_recovered = false;

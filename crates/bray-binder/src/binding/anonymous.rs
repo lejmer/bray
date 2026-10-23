@@ -194,7 +194,7 @@ mod tests {
             boundary.scope(),
             Some(module.id()),
             "captured",
-            crate::lookup::NameAccess::Internal,
+            crate::lookup::NameAccess::Local,
         );
 
         assert_eq!(capture_lookup, MemberLookupResult::NotFound);
@@ -205,7 +205,7 @@ mod tests {
             boundary.scope(),
             Some(module.id()),
             "value",
-            crate::lookup::NameAccess::Internal,
+            crate::lookup::NameAccess::Local,
         );
 
         assert!(matches!(

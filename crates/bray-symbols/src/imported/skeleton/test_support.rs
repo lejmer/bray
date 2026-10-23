@@ -181,6 +181,7 @@ pub(crate) fn lookup_input_fixture_with_routes(
         package_key,
         SymbolKind::Package,
         None,
+        crate::MemberVisibility::Public,
     )];
 
     identities.extend(module_keys.into_iter().enumerate().map(|(index, key)| {
@@ -189,6 +190,7 @@ pub(crate) fn lookup_input_fixture_with_routes(
             key,
             SymbolKind::Module,
             Some(InterfaceSymbolId::new(0)),
+            crate::MemberVisibility::Public,
         )
     }));
 
@@ -197,6 +199,7 @@ pub(crate) fn lookup_input_fixture_with_routes(
         declaration_key.clone(),
         spec.declaration_kind,
         Some(defining_module_id),
+        crate::MemberVisibility::Public,
     ));
 
     let symbols = ImportedPackageIdentitySurface::try_new(package, identities)
@@ -226,6 +229,7 @@ pub(crate) fn lookup_input_fixture_with_routes(
         exporting_module_id,
         symbol_name(spec.lookup_name),
         declaration_key.clone(),
+        crate::MemberVisibility::Public,
     )];
 
     let input = ImportedSymbolSkeletonInput::new(

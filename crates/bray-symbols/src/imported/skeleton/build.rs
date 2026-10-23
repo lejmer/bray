@@ -35,6 +35,23 @@ pub(super) fn build_imported_symbol_skeleton(
 
     let lookups = build_lookups(&inputs, &assigned.local_index, &assigned.external_index)?;
 
+    // Lookup indexes retain Arc-backed declaration names after identity construction.
+    let member_names = assigned
+        .identities
+        .iter()
+        .filter_map(|assigned| {
+            let crate::ExternalSymbolKeyData::Declaration {
+                identity: crate::ExternalDeclarationIdentity::Name(name),
+                ..
+            } = assigned.identity.key().data()
+            else {
+                return None;
+            };
+
+            Some((assigned.id, (name.clone(), assigned.identity.visibility())))
+        })
+        .collect();
+
     let records = super::records::build_records(
         assigned.identities,
         &containers,
@@ -42,7 +59,12 @@ pub(super) fn build_imported_symbol_skeleton(
         &relationship_index,
     )?;
 
-    Ok(records.finish(assigned.external_index, lookups, &relationship_index))
+    Ok(records.finish(
+        assigned.external_index,
+        lookups,
+        member_names,
+        &relationship_index,
+    ))
 }
 
 fn validate_and_sort_inputs(
@@ -303,7 +325,7 @@ fn build_lookups(
     local_index: &LocalSymbolIndex,
     external_index: &BTreeMap<crate::ExternalSymbolKey, AnySymbolId>,
 ) -> Result<
-    BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, AnySymbolId>>,
+    BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, (AnySymbolId, crate::MemberVisibility)>>,
     ImportedSymbolSkeletonBuildError,
 > {
     let mut lookups = BTreeMap::<_, BTreeMap<_, _>>::new();
@@ -325,7 +347,7 @@ fn build_lookups(
             if lookups
                 .entry(owner)
                 .or_default()
-                .insert(edge.name().clone(), target)
+                .insert(edge.name().clone(), (target, edge.visibility()))
                 .is_some()
             {
                 return Err(ImportedSymbolSkeletonBuildError::DuplicateLookupName {

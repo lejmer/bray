@@ -182,6 +182,15 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().lookup_member(owner, name))
     }
 
+    /// Checks a member reference in the bound unit's lexical scope.
+    fn check_member_access(
+        &self,
+        unit: bray_bound_tree::BoundUnitView<'_>,
+        reference: bray_bound_tree::AnyBoundNodeId,
+        owner: AnySymbolId,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<DiagnosticResult<bool>, Self::UpstreamError>;
+
     /// Returns the ordinary name of a source or imported declaration member.
     fn member_name(
         &self,

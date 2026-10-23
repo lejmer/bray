@@ -6,8 +6,8 @@ use bray_package_interface::{
     ExportedLookupKind, SymbolRelationshipKind,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, MemberLookupResult, ModulePathKey, ModuleSurfaceQuery,
-    ModuleSymbolId, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
+    AnySymbolId, ExternalSymbolKey, MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId,
+    SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 use bray_syntax::PathSyntax;
@@ -42,6 +42,7 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     public_symbols: &[AnySymbolId],
+    dependencies: &[bray_package_interface::InterfaceDependency],
 ) -> Result<ExportIdentitySurface, PackageInterfaceExportError> {
     // The exported surface retains the Arc-backed package identity independently.
     let package_key = ExternalSymbolKey::package(compilation.package_identity().clone());
@@ -64,7 +65,7 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
     for module in graph
         .modules()
         .iter()
-        .filter(|module| module.origin() == SymbolOrigin::Source && module.visibility().is_public())
+        .filter(|module| module.origin() == SymbolOrigin::Source)
     {
         if module.is_recovered() {
             return Err(PackageInterfaceExportError::RecoveredPublicSymbol(
@@ -120,7 +121,11 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
 
     let mut exports = direct_exports(graph, &selected, &keys)?;
 
-    exports.extend(compilation.public_module_re_exports(&module_keys(graph, &keys)?)?);
+    exports.extend(compilation.module_re_exports(
+        &module_keys(graph, &keys)?,
+        &keys,
+        dependencies,
+    )?);
 
     Ok(ExportIdentitySurface {
         symbols,
@@ -180,11 +185,9 @@ fn source_overload_relationships(
 
             let result = match owner {
                 AnySymbolId::Module(module) => {
-                    binding_context.bind_surface_path(module, &path, NameAccess::Internal)
+                    binding_context.bind_surface_path(module, &path, NameAccess::Local)
                 }
-                owner => {
-                    binding_context.bind_owner_surface_path(owner, &path, NameAccess::Internal)
-                }
+                owner => binding_context.bind_owner_surface_path(owner, &path, NameAccess::Local),
             }
             .map_err(super::super::super::invalid_compilation_binding_error)?;
 
@@ -337,7 +340,7 @@ fn external_key(
 
     let key = match graph.symbol_key(symbol).map(|key| key.data()) {
         Some(SymbolKeyData::Module { path, .. }) => {
-            ExternalSymbolKey::module(owner_key.clone(), external_module_path(&owner_key, path))
+            ExternalSymbolKey::module(owner_key.clone(), path.clone())
         }
         Some(SymbolKeyData::Synthesized(synthesized)) => ExternalSymbolKey::synthesized(
             owner_key,
@@ -364,24 +367,6 @@ fn external_synthesized_ordinal(key: &SynthesizedSymbolKey) -> Option<SymbolOrdi
         | SynthesizedSymbolRole::UnionPayloadDefaultProvider => None,
         _ => key.ordinal(),
     }
-}
-
-fn external_module_path(package: &ExternalSymbolKey, path: &ModulePathKey) -> ModulePathKey {
-    let package_segments = package
-        .package_identity()
-        .as_str()
-        .split('.')
-        .collect::<Vec<_>>();
-
-    let path_segments = path.segments().collect::<Vec<_>>();
-
-    if path_segments.len() > package_segments.len() && path_segments.starts_with(&package_segments)
-    {
-        return ModulePathKey::try_new(path_segments[package_segments.len()..].iter().copied())
-            .unwrap_or_else(|| path.clone());
-    }
-
-    path.clone()
 }
 
 fn external_declaration_key(
@@ -456,7 +441,11 @@ fn export_symbol(
         None => None,
     };
 
-    Ok(ExportSymbolInput::new(key, containing_symbol))
+    let visibility = graph
+        .symbol_visibility(symbol)
+        .unwrap_or(bray_symbols::MemberVisibility::Public);
+
+    Ok(ExportSymbolInput::new(key, containing_symbol, visibility))
 }
 
 fn export_relationship(
@@ -586,13 +575,9 @@ fn direct_exports(
 
             let member = graph.member_entry(symbol)?;
 
-            if !member.visibility().is_public() {
-                return None;
-            }
-
-            Some((owner, member.name().clone(), symbol))
+            Some((owner, member.name().clone(), symbol, member.visibility()))
         })
-        .map(|(owner, name, symbol)| {
+        .map(|(owner, name, symbol, visibility)| {
             let owner = keys.get(&owner).cloned().ok_or(
                 PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
             )?;
@@ -606,6 +591,7 @@ fn direct_exports(
                 name,
                 ExportedLookupKind::Direct,
                 ExportSymbolReferenceInput::Local(target),
+                visibility,
             ))
         })
         .collect()
@@ -618,7 +604,7 @@ fn module_keys(
     graph
         .modules()
         .iter()
-        .filter(|module| module.origin() == SymbolOrigin::Source && module.visibility().is_public())
+        .filter(|module| module.origin() == SymbolOrigin::Source)
         .map(|module| {
             keys.get(&module.id().into())
                 .cloned()
@@ -633,9 +619,11 @@ fn module_keys(
 }
 
 impl Compilation {
-    fn public_module_re_exports(
+    fn module_re_exports(
         &self,
         module_keys: &BTreeMap<ModuleSymbolId, ExternalSymbolKey>,
+        keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
+        dependencies: &[bray_package_interface::InterfaceDependency],
     ) -> Result<Vec<ExportLookupInput>, PackageInterfaceExportError> {
         let semantics = self
             .binding_context(&self.state.cancellation)
@@ -653,38 +641,76 @@ impl Compilation {
                 return Err(PackageInterfaceExportError::InvalidCompilation);
             }
 
-            for edge in surface
-                .value()
-                .re_exports()
-                .iter()
-                .filter(|edge| edge.visibility().is_public())
-            {
-                let AnySymbolId::Module(target) = edge.target() else {
-                    return Err(
-                        PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
-                            edge.target().kind(),
-                        ),
-                    );
-                };
-
-                let Some(target_key) = module_keys.get(&target) else {
-                    return Err(
-                        PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
-                            SymbolKind::Module,
-                        ),
-                    );
+            // Frozen lookup edges retain shared declaration names and external identities.
+            for edge in surface.value().re_exports() {
+                let target = if let Some(key) = keys.get(&edge.target()) {
+                    ExportSymbolReferenceInput::Local(key.clone())
+                } else {
+                    self.imported_re_export_target(&semantics, edge.target(), dependencies)?
                 };
 
                 exports.push(ExportLookupInput::new(
                     owner_key.clone(),
                     edge.name().clone(),
                     ExportedLookupKind::ReExport,
-                    ExportSymbolReferenceInput::Local(target_key.clone()),
+                    target,
+                    edge.visibility(),
                 ));
             }
         }
 
         Ok(exports)
+    }
+
+    fn imported_re_export_target(
+        &self,
+        semantics: &crate::compilation::binder::CompilationBindingContext<'_>,
+        target: AnySymbolId,
+        dependencies: &[bray_package_interface::InterfaceDependency],
+    ) -> Result<ExportSymbolReferenceInput, PackageInterfaceExportError> {
+        let imported = semantics
+            .imported_symbols()
+            .map_err(super::super::super::invalid_compilation_binding_error)?
+            .expect("checked imported re-export has an imported symbol skeleton");
+
+        let key = match imported.symbol_key(target).map(|key| key.data()) {
+            Some(SymbolKeyData::External(key)) => key.clone(),
+            Some(SymbolKeyData::Module { .. }) => {
+                let AnySymbolId::Module(module) = target else {
+                    panic!("checked module re-export has non-module target {target:?}");
+                };
+
+                let module = imported
+                    .module(module)
+                    .expect("checked re-export module exists");
+
+                let bray_symbols::ModuleOwnerId::Package(package) = module.owner() else {
+                    panic!("checked imported module re-export has non-package owner");
+                };
+
+                let package = imported
+                    .package(package)
+                    .expect("checked re-export package exists");
+
+                ExternalSymbolKey::module(
+                    ExternalSymbolKey::package(package.identity().clone()),
+                    module.path().clone(),
+                )
+                .expect("checked imported module has a valid external path")
+            }
+            actual => panic!(
+                "checked re-export {target:?} has no source or imported identity: {actual:?}"
+            ),
+        };
+
+        let dependency = dependencies
+            .iter()
+            .position(|dependency| dependency.package() == key.package_identity())
+            .and_then(|index| u32::try_from(index).ok())
+            .map(bray_package_interface::DependencyInterfaceId::new)
+            .expect("checked imported re-export belongs to a loaded dependency");
+
+        Ok(ExportSymbolReferenceInput::Dependency { dependency, key })
     }
 }
 

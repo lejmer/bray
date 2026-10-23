@@ -298,6 +298,12 @@ pub(crate) fn decode_symbols(
             InterfaceValidationField::SymbolKind,
         )?;
 
+        let visibility = read_tag(
+            &mut reader,
+            record_context,
+            InterfaceValidationField::Visibility,
+        )?;
+
         let container = read_optional_u32(
             &mut reader,
             record_context,
@@ -324,7 +330,9 @@ pub(crate) fn decode_symbols(
             )
         })?;
 
-        symbols.push(ImportedSymbolIdentityInput::new(id, key, kind, container));
+        symbols.push(ImportedSymbolIdentityInput::new(
+            id, key, kind, container, visibility,
+        ));
     }
 
     reader
@@ -446,6 +454,12 @@ pub(crate) fn decode_exports(
             InterfaceValidationField::SymbolKind,
         )?;
 
+        let visibility = read_tag(
+            &mut reader,
+            record_context,
+            InterfaceValidationField::Visibility,
+        )?;
+
         let actual = read_u32(
             &mut reader,
             record_context,
@@ -495,7 +509,9 @@ pub(crate) fn decode_exports(
             }
         };
 
-        exports.push(ExportedLookupEdge::new(owner, name, kind, target));
+        exports.push(ExportedLookupEdge::new(
+            owner, name, kind, target, visibility,
+        ));
     }
 
     reader

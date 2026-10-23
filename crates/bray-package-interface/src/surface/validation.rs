@@ -240,10 +240,22 @@ fn validate_export_target(
                 ));
             };
 
-            if edge.kind() == ExportedLookupKind::Direct
-                && target_symbol.container() != Some(edge.owner())
-            {
-                return Err(PackageInterfaceSurfaceBuildError::InvalidDirectExportTarget(*target));
+            if edge.kind() == ExportedLookupKind::Direct {
+                if target_symbol.container() != Some(edge.owner()) {
+                    return Err(
+                        PackageInterfaceSurfaceBuildError::InvalidDirectExportTarget(*target),
+                    );
+                }
+
+                if target_symbol.visibility() != edge.visibility() {
+                    return Err(
+                        PackageInterfaceSurfaceBuildError::DirectExportVisibilityMismatch {
+                            name: edge.name().clone(),
+                            expected: target_symbol.visibility(),
+                            actual: edge.visibility(),
+                        },
+                    );
+                }
             }
         }
         InterfaceSymbolReference::Dependency { dependency, key } => {

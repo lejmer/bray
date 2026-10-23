@@ -2,9 +2,9 @@ use bray_declarations::DeclarationId;
 
 use crate::record::for_each_declaration_symbol;
 use crate::{
-    AnySymbolId, CallableParameterDefaultProviderSymbol, MemberEntry, MemberVisibility,
-    ModuleSymbol, PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
-    SymbolGraph, SymbolOrigin, UnionPayloadDefaultProviderSymbol,
+    AnySymbolId, CallableParameterDefaultProviderSymbol, MemberVisibility, ModuleSymbol,
+    PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol, SymbolGraph,
+    SymbolOrigin, UnionPayloadDefaultProviderSymbol,
 };
 
 macro_rules! define_symbol_observations {
@@ -82,10 +82,6 @@ for_each_declaration_symbol!(define_symbol_observations);
 impl SymbolGraph {
     /// Returns declaration-level visibility when the symbol has one.
     pub fn symbol_visibility(&self, symbol: AnySymbolId) -> Option<MemberVisibility> {
-        match symbol {
-            AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::visibility),
-            AnySymbolId::CompilerKnownEnvironment(_) | AnySymbolId::Package(_) => None,
-            _ => self.member_entry(symbol).map(MemberEntry::visibility),
-        }
+        crate::provider::symbol_visibility_from_provider(self, symbol)
     }
 }

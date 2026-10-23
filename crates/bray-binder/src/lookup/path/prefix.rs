@@ -11,9 +11,9 @@ use super::super::diagnostic::NameReference;
 use super::core::NameAccess;
 use crate::ImportedPathRoot;
 
-pub(super) struct PathLookup {
-    pub(super) result: NameLookupResult<ResolvedName>,
-    pub(super) reference: Option<NameReference>,
+pub(crate) struct PathLookup {
+    pub(crate) result: NameLookupResult<ResolvedName>,
+    pub(crate) reference: Option<NameReference>,
 }
 
 pub(crate) fn lookup_surface_name_with_imports(
@@ -28,14 +28,12 @@ pub(crate) fn lookup_surface_name_with_imports(
     }
 
     imported_symbols.map_or(MemberLookupResult::NotFound, |symbols| {
-        combine_name_lookups(
-            symbols
-                .lookup(owner, name)
-                .map(ResolvedName::Surface, ResolvedName::Surface),
-            symbols
-                .lookup_member(owner, name)
-                .map(ResolvedName::Surface, ResolvedName::Surface),
-        )
+        symbols
+            .lookup_with_access(owner, name, |member, visibility| {
+                access.allows(visibility, bray_symbols::SymbolOrigin::Imported)
+                    && super::super::access::can_access_symbol(None, Some(symbols), member, access)
+            })
+            .map(ResolvedName::Surface, ResolvedName::Surface)
     })
 }
 
@@ -47,6 +45,7 @@ pub(super) fn imported_path_prefix(
     references: &[NameReference],
     access: NameAccess,
 ) -> PathPrefixLookup {
+    let access = root.name_access(access);
     let remaining = &references[root.consumed_components()..];
 
     if let Some((_, length, lookup)) =
@@ -61,7 +60,7 @@ pub(super) fn imported_path_prefix(
         && let Some(module) = root.symbols().module_by_path(root.package(), &path)
     {
         return (
-            module_name_lookup(module, access),
+            module_name_lookup(module, access, None, Some(root.symbols())),
             root.consumed_components(),
         );
     }
@@ -93,7 +92,7 @@ pub(super) fn next_module_prefix(
             continue;
         };
 
-        let lookup = module_name_lookup(module, access);
+        let lookup = module_name_lookup(module, access, Some(symbols), None);
 
         match &lookup {
             MemberLookupResult::Found(_) => return Some((module.id(), length, lookup)),
@@ -143,11 +142,32 @@ pub(super) fn next_imported_module_prefix(
         let child_segments = references[..length].iter().map(NameReference::text);
         let path = ModulePathKey::try_new(parent_segments.chain(child_segments))?;
 
-        let Some(module) = symbols.module_by_path(package, &path) else {
+        let module = symbols.module_by_path(package, &path).or_else(|| {
+            if parent.is_some() {
+                return None;
+            }
+
+            let package = symbols
+                .package(package)
+                .expect("imported module prefix has a selected package");
+
+            let qualified = ModulePathKey::try_new(
+                package
+                    .identity()
+                    .as_str()
+                    .split('.')
+                    .chain(path.segments()),
+            )
+            .expect("qualified imported module path is nonempty");
+
+            symbols.module_by_path(package.id(), &qualified)
+        });
+
+        let Some(module) = module else {
             continue;
         };
 
-        let lookup = module_name_lookup(module, access);
+        let lookup = module_name_lookup(module, access, None, Some(symbols));
 
         return Some((module.id(), length, lookup));
     }
@@ -168,13 +188,20 @@ pub(super) fn compiler_known_module_for_imported(
 
     let package = imported_symbols.package(package)?;
 
-    let path = ModulePathKey::try_new(
-        package
-            .identity()
-            .as_str()
-            .split('.')
-            .chain(module.path().segments()),
-    )?;
+    let package_components = package.identity().as_str().split('.');
+
+    let qualified = module
+        .path()
+        .segments()
+        .take(package_components.clone().count())
+        .eq(package_components.clone());
+
+    let path = if qualified {
+        module.path().clone()
+    } else {
+        ModulePathKey::try_new(package_components.chain(module.path().segments()))
+            .expect("compiler-known module path is nonempty")
+    };
 
     symbols
         .module_by_path(
@@ -261,10 +288,15 @@ pub(super) fn path_lookup(
     }
 }
 
-fn module_name_lookup(module: &ModuleSymbol, access: NameAccess) -> NameLookupResult<ResolvedName> {
+fn module_name_lookup(
+    module: &ModuleSymbol,
+    access: NameAccess,
+    source: Option<&SymbolGraph>,
+    imported: Option<&ImportedSymbolSkeleton>,
+) -> NameLookupResult<ResolvedName> {
     let candidate = ResolvedName::Surface(module.id().into());
 
-    if !access.allows(module.visibility()) {
+    if !super::super::access::can_access_symbol(source, imported, module.id().into(), access) {
         MemberLookupResult::Inaccessible(vec![candidate].into_boxed_slice())
     } else if module.is_recovered() {
         MemberLookupResult::Malformed(vec![candidate].into_boxed_slice())

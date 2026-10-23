@@ -4,7 +4,7 @@ use bray_symbols::{AnySymbolId, MemberLookupResult, ModuleOwnerId};
 use bray_syntax::SyntaxToken;
 
 use super::super::binding::{NameLookupResult, combine_name_lookups, lookup_surface_name};
-use super::super::category::{ResolvedMemberName, classify_member};
+use super::super::category::{ResolvedMemberName, ResolvedName, classify_member};
 use super::super::diagnostic::{malformed_lookup, report_lookup_result};
 use super::core::NameAccess;
 use super::prefix::{
@@ -94,6 +94,16 @@ where
             ),
             _ => MemberLookupResult::NotFound,
         };
+
+        if matches!(ordinary, MemberLookupResult::NotFound)
+            && matches!(module_prefix, MemberLookupResult::NotFound)
+            && matches!(owner, AnySymbolId::Module(module) if symbols.symbol_origin(module.into()) == Some(bray_symbols::SymbolOrigin::Source))
+        {
+            ordinary = self
+                .binding_context()
+                .semantic_member_lookup(owner, reference.text(), access)?
+                .map(ResolvedName::Surface, ResolvedName::Surface);
+        }
 
         let result = combine_name_lookups(ordinary, module_prefix).classify(classify_member);
 

@@ -154,6 +154,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         let imported_symbols = self.imports.imported_symbols()?;
 
+        // The admitted trait application establishes its members' inherited visibility.
+        // Trait members cannot declare an independent visibility boundary.
         let lookup = lookup_surface_name_with_imports(
             self.symbols,
             imported_symbols,
@@ -203,7 +205,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 self.symbols,
                 context.symbol(),
                 first,
-                crate::lookup::NameAccess::Internal,
+                crate::lookup::NameAccess::Local,
             );
 
             if contextual != MemberLookupResult::NotFound {
@@ -215,7 +217,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             self.symbols,
             self.symbols.compiler_known_environment().id().into(),
             first,
-            crate::lookup::NameAccess::Internal,
+            crate::lookup::NameAccess::Local,
         );
 
         let Some(module) = self.module else {
@@ -227,7 +229,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 self.symbols,
                 module.into(),
                 first,
-                crate::lookup::NameAccess::Internal,
+                crate::lookup::NameAccess::Local,
             ),
             ambient,
         );
@@ -239,7 +241,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             imported_root,
             module,
             path,
-            crate::lookup::NameAccess::Internal,
+            crate::lookup::NameAccess::Local,
             ordinary,
         ))
     }

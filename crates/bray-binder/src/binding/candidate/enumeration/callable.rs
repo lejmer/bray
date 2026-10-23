@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitView,
     BoundUnresolvedReferenceKind, DeclaredValueTypeTerm,
 };
 use bray_checker::{
@@ -103,6 +103,7 @@ where
         BoundExpression::Name(name) => bind_reference_target(
             context,
             name.target(),
+            (unit.view(), callee),
             state_for_recovery(name.is_recovered()),
             generic,
             &mut diagnostics,
@@ -118,6 +119,7 @@ where
                     bind_reference_target(
                         context,
                         *target,
+                        (unit.view(), callee),
                         state,
                         generic,
                         &mut diagnostics,
@@ -166,6 +168,7 @@ where
 fn bind_reference_target<C>(
     context: &C,
     target: BoundReferenceTarget,
+    site: (BoundUnitView<'_>, BoundExpressionId),
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
@@ -198,6 +201,7 @@ where
             bind_primary_constructor_candidates(
                 context,
                 subject,
+                site,
                 state,
                 generic,
                 diagnostics,
@@ -330,10 +334,8 @@ where
     };
 
     let lookup = match owner {
-        AnySymbolId::Module(module) => {
-            bind_module_path(context, module, &path, NameAccess::Internal)?
-        }
-        owner => bind_owner_path(context, owner, &path, NameAccess::Internal)?,
+        AnySymbolId::Module(module) => bind_module_path(context, module, &path, NameAccess::Local)?,
+        owner => bind_owner_path(context, owner, &path, NameAccess::Local)?,
     };
 
     let outcome = match lookup {

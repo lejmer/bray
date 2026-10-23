@@ -906,6 +906,7 @@ mod tests {
                     Some(BoundMemberSelector::Name(test_name())),
                     None,
                     false,
+                    bray_symbols::NameAccess::Local,
                 )),
             );
 

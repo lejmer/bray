@@ -34,6 +34,7 @@ impl Compilation {
     pub(super) fn leading_dot_variant_candidate(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        site: (bray_bound_tree::BoundUnitView<'_>, BoundExpressionId),
         result_type: TypeId,
         selector: Option<&BoundMemberSelector>,
         diagnostics: &mut DiagnosticBag,
@@ -52,6 +53,7 @@ impl Compilation {
 
         self.union_variant_candidate(
             binding_context,
+            site,
             variant,
             result_type,
             substitution,
@@ -62,6 +64,7 @@ impl Compilation {
     pub(super) fn unqualified_variant_candidate(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        site: (bray_bound_tree::BoundUnitView<'_>, BoundExpressionId),
         result_type: TypeId,
         variant: &BoundUnqualifiedVariantExpression,
         diagnostics: &mut DiagnosticBag,
@@ -75,6 +78,7 @@ impl Compilation {
                 substitution,
             } => self.union_variant_candidate(
                 binding_context,
+                site,
                 target,
                 result_type,
                 substitution,
@@ -111,6 +115,7 @@ impl Compilation {
             Some(BoundExpression::LeadingDotVariant(variant)) => {
                 return self.leading_dot_variant_candidate(
                     binding_context,
+                    (unit.view(), callee),
                     result_type,
                     variant.selector(),
                     diagnostics,
@@ -128,6 +133,7 @@ impl Compilation {
             Some(BoundExpression::UnqualifiedVariant(variant)) => {
                 return self.unqualified_variant_candidate(
                     binding_context,
+                    (unit.view(), callee),
                     result_type,
                     variant,
                     diagnostics,
@@ -136,6 +142,7 @@ impl Compilation {
             Some(BoundExpression::MemberAccess(member)) => {
                 return self.leading_dot_variant_candidate(
                     binding_context,
+                    (unit.view(), callee),
                     result_type,
                     member.selector(),
                     diagnostics,
@@ -170,6 +177,7 @@ impl Compilation {
 
         self.union_variant_candidate(
             binding_context,
+            (unit.view(), callee),
             variant,
             result_type,
             *substitution,
@@ -224,6 +232,7 @@ impl Compilation {
     fn union_variant_candidate(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        site: (bray_bound_tree::BoundUnitView<'_>, BoundExpressionId),
         variant: bray_symbols::UnionVariantSymbolId,
         result_type: TypeId,
         substitution: bray_symbols::GenericSubstitutionId,
@@ -238,6 +247,19 @@ impl Compilation {
                     SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
                 )
             })?;
+
+        if !bray_binder::check_member_access(
+            binding_context,
+            site.0,
+            site.1.into(),
+            record.union().into(),
+            variant.into(),
+            diagnostics,
+        )
+        .map_err(binding_query_error)?
+        {
+            return Ok(None);
+        }
 
         let inputs = record
             .payload_fields()

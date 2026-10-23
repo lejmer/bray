@@ -1815,6 +1815,7 @@ mod tests {
                 BoundReferenceTarget::Surface(target),
                 Some(ty),
                 false,
+                bray_symbols::NameAccess::Local,
             )),
         )
     }
