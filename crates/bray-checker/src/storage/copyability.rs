@@ -179,7 +179,7 @@ where
         let data = self.context.semantic_values().type_data(ty);
 
         match data.as_ref() {
-            TypeData::Error => Ok(true),
+            TypeData::Error | TypeData::ExactInteger { .. } => Ok(true),
             TypeData::Borrow {
                 kind: BorrowKind::Shared,
                 ..

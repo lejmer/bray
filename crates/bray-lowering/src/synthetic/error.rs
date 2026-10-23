@@ -10,6 +10,11 @@ pub enum SyntheticLoweringError {
     Capacity(MirCapacityError),
     /// A represented member or element ordinal exceeds the MIR index range.
     LayoutOverflow(TypeId),
+    /// An exact integer expression needs more bits than the backend representation permits.
+    ExactIntegerCapacity {
+        /// A lower bound on the required representation width.
+        minimum_bits: u64,
+    },
 }
 
 impl<C: super::SyntheticLoweringContext + ?Sized> super::SyntheticLowerer<'_, C> {

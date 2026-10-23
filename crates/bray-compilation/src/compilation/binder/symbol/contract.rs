@@ -208,7 +208,7 @@ fn bind_callable_predicate_contracts(
                 .map_err(BindingQueryError::SemanticValue)?;
 
             let predicate = bray_symbols::PredicateSemanticSummary::new(dependency)
-                .with_condition(condition, predicate.is_trusted());
+                .with_condition(condition, predicate.domain());
 
             predicates.push(CallableContractClause::new(
                 symbol_ordinal(predicates.len())?,
@@ -623,9 +623,6 @@ fn bind_callable_contracts(
         // A foreign ABI cannot propagate Bray panic or cancellation across its boundary.
         abi == bray_symbols::CallableAbi::Bray
     };
-
-    let may_unwind = may_unwind
-        || crate::compilation::execution_guarantees::has_runtime_preconditions(&predicates);
 
     match deferred_execution_behavior.take() {
         Some(deferred) => deferred_execution_behavior = Some(deferred.with_may_unwind(may_unwind)),

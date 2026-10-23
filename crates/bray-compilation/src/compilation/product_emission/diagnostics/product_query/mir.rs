@@ -32,6 +32,7 @@ pub(super) fn push_mir_helper(
                 &reference.instance(),
             ));
         }
+        Helper::Predicate(reference) => fields.push(identity_field("helper_predicate", reference)),
         Helper::DefaultValue(provider) => {
             push_symbol(
                 fields,
@@ -101,6 +102,7 @@ pub(in crate::compilation) const fn mir_helper_kind(
         Helper::AnonymousCallable(_) => "anonymous_callable",
         Helper::DeclaredCallable(_) => "declared_callable",
         Helper::DefaultValue(_) => "default_value",
+        Helper::Predicate(_) => "predicate",
         Helper::TypeForm(_) => "type_form",
         Helper::Conversion(_) => "conversion",
         Helper::BeginGenerator => "begin_generator",

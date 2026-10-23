@@ -60,6 +60,53 @@ impl GenericConstraintObligationKey {
     }
 }
 
+/// The checking authority of a predicate, established with its semantic meaning.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PredicateDomain {
+    /// An ordinary value condition that can require a runtime check.
+    Value,
+    /// A trusted obligation requiring caller evidence.
+    Trusted,
+    /// A compiler-provided execution-context obligation.
+    Execution,
+}
+
+impl PredicateDomain {
+    /// Classifies checked predicate meaning once at its source boundary.
+    pub fn checked_condition(
+        condition: Option<crate::ConstantTermId>,
+        trusted: bool,
+        values: &crate::SemanticValueStore,
+        symbols: &crate::AvailableCompilerKnownSymbols,
+    ) -> Self {
+        if trusted {
+            return Self::Trusted;
+        }
+
+        let Some(mut term) = condition else {
+            return Self::Value;
+        };
+
+        loop {
+            let data = values.constant_term_data(term);
+
+            match data.as_ref() {
+                crate::ConstantTermData::Typed { term: inner, .. } => term = *inner,
+                crate::ConstantTermData::PredicateCall { predicate, .. }
+                    if symbols
+                        .symbol_implementation(predicate.definition().into_any())
+                        .is_some_and(
+                            bray_compiler_known::ImplementationHook::is_execution_requirement,
+                        ) =>
+                {
+                    return Self::Execution;
+                }
+                _ => return Self::Value,
+            }
+        }
+    }
+}
+
 /// A checked source-independent semantic predicate summary.
 ///
 /// The full source-shaped checked expression remains owned by `bray-bound-tree`.
@@ -67,7 +114,7 @@ impl GenericConstraintObligationKey {
 pub struct PredicateSemanticSummary {
     dependency_contract: DependencyContractTemplateId,
     condition: Option<crate::ConstantTermId>,
-    is_trusted: bool,
+    domain: PredicateDomain,
 }
 
 impl PredicateSemanticSummary {
@@ -76,18 +123,18 @@ impl PredicateSemanticSummary {
         Self {
             dependency_contract,
             condition: None,
-            is_trusted: false,
+            domain: PredicateDomain::Value,
         }
     }
 
-    /// Retains the checked predicate meaning and its caller trust obligation.
+    /// Retains checked predicate meaning and its checking domain.
     pub const fn with_condition(
         mut self,
         condition: Option<crate::ConstantTermId>,
-        is_trusted: bool,
+        domain: PredicateDomain,
     ) -> Self {
         self.condition = condition;
-        self.is_trusted = is_trusted;
+        self.domain = domain;
 
         self
     }
@@ -97,9 +144,19 @@ impl PredicateSemanticSummary {
         self.condition
     }
 
+    /// Returns the established checking authority.
+    pub const fn domain(self) -> PredicateDomain {
+        self.domain
+    }
+
     /// Whether satisfying this predicate requires trusted caller evidence.
     pub const fn is_trusted(self) -> bool {
-        self.is_trusted
+        matches!(self.domain, PredicateDomain::Trusted)
+    }
+
+    /// Whether an unproved requirement needs runtime evaluation.
+    pub const fn requires_runtime_check(self) -> bool {
+        matches!(self.domain, PredicateDomain::Value)
     }
 
     /// Returns the portable dependencies of the predicate expression.
@@ -655,5 +712,50 @@ mod tests {
                 .map(CallablePhaseBehavior::current_run_cancellation),
             Some(CurrentRunCancellation::MayEnter)
         );
+    }
+    #[test]
+    fn predicate_domains_control_invocation_failure_without_changing_deferred_execution() {
+        let store = SemanticValueStore::try_new().unwrap();
+        let dependencies = store.empty_dependency_contract_template().unwrap();
+
+        for domain in [
+            super::PredicateDomain::Value,
+            super::PredicateDomain::Trusted,
+            super::PredicateDomain::Execution,
+        ] {
+            let predicate =
+                PredicateSemanticSummary::new(dependencies).with_condition(None, domain);
+
+            for asynchronous in [false, true] {
+                let phase = CallablePhaseBehavior::empty(dependencies).with_may_unwind(false);
+
+                let phases = if asynchronous {
+                    crate::CallablePhaseBehaviors::asynchronous(phase.clone(), phase)
+                } else {
+                    crate::CallablePhaseBehaviors::synchronous(phase)
+                }
+                .with_predicates([predicate], []);
+
+                assert_eq!(
+                    phases.invocation().has_runtime_requirements(),
+                    domain == super::PredicateDomain::Value
+                );
+
+                assert!(!phases.invocation().may_unwind());
+
+                assert_eq!(
+                    predicate.is_trusted(),
+                    domain == super::PredicateDomain::Trusted
+                );
+
+                assert!(
+                    phases
+                        .deferred_execution()
+                        .is_none_or(|body| !body.may_unwind())
+                );
+
+                assert_eq!(phases.invocation().predicate_requirements(), [predicate]);
+            }
+        }
     }
 }

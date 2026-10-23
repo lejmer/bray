@@ -3,7 +3,7 @@ mod asynchronous;
 mod block;
 mod cleanup;
 mod error;
-mod expression;
+pub(crate) mod expression;
 mod initialization;
 mod inputs;
 mod lowerer;
@@ -15,6 +15,7 @@ mod receiver;
 mod replacement;
 mod reports;
 mod representation;
+mod requirements;
 mod scoped;
 
 pub use asynchronous::lower_execution_requirements;

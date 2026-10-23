@@ -5,6 +5,7 @@ mod control_flow;
 mod lifecycle;
 mod propagation;
 mod publication;
+mod requirements;
 mod storage;
 mod support;
 mod values;

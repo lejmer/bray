@@ -32,7 +32,9 @@ mod tests {
                 compilation.check_diagnostics()
             );
 
-            let result = compilation.imported_codegen_instance_count_for_test();
+            let result = compilation.codegen_instance_count_for_test(|key| {
+                matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
+            });
 
             assert!(result.is_ok(), "{source}: {result:?}");
         }
@@ -130,7 +132,7 @@ impl Compilation {
         let template =
             self.runtime_default_template(provider.symbol(), &reference, cancellation)?;
 
-        Ok(ConcreteCodegenInstance::type_default(
+        Ok(ConcreteCodegenInstance::specialized_helper(
             template,
             substitution,
             specialization,

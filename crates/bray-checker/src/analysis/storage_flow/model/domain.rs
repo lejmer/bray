@@ -176,6 +176,14 @@ where
         // Each edge owns one correlated state before refining and joining it.
         let mut incoming = source.clone();
 
+        if incoming.reachable
+            && let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence)) =
+                edge.refinement()
+        {
+            self.collector()
+                .apply_failure_effects(&mut incoming, occurrence);
+        }
+
         if !incoming.reachable
             || !incoming
                 .execution

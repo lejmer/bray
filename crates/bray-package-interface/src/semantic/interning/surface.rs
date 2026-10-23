@@ -125,7 +125,7 @@ impl InternState {
                                             )
                                         })
                                         .transpose()?,
-                                    predicate.is_trusted,
+                                    predicate.domain,
                                 ),
                             )
                         }
@@ -193,7 +193,7 @@ impl InternState {
                                             )
                                         })
                                         .transpose()?,
-                                    predicate.is_trusted,
+                                    predicate.domain,
                                 ),
                             )
                         }
@@ -268,7 +268,7 @@ impl InternState {
                         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
                 })
                 .transpose()?,
-            predicate.is_trusted,
+            predicate.domain,
         ))
     }
 

@@ -17,6 +17,7 @@ use super::super::PackageInterfaceExportError;
 use super::context::{SemanticExporter, export_acyclic_semantic_value};
 use super::implementation::dependency_requirement_kind;
 use super::templates::index;
+use crate::compilation::product::StructuralValueEncoder;
 
 impl<'a> SemanticExporter<'a> {
     pub(in crate::compilation::export) fn dependency_contract_id(
@@ -29,17 +30,13 @@ impl<'a> SemanticExporter<'a> {
 
         let data = self.values.dependency_contract_template_data(id);
 
-        let requirements = data
-            .requirements()
-            .iter()
-            .map(|requirement| self.dependency_requirement(requirement))
-            .collect::<Result<Vec<_>, _>>()?;
+        let requirements = self.dependency_requirements(data.requirements())?;
 
-        let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
-
-        let borrows = data
-            .borrows()
-            .iter()
+        let borrows = self
+            .dependency_order(data.borrows(), |encoder, item| {
+                encoder.dependency_borrow(item)
+            })?
+            .into_iter()
             .map(|relation| {
                 Ok(bray_symbols::DependencyBorrowRelation::new(
                     self.dependency_subject(relation.entry())?,
@@ -57,9 +54,11 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let carriers = data
-            .carriers()
-            .iter()
+        let carriers = self
+            .dependency_order(data.carriers(), |encoder, item| {
+                encoder.dependency_carrier(item)
+            })?
+            .into_iter()
             .map(|carrier| {
                 Ok(bray_symbols::DependencyWitnessCarrier::new(
                     self.constant_term_id(carrier.guarantee())?,
@@ -72,9 +71,11 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let effects = data
-            .effects()
-            .iter()
+        let effects = self
+            .dependency_order(data.effects(), |encoder, item| {
+                encoder.dependency_effect(item)
+            })?
+            .into_iter()
             .map(|effect| {
                 use bray_symbols::DependencyStorageEffect;
 
@@ -115,35 +116,68 @@ impl<'a> SemanticExporter<'a> {
         let mut contract = InterfaceDependencyContract::new(requirements);
 
         if let Some(requirements) = data.completion_reports() {
-            contract = contract.with_completion_reports(
-                requirements
-                    .iter()
-                    .map(|requirement| self.dependency_requirement(requirement))
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
+            contract =
+                contract.with_completion_reports(self.dependency_requirements(requirements)?);
         }
 
         if let Some(requirements) = data.abnormal_reports() {
-            contract = contract.with_abnormal_reports(
-                requirements
-                    .iter()
-                    .map(|requirement| self.dependency_requirement(requirement))
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
+            contract = contract.with_abnormal_reports(self.dependency_requirements(requirements)?);
         }
 
-        self.dependency_contracts.push(
-            contract
-                .with_borrows(borrows)
-                .with_carriers(carriers)
-                .with_returned_input(returned_input)
-                .with_effects(effects)
-                .with_normal_completion(data.normal_completion()),
-        );
+        let contract = contract
+            .with_borrows(borrows)
+            .with_carriers(carriers)
+            .with_returned_input(returned_input)
+            .with_effects(effects)
+            .with_normal_completion(data.normal_completion())
+            .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
+
+        let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
+
+        self.dependency_contracts.push(contract);
 
         self.dependency_contract_ids.insert(id, exported);
 
         Ok(exported)
+    }
+
+    fn dependency_order<'item, T>(
+        &self,
+        items: &'item [T],
+        encode: impl Fn(
+            &mut StructuralValueEncoder<'_, '_>,
+            &T,
+        ) -> Result<(), crate::fact::FactQueryError>,
+    ) -> Result<Vec<&'item T>, PackageInterfaceExportError> {
+        if items.len() <= 1 {
+            return Ok(items.iter().collect());
+        }
+
+        let context = self
+            .compilation
+            .binding_context(&self.compilation.state.cancellation)
+            .map_err(super::super::fact_query_export_error)?;
+
+        crate::compilation::product::structural_dependency_order(
+            self.values,
+            &context,
+            items,
+            encode,
+        )
+        .map_err(super::super::fact_query_export_error)
+    }
+
+    fn dependency_requirements(
+        &mut self,
+        requirements: &[DependencyRequirement],
+    ) -> Result<Vec<InterfaceDependencyRequirement>, PackageInterfaceExportError> {
+        // Assign portable references in semantic order, before interning their children.
+        self.dependency_order(requirements, |encoder, item| {
+            encoder.dependency_requirement(item)
+        })?
+        .into_iter()
+        .map(|requirement| self.dependency_requirement(requirement))
+        .collect()
     }
 
     fn dependency_call_inputs(
@@ -162,16 +196,8 @@ impl<'a> SemanticExporter<'a> {
 
                 Ok(bray_package_interface::InterfaceDependencyCallInput::new(
                     root,
-                    input
-                        .values()
-                        .iter()
-                        .map(|value| self.dependency_requirement(value))
-                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
-                    input
-                        .storage()
-                        .iter()
-                        .map(|value| self.dependency_requirement(value))
-                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
+                    self.dependency_requirements(input.values())?,
+                    self.dependency_requirements(input.storage())?,
                 ))
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()
@@ -191,18 +217,10 @@ impl<'a> SemanticExporter<'a> {
             } => {
                 let definitions = definitions
                     .iter()
-                    .map(|definition| {
-                        definition
-                            .iter()
-                            .map(|requirement| self.dependency_requirement(requirement))
-                            .collect::<Result<Vec<_>, _>>()
-                    })
+                    .map(|definition| self.dependency_requirements(definition))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let result = result
-                    .iter()
-                    .map(|requirement| self.dependency_requirement(requirement))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let result = self.dependency_requirements(result)?;
 
                 Ok(InterfaceDependencyRequirement::fixed_point(
                     definitions,
@@ -243,11 +261,7 @@ impl<'a> SemanticExporter<'a> {
             DependencyRequirement::Guarded(guarded) => {
                 let guard = self.dependency_guard(guarded.guard())?;
 
-                let requirements = guarded
-                    .requirements()
-                    .iter()
-                    .map(|requirement| self.dependency_requirement(requirement))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let requirements = self.dependency_requirements(guarded.requirements())?;
 
                 Ok(InterfaceDependencyRequirement::guarded(guard, requirements))
             }
@@ -383,26 +397,6 @@ impl<'a> SemanticExporter<'a> {
         )
     }
 
-    pub(in crate::compilation::export) fn trait_default_template_requirement(
-        &mut self,
-        requirement: bray_symbols::ImplementationRequirementKey,
-    ) -> Result<
-        (
-            bray_package_interface::InterfaceTypeId,
-            bray_package_interface::InterfaceGenericSubstitutionId,
-        ),
-        PackageInterfaceExportError,
-    > {
-        let application = self
-            .values
-            .trait_application_data(requirement.trait_application());
-
-        Ok((
-            self.type_id(requirement.subject())?,
-            self.substitution_id(application.substitution())?,
-        ))
-    }
-
     pub(in crate::compilation::export) fn trait_application_id(
         &mut self,
         id: TraitApplicationId,
@@ -471,5 +465,170 @@ impl<'a> SemanticExporter<'a> {
         self.implementation_instance_ids.insert(id, exported);
 
         Ok(exported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use bray_package_interface::{InterfaceDependencyContract, InterfaceDependencyContractId};
+    use bray_symbols::{
+        CallableAbi, CallableConstness, CallableDependencyContracts, CallableTrust,
+        CallableTypeData, ConstantTermData, DependencyBorrowRelation,
+        DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+        DependencyReferenceKind, DependencyRequirement, DependencyRequirementKind,
+        DependencyStorageEffect, DependencySubject, DependencySubjectRoot,
+        DependencyWitnessCarrier, SymbolOrdinal, TypeData,
+    };
+
+    use super::super::context::SemanticExporter;
+
+    #[test]
+    fn dependency_export_order_ignores_source_value_allocation_order() {
+        for category in ["requirements", "borrows", "carriers", "effects"] {
+            let mut exported = Vec::new();
+
+            for ordinals in [[1, 2], [2, 1]] {
+                let compilation = crate::test_support::compilation("module app;");
+                let values = compilation.semantic_value_store().unwrap();
+                let graph = compilation.symbol_graph().unwrap();
+
+                let bundle =
+                    bray_package_interface::test_support::package_interface_export_bundle();
+
+                let keys = BTreeMap::new();
+
+                let mut export =
+                    SemanticExporter::new(&compilation, graph, bundle.surface(), &keys, values);
+
+                let unit = values.intern_type(TypeData::Tuple([].into())).unwrap();
+                let mut requirements = Vec::new();
+                let mut borrows = Vec::new();
+                let mut carriers = Vec::new();
+                let mut effects = Vec::new();
+
+                for ordinal in ordinals {
+                    let index = values
+                        .intern_constant_term(ConstantTermData::CallableArgument(
+                            SymbolOrdinal::new(ordinal),
+                        ))
+                        .unwrap();
+
+                    let subject = DependencySubject::new(
+                        DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                        [DependencyProjection::Element(index)],
+                    );
+
+                    let ty = values
+                        .intern_type(TypeData::Tuple(
+                            vec![unit; usize::try_from(ordinal).unwrap()].into(),
+                        ))
+                        .unwrap();
+
+                    requirements.push(DependencyRequirement::direct(
+                        subject.clone(),
+                        DependencyRequirementKind::StorageAlive,
+                    ));
+
+                    borrows.push(DependencyBorrowRelation::new(
+                        subject,
+                        DependencySubject::root(DependencySubjectRoot::Result),
+                        DependencyReferenceKind::Borrow,
+                    ));
+
+                    carriers.push(DependencyWitnessCarrier::new(index, []));
+                    effects.push(DependencyStorageEffect::Cleanup(ty));
+                }
+
+                let data = match category {
+                    "requirements" => {
+                        let guarded = DependencyRequirement::guarded(
+                            DependencyGuard::NullablePresent(DependencySubject::root(
+                                DependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                            )),
+                            requirements.iter().cloned(),
+                        );
+
+                        let equations = DependencyRequirement::fixed_point(
+                            [requirements.iter().cloned()],
+                            requirements.iter().cloned(),
+                        );
+
+                        DependencyContractTemplateData::new(requirements)
+                            .with_completion_reports([guarded])
+                            .with_abnormal_reports([equations])
+                    }
+                    "borrows" => DependencyContractTemplateData::new([]).with_borrows(borrows),
+                    "carriers" => DependencyContractTemplateData::new([]).with_carriers(carriers),
+                    "effects" => DependencyContractTemplateData::new([]).with_effects(effects),
+                    _ => unreachable!(),
+                };
+
+                let contract = values.intern_dependency_contract_template(data).unwrap();
+
+                export.dependency_contract_id(contract).unwrap();
+
+                exported.push((
+                    export.types,
+                    export.constant_terms,
+                    export.dependency_contracts,
+                ));
+            }
+
+            assert_eq!(exported[0], exported[1], "{category}");
+        }
+    }
+
+    #[test]
+    fn nested_callable_contracts_receive_distinct_export_indices() {
+        let compilation = crate::test_support::compilation("module app;");
+        let values = compilation.semantic_value_store().unwrap();
+        let graph = compilation.symbol_graph().unwrap();
+        let bundle = bray_package_interface::test_support::package_interface_export_bundle();
+        let keys = BTreeMap::new();
+
+        let mut export =
+            SemanticExporter::new(&compilation, graph, bundle.surface(), &keys, values);
+
+        let nested = values.empty_dependency_contract_template().unwrap();
+        let unit = values.intern_type(TypeData::Tuple([].into())).unwrap();
+
+        let callable = values
+            .intern_type(TypeData::Callable(CallableTypeData::new(
+                [],
+                unit,
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                CallableDependencyContracts::synchronous(nested),
+            )))
+            .unwrap();
+
+        let outer = values
+            .intern_dependency_contract_template(
+                DependencyContractTemplateData::new([])
+                    .with_effects([DependencyStorageEffect::Cleanup(callable)])
+                    .with_normal_completion(false),
+            )
+            .unwrap();
+
+        let outer_id = export.dependency_contract_id(outer).unwrap();
+        let nested_id = export.dependency_contract_id(nested).unwrap();
+        let callable_id = export.type_id(callable).unwrap();
+
+        assert_eq!(
+            (nested_id, outer_id, export.dependency_contracts),
+            (
+                InterfaceDependencyContractId::new(0),
+                InterfaceDependencyContractId::new(1),
+                vec![
+                    InterfaceDependencyContract::new([]),
+                    InterfaceDependencyContract::new([])
+                        .with_effects([DependencyStorageEffect::Cleanup(callable_id)])
+                        .with_normal_completion(false),
+                ],
+            )
+        );
     }
 }

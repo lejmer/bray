@@ -131,19 +131,37 @@ impl State {
         self.transitive_regions(pending, |_| true).0
     }
 
+    pub(in crate::analysis::storage_flow) fn escaped_regions(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+    ) -> BTreeSet<Target> {
+        let (targets, _) = self.transitive_regions(roots, |_| true);
+
+        targets
+            .into_iter()
+            .map(|target| {
+                // A native recipient can use address arithmetic within the allocation.
+                target.storage_path().map_or_else(
+                    || target.clone(),
+                    |path| Target::storage(Place::root(path.root)),
+                )
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn escape_targets(
         &mut self,
         roots: impl IntoIterator<Item = Target>,
     ) {
-        let (targets, _) = self.transitive_regions(roots, |_| true);
+        self.escape_regions(self.escaped_regions(roots));
+    }
 
-        for target in targets {
-            // A native recipient can use address arithmetic within the allocation.
-            let target = target.storage_path().map_or_else(
-                || target.clone(),
-                |path| Target::storage(Place::root(path.root)),
-            );
-
+    pub(in crate::analysis::storage_flow) fn escape_regions(
+        &mut self,
+        regions: impl IntoIterator<Item = Target>,
+    ) {
+        for target in regions {
             self.contents.entry(target).or_default().escaped = true;
         }
     }
@@ -323,6 +341,7 @@ impl State {
                     })
                     .unwrap_or_default(),
                 payloads: Default::default(),
+                failure_effects: None,
             },
         }
     }
@@ -335,6 +354,7 @@ impl State {
         let mut transfer = Transfer {
             values: self.transferred_slots(source, destination).collect(),
             payloads: Default::default(),
+            failure_effects: None,
         };
 
         for (target, contents) in self

@@ -112,6 +112,7 @@ pub(crate) const fn semantic_type_kind(ty: &bray_symbols::TypeData) -> &'static 
     use bray_symbols::TypeData as Type;
 
     match ty {
+        Type::ExactInteger { .. } => "exact_integer",
         Type::Error => "error",
         Type::Named { .. } => "named",
         Type::TypeParameter(_) => "type_parameter",
@@ -142,6 +143,10 @@ pub(crate) fn push_semantic_type_data(
     ]);
 
     match ty {
+        Type::ExactInteger { bits, signed } => context.extend([
+            identity_field("actual_integer_bits", bits),
+            identity_field("actual_integer_signed", signed),
+        ]),
         Type::Error => {}
         Type::Named {
             definition,

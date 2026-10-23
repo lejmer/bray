@@ -108,6 +108,20 @@ impl Lowerer<'_> {
 
                 let place = bray_ir::MirPlace::new(place.storage(), projections, reached);
 
+                let arguments = [bray_ir::MirCallArgument::positional(
+                    0,
+                    MirOperand::Move(Self::retained_place(&place)),
+                )];
+
+                let current = lowerer.lower_declared_requirements(
+                    BoundExecutionSite::ScopedEnter(expression),
+                    current,
+                    &source,
+                    callable,
+                    &arguments,
+                    None,
+                )?;
+
                 let value = crate::lifecycle_call::lower_lifecycle_call(
                     callable,
                     input,
@@ -139,7 +153,7 @@ impl Lowerer<'_> {
                         &MirOperand::Value(value),
                         invocation_result.ty(),
                         None,
-                        true,
+                        crate::lowering::expression::CallOutcome::Selected,
                     )?
                 } else {
                     (current, MirOperand::Value(value))
@@ -170,7 +184,7 @@ impl Lowerer<'_> {
                             &value,
                             result,
                             None,
-                            true,
+                            crate::lowering::expression::CallOutcome::Selected,
                         )?
                     } else {
                         (current, value)
@@ -348,6 +362,18 @@ impl Lowerer<'_> {
                         )?;
                     }
 
+                    let mut continuations = Vec::new();
+
+                    let block = lowerer.lower_scoped_exit_requirements(
+                        expression,
+                        block,
+                        source,
+                        callable,
+                        &place,
+                        ordinary_shield,
+                        &mut continuations,
+                    )?;
+
                     let call = crate::lifecycle_call::lower_lifecycle_call(
                         callable,
                         parameter,
@@ -366,7 +392,6 @@ impl Lowerer<'_> {
                         },
                     )?;
 
-                    let mut continuations = Vec::new();
                     let mut block = block;
                     let mut completion = MirOperand::Value(call);
 
@@ -394,6 +419,7 @@ impl Lowerer<'_> {
                         source,
                         ordinary_shield,
                         &mut continuations,
+                        true,
                         completion,
                     )?;
 
@@ -546,19 +572,21 @@ impl Lowerer<'_> {
             .0)
     }
 
-    fn check_scoped_exit_call(
+    pub(super) fn check_scoped_exit_call(
         &mut self,
         expression: BoundExpressionId,
         block: MirBlockId,
         source: &MirSourceAnchor,
         shielded: bool,
         continuations: &mut Vec<MirBlockId>,
+        selected_outcome: bool,
         value: MirOperand,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let reports = self
-            .input
-            .storage_flow()
-            .completion_reports(BoundExecutionSite::ScopedExit(expression));
+        let reports = selected_outcome
+            && self
+                .input
+                .storage_flow()
+                .completion_reports(BoundExecutionSite::ScopedExit(expression));
 
         if let Some(outcome) = &self.cleanup_outcome {
             let (completed, value, continuation) =
@@ -577,7 +605,7 @@ impl Lowerer<'_> {
                 None,
                 shielded,
                 Some(value),
-                Some(BoundExecutionSite::ScopedExit(expression)),
+                selected_outcome.then_some(BoundExecutionSite::ScopedExit(expression)),
             )?;
 
             Ok((

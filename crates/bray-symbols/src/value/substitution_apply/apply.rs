@@ -129,7 +129,10 @@ impl SemanticValueStore {
                         .intern_generic_substitution(substitution.with_owner(owner))?,
                 }
             }
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
+            TypeData::ExactInteger { .. }
+            | TypeData::Error
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_) => {
                 return Ok(ty);
             }
             TypeData::Named {
@@ -238,7 +241,7 @@ impl SemanticValueStore {
 
                 let substitute_predicate = |predicate: &crate::PredicateSemanticSummary| -> Result<_, SemanticValueStoreError> {
                     Ok(crate::PredicateSemanticSummary::new(self.substitute_dependency_contract_data(predicate.dependency_contract(), substitution)?)
-                        .with_condition(predicate.condition().map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?, predicate.is_trusted()))
+                        .with_condition(predicate.condition().map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?, predicate.domain()))
                 };
 
                 let phase_behaviors = phase_behaviors.with_receiver_cleanup(

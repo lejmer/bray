@@ -44,11 +44,19 @@ pub(super) fn standard_text_compilation(additional_sources: &[&str]) -> Compilat
 }
 
 pub(super) fn lowered_mir(result: &DiagnosticResult<Option<LoweredUnit>>) -> &MirUnit {
-    result
+    let mir = result
         .value()
         .as_ref()
         .and_then(LoweredUnit::mir)
-        .unwrap_or_else(|| panic!("checked executable unit must produce MIR: {result:#?}"))
+        .unwrap_or_else(|| panic!("checked executable unit must produce MIR: {result:#?}"));
+
+    assert!(
+        mir.is_valid(),
+        "lowering must establish valid MIR for {:?}",
+        mir.key()
+    );
+
+    mir
 }
 
 pub(super) fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {

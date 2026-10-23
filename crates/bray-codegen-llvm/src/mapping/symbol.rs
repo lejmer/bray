@@ -150,6 +150,7 @@ fn is_static_trait_fulfillment(template: &MirUnitKey) -> bool {
         | MirUnitKey::GeneratedLifecycle(_)
         | MirUnitKey::CompilerProvidedCallable(_)
         | MirUnitKey::ExternalCallable(_)
+        | MirUnitKey::Predicate(_)
         | MirUnitKey::ExternalRuntimeDefault(_) => false,
     }
 }

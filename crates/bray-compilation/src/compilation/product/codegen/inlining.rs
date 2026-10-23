@@ -1032,6 +1032,87 @@ mod tests {
     }
 
     #[test]
+    fn scalar_splice_forwards_caller_values_through_a_branching_callee() {
+        let compilation = crate::test_support::compilation_with_product(
+            r#"
+            module app;
+
+            func select(pos value: bool) -> bool
+            {
+                if value
+                {
+                    return false;
+                }
+                return true;
+            }
+
+            func caller(pos value: bool) -> bool
+            {
+                return !value == select(value);
+            }
+
+            func main()
+            {
+                if caller(false) {}
+            }
+        "#,
+            bray_symbols::ProductKind::Executable,
+        );
+
+        let graph = reachability_for_compilation(&compilation, CodegenOptions::default());
+
+        let body = |name| {
+            let key = crate::test_support::source_function_body_key(&compilation, name);
+
+            graph
+                .graph()
+                .instances()
+                .iter()
+                .find(|instance| instance.mir().key() == &MirUnitKey::Bound(key.clone()))
+                .expect("source function is reachable")
+                .mir()
+        };
+
+        let caller = body("caller");
+        let callee = body("select");
+
+        assert!(
+            callee.blocks().len() > 1,
+            "regression covers callee control-flow forwarding"
+        );
+
+        assert!(
+            caller.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Unary {
+                    operator: bray_ir::MirUnaryOperator::Not,
+                    ..
+                }
+            )),
+            "caller retains the prefix value used after the call"
+        );
+
+        let (site, _) = caller
+            .operations_with_ids()
+            .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
+            .expect("caller retains its selected call");
+
+        let inlined = inline_scalar_call(caller, site, callee, &BTreeMap::new())
+            .expect("MIR capacity")
+            .expect("scalar call is eligible");
+
+        assert!(inlined.is_valid());
+
+        assert!(
+            inlined
+                .blocks()
+                .iter()
+                .any(|block| block.parameters().len() > 1),
+            "callee blocks carry the caller's live prefix value"
+        );
+    }
+
+    #[test]
     fn cross_file_splice_preserves_callee_source() {
         let compilation = crate::Compilation::load(crate::CompilationRequest::with_options(
             crate::test_support::package_identity(),

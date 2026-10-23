@@ -4,9 +4,9 @@ use bray_base::StableDigestHasher;
 use bray_binder::BindingQueryContext;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantTermData, ConstantTermId,
-    ConstantValueId, ConstantValueKind, GenericArgument, GenericSubstitutionId,
-    ImplementationInstanceId, SemanticValueStore, TraitApplicationId, TypeData, TypeId,
+    AnySymbolId, CallableInstanceId, ConstantTermData, ConstantTermId, ConstantValueId,
+    ConstantValueKind, GenericArgument, GenericSubstitutionId, ImplementationInstanceId,
+    SemanticValueStore, TraitApplicationId, TypeData, TypeId,
 };
 
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
@@ -23,7 +23,34 @@ pub(in crate::compilation) fn structural_type_identity(
     StructuralValueEncoder::type_identity(values, binding_context, ty)
 }
 
-pub(super) struct StructuralValueEncoder<'binding_context, 'compilation> {
+pub(in crate::compilation) fn structural_dependency_order<'a, T>(
+    values: &SemanticValueStore,
+    binding_context: &CompilationBindingContext<'_>,
+    items: &'a [T],
+    encode: impl Fn(&mut StructuralValueEncoder<'_, '_>, &T) -> Result<(), FactQueryError>,
+) -> Result<Vec<&'a T>, FactQueryError> {
+    let encoder = StructuralValueEncoder {
+        values,
+        binding_context,
+        digest: StableDigestHasher::new(),
+        allow_static_address: true,
+    };
+
+    let mut ordered = items
+        .iter()
+        .map(|item| {
+            encoder
+                .item_identity(item, &encode)
+                .map(|identity| (identity, item))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    ordered.sort_unstable_by_key(|(identity, _)| *identity);
+
+    Ok(ordered.into_iter().map(|(_, item)| item).collect())
+}
+
+pub(in crate::compilation) struct StructuralValueEncoder<'binding_context, 'compilation> {
     pub(super) values: &'binding_context SemanticValueStore,
     pub(super) binding_context: &'binding_context CompilationBindingContext<'compilation>,
     pub(super) digest: StableDigestHasher,
@@ -31,7 +58,7 @@ pub(super) struct StructuralValueEncoder<'binding_context, 'compilation> {
 }
 
 impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'compilation> {
-    fn type_identity(
+    pub(super) fn type_identity(
         values: &'binding_context SemanticValueStore,
         binding_context: &'binding_context CompilationBindingContext<'compilation>,
         ty: TypeId,
@@ -92,6 +119,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self.values.type_data(id);
 
         match data.as_ref() {
+            TypeData::ExactInteger { bits, signed } => {
+                self.tag(16);
+                bits.hash(&mut self.digest);
+                signed.hash(&mut self.digest);
+            }
             TypeData::Error => self.tag(0),
             TypeData::Named {
                 definition,
@@ -480,65 +512,6 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         self.substitution(data.substitution())
     }
 
-    fn callable_phase_behavior(
-        &mut self,
-        behavior: &CallablePhaseBehavior,
-    ) -> Result<(), FactQueryError> {
-        self.length(behavior.execution_properties().len());
-
-        for property in behavior.execution_properties() {
-            self.tag(match property {
-                bray_symbols::ExecutionProperty::Pure => 0,
-                bray_symbols::ExecutionProperty::Total => 1,
-            });
-        }
-
-        self.length(behavior.effects().len());
-
-        for requirement in behavior.effects() {
-            self.symbol(requirement.declaration())?;
-        }
-
-        self.length(behavior.capabilities().len());
-
-        for requirement in behavior.capabilities() {
-            self.symbol(requirement.declaration())?;
-        }
-
-        self.length(behavior.trusted_capabilities().len());
-
-        for requirement in behavior.trusted_capabilities() {
-            self.ordinal(requirement.ordinal());
-            self.symbol(requirement.capability().into())?;
-        }
-
-        self.length(behavior.execution_requirements().len());
-
-        for requirement in behavior.execution_requirements() {
-            self.symbol(requirement.declaration())?;
-        }
-
-        self.length(behavior.lifecycle_obligations().len());
-
-        for obligation in behavior.lifecycle_obligations() {
-            self.lifecycle_obligation(*obligation);
-        }
-
-        self.dependency_contract(behavior.dependency_contract())?;
-        self.current_run_cancellation(behavior.current_run_cancellation());
-        self.tag(u8::from(behavior.may_unwind()));
-
-        let cleanup = behavior
-            .receiver_cleanup()
-            .iter()
-            .map(|ty| Self::type_identity(self.values, self.binding_context, *ty))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        self.unordered_identities(cleanup);
-
-        Ok(())
-    }
-
     fn constant_terms(&mut self, terms: &[ConstantTermId]) -> Result<(), FactQueryError> {
         self.length(terms.len());
 
@@ -785,5 +758,93 @@ mod tests {
         .collect::<std::collections::BTreeSet<_>>();
 
         assert_eq!(identities.len(), 3);
+    }
+    #[test]
+    fn callable_predicate_identities_cover_condition_domain_and_phase_independently_of_interning() {
+        let mut by_interning_order = Vec::new();
+
+        for order in [[false, true], [true, false]] {
+            let compilation = crate::test_support::compilation("module app;");
+            let values = compilation.semantic_value_store().unwrap();
+
+            let context = compilation
+                .binding_context(&compilation.state.cancellation)
+                .unwrap();
+
+            let boolean = compilation
+                .target_property_type(bray_target::TargetPropertyKind::ScalarBool)
+                .unwrap();
+
+            let result = values.intern_type(TypeData::Tuple([].into())).unwrap();
+            let dependency = values.empty_dependency_contract_template().unwrap();
+            let mut conditions = Vec::new();
+
+            for value in order {
+                let value = values
+                    .intern_constant_value(bray_symbols::ConstantValueData::new(
+                        boolean,
+                        bray_symbols::ConstantValueKind::Boolean(value),
+                    ))
+                    .unwrap();
+
+                conditions.push(
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                        .unwrap(),
+                );
+            }
+
+            let mut identities = std::collections::BTreeSet::new();
+
+            for domain in [
+                bray_symbols::PredicateDomain::Value,
+                bray_symbols::PredicateDomain::Trusted,
+                bray_symbols::PredicateDomain::Execution,
+            ] {
+                for condition in &conditions {
+                    let predicate = bray_symbols::PredicateSemanticSummary::new(dependency)
+                        .with_condition(Some(*condition), domain);
+
+                    for guarantee in [false, true] {
+                        for asynchronous in [false, true] {
+                            let phase = bray_symbols::CallablePhaseBehavior::empty(dependency)
+                                .with_may_unwind(false);
+
+                            let phases = if asynchronous {
+                                CallablePhaseBehaviors::asynchronous(phase.clone(), phase)
+                            } else {
+                                CallablePhaseBehaviors::synchronous(phase)
+                            }
+                            .with_predicates(
+                                (!guarantee).then_some(predicate),
+                                guarantee.then_some(predicate),
+                            );
+
+                            let dependencies = phases.dependency_contracts();
+
+                            let callable = CallableTypeData::new(
+                                [],
+                                result,
+                                CallableConstness::Runtime,
+                                CallableTrust::Safe,
+                                CallableAbi::Bray,
+                                dependencies,
+                            )
+                            .with_phase_behaviors(phases);
+
+                            let ty = values.intern_type(TypeData::Callable(callable)).unwrap();
+
+                            identities
+                                .insert(structural_type_identity(values, &context, ty).unwrap());
+                        }
+                    }
+                }
+            }
+
+            assert_eq!(identities.len(), 24);
+            by_interning_order.push(identities);
+        }
+
+        assert_eq!(by_interning_order[0], by_interning_order[1]);
     }
 }

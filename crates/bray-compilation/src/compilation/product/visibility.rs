@@ -588,6 +588,9 @@ fn type_exposes_internal(
     let data = semantic_values.type_data(ty);
 
     match data.as_ref() {
+        TypeData::ExactInteger { .. } => {
+            panic!("internal exact integer cannot enter a public declaration surface")
+        }
         TypeData::Error => {}
         TypeData::Named {
             definition,

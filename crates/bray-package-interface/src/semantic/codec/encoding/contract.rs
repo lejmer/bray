@@ -25,6 +25,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         &semantics.dependency_contracts,
         |encoder, contract| {
             encoder.write_u32(u32::from(contract.normal_completion));
+            encoder.write_u32(u32::from(contract.normal_storage_preserved));
             write_count(encoder, contract.requirements.len());
 
             for requirement in &*contract.requirements {
@@ -104,9 +105,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             match constraint.kind {
                 InterfaceConstraintKind::Predicate(predicate) => {
                     encoder.write_u32(1);
-                    encoder.write_u32(predicate.dependency_contract.raw());
-                    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
-                    encoder.write_u32(u32::from(predicate.is_trusted));
+                    encode_predicate_summary(encoder, predicate);
                 }
                 InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -164,9 +163,7 @@ fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallab
         match clause.value {
             InterfaceCallableContractClauseValue::Predicate(predicate) => {
                 encoder.write_u32(1);
-                encoder.write_u32(predicate.dependency_contract.raw());
-                write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
-                encoder.write_u32(u32::from(predicate.is_trusted));
+                encode_predicate_summary(encoder, predicate);
             }
             InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
@@ -191,9 +188,7 @@ pub(super) fn encode_callable_behavior(
         write_count(encoder, predicates.len());
 
         for predicate in &**predicates {
-            encoder.write_u32(predicate.dependency_contract.raw());
-            write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
-            encoder.write_u32(u32::from(predicate.is_trusted));
+            encode_predicate_summary(encoder, *predicate);
         }
     }
 
@@ -438,4 +433,18 @@ fn encode_mutation(
     if let DependencyMutationKind::Replace(ty) = kind {
         encoder.write_u32(ty.raw());
     }
+}
+
+pub(super) fn encode_predicate_summary(
+    encoder: &mut WireEncoder,
+    predicate: crate::InterfacePredicateSummary,
+) {
+    encoder.write_u32(predicate.dependency_contract.raw());
+    write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
+
+    encoder.write_u32(match predicate.domain {
+        bray_symbols::PredicateDomain::Value => 0,
+        bray_symbols::PredicateDomain::Trusted => 1,
+        bray_symbols::PredicateDomain::Execution => 2,
+    });
 }

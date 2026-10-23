@@ -55,14 +55,13 @@ pub(crate) fn fits_integer_representation(
             fits_signed(value, width)
         }
         IntegerRepresentation::Unsigned(_) | IntegerRepresentation::TargetUnsigned => {
-            value.sign() == IntegerSign::NonNegative
-                && significant_bits(value.magnitude()) <= usize::from(width)
+            value.sign() == IntegerSign::NonNegative && value.magnitude_bits() <= usize::from(width)
         }
     }
 }
 
 fn fits_signed(value: &IntegerConstant, width: u16) -> bool {
-    let bits = significant_bits(value.magnitude());
+    let bits = value.magnitude_bits();
 
     match value.sign() {
         IntegerSign::NonNegative => bits < usize::from(width),
@@ -72,12 +71,6 @@ fn fits_signed(value: &IntegerConstant, width: u16) -> bool {
             bits < maximum_bits || bits == maximum_bits && is_power_of_two(value.magnitude())
         }
     }
-}
-
-pub(crate) fn significant_bits(magnitude: &[u8]) -> usize {
-    magnitude.first().map_or(0, |first| {
-        magnitude.len() * 8 - first.leading_zeros() as usize
-    })
 }
 
 fn is_power_of_two(magnitude: &[u8]) -> bool {

@@ -49,7 +49,8 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
         let data = request.semantic_values().type_data(ty);
 
         match data.as_ref() {
-            TypeData::Borrow { .. }
+            TypeData::ExactInteger { .. }
+            | TypeData::Borrow { .. }
             | TypeData::Callable(_)
             | TypeData::TraitView(_)
             | TypeData::Slice(_)

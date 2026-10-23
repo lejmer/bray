@@ -11,9 +11,9 @@ use super::{
     CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
 
-/// The exact witness source selected for a custom indexing operation.
+/// The exact checked witness source selected for a callable operation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CheckedTemplateIndexDispatch<
+pub enum CheckedTemplateDispatch<
     Declaration = SymbolKey,
     Substitution = GenericSubstitutionId,
     Implementation = SymbolKey,
@@ -52,7 +52,35 @@ pub struct CheckedTemplateIndexCall<
     /// The implicit receiver borrow and result-place capability.
     pub borrow_kind: BorrowKind,
     /// The exact checked witness source.
-    pub dispatch: CheckedTemplateIndexDispatch<Declaration, Substitution, Implementation, Type>,
+    pub dispatch: CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>,
+}
+
+impl<D, S, I, T> CheckedTemplateDispatch<D, S, I, T> {
+    fn try_map_references<O, P, Q, Y, E>(
+        &self,
+        ty: &mut impl FnMut(&T) -> Result<Y, E>,
+        declaration: &mut impl FnMut(&D) -> Result<O, E>,
+        substitution: &mut impl FnMut(&S) -> Result<P, E>,
+        implementation: &mut impl FnMut(&I) -> Result<Q, E>,
+    ) -> Result<CheckedTemplateDispatch<O, P, Q, Y>, E> {
+        Ok(match self {
+            Self::Implementation(witness, application) => CheckedTemplateDispatch::Implementation(
+                implementation(witness)?,
+                substitution(application)?,
+            ),
+            Self::Constraint { owner, ordinal } => CheckedTemplateDispatch::Constraint {
+                owner: declaration(owner)?,
+                ordinal: *ordinal,
+            },
+            Self::TraitDefault {
+                subject,
+                substitution: application,
+            } => CheckedTemplateDispatch::TraitDefault {
+                subject: ty(subject)?,
+                substitution: substitution(application)?,
+            },
+        })
+    }
 }
 
 impl<D, S, I, T> CheckedTemplateIndexCall<D, S, I, T> {
@@ -67,27 +95,12 @@ impl<D, S, I, T> CheckedTemplateIndexCall<D, S, I, T> {
             callable: declaration(&self.callable)?,
             substitution: substitution(&self.substitution)?,
             borrow_kind: self.borrow_kind,
-            dispatch: match &self.dispatch {
-                CheckedTemplateIndexDispatch::Implementation(witness, application) => {
-                    CheckedTemplateIndexDispatch::Implementation(
-                        implementation(witness)?,
-                        substitution(application)?,
-                    )
-                }
-                CheckedTemplateIndexDispatch::Constraint { owner, ordinal } => {
-                    CheckedTemplateIndexDispatch::Constraint {
-                        owner: declaration(owner)?,
-                        ordinal: *ordinal,
-                    }
-                }
-                CheckedTemplateIndexDispatch::TraitDefault {
-                    subject,
-                    substitution: application,
-                } => CheckedTemplateIndexDispatch::TraitDefault {
-                    subject: ty(subject)?,
-                    substitution: substitution(application)?,
-                },
-            },
+            dispatch: self.dispatch.try_map_references(
+                ty,
+                declaration,
+                substitution,
+                implementation,
+            )?,
         })
     }
 }
@@ -146,10 +159,12 @@ pub enum CheckedTemplateOperation<
         callable: Declaration,
         /// Ordered generic arguments applied to the callable declaration.
         substitution: Substitution,
-        /// Arguments in exact evaluation and parameter order.
+        /// Arguments in source evaluation order.
         arguments: Arc<[CheckedTemplateNodeId]>,
-        /// The selected implementation witness when dispatch requires one.
-        implementation: Option<(Implementation, Substitution)>,
+        /// Receiver-first parameter ordinal for each evaluated argument.
+        ordinals: Arc<[u32]>,
+        /// The exact selected witness source when dispatch requires one.
+        dispatch: Option<CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>>,
     },
     /// Applies an already checked semantic conversion.
     Convert {
@@ -237,13 +252,39 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         callable: Declaration,
         substitution: Substitution,
         arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<(Implementation, Substitution)>,
+        dispatch: Option<CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>>,
+    ) -> Self {
+        let arguments = shared_slice(arguments);
+
+        let ordinals = (0..arguments.len())
+            .map(|ordinal| {
+                u32::try_from(ordinal).expect("checked template call fits its ordinal table")
+            })
+            .collect::<Vec<_>>();
+
+        Self::Call {
+            callable,
+            substitution,
+            arguments,
+            ordinals: shared_slice(ordinals),
+            dispatch,
+        }
+    }
+
+    /// Retains source evaluation order independently of the selected parameter mapping.
+    pub fn ordered_call(
+        callable: Declaration,
+        substitution: Substitution,
+        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
+        ordinals: impl IntoIterator<Item = u32>,
+        dispatch: Option<CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>>,
     ) -> Self {
         Self::Call {
             callable,
             substitution,
             arguments: shared_slice(arguments),
-            implementation,
+            ordinals: shared_slice(ordinals),
+            dispatch,
         }
     }
 
@@ -307,15 +348,22 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 callable,
                 substitution: application,
                 arguments,
-                implementation: witness,
+                ordinals,
+                dispatch: witness,
             } => CheckedTemplateOperation::Call {
                 callable: declaration(callable)?,
                 substitution: substitution(application)?,
                 arguments: Arc::clone(arguments),
-                implementation: witness
+                ordinals: Arc::clone(ordinals),
+                dispatch: witness
                     .as_ref()
-                    .map(|(witness, application)| {
-                        Ok((implementation(witness)?, substitution(application)?))
+                    .map(|witness| {
+                        witness.try_map_references(
+                            &mut ty,
+                            &mut declaration,
+                            &mut substitution,
+                            &mut implementation,
+                        )
                     })
                     .transpose()?,
             },

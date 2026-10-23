@@ -215,14 +215,36 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
             }
         "#;
 
-    for source in [CONCRETE_GENERIC_SOURCE, storage_source] {
-        let native_links = if source == CONCRETE_GENERIC_SOURCE {
-            Vec::new()
-        } else {
+    let predicate_source = r#"
+        module app;
+
+        callable Action = func(pos value: i32) requires(value + 1 > 0);
+
+        predicate above(value: i32) = value + 1 > 0;
+
+        func selected(pos value: i32) requires(above(value))
+        {
+        }
+
+        func direct(pos value: i32)
+        {
+            selected(value);
+        }
+
+        func erased(pos action: Action, pos value: i32)
+        {
+            action(value);
+        }
+    "#;
+
+    for source in [CONCRETE_GENERIC_SOURCE, storage_source, predicate_source] {
+        let native_links = if source == storage_source {
             vec![NativeLinkRequirement::new(
                 NonEmptySharedStr::try_new("native").unwrap(),
                 NativeLinkKind::Dynamic,
             )]
+        } else {
+            Vec::new()
         };
 
         let (first_backend, first_compilation) = codegen_compilation_for_sources_target(
@@ -274,7 +296,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
 
         assert_eq!(identities(&first), identities(&second));
 
-        if source != CONCRETE_GENERIC_SOURCE {
+        if source == storage_source {
             let storage_identities = first
                 .units()
                 .iter()

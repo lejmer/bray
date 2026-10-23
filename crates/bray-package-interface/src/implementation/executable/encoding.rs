@@ -137,10 +137,7 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
     purpose: EncodingPurpose,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
     if purpose == EncodingPurpose::InterfaceTemplate
-        && matches!(
-            unit.source(),
-            bray_ir::MirSourceOrigin::GeneratedLifecycle(_)
-        )
+        && matches!(unit.source(), bray_ir::MirSourceOrigin::GeneratedHelper(_))
     {
         return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
     }
@@ -939,6 +936,35 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirCallTarget::Runtime(reference) => {
                 self.wire.write_u32(2);
                 self.runtime_reference(*reference);
+            }
+            MirCallTarget::Predicate(reference) => {
+                self.wire.write_u32(4);
+
+                match reference {
+                    bray_ir::MirPredicateReference::Clause { callable, ordinal } => {
+                        self.wire.write_u32(0);
+                        self.callable_instance(callable.instance())?;
+                        self.callable_abi(callable.abi());
+                        self.wire.write_u32(ordinal.raw());
+                    }
+                    bray_ir::MirPredicateReference::Predicate(predicate) => {
+                        self.wire.write_u32(1);
+                        self.symbol(predicate.definition().into_any())?;
+                        self.substitution(predicate.substitution())?;
+                    }
+                    bray_ir::MirPredicateReference::Condition {
+                        condition,
+                        input_types,
+                    } => {
+                        self.wire.write_u32(2);
+                        self.constant_term(*condition)?;
+                        write_count(&mut self.wire, input_types.len());
+
+                        for ty in input_types.iter() {
+                            self.ty(*ty)?;
+                        }
+                    }
+                }
             }
             MirCallTarget::DefaultValue { owner, provider } => {
                 self.wire.write_u32(3);

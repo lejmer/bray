@@ -189,6 +189,15 @@ impl ExecutionCondition {
 
         match self {
             Self::Unknown => {}
+            Self::Entry {
+                condition,
+                captured: true,
+            } if !condition.contains_trusted() && !condition.observes_borrowed(None) => {
+                // Instantiation has already frozen these ordinary input values.
+                // Use the same value evidence that proof reads, without promoting
+                // historical authority or observations of live borrowed storage.
+                condition.as_ref().clone().assume_with(value, insert);
+            }
             Self::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
                 if !condition.contains_unknown() {

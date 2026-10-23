@@ -292,6 +292,76 @@ impl InterfaceSemantics {
         Ok(())
     }
 
+    pub(super) fn validate_predicate_summary(
+        &self,
+        predicate: crate::InterfacePredicateSummary,
+    ) -> Result<(), InterfaceValidationError> {
+        let invalid =
+            || crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference);
+
+        validate_index(
+            predicate.dependency_contract.to_index(),
+            self.dependency_contracts.len(),
+        )?;
+
+        if let Some(term) = predicate.condition {
+            validate_index(term.to_index(), self.constant_terms.len())?;
+        }
+
+        if predicate.domain == bray_symbols::PredicateDomain::Trusted {
+            return Ok(());
+        }
+
+        let mut condition = predicate.condition;
+
+        // Type records can refer to terms before the rest of the value graph is checked.
+        // A bounded root walk rejects malformed wrapper cycles at this input boundary.
+        for _ in 0..=self.constant_terms.len() {
+            let execution = match condition {
+                None => false,
+                Some(id) => match self
+                    .constant_terms
+                    .get(id.to_index().ok_or_else(invalid)?)
+                    .ok_or_else(invalid)?
+                {
+                    crate::InterfaceConstantTerm::Typed { term, .. } => {
+                        condition = Some(*term);
+                        continue;
+                    }
+                    crate::InterfaceConstantTerm::PredicateCall {
+                        predicate: crate::InterfaceSymbolReference::CompilerKnown(reference),
+                        arguments,
+                        ..
+                    } => {
+                        let execution = match reference.key().data() {
+                            bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. } => bray_compiler_known::COMPILER_KNOWN_CATALOG.compiler_known_declaration_by_key(key)
+                                .and_then(|declaration| declaration.implementation_hook())
+                                .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement),
+                            _ => false,
+                        };
+
+                        if execution
+                            && (!arguments.is_empty() || reference.kind() != SymbolKind::Predicate)
+                        {
+                            return Err(invalid());
+                        }
+
+                        execution
+                    }
+                    _ => false,
+                },
+            };
+
+            return if execution == (predicate.domain == bray_symbols::PredicateDomain::Execution) {
+                Ok(())
+            } else {
+                Err(invalid())
+            };
+        }
+
+        Err(invalid())
+    }
+
     fn validate_callable_clauses(
         &self,
         clauses: &[InterfaceCallableContractClause],
@@ -308,14 +378,7 @@ impl InterfaceSemantics {
         for clause in clauses {
             match clause.value {
                 crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
-                    validate_index(
-                        predicate.dependency_contract.to_index(),
-                        self.dependency_contracts.len(),
-                    )?;
-
-                    if let Some(term) = predicate.condition {
-                        validate_index(term.to_index(), self.constant_terms.len())?;
-                    }
+                    self.validate_predicate_summary(predicate)?;
                 }
                 crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
                     subject,
@@ -353,14 +416,7 @@ impl InterfaceSemantics {
             }
 
             for predicate in &**predicates {
-                validate_index(
-                    predicate.dependency_contract.to_index(),
-                    self.dependency_contracts.len(),
-                )?;
-
-                if let Some(term) = predicate.condition {
-                    validate_index(term.to_index(), self.constant_terms.len())?;
-                }
+                self.validate_predicate_summary(*predicate)?;
             }
         }
 
@@ -440,4 +496,75 @@ fn validate_callable_parameter_default(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn execution_domains_require_the_actual_compiler_predicate() {
+        use crate::{
+            InterfaceConstantTerm, InterfaceConstantTermId, InterfaceDependencyContract,
+            InterfaceDependencyContractId, InterfacePredicateSummary,
+        };
+
+        use bray_symbols::{PredicateDomain, SymbolOrdinal};
+
+        let key = bray_symbols::SymbolKey::compiler_known_declaration(
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("BlockingExecution").unwrap(),
+            bray_symbols::SymbolKind::Predicate,
+        )
+        .unwrap();
+
+        let predicate = crate::InterfaceSymbolReference::CompilerKnown(
+            crate::CompilerKnownSymbolReference::try_new(key).unwrap(),
+        );
+
+        let semantics = crate::InterfaceSemantics::new().with_values(
+            [InterfaceDependencyContract::new([])],
+            [crate::InterfaceType::Tuple([].into())],
+            [],
+            [
+                InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0)),
+                InterfaceConstantTerm::PredicateCall {
+                    predicate: predicate.clone(),
+                    substitution: crate::InterfaceGenericSubstitutionId::new(0),
+                    arguments: [].into(),
+                },
+                InterfaceConstantTerm::Typed {
+                    term: InterfaceConstantTermId::new(1),
+                    ty: crate::InterfaceTypeId::new(0),
+                },
+                InterfaceConstantTerm::Typed {
+                    term: InterfaceConstantTermId::new(3),
+                    ty: crate::InterfaceTypeId::new(0),
+                },
+                InterfaceConstantTerm::PredicateCall {
+                    predicate,
+                    substitution: crate::InterfaceGenericSubstitutionId::new(0),
+                    arguments: [InterfaceConstantTermId::new(0)].into(),
+                },
+            ],
+        );
+
+        for (term, domain, valid) in [
+            (None, PredicateDomain::Value, true),
+            (None, PredicateDomain::Execution, false),
+            (Some(0), PredicateDomain::Value, true),
+            (Some(0), PredicateDomain::Execution, false),
+            (Some(1), PredicateDomain::Execution, true),
+            (Some(1), PredicateDomain::Value, false),
+            (Some(2), PredicateDomain::Execution, true),
+            (Some(3), PredicateDomain::Execution, false),
+            (Some(4), PredicateDomain::Execution, false),
+        ] {
+            let summary = InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0))
+                .with_condition(term.map(InterfaceConstantTermId::new), domain);
+
+            assert_eq!(
+                semantics.validate_predicate_summary(summary).is_ok(),
+                valid,
+                "{term:?} {domain:?}"
+            );
+        }
+    }
 }

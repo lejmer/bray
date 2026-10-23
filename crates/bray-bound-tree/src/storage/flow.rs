@@ -304,6 +304,7 @@ pub struct StorageFlow {
     suspensions: Arc<[StorageSuspensionState]>,
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
+    proven_preconditions: Arc<[crate::BoundExecutionSite]>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
     report_collections: Arc<[Option<BoundExpressionId>]>,
@@ -413,6 +414,7 @@ impl StorageFlow {
             suspensions: shared_slice(suspensions),
             reachable_blocks,
             conditions: Default::default(),
+            proven_preconditions: Arc::from([]),
             reachable_exits,
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
@@ -648,6 +650,28 @@ impl StorageFlow {
         self.conditions = conditions;
 
         Ok(self)
+    }
+
+    /// Publishes call boundaries whose ordinary requirements hold before invocation.
+    pub fn with_proven_preconditions(
+        mut self,
+        invocations: impl IntoIterator<Item = crate::BoundExecutionSite>,
+    ) -> Self {
+        self.proven_preconditions = sorted_unique_shared_slice(invocations);
+
+        assert!(
+            self.proven_preconditions
+                .iter()
+                .all(|site| site.node().unit() == self.unit),
+            "proven preconditions belong to their checked unit"
+        );
+
+        self
+    }
+
+    /// Whether every ordinary requirement is established before this invocation.
+    pub fn preconditions_proven(&self, invocation: crate::BoundExecutionSite) -> bool {
+        self.proven_preconditions.binary_search(&invocation).is_ok()
     }
 
     /// Publishes exact assignment destinations agreed by every reachable evaluation.

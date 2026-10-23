@@ -110,6 +110,9 @@ where
     let data = context.semantic_values().type_data(ty);
 
     let diagnostic = match data.as_ref() {
+        TypeData::ExactInteger { .. } => {
+            panic!("post-checking exact intermediate has no source-visible diagnostic type: {ty:?}")
+        }
         TypeData::Error => DiagnosticType::Error,
         TypeData::Named {
             definition,

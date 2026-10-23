@@ -32,10 +32,7 @@ use bray_symbols::{
 use super::binder::has_visible_generic_parameters;
 use super::constant::constant_definition_id;
 use super::state::Compilation;
-use super::{
-    ProductQueryFailure, ProductValueKind, SemanticDataKind, SemanticQueryContext,
-    SemanticQueryFailure, SemanticQueryViolation,
-};
+use super::{SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, DiagnosticPublicationOrder, FactQueryError,
     OrderedDiagnosticCollection, PublishedUnitResult, SymbolQueryKey, publish_diagnostics,
@@ -764,15 +761,19 @@ impl Compilation {
                 ))
             })?;
 
+            if callee.is_recovered() {
+                continue;
+            }
+
             let data = values.type_data(callee.ty());
 
             let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-                return Err(ProductQueryFailure::UnexpectedSemanticType {
-                    ty: callee.ty(),
-                    expected: ProductValueKind::CallableType,
-                    actual: data.as_ref().clone(),
-                }
-                .into());
+                panic!(
+                    "checked foreign call has a callable callee type: unit={:?}, expression={:?}, callee={callee:?}, target={:?}, type={data:?}",
+                    unit.key(),
+                    entry.expression(),
+                    call.target()
+                );
             };
 
             let mut parameters = callable

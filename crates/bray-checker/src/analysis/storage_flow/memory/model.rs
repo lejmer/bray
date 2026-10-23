@@ -67,6 +67,14 @@ pub(in crate::analysis::storage_flow) enum Effect {
 }
 
 impl Effect {
+    pub(super) fn retire(&mut self, current: &Target) {
+        if let Self::Mutation(target, _) = self
+            && current.contains(target)
+        {
+            target.previous = true;
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn may_retain_address(&self, memory: &State) -> bool {
         match self {
             // Writes confined to an invocation-local slot do not publish an address.
@@ -222,18 +230,84 @@ fn merge_origins(target: &mut Origins, incoming: &Origins) -> bool {
     target.len() != count
 }
 
+/// Effects resolved before input ownership transfers, retained only until the call outcome.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::analysis::storage_flow) struct CapturedEffects {
+    pub(in crate::analysis::storage_flow) mutations: Vec<Effect>,
+    pub(in crate::analysis::storage_flow) escaped: Vec<Target>,
+    pub(in crate::analysis::storage_flow) invalidation: bray_bound_tree::StorageInvalidation,
+}
+
+impl CapturedEffects {
+    pub(super) fn references(&self, current: &Target) -> bool {
+        self.escaped.iter().any(|target| current.contains(target))
+            || self.mutations.iter().any(
+                |effect| matches!(effect, Effect::Mutation(target, _) if current.contains(target)),
+            )
+    }
+
+    pub(super) fn retire(&mut self, current: &Target) {
+        for effect in &mut self.mutations {
+            effect.retire(current);
+        }
+
+        for target in &mut self.escaped {
+            if current.contains(target) {
+                target.previous = true;
+            }
+        }
+
+        self.normalize();
+    }
+
+    fn normalize(&mut self) {
+        // Retiring or joining incarnations can merge already summarized targets.
+        self.mutations.sort_unstable();
+        self.mutations.dedup();
+        self.escaped.sort_unstable();
+        self.escaped.dedup();
+    }
+
+    fn merge(&mut self, incoming: &Self) {
+        // Outcome sets copy descriptors and share immutable projection paths.
+        self.mutations.extend(incoming.mutations.iter().cloned());
+        self.escaped.extend(incoming.escaped.iter().cloned());
+        self.normalize();
+        self.invalidation.merge(&incoming.invalidation);
+    }
+}
+
 /// A value captured before consumption, with inline protected payload state at its destination.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Transfer {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) payloads: BTreeMap<Target, Contents>,
+    pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
 }
 
 impl Transfer {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
         let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
 
-        merge_contents(&mut self.payloads, &incoming.payloads) || changed
+        let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
+
+        if let Some(incoming) = &incoming.failure_effects {
+            if let Some(current) = &mut self.failure_effects {
+                if current != incoming {
+                    // Outcome branches share immutable captures until a join adds possible effects.
+                    let mut merged = current.as_ref().clone();
+
+                    merged.merge(incoming);
+                    changed |= &merged != current.as_ref();
+                    *current = std::sync::Arc::new(merged);
+                }
+            } else {
+                self.failure_effects = Some(std::sync::Arc::clone(incoming));
+                changed = true;
+            }
+        }
+
+        changed
     }
 }
 

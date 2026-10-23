@@ -2463,3 +2463,99 @@ fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
         }
     }
 }
+
+#[test]
+fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Cell
+        {
+            mut value: bool;
+        }
+
+        func check(pos fail: bool)
+        {
+            if fail
+            {
+                panic("failed");
+            }
+        }
+
+        func change(pos cell: &mut Cell)
+        {
+            cell.value = false;
+        }
+
+        func change_then_fail(pos cell: &mut Cell, pos fail: bool)
+        {
+            if fail
+            {
+                cell.value = false;
+                panic("failed");
+            }
+        }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+
+        func forward(pos fail: bool)
+        {
+            example.package.api.check(fail);
+        }
+
+        func mutate(pos cell: &mut example.package.api.Cell)
+        {
+            example.package.api.change(cell);
+        }
+
+        func preserve(pos cell: &mut example.package.api.Cell, pos fail: bool)
+        {
+            example.package.api.change_then_fail(cell, fail);
+        }
+
+        func recover(pos cell: &mut example.package.api.Cell, pos fail: bool)
+        {
+            let _ = catch
+            {
+                example.package.api.change_then_fail(cell, fail);
+            };
+        }
+    "#,
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    for (name, preserved) in [
+        ("forward", true),
+        ("mutate", false),
+        ("preserve", true),
+        ("recover", false),
+    ] {
+        let dependencies =
+            crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
+
+        if name != "forward" {
+            assert!(
+                !dependencies.effects().is_empty(),
+                "{name}: {dependencies:?}"
+            );
+        }
+
+        assert_eq!(
+            dependencies.preserves_storage_on_normal_return(),
+            preserved,
+            "{name}: {dependencies:?}"
+        );
+    }
+}

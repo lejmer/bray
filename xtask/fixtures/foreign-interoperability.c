@@ -34,6 +34,7 @@ typedef struct CallbackInvocation
 
 static _Atomic uint64_t next_resource = 1;
 static _Atomic uint64_t live_resources = 0;
+static _Atomic uint64_t resource_release_calls = 0;
 
 BRAY_EXPORT int32_t bray_foreign_counter = 40;
 
@@ -320,6 +321,8 @@ BRAY_EXPORT uint64_t bray_foreign_resource_duplicate(uint64_t handle)
 
 BRAY_EXPORT int32_t bray_foreign_resource_release(uint64_t handle, bool fail)
 {
+    atomic_fetch_add_explicit(&resource_release_calls, 1, memory_order_relaxed);
+
     if (handle == 0)
         return 6;
 
@@ -482,4 +485,23 @@ BRAY_EXPORT int32_t bray_foreign_invoke_concurrently(
 #endif
 
     return first.result + second.result;
+}
+
+static _Atomic uint64_t requirement_entries = 0;
+
+BRAY_EXPORT int32_t bray_foreign_requirement_entry(int32_t value)
+{
+    atomic_fetch_add_explicit(&requirement_entries, 1, memory_order_relaxed);
+
+    return value;
+}
+
+BRAY_EXPORT uint64_t bray_foreign_requirement_entries(void)
+{
+    return atomic_load_explicit(&requirement_entries, memory_order_relaxed);
+}
+
+BRAY_EXPORT uint64_t bray_foreign_resource_release_calls(void)
+{
+    return atomic_load_explicit(&resource_release_calls, memory_order_relaxed);
 }

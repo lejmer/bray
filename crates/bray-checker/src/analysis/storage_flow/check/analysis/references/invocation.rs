@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
@@ -8,13 +8,14 @@ use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
 use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn record_address_escapes(
+    pub(in crate::analysis::storage_flow::check::analysis) fn address_escapes(
         &mut self,
         state: &mut StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
-    ) {
+        normal_effects: bool,
+    ) -> BTreeSet<Target> {
         let captures = self
             .dependencies
             .calls()
@@ -36,7 +37,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }) {
             // These compiler-owned operations retire backing or update its live
             // prefix. They neither store an input address nor invoke payload code.
-            return;
+            return BTreeSet::new();
         }
 
         let exposed_integer = memory.is_some_and(|operation| {
@@ -80,24 +81,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 &mut stored,
             );
 
-            self.record_escape_effects(&mut state.memory, Some(&[]), &stored, may_store);
+            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, normal_effects)
         } else {
-            self.record_escape_effects(
-                &mut state.memory,
+            self.escape_effects(
+                &state.memory,
                 effects,
                 roots,
                 captures || exposed_integer || may_store,
-            );
+                normal_effects,
+            )
         }
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn record_escape_effects(
+    pub(in crate::analysis::storage_flow::check::analysis) fn escape_effects(
         &mut self,
-        memory: &mut crate::analysis::storage_flow::memory::State,
+        memory: &crate::analysis::storage_flow::memory::State,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
         retain_inputs: bool,
-    ) {
+        normal_effects: bool,
+    ) -> BTreeSet<Target> {
         use crate::analysis::storage_flow::memory::Effect;
         use bray_symbols::DependencyMutationKind;
 
@@ -108,7 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .any(|effect| matches!(effect, Effect::Escape))
             });
 
-        let targets = effects
+        let mut targets = effects
             .into_iter()
             .flatten()
             .filter_map(|effect| match effect {
@@ -120,10 +123,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .collect::<Vec<_>>();
 
         for target in &targets {
-            self.record_target_effect(target, DependencyMutationKind::Escape);
+            self.record_target_effect(target, DependencyMutationKind::Escape, normal_effects);
         }
-
-        memory.escape_targets(targets);
 
         // Generic cleanup retains its conditional effect in the exported summary.
         // Do not turn it into an unconditional escape before instantiation.
@@ -132,8 +133,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .iter()
                 .any(|effect| matches!(effect, Effect::Cleanup(_)))
         }) {
-            memory.escape_targets(roots.iter().cloned());
+            targets.extend(roots.iter().cloned());
         }
+
+        memory.escaped_regions(targets)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(

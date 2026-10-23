@@ -169,19 +169,21 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             callable,
             substitution,
             arguments,
-            implementation,
+            ordinals,
+            dispatch,
         } => {
             encoder.write_u32(4);
             encode_template_reference(encoder, callable);
             encoder.write_u32(substitution.raw());
             write_node_ids(encoder, arguments);
+            write_count(encoder, ordinals.len());
 
-            match implementation {
-                Some((implementation, substitution)) => {
-                    encoder.write_u32(1);
-                    encode_implementation_reference(encoder, implementation);
-                    encoder.write_u32(substitution.raw());
-                }
+            for ordinal in ordinals.iter() {
+                encoder.write_u32(*ordinal);
+            }
+
+            match dispatch {
+                Some(dispatch) => encode_template_dispatch(encoder, dispatch),
                 None => encoder.write_u32(0),
             }
         }
@@ -324,21 +326,25 @@ fn encode_index_call(
     encoder.write_u32(call.substitution.raw());
     encoder.write_u32(call.borrow_kind.to_wire());
 
-    match &call.dispatch {
-        bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
-            implementation,
-            substitution,
-        ) => {
+    encode_template_dispatch(encoder, &call.dispatch);
+}
+
+fn encode_template_dispatch(
+    encoder: &mut WireEncoder,
+    dispatch: &crate::InterfaceCheckedTemplateDispatch,
+) {
+    match dispatch {
+        bray_bound_tree::CheckedTemplateDispatch::Implementation(implementation, substitution) => {
             encoder.write_u32(1);
             encode_implementation_reference(encoder, implementation);
             encoder.write_u32(substitution.raw());
         }
-        bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { owner, ordinal } => {
+        bray_bound_tree::CheckedTemplateDispatch::Constraint { owner, ordinal } => {
             encoder.write_u32(2);
             encode_template_reference(encoder, owner);
             encoder.write_u32(ordinal.raw());
         }
-        bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+        bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
             subject,
             substitution,
         } => {

@@ -203,9 +203,11 @@ fn static_initializer_behavior(
 
     diagnostics.add_range(native.diagnostics().iter().cloned());
 
-    if native.value().as_ref().is_some_and(|contract| {
-        contract.direction() == bray_symbols::ForeignCallableDirection::Import
-    }) {
+    if native.diagnostics().has_errors()
+        || native.value().as_ref().is_some_and(|contract| {
+            contract.direction() == bray_symbols::ForeignCallableDirection::Import
+        })
+    {
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()

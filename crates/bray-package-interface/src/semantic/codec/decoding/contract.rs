@@ -81,6 +81,9 @@ pub(super) fn decode_dependency_contract(
     let normal_completion =
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
+    let normal_storage_preserved =
+        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
+
     let requirements = decode_dependency_requirements(reader, limits, context, 0)?;
     let mut reports = [None, None];
 
@@ -165,7 +168,8 @@ pub(super) fn decode_dependency_contract(
         .with_carriers(carriers)
         .with_returned_input(returned_input)
         .with_effects(effects)
-        .with_normal_completion(normal_completion))
+        .with_normal_completion(normal_completion)
+        .with_normal_storage_preservation(normal_storage_preserved))
 }
 
 pub(super) fn decode_constraint(
@@ -638,6 +642,38 @@ mod tests {
     };
     use bray_symbols::SymbolOrdinal;
 
+    #[test]
+    fn predicate_checking_domains_decode_and_reject_unknown_tags() {
+        for (tag, domain) in [
+            (0u32, bray_symbols::PredicateDomain::Value),
+            (1, bray_symbols::PredicateDomain::Trusted),
+            (2, bray_symbols::PredicateDomain::Execution),
+        ] {
+            let predicate =
+                crate::InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(3))
+                    .with_condition(Some(crate::InterfaceConstantTermId::new(7)), domain);
+
+            let mut bytes = [3, 1, 7, tag]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>();
+
+            let mut reader = WireReader::new(&bytes);
+
+            assert_eq!(
+                super::decode_predicate_summary(&mut reader).unwrap(),
+                predicate
+            );
+
+            reader.finish().unwrap();
+
+            let end = bytes.len();
+
+            bytes[end - 4..].copy_from_slice(&3u32.to_le_bytes());
+            assert!(super::decode_predicate_summary(&mut WireReader::new(&bytes)).is_err());
+        }
+    }
+
     fn decode_words(
         words: &[u32],
         limits: InterfaceValidationLimits,
@@ -659,7 +695,7 @@ mod tests {
     #[test]
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
-            &[1, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 2, 0, 5],
+            &[1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 2, 0, 5],
             InterfaceValidationLimits::default(),
         )
         .unwrap();
@@ -682,6 +718,7 @@ mod tests {
     fn witness_dependencies_decode_separate_value_and_storage_inputs() {
         let words = [
             1, // Normal completion is possible.
+            0, // No normal-return preservation proof.
             1, // One result requirement.
             3, 1, 2, 3, 4, 1, // Value-output witness call and one input.
             1, 0, // Receiver input with no projection.
@@ -739,7 +776,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert_eq!(
             decode_words(
-                &[1, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[1, 0, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -749,7 +786,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 1, 3, 1, 2, 3, 4, u32::MAX],
+                &[1, 0, 1, 3, 1, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
@@ -760,7 +797,10 @@ mod tests {
     }
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
-        let words = [1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5];
+        let words = [
+            1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
+        ];
+
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
 
         let expected =
@@ -786,7 +826,10 @@ mod tests {
         ));
 
         assert!(matches!(
-            decode_words(&[1, 1, 6, u32::MAX], InterfaceValidationLimits::default()),
+            decode_words(
+                &[1, 0, 1, 6, u32::MAX],
+                InterfaceValidationLimits::default()
+            ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: InterfaceLimit::RecordCount,
                 ..
@@ -801,10 +844,19 @@ fn decode_predicate_summary(
     let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
     let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
-    let is_trusted =
-        super::common::decode_bool(reader, crate::InterfaceValidationField::Reference)?;
+    let domain = match read_u32(reader)? {
+        0 => bray_symbols::PredicateDomain::Value,
+        1 => bray_symbols::PredicateDomain::Trusted,
+        2 => bray_symbols::PredicateDomain::Execution,
+        raw => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Reference,
+                raw,
+            ));
+        }
+    };
 
-    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, is_trusted))
+    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, domain))
 }
 
 fn decode_mutation(

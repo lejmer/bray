@@ -50,6 +50,7 @@ impl MirGeneratedLifecycleRole {
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::DefaultValue(_)
+            | MirHelperReference::Predicate(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
             | MirHelperReference::BeginGenerator
@@ -201,6 +202,8 @@ pub enum MirUnitKey {
     ExecutableHost(ProductIdentity),
     /// MIR synthesized for one type-specialized lifecycle role.
     GeneratedLifecycle(MirGeneratedLifecycleKey),
+    /// MIR lowered from a concrete checked predicate graph.
+    Predicate(crate::MirPredicateKey),
     /// MIR supplied by the compiler for one exact callable declaration.
     CompilerProvidedCallable(CallableDefinitionId),
     /// A bodyless callable referenced by generated MIR.

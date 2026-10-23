@@ -21,6 +21,7 @@ impl SemanticUnifier<'_> {
         let ty = self.values.type_data(ty);
 
         match ty.as_ref() {
+            TypeData::ExactInteger { .. } => false,
             TypeData::TypeParameter(candidate) => *candidate == parameter,
             TypeData::Named { substitution, .. } => {
                 self.substitution_contains_type_parameter(*substitution, parameter, visited)

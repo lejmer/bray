@@ -39,7 +39,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }))
     }
 
+    pub(in crate::analysis) fn call_preserves_normal_storage(
+        &self,
+        state: &ExecutionState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> bool {
+        if occurrence.expression().is_some_and(|expression| {
+            self.memory.operation(expression).is_some()
+                || matches!(
+                    self.request.view().expression(expression),
+                    Some(bray_bound_tree::BoundExpression::Assignment(_))
+                )
+        }) {
+            return false;
+        }
+
+        if let Some(source) = occurrence
+            .expression()
+            .and_then(|expression| self.awaited_invocation(state, expression))
+        {
+            return self.dependencies.calls().get(&source)
+                .is_some_and(bray_bound_tree::BoundCallDependencyContracts::deferred_preserves_storage_on_normal_return);
+        }
+
+        self.dependencies.calls().get(&occurrence).is_some_and(
+            bray_bound_tree::BoundCallDependencyContracts::preserves_storage_on_normal_return,
+        )
+    }
+
     pub(super) fn invalidate(
+        &self,
+        state: &mut ExecutionState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        invalidation: Option<&StorageInvalidation>,
+    ) {
+        if self.call_preserves_normal_storage(state, occurrence) {
+            return;
+        }
+
+        self.invalidate_call_effects(state, occurrence, invalidation);
+    }
+
+    pub(in crate::analysis) fn invalidate_call_effects(
         &self,
         state: &mut ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,

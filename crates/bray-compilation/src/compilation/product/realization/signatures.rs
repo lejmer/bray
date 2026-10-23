@@ -28,6 +28,10 @@ impl Compilation {
         instance: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
+        if let MirUnitKey::Predicate(reference) = instance.key().template() {
+            return self.codegen_predicate_signature(instance, reference.reference(), cancellation);
+        }
+
         if let MirUnitKey::GeneratedLifecycle(_) = instance.key().template() {
             let reference = instance.generated_lifecycle_reference().ok_or_else(|| {
                 ProductQueryFailure::missing(
@@ -79,7 +83,9 @@ impl Compilation {
             | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
             }
-            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExternalRuntimeDefault(_) => {
+            MirUnitKey::Predicate(_)
+            | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => {
                 return Err(ProductQueryFailure::missing(
                     ProductQueryContext::Instance(instance.key().clone()),
                     ProductDataKind::CallableSignature,
@@ -602,6 +608,7 @@ impl Compilation {
             MirUnitKey::ExternalCallable(definition)
             | MirUnitKey::CompilerProvidedCallable(definition) => Ok(*definition),
             MirUnitKey::ExecutableHost(_)
+            | MirUnitKey::Predicate(_)
             | MirUnitKey::GeneratedLifecycle(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.clone()),

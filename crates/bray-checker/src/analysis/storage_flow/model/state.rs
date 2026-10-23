@@ -23,6 +23,7 @@ pub(in crate::analysis) struct StorageFlowState {
         BTreeMap<bray_bound_tree::StoragePath, BTreeMap<BoundExpressionId, bray_symbols::TypeId>>,
     pub(in crate::analysis) definitely_absent:
         BTreeMap<bray_bound_tree::StoragePath, StorageAbsence>,
+    // Every path that created this storage has transferred its whole value.
     pub(in crate::analysis) fully_moved: BTreeSet<StorageIdentityId>,
     pub(in crate::analysis::storage_flow) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
@@ -383,10 +384,16 @@ impl StorageFlowState {
         let observed_count = self.observed_pattern_bindings.len();
         let moved_count = self.moved.len();
         let mut absence_changed = false;
-        let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
         let was_recovered = self.recovered;
+
+        let fully_moved_changed = merge_fully_moved(
+            &self.live,
+            &mut self.fully_moved,
+            &incoming.live,
+            &incoming.fully_moved,
+        );
 
         self.live.extend(incoming.live.iter().copied());
 
@@ -428,9 +435,6 @@ impl StorageFlowState {
             true
         });
 
-        self.fully_moved
-            .retain(|storage| incoming.fully_moved.contains(storage));
-
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
 
@@ -449,7 +453,7 @@ impl StorageFlowState {
             || self.moved.len() != moved_count
             || moved_changed
             || absence_changed
-            || self.fully_moved.len() != fully_moved_count
+            || fully_moved_changed
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
             || memory_changed
@@ -495,4 +499,27 @@ impl StorageFlowState {
         self.fully_moved.insert(storage);
         self.initialized.remove(&storage);
     }
+}
+
+// Join move evidence only over paths that created the storage. Read both original
+// live sets before their union, without copying either set.
+pub(in crate::analysis::storage_flow) fn merge_fully_moved(
+    live: &BTreeSet<StorageIdentityId>,
+    moved: &mut BTreeSet<StorageIdentityId>,
+    incoming_live: &BTreeSet<StorageIdentityId>,
+    incoming_moved: &BTreeSet<StorageIdentityId>,
+) -> bool {
+    let count = moved.len();
+
+    moved.retain(|storage| incoming_moved.contains(storage) || !incoming_live.contains(storage));
+
+    let mut changed = moved.len() != count;
+
+    for storage in incoming_moved {
+        if !live.contains(storage) {
+            changed |= moved.insert(*storage);
+        }
+    }
+
+    changed
 }

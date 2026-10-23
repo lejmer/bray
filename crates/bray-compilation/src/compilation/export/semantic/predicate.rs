@@ -1,9 +1,7 @@
+use crate::compilation::template::generic_template_inputs;
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateKind};
-use bray_package_interface::{
-    InterfaceCheckedTemplateInputKind, InterfacePredicateDefinition,
-    InterfacePredicateDefinitionState,
-};
+use bray_bound_tree::{BoundReferenceTarget, CheckedTemplateInputKind, CheckedTemplateKind};
+use bray_package_interface::{InterfacePredicateDefinition, InterfacePredicateDefinitionState};
 use bray_symbols::{
     AnySymbolId, PredicateDefinitionState, PredicateDefinitionSymbolId,
     PredicateSignatureTemplateQuery, SymbolOrdinal, SymbolQueryRequest,
@@ -13,7 +11,7 @@ use super::super::PackageInterfaceExportError;
 use super::super::template::{SourceTemplateInput, export_checked_source_template};
 use super::context::SemanticExporter;
 use super::declarations::ExportedDeclarations;
-use super::defaults::{generic_parameters, generic_template_inputs, push_declaration_template};
+use super::defaults::{generic_parameters, push_declaration_template};
 use super::implementation::predicate_definition;
 use super::templates::incomplete;
 use crate::compilation::Compilation;
@@ -97,17 +95,16 @@ pub(super) fn export_predicate_semantics(
         })?;
 
         inputs.push(SourceTemplateInput::new(
-            InterfaceCheckedTemplateInputKind::Parameter(SymbolOrdinal::new(ordinal)),
+            CheckedTemplateInputKind::Parameter(SymbolOrdinal::new(ordinal)),
             Some(BoundReferenceTarget::Surface(parameter.parameter().into())),
             export.resolve_type_template(symbol, parameter.ty())?,
         ));
     }
 
-    inputs.extend(generic_template_inputs(
-        compilation,
-        export,
-        generic_parameters(binder, symbol)?,
-    )?);
+    inputs.extend(
+        generic_template_inputs(compilation, generic_parameters(binder, symbol)?)
+            .map_err(super::super::fact_query_export_error)?,
+    );
 
     let kind = CheckedTemplateKind::PredicateDefinition;
 

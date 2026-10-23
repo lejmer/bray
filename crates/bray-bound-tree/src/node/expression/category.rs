@@ -373,6 +373,19 @@ pub enum BoundStructuredExpressionKind {
 }
 
 impl BoundOperator {
+    /// Returns the Ordering variant to test and the result when that variant is active.
+    ///
+    /// Other variants produce the opposite result. Non-relational operators have no test.
+    pub const fn ordering_test<T: Copy>(self, less: T, greater: T) -> Option<(T, bool)> {
+        match self {
+            Self::Less => Some((less, true)),
+            Self::LessEqual => Some((greater, false)),
+            Self::Greater => Some((greater, true)),
+            Self::GreaterEqual => Some((less, false)),
+            _ => None,
+        }
+    }
+
     /// Returns whether this built-in operator can fail without a narrower operand-domain proof.
     pub const fn builtin_may_panic(self) -> bool {
         !matches!(

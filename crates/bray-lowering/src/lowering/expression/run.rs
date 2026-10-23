@@ -74,7 +74,7 @@ impl Lowerer<'_> {
 
                 let mut current = current;
 
-                let payload = if hook == ImplementationHook::TaskEventWait {
+                let mut payload = if hook == ImplementationHook::TaskEventWait {
                     let [
                         SelectedArgument::Explicit {
                             expression: event,
@@ -120,6 +120,14 @@ impl Lowerer<'_> {
                     None
                 };
 
+                current = self.lower_primitive_requirements(
+                    expression,
+                    current,
+                    &source,
+                    selection,
+                    payload.as_mut_slice(),
+                )?;
+
                 let resume = self
                     .builder
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
@@ -134,7 +142,12 @@ impl Lowerer<'_> {
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
                 // Suspension and dispatch retain the same immutable cleanup edge.
-                self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
+                self.branch_frame_cancellation(
+                    dispatch,
+                    &source,
+                    MirEdge::new(resume, []),
+                    cancellation.clone(),
+                )?;
 
                 let state = self.next_frame_state()?;
 

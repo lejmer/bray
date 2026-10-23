@@ -111,6 +111,8 @@ pub enum MirHelperReference {
     DeclaredCallable(crate::MirCallableReference),
     /// Declaration-owned default evaluated before input ownership transfers.
     DefaultValue(DefaultValueProvider),
+    /// Evaluate one complete checked predicate over readonly caller inputs.
+    Predicate(crate::MirPredicateReference),
     /// Selected type-form construction callable.
     TypeForm(CallableInstanceData),
     /// Selected implementation callable for a semantic conversion.
@@ -155,6 +157,7 @@ impl MirHelperReference {
             Self::DeclaredCallable(callable) => callable.abi(),
             Self::AnonymousCallable(_)
             | Self::DefaultValue(_)
+            | Self::Predicate(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::BeginGenerator
@@ -183,6 +186,7 @@ impl MirHelperReference {
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
             | Self::DefaultValue(_)
+            | Self::Predicate(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::BeginGenerator
@@ -210,6 +214,7 @@ impl MirHelperReference {
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
             | Self::DefaultValue(_)
+            | Self::Predicate(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::StandardLibrary(_)
@@ -276,6 +281,11 @@ impl MirOperationKind {
             Self::Call(call) => {
                 if let crate::MirCallTarget::DefaultValue { provider, .. } = call.target() {
                     helpers.push(MirHelperReference::DefaultValue(*provider));
+                }
+
+                if let crate::MirCallTarget::Predicate(reference) = call.target() {
+                    // Helper identity shares immutable checked input types with the call.
+                    helpers.push(MirHelperReference::Predicate(reference.clone()));
                 }
             }
             Self::Quiesce { place, .. } => helpers.push(MirHelperReference::Quiesce(place.ty())),

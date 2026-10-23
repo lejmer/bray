@@ -321,7 +321,7 @@ impl<'a> SemanticExporter<'a> {
                 .condition()
                 .map(|term| self.constant_term_id(term))
                 .transpose()?,
-            predicate.is_trusted(),
+            predicate.domain(),
         ))
     }
 
@@ -403,6 +403,9 @@ impl<'a> SemanticExporter<'a> {
                 let data = self.values.type_data(id);
 
                 let ty = match data.as_ref() {
+                    TypeData::ExactInteger { .. } => panic!(
+                        "post-checking exact intermediate cannot enter a declaration interface: {id:?}"
+                    ),
                     TypeData::Error => return Err(incomplete_type()),
                     TypeData::Named {
                         definition,
@@ -571,5 +574,32 @@ impl<'a> SemanticExporter<'a> {
                 .map(|predicate| self.predicate_summary(*predicate))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
+    }
+}
+
+impl SemanticExporter<'_> {
+    pub(in crate::compilation::export) fn key_reference(
+        &self,
+        key: &bray_symbols::SymbolKey,
+    ) -> Result<bray_package_interface::InterfaceSymbolReference, PackageInterfaceExportError> {
+        if let Some(symbol) = self.graph.symbol_for_key(key) {
+            return self.symbol_reference(symbol);
+        }
+
+        let imported = self
+            .compilation
+            .imported_symbol_skeleton_result()
+            .map_err(crate::compilation::export::fact_query_export_error)?;
+
+        let symbol = imported
+            .value()
+            .as_deref()
+            .and_then(|symbols| match key.data() {
+                bray_symbols::SymbolKeyData::External(key) => symbols.symbol_by_external_key(key),
+                _ => None,
+            })
+            .expect("checked template declaration has its resolved symbol");
+
+        self.symbol_reference(symbol)
     }
 }

@@ -134,6 +134,7 @@ impl RefinementUniverse {
         Ok(match refinement {
             AnalysisRefinement::CleanupRequired { .. }
             | AnalysisRefinement::InvocationFailure(_)
+            | AnalysisRefinement::PreconditionFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
             AnalysisRefinement::PropagationOutcome {
                 expression,

@@ -1434,6 +1434,7 @@ mod tests {
                 &[],
                 MirUnitKind::Synchronous,
                 target,
+                &crate::input::EMPTY_DECLARATION_PRECONDITIONS,
             )
         }
     }

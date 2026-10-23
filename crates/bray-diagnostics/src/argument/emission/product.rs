@@ -201,6 +201,13 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
     CodegenUnitMismatch(DiagnosticNativeProductFailureDetail),
     CodegenMirCapacityExceeded,
+    /// Required exact integer representation exceeds the backend limit.
+    CodegenExactIntegerCapacity {
+        /// Smallest integer width required by the contract expression.
+        minimum_bits: u64,
+        /// Largest width this compiler implementation can represent.
+        maximum_bits: u16,
+    },
     CodegenMissingRuntimeRole(DiagnosticNativeProductFailureDetail),
     CodegenOpenConstantTerm(DiagnosticNativeProductFailureDetail),
     CodegenInvalidArrayLength(DiagnosticNativeProductFailureDetail),
@@ -314,6 +321,7 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenUnsupportedType(detail)
             | Self::CodegenMissingHelperInstance(detail)
             | Self::CodegenLayoutOverflow(detail) => detail.reason(),
+            Self::CodegenExactIntegerCapacity { .. } => "codegen_exact_integer_capacity",
             Self::CodegenMirCapacityExceeded => "codegen_mir_capacity_exceeded",
             Self::CodegenMissingEntrypoint => "codegen_missing_entrypoint",
             Self::CodegenInvalidAbiMapping(Some(detail)) => detail.reason(),

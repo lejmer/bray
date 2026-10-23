@@ -119,7 +119,8 @@ impl InternState {
                         .with_carriers(carriers)
                         .with_returned_input(returned_input)
                         .with_effects(effects)
-                        .with_normal_completion(input.normal_completion),
+                        .with_normal_completion(input.normal_completion)
+                        .with_normal_storage_preservation(input.normal_storage_preserved),
                 )?,
             );
         }

@@ -139,21 +139,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         call_effects: Option<&[Effect]>,
         assignment: Option<&Target>,
         mutation: Option<DependencyMutationKind>,
+        normal_effects: bool,
     ) {
         if !self.publish {
             return;
         }
 
         if let Some(target) = assignment {
-            self.record_target_effect(target, mutation.expect("assignment retains its transition"));
+            self.record_target_effect(
+                target,
+                mutation.expect("assignment retains its transition"),
+                self.on_normal_path,
+            );
         }
 
         if let Some(effects) = call_effects {
-            self.record_resolved_effects(effects);
+            self.record_resolved_effects(effects, normal_effects);
         } else if self.call_attempt(kind).is_some() {
             // Invalidation is not an ownership-effect summary. An unresolved call
             // may introduce ownership as well as retire storage, on any outcome.
-            self.record_effect(DependencyStorageEffect::Unknown);
+            self.record_effect(DependencyStorageEffect::Unknown, normal_effects);
         } else if assignment.is_none()
             && let Some(effects) = self.refinements.invalidation_at(kind.occurrence())
         {
@@ -232,6 +237,60 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.apply_resolved_effects(&mut state.memory, call_effects, invalidation);
             }
         }
+    }
+
+    pub(super) fn capture_failure_effects(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        effects: Option<Vec<Effect>>,
+        escaped: std::collections::BTreeSet<Target>,
+        invalidation: Option<&StorageInvalidation>,
+    ) {
+        if effects.as_ref().is_some_and(Vec::is_empty) && escaped.is_empty() {
+            return;
+        }
+
+        state.memory.capture_failure_effects(
+            occurrence,
+            crate::analysis::storage_flow::memory::CapturedEffects {
+                mutations: effects.unwrap_or_else(|| vec![Effect::Unknown]),
+                escaped: escaped.into_iter().collect(),
+                // The outcome owns the resolved descriptors after argument transfer.
+                // Invalidation shares immutable projection paths with publication.
+                invalidation: invalidation
+                    .expect("resolved call effects have storage observations")
+                    .clone(),
+            },
+        );
+    }
+
+    pub(in crate::analysis::storage_flow) fn apply_failure_effects(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) {
+        let Some(effects) = state.memory.take_failure_effects(occurrence) else {
+            return;
+        };
+
+        // The captured regions were normalized before ownership transfer.
+        state.memory.escape_regions(effects.escaped.iter().cloned());
+
+        self.apply_resolved_effects(
+            &mut state.memory,
+            Some(&effects.mutations),
+            &effects.invalidation,
+        );
+
+        self.execution.invalidate_call_effects(
+            state
+                .execution
+                .as_mut()
+                .expect("reachable call failure has execution facts"),
+            occurrence,
+            Some(&effects.invalidation),
+        );
     }
 
     pub(super) fn apply_resolved_effects(
@@ -364,7 +423,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         resolved
     }
 
-    pub(super) fn record_resolved_effects(&mut self, effects: &[Effect]) {
+    pub(super) fn record_resolved_effects(&mut self, effects: &[Effect], normal_effects: bool) {
         if !self.publish {
             return;
         }
@@ -372,15 +431,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) => {}
-                Effect::Mutation(target, kind) => self.record_target_effect(target, *kind),
-                Effect::Unknown => self.record_effect(DependencyStorageEffect::Unknown),
-                Effect::Cleanup(ty) => self.record_effect(DependencyStorageEffect::Cleanup(*ty)),
-                Effect::Atomic => self.record_effect(DependencyStorageEffect::Atomic),
+                Effect::Mutation(target, kind) => {
+                    self.record_target_effect(target, *kind, normal_effects)
+                }
+                Effect::Unknown => {
+                    self.record_effect(DependencyStorageEffect::Unknown, normal_effects)
+                }
+                Effect::Cleanup(ty) => {
+                    self.record_effect(DependencyStorageEffect::Cleanup(*ty), normal_effects)
+                }
+                Effect::Atomic => {
+                    self.record_effect(DependencyStorageEffect::Atomic, normal_effects)
+                }
             }
         }
     }
 
-    pub(super) fn record_target_effect(&mut self, target: &Target, kind: DependencyMutationKind) {
+    pub(super) fn record_target_effect(
+        &mut self,
+        target: &Target,
+        kind: DependencyMutationKind,
+        normal_effects: bool,
+    ) {
         if !self.publish {
             return;
         }
@@ -421,7 +493,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 effect
             };
 
-            self.record_effect(effect);
+            self.record_effect(effect, normal_effects);
         }
     }
 
@@ -435,25 +507,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let StorageInvalidation::Paths(paths) = invalidation else {
-            self.record_effect(DependencyStorageEffect::Unknown);
+            self.record_effect(DependencyStorageEffect::Unknown, self.on_normal_path);
             return;
         };
 
         for path in paths {
             match self.formal_effect(path, kind) {
                 Some(DependencyStorageEffect::Unknown) => {
-                    self.record_effect(DependencyStorageEffect::Unknown);
+                    self.record_effect(DependencyStorageEffect::Unknown, self.on_normal_path);
                     return;
                 }
                 Some(effect) => {
-                    self.record_effect(effect);
+                    self.record_effect(effect, self.on_normal_path);
                 }
                 None => {}
             }
         }
     }
 
-    fn record_effect(&mut self, effect: DependencyStorageEffect) {
+    fn record_effect(&mut self, effect: DependencyStorageEffect, normal_effects: bool) {
         if !matches!(
             effect,
             DependencyStorageEffect::Direct {
@@ -461,7 +533,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ..
             }
         ) {
-            self.has_normal_effects |= self.on_normal_path;
+            self.has_normal_effects |= normal_effects;
         }
 
         self.effects.insert(effect);

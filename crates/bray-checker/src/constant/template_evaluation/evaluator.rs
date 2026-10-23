@@ -165,12 +165,14 @@ where
                 callable,
                 substitution,
                 arguments,
-                implementation,
+                ordinals,
+                dispatch,
             } => self.evaluate_call(
                 callable,
                 *substitution,
                 arguments,
-                implementation.as_ref(),
+                ordinals,
+                dispatch.as_ref(),
                 ty,
             ),
             CheckedTemplateOperation::Convert { value, target } => {
@@ -617,10 +619,19 @@ where
         callable: &bray_symbols::SymbolKey,
         substitution: GenericSubstitutionId,
         arguments: &[CheckedTemplateNodeId],
-        implementation: Option<&(bray_symbols::SymbolKey, GenericSubstitutionId)>,
+        ordinals: &[u32],
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let arguments = self.evaluate_nodes(arguments)?;
+        let evaluated = self.evaluate_nodes(arguments)?;
+        let mut ordered = ordinals.iter().copied().zip(evaluated).collect::<Vec<_>>();
+
+        ordered.sort_by_key(|(ordinal, _)| *ordinal);
+
+        let arguments = ordered
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
 
         let Some(callable) = self
             .resolver
@@ -635,6 +646,22 @@ where
         let substitution = values
             .substitute_generic_substitution(substitution, self.substitution)
             .unwrap_or_else(|error| panic!("semantic_value in evaluate_call: {error:?}"));
+
+        let implementation = match dispatch {
+            None => None,
+            Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(
+                declaration,
+                substitution,
+            )) => Some((declaration, substitution)),
+            Some(
+                bray_bound_tree::CheckedTemplateDispatch::Constraint { .. }
+                | bray_bound_tree::CheckedTemplateDispatch::TraitDefault { .. },
+            ) => {
+                return Err(TemplateEvaluationFailure::invalid_expression(
+                    bray_diagnostics::DiagnosticExpressionCategory::Call,
+                ));
+            }
+        };
 
         let implementation = implementation
             .map(|(declaration, substitution)| {

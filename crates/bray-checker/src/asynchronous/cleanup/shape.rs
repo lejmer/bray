@@ -296,7 +296,8 @@ where
 
                 shape
             }
-            TypeData::FlexibleArray(_)
+            TypeData::ExactInteger { .. }
+            | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Borrow { .. }
             | TypeData::Callable(_)

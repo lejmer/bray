@@ -30,6 +30,13 @@ impl ExitState {
     }
 
     pub(super) fn merge(&mut self, incoming: &StorageFlowState) {
+        crate::analysis::storage_flow::model::merge_fully_moved(
+            &self.live,
+            &mut self.fully_moved,
+            &incoming.live,
+            &incoming.fully_moved,
+        );
+
         self.live.extend(incoming.live.iter().copied());
 
         self.initialized
@@ -39,9 +46,6 @@ impl ExitState {
 
         self.definitely_absent
             .retain(|access| incoming.definitely_absent.contains_key(access));
-
-        self.fully_moved
-            .retain(|identity| incoming.fully_moved.contains(identity));
 
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
@@ -115,9 +119,11 @@ impl ReplacementState {
     }
 
     pub(in crate::analysis) fn merge(&mut self, incoming: Self) {
+        let owned = (self.live && !self.fully_moved) || (incoming.live && !incoming.fully_moved);
+
         self.live |= incoming.live;
         self.initialized &= incoming.initialized;
-        self.fully_moved &= incoming.fully_moved;
+        self.fully_moved = self.live && !owned;
         self.overlapping_move |= incoming.overlapping_move;
         self.moved.extend(incoming.moved);
 
@@ -309,5 +315,62 @@ mod tests {
         assert_eq!(snapshot.initialized, left.initialized);
         assert_eq!(snapshot.fully_moved, left.fully_moved);
         assert_eq!(snapshot.recovered, left.recovered);
+
+        let make = |status: Option<bool>| {
+            let mut state = StorageFlowState::default();
+
+            state.reachable = true;
+
+            if let Some(moved) = status {
+                state.live.insert(identity);
+
+                if moved {
+                    state.move_complete_storage(identity);
+                } else {
+                    state.initialized.insert(identity);
+                }
+            }
+
+            state
+        };
+
+        let replacement = |status: Option<bool>| ReplacementState {
+            live: status.is_some(),
+            initialized: status == Some(false),
+            fully_moved: status == Some(true),
+            overlapping_move: false,
+            moved: Default::default(),
+            definitely_absent: Default::default(),
+            recovered: false,
+        };
+
+        for first in [None, Some(false), Some(true)] {
+            for second in [None, Some(false), Some(true)] {
+                let mut forward = make(first);
+                let incoming = make(second);
+                let mut exit = ExitState::new(&forward);
+                let mut replaced = replacement(first);
+
+                exit.merge(&incoming);
+                replaced.merge(replacement(second));
+                forward.merge(&incoming, None);
+
+                assert_eq!(
+                    (&exit.live, &exit.initialized, &exit.fully_moved),
+                    (&forward.live, &forward.initialized, &forward.fully_moved),
+                    "{first:?}, {second:?}"
+                );
+
+                assert_eq!(
+                    (replaced.live, replaced.initialized, replaced.fully_moved),
+                    (
+                        forward.live.contains(&identity),
+                        forward.initialized.contains(&identity),
+                        forward.fully_moved.contains(&identity)
+                    ),
+                    "{first:?}, {second:?}"
+                );
+            }
+        }
     }
 }

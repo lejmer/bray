@@ -126,6 +126,8 @@ fn transfers(
                 Some(AnalysisRefinement::PatternOutcome { subject, .. }) => {
                     transfer.generated.insert(subject);
                 }
+                // Invocation operands remain live through the sibling admission continuation.
+                Some(AnalysisRefinement::PreconditionFailure(_)) => {}
                 // These edges select control flow without reading another cached value.
                 Some(
                     AnalysisRefinement::TrustBoundary(_)

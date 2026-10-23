@@ -56,6 +56,9 @@ fn target_abi_value_from_data(
     cancellation: &CancellationToken,
 ) -> Result<Option<TargetAbiValue>, FactQueryError> {
     Ok(match data {
+        TypeData::ExactInteger { .. } => {
+            panic!("internal exact integer cannot cross a foreign ABI")
+        }
         TypeData::Named {
             definition,
             substitution,

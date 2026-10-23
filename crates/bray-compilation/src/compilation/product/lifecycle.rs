@@ -168,6 +168,7 @@ impl Compilation {
         let data = values.type_data(ty);
 
         let needs = match data.as_ref() {
+            TypeData::ExactInteger { .. } => CodegenLifecycleNeeds::NONE,
             TypeData::Named {
                 definition,
                 substitution,

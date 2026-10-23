@@ -35,7 +35,9 @@ impl Compilation {
             // Compatibility metadata owns package identity beyond the product-key borrow.
             MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
             // Generated lifecycle definitions belong to the selected product package.
-            MirUnitKey::GeneratedLifecycle(_) => return Ok(product_package.clone()),
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::Predicate(_) => {
+                return Ok(product_package.clone());
+            }
             MirUnitKey::ExternalCallable(definition)
             | MirUnitKey::CompilerProvidedCallable(definition) => definition.symbol(),
             MirUnitKey::ImportedExecutable(key) => key.owner(),
@@ -76,15 +78,7 @@ impl Compilation {
             hasher.write(b"bray.codegen-runtime-default-symbol");
             provider.hash(&mut hasher);
 
-            realization.key().specialization().hash(&mut hasher);
-            realization.key().witnesses().hash(&mut hasher);
-
-            realization
-                .key()
-                .contextual_self_witness()
-                .hash(&mut hasher);
-
-            realization.key().target().hash(&mut hasher);
+            hash_specialization(realization, &mut hasher);
 
             return binary_symbol_name(target, linkage, "default", hasher.finalize());
         }
@@ -107,15 +101,7 @@ impl Compilation {
             product.hash(&mut hasher);
         }
 
-        realization.key().specialization().hash(&mut hasher);
-        realization.key().witnesses().hash(&mut hasher);
-
-        realization
-            .key()
-            .contextual_self_witness()
-            .hash(&mut hasher);
-
-        realization.key().target().hash(&mut hasher);
+        hash_specialization(realization, &mut hasher);
 
         binary_symbol_name(target, linkage, "instance", hasher.finalize())
     }
@@ -152,6 +138,7 @@ impl Compilation {
             MirUnitKey::ExternalRuntimeDefault(provider) => Ok(Some(*provider)),
             MirUnitKey::Bound(_)
             | MirUnitKey::ExecutableHost(_)
+            | MirUnitKey::Predicate(_)
             | MirUnitKey::GeneratedLifecycle(_)
             | MirUnitKey::CompilerProvidedCallable(_)
             | MirUnitKey::ExternalCallable(_) => Ok(None),
@@ -192,4 +179,11 @@ impl Compilation {
             Ok(definition.clone())
         }
     }
+}
+
+fn hash_specialization(realization: &ConcreteCodegenInstance, hasher: &mut StableDigestHasher) {
+    realization.key().specialization().hash(hasher);
+    realization.key().witnesses().hash(hasher);
+    realization.key().contextual_self_witness().hash(hasher);
+    realization.key().target().hash(hasher);
 }

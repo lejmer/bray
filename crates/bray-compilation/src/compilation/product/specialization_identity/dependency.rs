@@ -2,12 +2,113 @@ use super::encoding::StructuralValueEncoder;
 use crate::fact::FactQueryError;
 use bray_base::StableDigestHasher;
 use bray_symbols::{
-    DependencyContractTemplateId, DependencyGuard, DependencyProjection, DependencyRequirement,
-    DependencySubject, DependencySubjectRoot,
+    CallablePhaseBehavior, DependencyContractTemplateId, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencySubject, DependencySubjectRoot,
 };
 use std::hash::Hasher;
 
 impl StructuralValueEncoder<'_, '_> {
+    pub(super) fn callable_phase_behavior(
+        &mut self,
+        behavior: &CallablePhaseBehavior,
+    ) -> Result<(), FactQueryError> {
+        for predicates in [
+            behavior.predicate_requirements(),
+            behavior.predicate_guarantees(),
+        ] {
+            self.predicate_summaries(predicates)?;
+        }
+
+        self.length(behavior.execution_properties().len());
+
+        for property in behavior.execution_properties() {
+            self.tag(match property {
+                bray_symbols::ExecutionProperty::Pure => 0,
+                bray_symbols::ExecutionProperty::Total => 1,
+            });
+        }
+
+        self.length(behavior.effects().len());
+
+        for requirement in behavior.effects() {
+            self.symbol(requirement.declaration())?;
+        }
+
+        self.length(behavior.capabilities().len());
+
+        for requirement in behavior.capabilities() {
+            self.symbol(requirement.declaration())?;
+        }
+
+        self.length(behavior.trusted_capabilities().len());
+
+        for requirement in behavior.trusted_capabilities() {
+            self.ordinal(requirement.ordinal());
+            self.symbol(requirement.capability().into())?;
+        }
+
+        self.length(behavior.execution_requirements().len());
+
+        for requirement in behavior.execution_requirements() {
+            self.symbol(requirement.declaration())?;
+        }
+
+        self.length(behavior.lifecycle_obligations().len());
+
+        for obligation in behavior.lifecycle_obligations() {
+            self.lifecycle_obligation(*obligation);
+        }
+
+        self.dependency_contract(behavior.dependency_contract())?;
+        self.current_run_cancellation(behavior.current_run_cancellation());
+        self.tag(u8::from(behavior.may_unwind()));
+
+        let cleanup = behavior
+            .receiver_cleanup()
+            .iter()
+            .map(|ty| Self::type_identity(self.values, self.binding_context, *ty))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.unordered_identities(cleanup);
+
+        Ok(())
+    }
+
+    fn predicate_summaries(
+        &mut self,
+        predicates: &[bray_symbols::PredicateSemanticSummary],
+    ) -> Result<(), FactQueryError> {
+        let mut identities = Vec::with_capacity(predicates.len());
+
+        for predicate in predicates {
+            let mut encoder = StructuralValueEncoder {
+                values: self.values,
+                binding_context: self.binding_context,
+                digest: StableDigestHasher::new(),
+                allow_static_address: self.allow_static_address,
+            };
+
+            encoder.tag(match predicate.domain() {
+                bray_symbols::PredicateDomain::Value => 0,
+                bray_symbols::PredicateDomain::Trusted => 1,
+                bray_symbols::PredicateDomain::Execution => 2,
+            });
+
+            encoder.dependency_contract(predicate.dependency_contract())?;
+            encoder.tag(u8::from(predicate.condition().is_some()));
+
+            if let Some(condition) = predicate.condition() {
+                encoder.constant_term(condition)?;
+            }
+
+            identities.push(encoder.digest.finalize());
+        }
+
+        self.unordered_identities(identities);
+
+        Ok(())
+    }
+
     pub(super) fn dependency_contract(
         &mut self,
         id: DependencyContractTemplateId,
@@ -15,6 +116,10 @@ impl StructuralValueEncoder<'_, '_> {
         let data = self.values.dependency_contract_template_data(id);
 
         self.digest.write_u8(u8::from(data.normal_completion()));
+
+        self.digest
+            .write_u8(u8::from(data.preserves_storage_on_normal_return()));
+
         self.dependency_requirements(data.requirements())?;
 
         for reports in [data.completion_reports(), data.abnormal_reports()] {
@@ -32,68 +137,39 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(input)?;
         }
 
-        let mut identities = Vec::with_capacity(data.borrows().len());
+        self.dependency_set(data.borrows(), Self::dependency_borrow)?;
+        self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
-        for relation in data.borrows() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
+        self.dependency_set(data.effects(), Self::dependency_effect)
+    }
 
-            encoder.dependency_subject(relation.entry())?;
-            encoder.dependency_subject(relation.exit())?;
-            encoder.digest.write_u32(relation.dereferences());
-            encoder.dependency_projections(relation.target_projections())?;
+    pub(in crate::compilation) fn dependency_borrow(
+        &mut self,
+        relation: &bray_symbols::DependencyBorrowRelation,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_subject(relation.entry())?;
+        self.dependency_subject(relation.exit())?;
+        self.digest.write_u32(relation.dereferences());
+        self.dependency_projections(relation.target_projections())?;
 
-            encoder.tag(match relation.kind() {
-                bray_symbols::DependencyReferenceKind::Borrow => 1,
-                bray_symbols::DependencyReferenceKind::Address => 2,
-            });
-
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
-
-        let mut identities = Vec::with_capacity(data.carriers().len());
-
-        for carrier in data.carriers() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
-
-            encoder.constant_term(carrier.guarantee())?;
-            encoder.dependency_projections(carrier.path())?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
-
-        let mut identities = Vec::with_capacity(data.effects().len());
-
-        for effect in data.effects() {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
-
-            encoder.dependency_effect(effect)?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        self.unordered_identities(identities);
+        self.tag(match relation.kind() {
+            bray_symbols::DependencyReferenceKind::Borrow => 1,
+            bray_symbols::DependencyReferenceKind::Address => 2,
+        });
 
         Ok(())
     }
 
-    fn dependency_effect(
+    pub(in crate::compilation) fn dependency_carrier(
+        &mut self,
+        carrier: &bray_symbols::DependencyWitnessCarrier,
+    ) -> Result<(), FactQueryError> {
+        self.constant_term(carrier.guarantee())?;
+
+        self.dependency_projections(carrier.path())
+    }
+
+    pub(in crate::compilation) fn dependency_effect(
         &mut self,
         effect: &bray_symbols::DependencyStorageEffect,
     ) -> Result<(), FactQueryError> {
@@ -169,27 +245,42 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         requirements: &[DependencyRequirement],
     ) -> Result<(), FactQueryError> {
-        let mut identities = Vec::with_capacity(requirements.len());
+        self.dependency_set(requirements, Self::dependency_requirement)
+    }
 
-        for requirement in requirements {
-            let mut encoder = StructuralValueEncoder {
-                values: self.values,
-                binding_context: self.binding_context,
-                digest: StableDigestHasher::new(),
-                allow_static_address: self.allow_static_address,
-            };
+    fn dependency_set<T>(
+        &mut self,
+        items: &[T],
+        encode: impl Fn(&mut Self, &T) -> Result<(), FactQueryError>,
+    ) -> Result<(), FactQueryError> {
+        let identities = items
+            .iter()
+            .map(|item| self.item_identity(item, &encode))
+            .collect::<Result<Vec<_>, _>>()?;
 
-            encoder.dependency_requirement(requirement)?;
-            identities.push(encoder.digest.finalize());
-        }
-
-        // Requirement sets must not inherit store-local allocation order.
         self.unordered_identities(identities);
 
         Ok(())
     }
 
-    fn dependency_requirement(
+    pub(super) fn item_identity<T>(
+        &self,
+        item: &T,
+        encode: impl FnOnce(&mut Self, &T) -> Result<(), FactQueryError>,
+    ) -> Result<[u8; 32], FactQueryError> {
+        let mut encoder = Self {
+            values: self.values,
+            binding_context: self.binding_context,
+            digest: StableDigestHasher::new(),
+            allow_static_address: self.allow_static_address,
+        };
+
+        encode(&mut encoder, item)?;
+
+        Ok(encoder.digest.finalize())
+    }
+
+    pub(in crate::compilation) fn dependency_requirement(
         &mut self,
         requirement: &DependencyRequirement,
     ) -> Result<(), FactQueryError> {

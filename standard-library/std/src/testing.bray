@@ -1,21 +1,31 @@
 module std.testing;
 
+// Retain rejected owners until fail starts abnormal cleanup.
+
 /// Returns the successful value or fails the current test when the result is an error.
 func assert_ok<T, E>(pos result: Result<T, E>) -> T
+    when(result matches Error(_))
+    {
+        ensures(false)
+    }
 {
     match consume result
     {
         case Ok(value) { return value; }
-        case Error(_) { fail(&"expected Result.Ok"); }
+        case Error(error) { fail(&"expected Result.Ok"); }
     }
 }
 
 /// Returns the error value or fails the current test when the result is successful.
 func assert_error<T, E>(pos result: Result<T, E>) -> E
+    when(result matches Ok(_))
+    {
+        ensures(false)
+    }
 {
     match consume result
     {
-        case Ok(_) { fail(&"expected Result.Error"); }
+        case Ok(value) { fail(&"expected Result.Error"); }
         case Error(error) { return error; }
     }
 }
@@ -35,7 +45,7 @@ func assert_absent<T>(pos value: T?)
 {
     match consume value
     {
-        case ?_ { fail(&"expected an absent nullable value"); }
+        case ?present { fail(&"expected an absent nullable value"); }
         case none {}
     }
 }
@@ -46,7 +56,7 @@ func assert_completed<T>(pos result: RunResult<T>) -> T
     match consume result
     {
         case Completed(value) { return value; }
-        case Panicked(_) | Cancelled { fail(&"expected RunResult.Completed"); }
+        case unexpected { fail(&"expected RunResult.Completed"); }
     }
 }
 
@@ -55,8 +65,8 @@ func assert_panicked<T>(pos result: RunResult<T>) -> PanicReport
 {
     match consume result
     {
-        case Completed(_) | Cancelled { fail(&"expected RunResult.Panicked"); }
         case Panicked(report) { return report; }
+        case unexpected { fail(&"expected RunResult.Panicked"); }
     }
 }
 
@@ -65,8 +75,8 @@ func assert_cancelled<T>(pos result: RunResult<T>)
 {
     match consume result
     {
-        case Completed(_) | Panicked(_) { fail(&"expected RunResult.Cancelled"); }
         case Cancelled {}
+        case unexpected { fail(&"expected RunResult.Cancelled"); }
     }
 }
 
@@ -75,7 +85,7 @@ func assert_not_completed<T>(pos result: RunResult<T>)
 {
     match consume result
     {
-        case Completed(_) { fail(&"expected RunResult.Panicked or RunResult.Cancelled"); }
+        case Completed(value) { fail(&"expected RunResult.Panicked or RunResult.Cancelled"); }
         case Panicked(_) | Cancelled {}
     }
 }

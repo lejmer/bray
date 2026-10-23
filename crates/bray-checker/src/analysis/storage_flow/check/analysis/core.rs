@@ -144,6 +144,18 @@ where
 
     let normal_paths = graph.completion_predecessors();
 
+    collector
+        .normal_failures
+        .extend(graph.edges().iter().filter_map(|edge| {
+            let crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence) =
+                edge.refinement()?
+            else {
+                return None;
+            };
+
+            normal_paths.contains(&edge.target()).then_some(occurrence)
+        }));
+
     for block in graph.blocks() {
         collector.on_normal_path = normal_paths.contains(&block.id());
         collector.report_boundary = block.report_boundary();
@@ -198,24 +210,6 @@ where
         }
     }
 
-    let carriers = collector.trusted.result_carriers(request);
-
-    let returned_input = (!collector.has_normal_effects)
-        .then_some(collector.trusted.returned_input)
-        .flatten()
-        .flatten();
-
-    collector
-        .diagnostics
-        .add_range(std::mem::take(&mut collector.trusted).finish(execution));
-
-    if let Some(error) = collector.query_failure.take() {
-        return match error {
-            CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-            CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-        };
-    }
-
     let dependencies = match collector.result_dependencies() {
         Ok(dependencies) => dependencies,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -255,17 +249,18 @@ where
     .and_then(|analysis| analysis.with_replacements(replacements))
     .and_then(|analysis| analysis.with_assignment_targets(assignments))
     .expect("durable storage flow must preserve the checked plan's identities")
-    .with_dependencies(
-        dependencies
-            .with_effects(effects)
-            .with_carriers(carriers)
-            .with_returned_input(returned_input),
-    )
+    .with_dependencies(dependencies.with_effects(effects))
     .with_report_collections(collector.report_collections)
     .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
     .with_cleanup_mutations(collector.cleanup_mutations)
-    .with_completions(collector.completions);
+    .with_completions(collector.completions)
+    .with_proven_preconditions(
+        collector
+            .preconditions
+            .into_iter()
+            .filter_map(|(site, proven)| proven.then_some(site)),
+    );
 
     let published = match crate::analysis::refinement::publish_refinements(
         request,
@@ -369,6 +364,7 @@ where
     pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
     pub(super) memory_evidence: Option<bool>,
+    preconditions: BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
@@ -379,6 +375,7 @@ where
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
+    normal_failures: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
@@ -484,6 +481,7 @@ where
             results: Default::default(),
             trusted: Default::default(),
             memory_evidence: None,
+            preconditions: BTreeMap::new(),
             statuses: BTreeMap::new(),
             suspensions: BTreeMap::new(),
             exits: Vec::new(),
@@ -497,6 +495,7 @@ where
             receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
+            normal_failures: BTreeSet::new(),
             report_boundary: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
@@ -621,21 +620,7 @@ where
             .then(|| self.assignment_target(state, kind.node()))
             .flatten();
 
-        if matches!(
-            kind,
-            AnalysisOperationKind::Call {
-                invocation: bray_bound_tree::BoundExecutionSite::ScopedEnter(_),
-                phase: AnalysisCallPhase::Attempt
-            }
-        ) {
-            for plan in self
-                .storage
-                .occurrence_plans(kind.occurrence())
-                .filter(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
-            {
-                self.apply_plan(state, plan, universe.active_refinements(&refinements));
-            }
-        }
+        self.apply_scoped_entry_borrows(state, kind, &refinements);
 
         let assignment_mutation = (!completing)
             .then(|| self.assignment_mutation(kind, &execution))
@@ -652,26 +637,52 @@ where
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
 
-        let invocation_roots = (!completing)
+        let mut invocation_roots = (!completing)
             .then(|| self.call_attempt(kind))
             .flatten()
             .map(|_| self.invocation_roots(state, kind.occurrence()));
+
+        let preserve_normal_storage = !completing
+            && self.call_attempt(kind).is_some()
+            && self
+                .execution
+                .call_preserves_normal_storage(&execution, kind.occurrence());
+
+        let normal_effects = self.on_normal_path
+            && (!preserve_normal_storage || self.normal_failures.contains(&kind.occurrence()));
 
         let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
 
         if let Some(roots) = &assignment_roots {
             // Capture precedes destination invalidation and does not require an exact target.
             // Operators separately observe and may retain both invocation inputs.
-            self.record_address_escapes(
+            let escaped = self.address_escapes(
                 state,
                 kind,
                 assignment_effect.as_ref().map(std::slice::from_ref),
                 roots,
+                self.on_normal_path,
             );
+
+            state.memory.escape_regions(escaped);
         }
 
-        if let Some(roots) = &invocation_roots {
-            self.record_address_escapes(state, kind, call_effects.as_deref(), roots);
+        let escaped = invocation_roots
+            .as_ref()
+            .map(|roots| {
+                self.address_escapes(state, kind, call_effects.as_deref(), roots, normal_effects)
+            })
+            .unwrap_or_default();
+
+        if preserve_normal_storage {
+            // Opaque effects can reach the whole exposed allocation on abnormal return.
+            // Resolve that region now, while all invocation inputs still exist.
+            invocation_roots
+                .as_mut()
+                .expect("call attempt has invocation roots")
+                .extend(escaped.iter().cloned());
+        } else {
+            state.memory.escape_regions(escaped.iter().cloned());
         }
 
         if !completing {
@@ -712,29 +723,14 @@ where
                 call_effects.as_deref(),
                 assignment.as_ref(),
                 assignment_mutation,
+                normal_effects,
             );
 
-            if self.publish {
-                if let AnyBoundNodeId::Expression(expression) = kind.node()
-                    && matches!(
-                        self.request.view().expression(expression),
-                        Some(bray_bound_tree::BoundExpression::Assignment(_))
-                    )
-                {
-                    self.record_assignment_path(expression, assignment_path.as_ref());
-                }
-
-                if let Some(effects) = invalidation
-                    .as_ref()
-                    .or_else(|| self.refinements.invalidation_at(kind.occurrence()))
-                {
-                    self.invalidations
-                        .entry(kind.occurrence())
-                        .and_modify(|previous| previous.merge(effects))
-                        // Publication owns the final may-effects independently of preparation.
-                        .or_insert_with(|| effects.clone());
-                }
-            }
+            self.record_operation_observations(
+                kind,
+                assignment_path.as_ref(),
+                invalidation.as_ref(),
+            );
 
             let assignment = assignment_path
                 .as_ref()
@@ -753,13 +749,21 @@ where
                 .transfer_operation(&mut execution, kind, None, None);
         }
 
-        self.memory_evidence = self
-            .execution
-            .trusted_memory_evidence(&execution, kind.occurrence());
+        self.record_call_evidence(&execution, kind);
 
         state.execution = Some(execution);
 
-        self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
+        if preserve_normal_storage {
+            self.capture_failure_effects(
+                state,
+                kind.occurrence(),
+                call_effects,
+                escaped,
+                invalidation.as_ref(),
+            );
+        } else {
+            self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
+        }
 
         if completing
             && self
@@ -793,20 +797,97 @@ where
         state.refinements = refinements;
     }
 
-    fn record_assignment_path(
+    fn apply_scoped_entry_borrows(
         &mut self,
-        expression: BoundExpressionId,
-        path: Option<&crate::analysis::storage_flow::memory::Place>,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+        refinements: &crate::analysis::refinement::RefinementSet,
     ) {
-        self.assignments
-            .entry(expression)
-            .and_modify(|previous| {
-                if previous.as_ref() != path {
-                    *previous = None;
+        if matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::ScopedEnter(_),
+                phase: AnalysisCallPhase::Attempt
+            }
+        ) {
+            for plan in self
+                .storage
+                .occurrence_plans(kind.occurrence())
+                .filter(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
+            {
+                self.apply_plan(
+                    state,
+                    plan,
+                    self.refinements.active_refinements(refinements),
+                );
+            }
+        }
+    }
+
+    fn record_call_evidence(
+        &mut self,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        kind: AnalysisOperationKind,
+    ) {
+        if self.publish
+            && matches!(
+                kind,
+                AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Attempt,
+                    ..
                 }
-            })
-            // Target paths share immutable projections with the transition.
-            .or_insert_with(|| path.cloned());
+            )
+            && let Some(proven) = self
+                .execution
+                .preconditions_proven(execution, kind.occurrence())
+        {
+            self.preconditions
+                .entry(kind.occurrence())
+                .and_modify(|previous| *previous &= proven)
+                .or_insert(proven);
+        }
+
+        self.memory_evidence = self
+            .execution
+            .trusted_memory_evidence(execution, kind.occurrence());
+    }
+
+    fn record_operation_observations(
+        &mut self,
+        kind: AnalysisOperationKind,
+        assignment: Option<&crate::analysis::storage_flow::memory::Place>,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    ) {
+        if !self.publish {
+            return;
+        }
+
+        if let AnyBoundNodeId::Expression(expression) = kind.node()
+            && matches!(
+                self.request.view().expression(expression),
+                Some(bray_bound_tree::BoundExpression::Assignment(_))
+            )
+        {
+            self.assignments
+                .entry(expression)
+                .and_modify(|previous| {
+                    if previous.as_ref() != assignment {
+                        *previous = None;
+                    }
+                })
+                // Target paths share immutable projections with the transition.
+                .or_insert_with(|| assignment.cloned());
+        }
+
+        if let Some(effects) =
+            invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))
+        {
+            self.invalidations
+                .entry(kind.occurrence())
+                .and_modify(|previous| previous.merge(effects))
+                // Publication owns the final may-effects independently of preparation.
+                .or_insert_with(|| effects.clone());
+        }
     }
 
     fn complete_operation(

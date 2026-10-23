@@ -100,14 +100,7 @@ impl InterfaceSemantics {
 
                 match constraint.kind {
                     InterfaceConstraintKind::Predicate(predicate) => {
-                        validate_index(
-                            predicate.dependency_contract.to_index(),
-                            self.dependency_contracts.len(),
-                        )?;
-
-                        if let Some(term) = predicate.condition {
-                            validate_index(term.to_index(), self.constant_terms.len())?;
-                        }
+                        self.validate_predicate_summary(predicate)?;
                     }
                     InterfaceConstraintKind::TraitSatisfaction {
                         subject,

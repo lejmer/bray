@@ -45,6 +45,7 @@ mod standard_library;
 mod state;
 mod substitution;
 mod symbol_surface;
+mod template;
 mod testing;
 mod tooling;
 mod type_representation;

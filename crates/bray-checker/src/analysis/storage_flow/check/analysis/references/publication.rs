@@ -30,6 +30,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
+        let carriers = self.trusted.result_carriers(self.request);
+
+        let returned_input = (!self.has_normal_effects)
+            .then_some(self.trusted.returned_input)
+            .flatten()
+            .flatten();
+
+        self.diagnostics
+            .add_range(std::mem::take(&mut self.trusted).finish(self.execution));
+
+        if let Some(error) = self.query_failure.take() {
+            return Err(error);
+        }
+
         let mut relations = Vec::new();
         let summary = std::mem::take(&mut self.results).summary();
         let mut requirements = summary.requirements().to_vec();
@@ -73,7 +87,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Ok(summary
             .with_requirements(requirements)
             .with_borrows(relations)
-            .with_normal_completion(self.references.is_some()))
+            .with_normal_completion(self.references.is_some())
+            .with_carriers(carriers)
+            .with_returned_input(returned_input)
+            .with_normal_storage_preservation(!self.has_normal_effects))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn result_type(

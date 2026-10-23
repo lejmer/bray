@@ -23,16 +23,25 @@ fn default_instance_linkage(
 ) -> CodegenLinkage {
     // Package-portable bodies may be emitted by their producer and consumers.
     match instance.key().template() {
-        MirUnitKey::ImportedExecutable(_) | MirUnitKey::GeneratedLifecycle(_) => {
-            CodegenLinkage::LinkOnce
-        }
+        MirUnitKey::ImportedExecutable(_)
+        | MirUnitKey::GeneratedLifecycle(_)
+        | MirUnitKey::Predicate(_) => CodegenLinkage::LinkOnce,
         MirUnitKey::Bound(unit)
             if unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault =>
         {
             CodegenLinkage::LinkOnce
         }
-        _ if roots.contains(instance.key()) => CodegenLinkage::Export,
-        _ => CodegenLinkage::Internal,
+        MirUnitKey::Bound(_)
+        | MirUnitKey::ExecutableHost(_)
+        | MirUnitKey::ExternalCallable(_)
+        | MirUnitKey::CompilerProvidedCallable(_)
+        | MirUnitKey::ExternalRuntimeDefault(_) => {
+            if roots.contains(instance.key()) {
+                CodegenLinkage::Export
+            } else {
+                CodegenLinkage::Internal
+            }
+        }
     }
 }
 
@@ -272,6 +281,7 @@ impl Compilation {
             instance.template(),
             MirUnitKey::GeneratedLifecycle(_)
                 | MirUnitKey::ExecutableHost(_)
+                | MirUnitKey::Predicate(_)
                 | MirUnitKey::ExternalRuntimeDefault(_)
         ) {
             return Ok(None);
@@ -336,6 +346,7 @@ impl Compilation {
             | MirUnitKey::ExecutableHost(_)
             | MirUnitKey::ExternalCallable(_)
             | MirUnitKey::CompilerProvidedCallable(_)
+            | MirUnitKey::Predicate(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => None,
         };
 
@@ -444,5 +455,78 @@ impl Compilation {
         };
 
         crate::compilation::foreign::runtime::runtime_role(self, function).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::{CodegenInstance, CodegenInstanceKey, CodegenLinkage};
+    use bray_ir::{
+        MirBlockKind, MirHelperReference, MirImmediateValue, MirOperand, MirPredicateReference,
+        MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+    };
+    use bray_symbols::{ConstantTermData, ConstantValueData, ConstantValueKind};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn portable_predicate_definitions_use_link_once_even_as_roots() {
+        let compilation = crate::test_support::compilation("module app;");
+        let values = compilation.semantic_value_store().unwrap();
+
+        let boolean = compilation
+            .codegen_representation_type(bray_compiler_known::RepresentationRole::ScalarBool)
+            .unwrap();
+
+        let value = values
+            .intern_constant_value(ConstantValueData::new(
+                boolean,
+                ConstantValueKind::Boolean(true),
+            ))
+            .unwrap();
+
+        let condition = values
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let reference = MirPredicateReference::condition(condition, []);
+        let helper = MirHelperReference::Predicate(reference.clone());
+        let source = MirSourceAnchor::generated_helper(helper.clone());
+        let target = bray_testing::test_mir_unit(2).target().clone();
+
+        let mut builder = MirUnitBuilder::for_generated_helper(
+            MirUnitId::new(2),
+            MirUnitKey::Predicate(bray_ir::MirPredicateKey::new([3; 32], reference)),
+            helper,
+            MirUnitKind::Synchronous,
+            target,
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Immediate {
+                    value: MirImmediateValue::Boolean(true),
+                    ty: boolean,
+                }),
+                report: None,
+            },
+        );
+
+        let mir = builder.finish(entry);
+
+        let instance =
+            CodegenInstance::try_new(CodegenInstanceKey::non_generic(&mir), mir, []).unwrap();
+
+        for roots in [BTreeSet::new(), BTreeSet::from([instance.key().clone()])] {
+            assert_eq!(
+                super::default_instance_linkage(&instance, &roots),
+                CodegenLinkage::LinkOnce
+            );
+        }
     }
 }

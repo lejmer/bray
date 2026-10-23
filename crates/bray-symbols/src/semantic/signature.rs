@@ -429,7 +429,7 @@ impl CallableSignature {
                 .substitute_dependency_contract(predicate.dependency_contract(), substitution)?;
 
             let predicate = crate::PredicateSemanticSummary::new(dependency)
-                .with_condition(condition, predicate.is_trusted());
+                .with_condition(condition, predicate.domain());
 
             match clause.kind() {
                 crate::CallableContractClauseKind::Requires => requirements.push(predicate),

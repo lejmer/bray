@@ -1,16 +1,16 @@
-use super::super::PackageInterfaceExportError;
 use super::build::{SourceTemplateBuilder, incomplete};
+use crate::fact::FactQueryError;
+use bray_bound_tree::CheckedTemplateOperation;
 use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpressionKind, SelectedOperation, SemanticSelection,
 };
-use bray_package_interface::{InterfaceCheckedTemplateOperation, InterfaceTemplateReference};
 
 impl SourceTemplateBuilder<'_, '_, '_> {
     pub(super) fn index(
         &mut self,
         id: BoundExpressionId,
         expression: &bray_bound_tree::BoundStructuredExpression,
-    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
+    ) -> Result<CheckedTemplateOperation, FactQueryError> {
         let Some(SemanticSelection::Operation(SelectedOperation::Index { target, .. })) =
             self.selections.expression(id)
         else {
@@ -24,21 +24,21 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 witness,
                 ..
             } => {
-                let (callable, substitution) = self.export.declaration_template_reference(
+                let (callable, substitution) = self.declaration_reference(
                     fulfillment.definition().symbol(),
                     fulfillment.substitution(),
                 )?;
 
                 Some(std::sync::Arc::new(
-                    bray_package_interface::InterfaceCheckedTemplateIndexCall {
+                    bray_bound_tree::CheckedTemplateIndexCall {
                         callable,
                         substitution,
                         borrow_kind: *borrow_kind,
                         dispatch: {
                             let (implementation, substitution) =
-                                self.export.implementation_template_reference(*witness)?;
+                                self.implementation_reference(*witness)?;
 
-                            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                            bray_bound_tree::CheckedTemplateDispatch::Implementation(
                                 implementation,
                                 substitution,
                             )
@@ -52,37 +52,15 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 dispatch,
                 ..
             } => {
-                let (callable, substitution) = self.export.declaration_template_reference(
-                    member.definition().symbol(),
-                    member.substitution(),
-                )?;
+                let (callable, substitution) = self
+                    .declaration_reference(member.definition().symbol(), member.substitution())?;
 
                 Some(std::sync::Arc::new(
-                    bray_package_interface::InterfaceCheckedTemplateIndexCall {
+                    bray_bound_tree::CheckedTemplateIndexCall {
                         callable,
                         substitution,
                         borrow_kind: *borrow_kind,
-                        dispatch: match dispatch {
-                            bray_symbols::TraitConstraintDispatch::Constraint {
-                                owner,
-                                ordinal,
-                            } => bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
-                                owner: InterfaceTemplateReference::Symbol(
-                                    self.export.symbol_reference(owner.symbol())?,
-                                ),
-                                ordinal: *ordinal,
-                            },
-                            bray_symbols::TraitConstraintDispatch::TraitDefault(requirement) => {
-                                let (subject, substitution) = self
-                                    .export
-                                    .trait_default_template_requirement(*requirement)?;
-
-                                bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
-                                    subject,
-                                    substitution,
-                                }
-                            }
-                        },
+                        dispatch: self.constraint_dispatch(*dispatch)?,
                     },
                 ))
             }
@@ -95,7 +73,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     return Err(incomplete("invalid_index_operand_count"));
                 };
 
-                Ok(InterfaceCheckedTemplateOperation::Index {
+                Ok(CheckedTemplateOperation::Index {
                     call,
                     subject: self.expression(*subject)?,
                     index: self.expression(*index)?,
@@ -110,7 +88,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     .slice_bounds()
                     .ok_or_else(|| incomplete("missing_slice_bounds"))?;
 
-                Ok(InterfaceCheckedTemplateOperation::Slice {
+                Ok(CheckedTemplateOperation::Slice {
                     call,
                     subject: self.expression(*subject)?,
                     lower: bounds

@@ -1,3 +1,4 @@
+use crate::compilation::template::{callable_template_inputs, generic_template_inputs};
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -25,10 +26,7 @@ use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 
 use super::context::SemanticExporter;
-use super::defaults::{
-    callable_template_inputs, generic_parameters, generic_template_inputs,
-    push_declaration_template, runtime_default_inputs,
-};
+use super::defaults::{generic_parameters, push_declaration_template, runtime_default_inputs};
 
 use super::templates::{checked_constraint_expression, incomplete, index};
 
@@ -164,10 +162,10 @@ pub(super) fn export_callable_semantics(
 
         let inputs = callable_template_inputs(
             compilation,
-            export,
             signature.value(),
             generic_parameters(binder, symbol)?,
-        )?;
+        )
+        .map_err(super::super::fact_query_export_error)?;
 
         let checked = export_checked_source_template(
             compilation,
@@ -513,11 +511,10 @@ pub(super) fn export_runtime_default(
 
     let mut inputs = runtime_default_inputs(compilation, graph, export, contextual_inputs)?;
 
-    inputs.extend(generic_template_inputs(
-        compilation,
-        export,
-        generic_context.parameters().iter().copied(),
-    )?);
+    inputs.extend(
+        generic_template_inputs(compilation, generic_context.parameters().iter().copied())
+            .map_err(super::super::fact_query_export_error)?,
+    );
 
     let checked = export_checked_source_template(
         compilation,

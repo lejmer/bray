@@ -33,6 +33,10 @@ pub(crate) enum ScopeExitCleanupStatus {
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
     unwind: Option<&'unit bray_bound_tree::CheckedUnwind>,
+    declaration_preconditions: &'unit BTreeMap<
+        bray_symbols::CallableDefinitionId,
+        super::requirements::DeclarationPreconditions,
+    >,
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
@@ -66,6 +70,13 @@ pub struct LoweringInput<'unit> {
 }
 
 impl<'unit> LoweringInput<'unit> {
+    pub(crate) fn declaration_preconditions(
+        &self,
+        declaration: bray_symbols::CallableDefinitionId,
+    ) -> Option<&super::requirements::DeclarationPreconditions> {
+        self.declaration_preconditions.get(&declaration)
+    }
+
     /// Borrows the owning analysis's checked unwind results.
     pub fn with_unwind(mut self, unwind: &'unit bray_bound_tree::CheckedUnwind) -> Self {
         self.unwind = Some(unwind);
@@ -103,6 +114,10 @@ impl<'unit> LoweringInput<'unit> {
         constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
         unit_kind: MirUnitKind,
         target: MirTargetContract,
+        declaration_preconditions: &'unit BTreeMap<
+            bray_symbols::CallableDefinitionId,
+            super::requirements::DeclarationPreconditions,
+        >,
     ) -> Self {
         assert_input_owner(
             unit,
@@ -219,6 +234,7 @@ impl<'unit> LoweringInput<'unit> {
 
         Self {
             unwind: None,
+            declaration_preconditions,
             unit,
             control_flow,
             expression_types,
@@ -1076,6 +1092,7 @@ mod tests {
             &[],
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
+            &crate::input::EMPTY_DECLARATION_PRECONDITIONS,
         )
     }
 

@@ -675,6 +675,14 @@ fn validate_call(
                 return None;
             }
         }
+        MirCallTarget::Predicate(_) => {
+            if !matches!(
+                call.result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            ) {
+                return None;
+            }
+        }
         MirCallTarget::DefaultValue { owner, provider } => {
             let accepts_default = match owner {
                 crate::MirDefaultOwner::Callable(_) => matches!(

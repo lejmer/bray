@@ -645,7 +645,7 @@ impl Lowerer<'_> {
         operator: BoundOperator,
         result_type: TypeId,
     ) -> Result<TypeId, LoweringError> {
-        if is_relational_operator(operator) {
+        if operator.ordering_test((), ()).is_some() {
             return Ok(self.ordering_representation()?.ty);
         }
 
@@ -674,7 +674,7 @@ impl Lowerer<'_> {
             return Ok((current, value));
         }
 
-        if !is_relational_operator(operator) {
+        if operator.ordering_test((), ()).is_none() {
             return Ok((current, value));
         }
 
@@ -689,15 +689,9 @@ impl Lowerer<'_> {
             self.builder
                 .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
-        let (variant, matched_result) = match operator {
-            BoundOperator::Less => (representation.less_variant, true),
-            BoundOperator::LessEqual => (representation.greater_variant, false),
-            BoundOperator::Greater => (representation.greater_variant, true),
-            BoundOperator::GreaterEqual => (representation.less_variant, false),
-            _ => panic!(
-                "lowering contract violation: operator {operator:?} is invalid for {expression:?}"
-            ),
-        };
+        let (variant, matched_result) = operator
+            .ordering_test(representation.less_variant, representation.greater_variant)
+            .expect("relational operator retains its Ordering test");
 
         self.set_terminator(
             current,
@@ -1056,17 +1050,20 @@ impl Lowerer<'_> {
                         );
                     };
 
-                    let preceding = self.default_value_arguments(
+                    let preceding = self.borrow_staged_inputs(
                         id,
                         current,
                         &source,
-                        arguments.iter().map(|argument| match argument {
-                            MirCallArgument::Receiver { value, .. } => (None, value),
-                            MirCallArgument::Explicit { ordinal, value, .. } => {
-                                (Some(*ordinal), value)
-                            }
+                        selection.receiver().map(|receiver| receiver.mode()),
+                        arguments.iter().filter_map(|argument| match argument {
+                            MirCallArgument::Receiver { value, .. } => Some((None, value)),
+                            MirCallArgument::Explicit {
+                                ordinal: previous,
+                                value,
+                                ..
+                            } if previous < ordinal => Some((Some(*previous), value)),
+                            MirCallArgument::Explicit { .. } => None,
                         }),
-                        *ordinal,
                     )?;
 
                     let default = MirCall::protocol(
@@ -1142,6 +1139,8 @@ impl Lowerer<'_> {
                 }
             }
         }
+
+        current = self.lower_call_requirements(id, current, &source, selection, &arguments)?;
 
         let call = self.selected_mir_call(id, selection, target, arguments);
 
@@ -1381,6 +1380,9 @@ impl Lowerer<'_> {
         call: MirCall,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let (current, call) =
+            self.lower_protocol_requirements(expression.into(), current, &source, call)?;
+
         self.push_checked_value_operation(
             expression,
             current,
@@ -1419,7 +1421,7 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-                true,
+                crate::lowering::expression::CallOutcome::Selected,
             )
         } else {
             let mut value = Some(value);
@@ -1546,16 +1548,6 @@ impl Lowerer<'_> {
         Ok(MirPlace::new(storage, [], ty))
     }
 }
-fn is_relational_operator(operator: BoundOperator) -> bool {
-    matches!(
-        operator,
-        BoundOperator::Less
-            | BoundOperator::LessEqual
-            | BoundOperator::Greater
-            | BoundOperator::GreaterEqual
-    )
-}
-
 fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
     match operator {
         BoundOperator::Equal => Some(MirBinaryOperator::Equal),

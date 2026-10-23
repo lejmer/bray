@@ -147,6 +147,12 @@ impl Compilation {
 
         let completed = self.completed_unit_cleanup(key, cancellation)?;
 
+        let declaration_preconditions = self.lowering_declaration_preconditions(
+            expressions.result().value().selections(),
+            body.result().value().storage_flow(),
+            cancellation,
+        )?;
+
         let diagnostics = DiagnosticBag::merged_all([
             completed.result().diagnostics(),
             unit.result().diagnostics(),
@@ -157,6 +163,7 @@ impl Compilation {
             body.result().diagnostics(),
             behavior.result().diagnostics(),
             &constant_reference_diagnostics,
+            declaration_preconditions.diagnostics(),
         ]);
 
         if diagnostics.has_errors() {
@@ -208,6 +215,7 @@ impl Compilation {
             &constant_reference_operands,
             unit_kind,
             target,
+            declaration_preconditions.value(),
         );
 
         let runtime_calls =

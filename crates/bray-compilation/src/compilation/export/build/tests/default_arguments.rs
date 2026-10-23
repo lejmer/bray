@@ -1,13 +1,3 @@
-use std::sync::Arc;
-
-use bray_package_interface::{
-    InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationLimits,
-    InterfaceValidationPolicy, PackageImplementationArtifact, encode_package_interface,
-};
-use bray_symbols::PackageIdentity;
-
-use crate::DependencyInterfaceInput;
-
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer, export};
 
 #[test]
@@ -35,24 +25,7 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
         provider.check_diagnostics()
     );
 
-    let bundle = export(&provider);
-    let interface = encode_package_interface(bundle).unwrap();
-
-    let implementation = PackageImplementationArtifact::try_from_export_bundle(
-        &interface,
-        bundle,
-        InterfaceValidationLimits::default(),
-    )
-    .unwrap();
-
-    let dependency = DependencyInterfaceInput::new(
-        PackageIdentity::try_new("example.package").unwrap(),
-        InterfaceProductIdentity::try_new("library").unwrap(),
-        "provider.brayi",
-        interface.shared_bytes(),
-        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-    )
-    .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+    let dependency = super::fixtures::implementation_dependency(export(&provider));
 
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
@@ -105,7 +78,9 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
         consumer.check_diagnostics()
     );
 
-    let result = consumer.imported_codegen_instance_count_for_test();
+    let result = consumer.codegen_instance_count_for_test(|key| {
+        matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
+    });
 
     assert_eq!(result.unwrap(), 4);
 }

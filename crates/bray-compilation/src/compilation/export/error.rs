@@ -100,8 +100,8 @@ pub(in crate::compilation::export) fn capacity_export_error(
 /// Failure while producing the current library product's public interface.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportError {
-    /// Execution evidence cannot be represented, retaining the exact source diagnostic.
-    ExecutionEvidence(Box<bray_diagnostics::Diagnostic>),
+    /// A checked source diagnostic prevented complete export.
+    SourceDiagnostic(Box<bray_diagnostics::Diagnostic>),
     /// Export was cancelled before a complete interface could be committed.
     Cancelled,
     /// Query-runtime coordination prevented a complete interface from being committed.
@@ -159,6 +159,18 @@ pub enum PackageInterfaceExportError {
     Surface(PackageInterfaceExportSurfaceError),
     /// Semantic or support-graph validation rejected the export bundle.
     Bundle(PackageInterfaceExportBuildError),
+}
+
+pub(in crate::compilation::export) fn source_diagnostic_export_error(
+    diagnostics: &bray_diagnostics::DiagnosticBag,
+) -> Option<PackageInterfaceExportError> {
+    diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error)
+        .map(|diagnostic| {
+            // The failure owns the diagnostic after the query snapshot is released.
+            PackageInterfaceExportError::SourceDiagnostic(Box::new(diagnostic.clone()))
+        })
 }
 
 pub(in crate::compilation::export) fn constant_callable_evaluation_export_error(
@@ -329,6 +341,38 @@ mod tests {
         assert_eq!(
             fragment_coordination_export_error(FactQueryError::Cancelled),
             PackageInterfaceExportError::Cancelled
+        );
+    }
+    #[test]
+    fn source_export_errors_preserve_the_actual_diagnostic() {
+        let compilation = crate::test_support::compilation(
+            r#"
+            module app;
+
+            func root()
+            {
+                missing;
+            }
+        "#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        let expected = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error)
+            .unwrap();
+
+        assert_eq!(
+            super::source_diagnostic_export_error(diagnostics),
+            Some(super::PackageInterfaceExportError::SourceDiagnostic(
+                Box::new(expected.clone())
+            ))
+        );
+
+        assert_eq!(
+            super::source_diagnostic_export_error(&bray_diagnostics::DiagnosticBag::new()),
+            None
         );
     }
 }

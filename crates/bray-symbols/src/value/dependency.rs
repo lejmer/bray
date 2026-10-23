@@ -412,6 +412,7 @@ pub struct DependencyContractTemplateData {
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
     normal_completion: bool,
+    normal_storage_preserved: bool,
 }
 
 impl DependencyContractTemplateData {
@@ -543,6 +544,7 @@ impl DependencyContractTemplateData {
                 super::DependencyStorageEffect::Escape,
             ]),
             normal_completion: true,
+            normal_storage_preserved: false,
         }
     }
 
@@ -562,6 +564,7 @@ impl DependencyContractTemplateData {
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
             normal_completion: self.normal_completion,
+            normal_storage_preserved: self.normal_storage_preserved,
         }
     }
 
@@ -590,6 +593,19 @@ impl DependencyContractTemplateData {
     /// False proves that execution has no normal result. Unknown callees default to true.
     pub const fn normal_completion(&self) -> bool {
         self.normal_completion
+    }
+
+    /// Records the owning analysis's proof that normal return preserves external storage.
+    /// Ownership transfers and effects on abnormal outcomes remain independent.
+    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
+        self.normal_storage_preserved = preserved;
+
+        self
+    }
+
+    /// Whether normal return preserves storage, independently of input ownership transfers.
+    pub fn preserves_storage_on_normal_return(&self) -> bool {
+        self.normal_storage_preserved || self.effects.is_empty()
     }
 
     /// Attaches checked entry-to-exit borrow identities in deterministic order.

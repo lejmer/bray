@@ -215,17 +215,21 @@ mod tests {
                 ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![condition, input]);
         }
 
-        let mut budget = 65;
+        // Constant identity normalization leaves 32 leaves and 31 conjunctions.
+        let mut budget = 63;
 
         assert_eq!(
             condition.prove_mixed(&Default::default(), &ordinary, &mut budget),
             Some(true)
         );
 
-        assert_eq!(budget, 0, "each clause consumes two shared proof steps");
+        assert_eq!(
+            budget, 0,
+            "each normalized Boolean node consumes one shared proof step"
+        );
 
         assert_eq!(
-            condition.prove_mixed(&Default::default(), &ordinary, &mut 64),
+            condition.prove_mixed(&Default::default(), &ordinary, &mut 62),
             None
         );
     }

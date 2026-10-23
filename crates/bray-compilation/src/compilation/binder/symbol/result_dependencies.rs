@@ -437,7 +437,11 @@ fn body_result_dependencies(
         None
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
-    .with_normal_completion(previous.normal_completion() || checked.normal_completion());
+    .with_normal_completion(previous.normal_completion() || checked.normal_completion())
+    .with_normal_storage_preservation(
+        (!previous.normal_completion() || previous.preserves_storage_on_normal_return())
+            && (!checked.normal_completion() || checked.preserves_storage_on_normal_return()),
+    );
 
     if previous.completion_reports().is_some() || checked.completion_reports().is_some() {
         result = result.with_completion_reports(

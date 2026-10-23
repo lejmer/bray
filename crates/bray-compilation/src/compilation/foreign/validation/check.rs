@@ -909,6 +909,9 @@ fn foreign_type_data_is_supported(
     cancellation: &CancellationToken,
 ) -> Result<bool, FactQueryError> {
     match data {
+        TypeData::ExactInteger { .. } => {
+            panic!("internal exact integer cannot cross a foreign declaration")
+        }
         TypeData::Named { definition, .. } => {
             named_type_is_supported(compilation, *definition, abi, cancellation)
         }

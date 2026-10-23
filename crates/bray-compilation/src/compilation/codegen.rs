@@ -214,7 +214,9 @@ impl Compilation {
                 .ok_or_else(|| {
                     CodegenPreparationError::MirUnavailable(instance.template().clone())
                 }),
-            MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
+            MirUnitKey::Predicate(_)
+            | MirUnitKey::ExternalCallable(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenPreparationError::MirUnavailable(instance.template().clone()),
             ),
         }
@@ -471,6 +473,8 @@ pub enum CodegenPreparationError {
     UnitMismatch(CodegenUnitKey),
     /// A MIR identity table exceeded its compact representation.
     MirCapacity(MirCapacityError),
+    /// Exact contract arithmetic requires a wider backend integer.
+    ExactIntegerCapacity { minimum_bits: u64 },
     /// A MIR runtime role has no selected executable-host binding.
     MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
     /// A build-bound Bray runtime implementation does not match its closed role ABI.

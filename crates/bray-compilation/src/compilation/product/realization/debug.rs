@@ -78,7 +78,7 @@ impl Compilation {
                 | MirSourceAnchor::ImportedSource { .. }
                 | MirSourceAnchor::CompilerProvidedCallable(_)
                 | MirSourceAnchor::ExecutableHost(_)
-                | MirSourceAnchor::GeneratedLifecycle(_) => {
+                | MirSourceAnchor::GeneratedHelper(_) => {
                     // The clone retains the shared immutable generated path.
                     CodegenDebugLocation::new(
                         anchor,

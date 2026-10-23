@@ -112,6 +112,13 @@ impl CallablePhaseBehavior {
         &self.predicate_requirements
     }
 
+    /// Whether invocation may need ordinary caller-side predicate evaluation.
+    pub fn has_runtime_requirements(&self) -> bool {
+        self.predicate_requirements
+            .iter()
+            .any(|predicate| predicate.requires_runtime_check())
+    }
+
     /// Returns guarantees established by normal completion of this phase.
     pub fn predicate_guarantees(&self) -> &[crate::PredicateSemanticSummary] {
         &self.predicate_guarantees

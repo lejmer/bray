@@ -196,7 +196,15 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
                 term = super::super::contract::guarded_postcondition(context, *guard, term)?;
             }
 
-            let predicate = PredicateSemanticSummary::new(dependency).with_condition(term, trusted);
+            let predicate = PredicateSemanticSummary::new(dependency).with_condition(
+                term,
+                bray_symbols::PredicateDomain::checked_condition(
+                    term,
+                    trusted,
+                    context.semantic_values(),
+                    compilation.available_compiler_known_symbols(),
+                ),
+            );
 
             if postcondition {
                 guarantees.push(predicate);
@@ -215,13 +223,12 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         );
     }
 
-    Ok(DiagnosticResult::new(
-        callable
-            .phase_behaviors()
-            .clone()
-            .with_predicates(requirements, guarantees),
-        diagnostics,
-    ))
+    let phases = callable
+        .phase_behaviors()
+        .clone()
+        .with_predicates(requirements, guarantees);
+
+    Ok(DiagnosticResult::new(phases, diagnostics))
 }
 
 fn callable_type_clauses(

@@ -196,6 +196,7 @@ fn declaration_helpers_require_the_exact_concrete_dependency() {
         }
         bray_ir::MirUnitKey::ExecutableHost(_)
         | bray_ir::MirUnitKey::GeneratedLifecycle(_)
+        | bray_ir::MirUnitKey::Predicate(_)
         | bray_ir::MirUnitKey::CompilerProvidedCallable(_)
         | bray_ir::MirUnitKey::ImportedExecutable(_)
         | bray_ir::MirUnitKey::ExternalCallable(_)

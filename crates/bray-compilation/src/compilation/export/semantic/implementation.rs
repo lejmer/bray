@@ -1,6 +1,7 @@
+use crate::compilation::template::generic_template_inputs;
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord,
@@ -8,10 +9,8 @@ use bray_package_interface::{
 };
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, DependencyRequirementKind, ImplementationCoherenceQuery,
-    ImplementationSymbolId, PredicateDefinition, PredicateDefinitionQuery,
-    PredicateDefinitionState, StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind,
-    SymbolQueryContract, SymbolQueryRequest, TraitPredicateFulfillmentDefinitionQuery,
-    TraitPredicateMemberDefinitionQuery,
+    ImplementationSymbolId, PredicateDefinition, PredicateDefinitionState,
+    StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind, SymbolQueryRequest,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -21,7 +20,7 @@ use crate::compilation::binder::CompilationBindingContext;
 
 use super::context::{CheckedConstantExpression, SemanticExporter};
 use super::declarations::ExportedDeclarations;
-use super::defaults::{generic_parameters, generic_template_inputs, push_declaration_template};
+use super::defaults::{generic_parameters, push_declaration_template};
 use super::templates::incomplete;
 
 pub(super) fn implementation_semantics(
@@ -188,7 +187,9 @@ pub(super) fn export_static_semantics(
         .ok_or_else(|| incomplete(symbol))?;
 
     let expression = key.source().syntax();
-    let inputs = generic_template_inputs(compilation, export, generic_parameters(binder, symbol)?)?;
+
+    let inputs = generic_template_inputs(compilation, generic_parameters(binder, symbol)?)
+        .map_err(super::super::fact_query_export_error)?;
 
     let checked = export_checked_source_template(
         compilation,
@@ -222,48 +223,21 @@ pub(super) fn predicate_definition(
     binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Result<Option<PredicateDefinitionState<PredicateDefinition>>, PackageInterfaceExportError> {
-    let state = match symbol {
-        AnySymbolId::Predicate(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<PredicateDefinitionQuery>::new(predicate),
-        )?,
-        AnySymbolId::TraitPredicateMember(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<TraitPredicateMemberDefinitionQuery>::new(predicate),
-        )?,
-        AnySymbolId::TraitPredicateFulfillment(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(predicate),
-        )?,
-        _ => return Ok(None),
+    let Some(predicate) = bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol) else {
+        return Ok(None);
     };
 
-    Ok(Some(state))
-}
-
-fn resolve_predicate_definition<'a, C>(
-    binder: &CompilationBindingContext<'a>,
-    symbol: AnySymbolId,
-    request: SymbolQueryRequest<C>,
-) -> Result<PredicateDefinitionState<PredicateDefinition>, PackageInterfaceExportError>
-where
-    C: SymbolQueryContract<Value = PredicateDefinitionState<PredicateDefinition>>,
-    CompilationBindingContext<'a>: SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
-        + SymbolQueryProvider<C>,
-{
     let semantics = binder
-        .resolve_symbol_query(request)
-        .map_err(super::super::binding_query_export_error)?;
+        .compilation()
+        .predicate_definition_with_cancellation(predicate, binder.cancellation())
+        .map_err(super::super::fact_query_export_error)?;
 
     if semantics.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
 
-    // Retain the immutable predicate summary after releasing the query result.
-    Ok(semantics.value().clone())
+    // The exported summary shares its immutable semantic arrays with the query.
+    Ok(Some(semantics.value().clone()))
 }
 
 pub(super) const fn dependency_requirement_kind(

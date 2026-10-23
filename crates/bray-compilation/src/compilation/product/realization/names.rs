@@ -37,10 +37,10 @@ pub(super) fn generated_instance_symbol_name(
     linkage: CodegenLinkage,
     instance: &bray_codegen::CodegenInstanceKey,
 ) -> Result<BinarySymbolName, CodegenPreparationError> {
-    let category = if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)) {
-        "lifecycle"
-    } else {
-        "instance"
+    let category = match instance.template() {
+        MirUnitKey::GeneratedLifecycle(_) => "lifecycle",
+        MirUnitKey::Predicate(_) => "predicate",
+        _ => "instance",
     };
 
     generated_symbol_name(target, linkage, category, instance)
