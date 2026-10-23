@@ -425,3 +425,142 @@ fn path_ends_with(path: &syn::Path, expected: &[&str]) -> bool {
         && path.segments.len() >= expected.len()
 }
 
+#[cfg(test)]
+pub(super) mod tests {
+    use std::collections::BTreeSet;
+    use syn::visit::Visit;
+    use super::{SourceCollector, asserted_diagnostic_kinds, source_module_path};
+
+    #[test]
+    fn parser_anchors_keep_module_owners_and_ignore_non_executable_mentions() {
+        let (functions, tests) = parsed_parser_anchors(
+            r#"
+            const MENTION: &str = "fn invented() {}";
+            const INNER: () = {
+                #[test]
+                fn not_a_harness_entry() {}
+            };
+
+            struct Parser;
+            struct Other;
+
+            impl Parser {
+                fn source() {}
+            }
+
+            impl Other {
+                fn source() {}
+            }
+
+            fn helper() {}
+
+            #[cfg(test)]
+            fn fixture_only() {}
+
+            #[cfg(test)]
+            mod tests {
+                fn helper_without_test() {}
+
+                #[test]
+                fn real_case() {}
+
+                mod nested {
+                    #[test]
+                    fn real_case() {}
+                }
+            }
+            "#,
+        );
+
+        assert_eq!(
+            functions,
+            ["parser::state::Parser::source", "parser::state::helper"]
+        );
+
+        assert_eq!(
+            tests,
+            [
+                "parser::state::tests::real_case",
+                "parser::state::tests::nested::real_case"
+            ],
+        );
+    }
+
+    pub(in crate::readiness) fn parsed_parser_anchors(source: &str) -> (Vec<String>, Vec<String>) {
+        let file = syn::parse_file(source).expect("parser source fixture");
+        let path = "crates/bray-parser/src/parser/state.rs";
+        let mut tests = Vec::new();
+        let mut functions = Vec::new();
+
+        SourceCollector::new(path, source_module_path(path), &mut tests, &mut functions)
+            .visit_file(&file);
+
+        (
+            functions,
+            tests.into_iter().map(|test| test.qualified_name().to_owned()).collect(),
+        )
+    }
+
+    #[test]
+    fn diagnostic_assertions_follow_exact_structured_calls() {
+        assert_eq!(
+            assertions(
+                "fn test() { assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Exact); }"
+            ),
+            BTreeSet::from(["Exact".to_owned()]),
+        );
+
+        assert_eq!(
+            assertions(
+                r#"
+                fn test() {
+                    assert_goal_state_diagnostic_kind(
+                        produced.diagnostics(),
+                        DiagnosticKind::Multiline,
+                    );
+                }
+                "#,
+            ),
+            BTreeSet::from(["Multiline".to_owned()]),
+        );
+    }
+
+    #[test]
+    fn diagnostic_assertions_reject_mentions_wrong_kinds_and_fabricated_records() {
+        assert!(assertions(
+            r#"fn test() { let mention = "assert_goal_state_diagnostic_kind(DiagnosticKind::Mention)"; }"#
+        )
+        .is_empty());
+
+        assert_eq!(
+            assertions(
+                "fn test() { assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Actual); }"
+            ),
+            BTreeSet::from(["Actual".to_owned()]),
+        );
+
+        assert!(
+            assertions(
+                r#"
+            fn test() {
+                let bag = DiagnosticBag::single(Diagnostic::new(
+                    DiagnosticId::new(0),
+                    DiagnosticKind::Fabricated,
+                    SeverityKind::Error,
+                ));
+                assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Fabricated);
+            }
+            "#,
+            )
+            .is_empty()
+        );
+    }
+
+    fn assertions(source: &str) -> BTreeSet<String> {
+        let function = syn::parse_str::<syn::ItemFn>(source)
+            .unwrap_or_else(|error| panic!("test function must parse: {error}"));
+
+        asserted_diagnostic_kinds(&function.block)
+    }
+
+}

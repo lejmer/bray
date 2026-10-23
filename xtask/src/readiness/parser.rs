@@ -182,7 +182,7 @@ fn require_anchors<'source>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::parsed_parser_anchors;
+    use super::super::workspace::parsed_parser_anchors;
     use super::validate;
 
     const GRAMMAR: &str = "source-unit = module ;\nmodule = identifier ;\n";

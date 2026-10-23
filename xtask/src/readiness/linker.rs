@@ -108,7 +108,7 @@ fn require_typed_linker_input_boundary(workspace: &RustWorkspace) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
     use super::{FORBIDDEN_DEPENDENCIES, require_typed_linker_input_boundary};
 
     #[test]

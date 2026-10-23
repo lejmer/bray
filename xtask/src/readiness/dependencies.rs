@@ -100,7 +100,7 @@ enum DependencyKind {
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
 
     #[test]
     fn cargo_dependency_identity_ignores_text_and_preserves_declaration_kinds() {
