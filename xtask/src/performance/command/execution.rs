@@ -33,9 +33,17 @@ use super::progress;
 
 const USAGE: &str = "usage: cargo xtask performance \
     --output <directory> [--baseline <report.json>] [--target <triple>] \
-    [--warmup <count>] [--samples <count>] [--workload <identity>]...";
+    [--warmup <count>] [--samples <count>] [--host-class <label>] [--workload <identity>]...";
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> std::process::ExitCode {
+    let mut arguments = arguments.peekable();
+
+    if arguments.peek().is_some_and(|argument| argument == "gate") {
+        arguments.next();
+
+        return super::super::gate::run(arguments);
+    }
+
     let result = Options::parse(arguments)
         .map_err(|detail| format!("{detail}. {USAGE}"))
         .and_then(execute);
@@ -85,7 +93,15 @@ fn execute(mut options: Options) -> Result<(), String> {
         .collect::<Vec<_>>();
 
     let timer_resolution_nanoseconds = statistics::timer_resolution_nanoseconds()?;
-    let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
+
+    let identity = report_identity(
+        &root,
+        &options,
+        &selected,
+        timer_resolution_nanoseconds,
+        prepared.standard_library(),
+        prepared.runtime(),
+    )?;
 
     progress::phase("Building matched application peers");
 
@@ -744,6 +760,7 @@ mod tests {
         let baseline_output = directory.path().join("baseline");
 
         execute(Options {
+            host_class: None,
             output: baseline_output.clone(),
             baseline: None,
             target,

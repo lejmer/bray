@@ -29,6 +29,7 @@ const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes/buffer.bray"
 const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
 const STANDARD_NUMERIC_CHECKED_SOURCE: &str = "standard-library/std/src/numeric/checked.bray";
 const STANDARD_NUMERIC_LIMITS_SOURCE: &str = "standard-library/std/src/numeric/limits.bray";
+const STANDARD_NUMERIC_INTEGER_SOURCE: &str = "standard-library/std/src/numeric/integer.bray";
 const STANDARD_FORMAT_ROOT_SOURCE: &str = "standard-library/std/src/format.bray";
 const STANDARD_FORMAT_OPTIONS_SOURCE: &str = "standard-library/std/src/format/options.bray";
 const STANDARD_FORMAT_ARGUMENT_SOURCE: &str = "standard-library/std/src/format/argument.bray";
@@ -47,6 +48,7 @@ const STANDARD_FORMAT_FIXTURES: &[&str] = &[
     STANDARD_CHARACTER_SOURCE,
     STANDARD_NUMERIC_CHECKED_SOURCE,
     STANDARD_NUMERIC_LIMITS_SOURCE,
+    STANDARD_NUMERIC_INTEGER_SOURCE,
     STANDARD_FORMAT_ROOT_SOURCE,
     STANDARD_FORMAT_OPTIONS_SOURCE,
     STANDARD_FORMAT_ARGUMENT_SOURCE,
@@ -146,6 +148,7 @@ pub(super) fn standard_library_compilation(
     for source in [
         STANDARD_ROOT_SOURCE,
         "standard-library/std/src/numeric/policy.bray",
+        STANDARD_NUMERIC_LIMITS_SOURCE,
         STANDARD_MEMORY_SOURCE,
         "standard-library/std/src/memory/pointer.bray",
         "standard-library/std/src/memory/storage.bray",

@@ -29,7 +29,7 @@ pub(super) fn publish(
     if let Some(path) = baseline_path {
         progress::phase("Comparing performance reports");
 
-        let bytes = read_baseline(path)?;
+        let bytes = read_report(path)?;
 
         let baseline: PerformanceReport = serde_json::from_slice(&bytes)
             .map_err(|error| format!("baseline {} is invalid: {error}", path.display()))?;
@@ -75,7 +75,7 @@ fn validate_candidate(output: &Path, candidate: &PerformanceReport) -> Result<()
     Ok(())
 }
 
-fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
+pub(in crate::performance) fn read_report(path: &Path) -> Result<Vec<u8>, String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("could not read baseline {}: {error}", path.display()))?;
 

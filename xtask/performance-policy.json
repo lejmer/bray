@@ -1,0 +1,105 @@
+{
+  "minimum_samples": 7,
+  "mad_multiplier": 3,
+  "resolution_multiple": 10000,
+  "maximum_waiver_days": 30,
+  "structural": {
+    "small_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "incremental_bytes_small": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "incremental_bytes": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "borrowed_text": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "format_numbers": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "format_large_width": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "format_writer": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "stream_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "async_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "contended_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "captured_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "process_pipe_transfer": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "filesystem_metadata": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "file_output": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "process_context": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    },
+    "monotonic_clock": {
+      "executable.bytes": {
+        "maximum_increase": 0,
+        "maximum_value": null
+      }
+    }
+  },
+  "waivers": []
+}

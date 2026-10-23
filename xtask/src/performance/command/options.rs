@@ -9,6 +9,7 @@ use super::super::model::MAX_SAMPLE_COUNT;
 pub(super) struct Options {
     pub output: PathBuf,
     pub baseline: Option<PathBuf>,
+    pub host_class: Option<String>,
     pub target: NativeTarget,
     pub warmup: u32,
     pub samples: u32,
@@ -19,6 +20,7 @@ impl Options {
     pub fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut output = None;
         let mut baseline = None;
+        let mut host_class = None;
         let mut target = None;
         let mut warmup = 2;
         let mut samples = 7;
@@ -29,6 +31,18 @@ impl Options {
                 "--output" if output.is_none() => output = Some(path(&mut arguments, "--output")?),
                 "--baseline" if baseline.is_none() => {
                     baseline = Some(path(&mut arguments, "--baseline")?);
+                }
+                "--host-class" if host_class.is_none() => {
+                    let label = value(&mut arguments, "--host-class")?;
+
+                    if label.trim().is_empty() || label.len() > 256 {
+                        return Err(
+                            "--host-class requires a nonempty label of at most 256 bytes"
+                                .to_owned(),
+                        );
+                    }
+
+                    host_class = Some(label);
                 }
                 "--target" if target.is_none() => {
                     let value = value(&mut arguments, "--target")?;
@@ -72,6 +86,7 @@ impl Options {
         Ok(Self {
             output,
             baseline,
+            host_class,
             target,
             warmup,
             samples,

@@ -1041,9 +1041,9 @@ mod tests {
 
         assert_eq!(result, MemberLookupResult::UndeclaredDependency);
 
-        assert_eq!(
-            bray_testing::diagnostic_at(output.diagnostics(), 0).kind(),
-            DiagnosticKind::BindingUndeclaredDependency
+        bray_testing::assert_goal_state_diagnostic_kind(
+            output.diagnostics(),
+            DiagnosticKind::BindingUndeclaredDependency,
         );
     }
 
