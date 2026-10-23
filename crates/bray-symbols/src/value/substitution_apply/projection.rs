@@ -1,13 +1,14 @@
+use super::context::Substitution;
+
 use super::super::{
-    ConstantProjection, ConstantProjectionKind, GenericSubstitutionData, SemanticValueStore,
-    SemanticValueStoreError,
+    ConstantProjection, ConstantProjectionKind, SemanticValueStore, SemanticValueStoreError,
 };
 
 impl SemanticValueStore {
     pub(super) fn substitute_constant_projection(
         &self,
         projection: ConstantProjection,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<ConstantProjection, SemanticValueStoreError> {
         let kind = match projection.kind() {
             ConstantProjectionKind::ArrayElement(index) => ConstantProjectionKind::ArrayElement(

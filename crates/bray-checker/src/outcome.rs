@@ -63,6 +63,13 @@ pub enum CheckerOutcome<T, Upstream = std::convert::Infallible> {
 }
 
 impl<T, Upstream> CheckerOutcome<T, Upstream> {
+    pub(crate) fn from_query_error(error: impl Into<crate::CheckerQueryError<Upstream>>) -> Self {
+        match error.into() {
+            crate::CheckerQueryError::Cancelled => Self::Cancelled,
+            crate::CheckerQueryError::Upstream(error) => Self::UpstreamFailure(error),
+        }
+    }
+
     /// Creates a completed checker outcome.
     pub const fn complete(value: T, diagnostics: DiagnosticBag) -> Self {
         Self::Complete(DiagnosticResult::new(value, diagnostics))

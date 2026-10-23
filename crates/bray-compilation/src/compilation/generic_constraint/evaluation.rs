@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 
 use bray_binder::semantic_unit_context;
-use bray_bound_tree::{
-    BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
-};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_checker::{
-    CheckedConstantTerms, CheckerQueryError, CheckerRequestContext, ConstantEvaluationInput,
-    ConstantEvaluator, DefaultConstantEvaluator, closed_type_is_copyable,
+    CheckedConstantTerms, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
+    DefaultConstantChecker, DefaultConstantEvaluator, closed_type_is_copyable,
     evaluate_generic_constraint_template, resolve_trait_application_template,
     resolve_type_expression_template, type_is_copyable_in_context,
 };
@@ -16,7 +14,7 @@ use bray_symbols::{
     ConstantExpressionOccurrence, ConstantValueKind, GenericConstraintObligationKey,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericSubstitutionId,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, TraitApplicationId,
-    TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    TraitApplicationTemplate, TraitSymbolId, TypeExpressionTemplate, TypeId,
 };
 
 use super::super::Compilation;
@@ -103,8 +101,8 @@ impl Compilation {
                         .substitute_type(right, substitution)
                         .map_err(FactQueryError::SemanticValueStore)?;
 
-                    let left = self.normalize_type_valued_member(left, cancellation)?;
-                    let right = self.normalize_type_valued_member(right, cancellation)?;
+                    let left = self.normalize_constraint_type(left, cancellation)?;
+                    let right = self.normalize_constraint_type(right, cancellation)?;
 
                     let diagnostics =
                         DiagnosticBag::merged_all([left.diagnostics(), right.diagnostics()]);
@@ -171,8 +169,8 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         };
 
-        let left = self.normalize_type_valued_member(left, cancellation)?;
-        let right = self.normalize_type_valued_member(right, cancellation)?;
+        let left = self.normalize_constraint_type(left, cancellation)?;
+        let right = self.normalize_constraint_type(right, cancellation)?;
 
         diagnostics = diagnostics.merged(left.diagnostics());
         diagnostics = diagnostics.merged(right.diagnostics());
@@ -187,39 +185,16 @@ impl Compilation {
         ))
     }
 
-    fn normalize_type_valued_member(
+    fn normalize_constraint_type(
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<TypeId>, FactQueryError> {
-        let values = self.semantic_value_store()?;
-
-        let data = values.type_data(ty);
-
-        let TypeData::TypeValuedMemberProjection {
-            subject,
-            application,
-            member,
-        } = data.as_ref()
-        else {
-            return Ok(DiagnosticResult::without_diagnostics(ty));
-        };
-
         let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
+        let mut diagnostics = DiagnosticBag::new();
+        let ty = bray_checker::normalize_type_valued_members(&context, ty, &mut diagnostics)?;
 
-        if let Some(result) =
-            bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
-        {
-            return Ok(DiagnosticResult::without_diagnostics(result));
-        }
-
-        let result = context
-            .selected_type_valued_member(*subject, *application, *member)
-            .map_err(checker_dependency_error)?;
-
-        let (resolved, diagnostics) = result.into_parts();
-
-        Ok(DiagnosticResult::new(resolved.unwrap_or(ty), diagnostics))
+        Ok(DiagnosticResult::new(ty, diagnostics))
     }
 
     fn evaluate_source_predicate_constraint(
@@ -242,8 +217,11 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         }
 
-        let root = constraint_expression(bound.result().value(), expression.syntax()).ok_or_else(
-            || {
+        let root = bound
+            .result()
+            .value()
+            .declaration_expression(expression.syntax())
+            .ok_or_else(|| {
                 let syntax = expression.syntax();
 
                 SemanticQueryFailure::located_contract(
@@ -251,8 +229,7 @@ impl Compilation {
                     SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
                     SourceSpan::new(syntax.source_id(), syntax.full_range()),
                 )
-            },
-        )?;
+            })?;
 
         let references = self.concrete_call_references(
             bound.result().value(),
@@ -276,7 +253,8 @@ impl Compilation {
             bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let resolver =
-            super::super::constant::CompilationConstantCallResolver::new(self, cancellation);
+            super::super::constant::CompilationConstantCallResolver::new(self, cancellation)
+                .with_substitution(substitution);
 
         let input = ConstantEvaluationInput::for_expression(
             semantics.result().value(),
@@ -285,8 +263,18 @@ impl Compilation {
             &resolver,
         );
 
-        let evaluated =
-            checker_result(DefaultConstantEvaluator.evaluate_constant(request, &input))?;
+        let values = self.semantic_value_store()?;
+
+        let evaluated = if values.substitution_is_concrete(substitution) {
+            checker_result(DefaultConstantEvaluator.evaluate_constant(request, &input))?.map(Some)
+        } else {
+            checker_result(DefaultConstantChecker.check_constant_term(request, &input))?.map(
+                |term| match values.constant_term_data(term).as_ref() {
+                    bray_symbols::ConstantTermData::Value(value) => Some(*value),
+                    _ => None,
+                },
+            )
+        };
 
         let diagnostics = DiagnosticBag::merged_all([
             &diagnostics,
@@ -298,14 +286,17 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         }
 
-        let outcome = constant_predicate_outcome(
-            self.semantic_value_store()?,
-            *evaluated.value(),
-            SemanticQueryContext::Expression {
-                unit: key,
-                expression: root,
-            },
-        )?;
+        let outcome = match *evaluated.value() {
+            Some(value) => constant_predicate_outcome(
+                values,
+                value,
+                SemanticQueryContext::Expression {
+                    unit: key,
+                    expression: root,
+                },
+            )?,
+            None => ProofOutcome::Unknown,
+        };
 
         Ok(DiagnosticResult::new(outcome, diagnostics))
     }
@@ -526,9 +517,8 @@ impl Compilation {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
 
-        let constants = CheckedConstantTerms::try_from_terms(terms).map_err(|cause| {
-            crate::compilation::SemanticQueryFailure::CheckedConstantTerms { unit: None, cause }
-        })?;
+        let constants = CheckedConstantTerms::try_from_terms(terms)
+            .map_err(|cause| SemanticQueryFailure::CheckedConstantTerms { unit: None, cause })?;
 
         let value = resolve(self.semantic_value_store()?, &constants)?;
 
@@ -722,13 +712,6 @@ fn resolve_constraint_trait_application(
         .map_err(FactQueryError::SemanticValueStore)
 }
 
-fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQueryError {
-    match error {
-        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
-        CheckerQueryError::Upstream(error) => error,
-    }
-}
-
 fn constant_predicate_outcome(
     values: &bray_symbols::SemanticValueStore,
     value: bray_symbols::ConstantValueId,
@@ -746,30 +729,4 @@ fn constant_predicate_outcome(
         )
         .into()),
     }
-}
-
-pub(in crate::compilation) fn constraint_expression(
-    unit: &BoundUnit,
-    syntax: bray_declarations::SyntaxAnchor,
-) -> Option<BoundExpressionId> {
-    let BoundUnitRoot::ExpressionSequence(root) = unit.root() else {
-        return None;
-    };
-
-    let block = unit.view().block(root)?;
-
-    block.items().iter().find_map(|item| {
-        let BoundBlockItem::Expression(expression) = item else {
-            return None;
-        };
-
-        unit.view()
-            .expression(*expression)
-            .filter(|bound| {
-                let bound = bound.origin().source_anchor().syntax();
-
-                bound.source_id() == syntax.source_id() && bound.full_range() == syntax.full_range()
-            })
-            .map(|_| *expression)
-    })
 }

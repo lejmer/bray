@@ -222,31 +222,9 @@ pub(crate) fn type_representation_for_context<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    type_representation_for_values(
-        request.semantic_values(),
-        request.available_compiler_known_symbols(),
-        ty,
-    )
-}
-
-/// Returns the compiler-known representation of an already checked semantic type.
-pub fn type_representation_for_values(
-    values: &SemanticValueStore,
-    available: &AvailableCompilerKnownSymbols,
-    ty: TypeId,
-) -> Option<RepresentationRole> {
-    let data = values.type_data(ty);
-
-    let TypeData::Named { definition, .. } = data.as_ref() else {
-        return None;
-    };
-
-    let representation = match definition {
-        NamedTypeSymbolId::Struct(definition) => available.symbol_representation(*definition),
-        NamedTypeSymbolId::Union(definition) => available.symbol_representation(*definition),
-    };
-
-    representation
+    request
+        .available_compiler_known_symbols()
+        .type_representation(request.semantic_values(), ty)
 }
 
 /// Returns both representations only for a conversion between built-in integer scalars.
@@ -260,8 +238,12 @@ pub fn integer_conversion_representations(
     bray_compiler_known::IntegerRepresentation,
 )> {
     Some((
-        type_representation_for_values(values, available, source)?.integer_representation()?,
-        type_representation_for_values(values, available, target)?.integer_representation()?,
+        available
+            .type_representation(values, source)?
+            .integer_representation()?,
+        available
+            .type_representation(values, target)?
+            .integer_representation()?,
     ))
 }
 

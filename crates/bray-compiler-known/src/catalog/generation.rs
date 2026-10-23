@@ -845,6 +845,8 @@ mod tests {
             "StandardThreadTransferredSharedValue",
             "StandardThreadTransferredValue",
             "StandardTruncateTo",
+            "StandardTruncationDomain",
+            "StandardTruncationSupported",
             "StandardUtf8Error",
             "StandardUtf8ErrorVariant0InvalidEncoding",
             "StandardWrapTo",

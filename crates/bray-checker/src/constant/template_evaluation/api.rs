@@ -8,27 +8,26 @@ use bray_diagnostics::{Diagnostic, DiagnosticId};
 use bray_source::SourceSpan;
 use bray_symbols::{ConstantValueId, GenericSubstitutionId, TypeId};
 
-/// Evaluates one source-independent checked const-callable body.
-pub fn evaluate_constant_callable_template<C>(
+/// Evaluates caller requirements once before a fixed operation or checked callable body.
+pub fn evaluate_constant_call<C>(
     context: &C,
-    template: &CheckedTemplate,
+    template: Option<&CheckedTemplate>,
     request: &ConstantCallRequest,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
     requirements: &[bray_symbols::PredicateSemanticSummary],
-) -> CheckerOutcome<EvaluatedConstantCall, C::UpstreamError>
+    intrinsic: impl FnOnce() -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>,
+) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let substitution = request.target().substitution();
-
     let limits = request.limits();
-
     let mut budget = EvaluationBudget::from_limits(limits);
 
     let mut evaluator = TemplateEvaluator::new(
         context,
-        Some(template),
+        template,
         Some(substitution),
         resolver,
         limits,
@@ -38,18 +37,51 @@ where
     evaluator.selected_implementation = request.selected_implementation();
     evaluator.arguments = request.arguments();
 
-    let evaluated = evaluator
-        .evaluate_generic_inputs()
-        .and_then(|()| evaluator.evaluate_requirements(request.target(), requirements))
-        .and_then(|valid| {
-            if !valid {
-                return Ok(recovery_value(
-                    context.semantic_values(),
-                    request.result_type(),
-                ));
-            }
+    let evaluated = (|| {
+        if template.is_some() {
+            evaluator.evaluate_generic_inputs()?;
+        }
 
-            evaluator.evaluate_result(
+        if !evaluator.evaluate_requirements(request.target(), requirements)? {
+            return Ok(Some(recovery_value(
+                context.semantic_values(),
+                request.result_type(),
+            )));
+        }
+
+        let intrinsic = match intrinsic() {
+            CheckerOutcome::Complete(result) => result,
+            CheckerOutcome::Cancelled => return Err(TemplateEvaluationFailure::Cancelled),
+            CheckerOutcome::UpstreamFailure(error) => {
+                evaluator.upstream_failure = Some(error);
+
+                return Err(TemplateEvaluationFailure::Upstream);
+            }
+        };
+
+        evaluator
+            .diagnostics
+            .extend(intrinsic.diagnostics().iter().cloned());
+
+        if evaluator.diagnostics.has_errors() {
+            return Err(TemplateEvaluationFailure::Diagnosed);
+        }
+
+        if let Some(value) = intrinsic.value() {
+            evaluator
+                .budget
+                .try_charge_usage(value.usage())
+                .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+            return Ok(Some(value.value()));
+        }
+
+        if template.is_none() {
+            return Ok(None);
+        }
+
+        evaluator
+            .evaluate_result(
                 match request.target() {
                     crate::ConstantCallTarget::Default(_, _) => CheckedTemplateKind::RuntimeDefault,
                     crate::ConstantCallTarget::Predicate(_) => {
@@ -62,7 +94,8 @@ where
                 },
                 request.result_type(),
             )
-        });
+            .map(Some)
+    })();
 
     crate::diagnostic::anchor_diagnostics(
         &mut evaluator.diagnostics,
@@ -76,7 +109,7 @@ where
         if request.is_observation() && !evaluator.diagnostics.has_errors() {
             let mut ordinal = 0;
 
-            for input in template.inputs() {
+            for input in template.into_iter().flat_map(|template| template.inputs()) {
                 if !matches!(
                     input.kind(),
                     bray_bound_tree::CheckedTemplateInputKind::Receiver
@@ -98,14 +131,17 @@ where
 
     match evaluated {
         Ok(value) => CheckerOutcome::complete(
-            EvaluatedConstantCall::new(value, evaluator.budget.usage(limits)).with_states(states),
+            value.map(|value| {
+                EvaluatedConstantCall::new(value, evaluator.budget.usage(limits))
+                    .with_states(states)
+            }),
             evaluator.diagnostics,
         ),
         Err(TemplateEvaluationFailure::Diagnosed) => CheckerOutcome::complete(
-            EvaluatedConstantCall::new(
+            Some(EvaluatedConstantCall::new(
                 recovery_value(context.semantic_values(), request.result_type()),
                 evaluator.budget.usage(limits),
-            ),
+            )),
             evaluator.diagnostics,
         ),
         Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
@@ -127,7 +163,10 @@ where
             evaluator.diagnostics.add(diagnostic);
 
             CheckerOutcome::complete(
-                EvaluatedConstantCall::new(value, evaluator.budget.usage(limits)),
+                Some(EvaluatedConstantCall::new(
+                    value,
+                    evaluator.budget.usage(limits),
+                )),
                 evaluator.diagnostics,
             )
         }
@@ -379,7 +418,7 @@ mod tests {
     };
     use super::super::super::limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
     use super::{
-        evaluate_constant_callable_template, evaluate_constant_definition_template,
+        evaluate_constant_call, evaluate_constant_definition_template,
         evaluate_generic_constraint_template, evaluate_static_initializer_template,
     };
     use crate::test_support::{TestCheckerContext, semantic_values};
@@ -469,23 +508,68 @@ mod tests {
             TextRange::new(TextSize::new(0), TextSize::new(1)),
         );
 
-        let outcome = evaluate_constant_callable_template(
+        let outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &request(ConstantEvaluationLimits::default()),
             &UnusedTemplateResolver,
             None,
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("constant body template must evaluate"));
 
         assert!(outcome.diagnostics().is_empty());
-        assert_eq!(outcome.value().value(), value);
-        assert_eq!(outcome.value().usage().steps(), 2);
-        assert_eq!(outcome.value().usage().aggregate_elements(), 2);
-        assert_eq!(outcome.value().usage().literal_bytes(), 3);
-        assert_eq!(outcome.value().usage().expansions(), 4);
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .value(),
+            value
+        );
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .steps(),
+            2
+        );
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .aggregate_elements(),
+            2
+        );
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .literal_bytes(),
+            3
+        );
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .expansions(),
+            4
+        );
 
         let sequenced = bray_bound_tree::CheckedTemplate::from_checked_parts(
             template.kind(),
@@ -520,13 +604,14 @@ mod tests {
         );
 
         let evaluate_sequence = |limits| {
-            evaluate_constant_callable_template(
+            evaluate_constant_call(
                 &TestCheckerContext::new(false),
-                &sequenced,
+                Some(&sequenced),
                 &request(limits),
                 &UnusedTemplateResolver,
                 Some(diagnostic_span),
                 &[],
+                || crate::CheckerOutcome::without_diagnostics(None),
             )
             .into_result()
             .expect("sequenced constant body must evaluate")
@@ -535,9 +620,35 @@ mod tests {
         let ordered = evaluate_sequence(ConstantEvaluationLimits::default());
 
         assert!(ordered.diagnostics().is_empty());
-        assert_eq!(ordered.value().value(), value);
-        assert_eq!(ordered.value().usage().literal_bytes(), 5);
-        assert_eq!(ordered.value().usage().expansions(), 5);
+
+        assert_eq!(
+            ordered
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .value(),
+            value
+        );
+
+        assert_eq!(
+            ordered
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .literal_bytes(),
+            5
+        );
+
+        assert_eq!(
+            ordered
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .usage()
+                .expansions(),
+            5
+        );
 
         let first_failure = evaluate_sequence(ConstantEvaluationLimits::new(16, 1, 1));
 
@@ -546,13 +657,14 @@ mod tests {
             bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
         );
 
-        let aggregate_outcome = evaluate_constant_callable_template(
+        let aggregate_outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &request(ConstantEvaluationLimits::new(16, 1, 16)),
             &UnusedTemplateResolver,
             Some(diagnostic_span),
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("constant aggregate limit failure must recover"));
@@ -562,13 +674,14 @@ mod tests {
             bray_diagnostics::DiagnosticKind::CheckingConstantAggregateLimitExceeded,
         );
 
-        let literal_outcome = evaluate_constant_callable_template(
+        let literal_outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &request(ConstantEvaluationLimits::new(16, 16, 2)),
             &UnusedTemplateResolver,
             Some(diagnostic_span),
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("constant literal limit failure must recover"));
@@ -578,13 +691,14 @@ mod tests {
             bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
         );
 
-        let expansion_outcome = evaluate_constant_callable_template(
+        let expansion_outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &request(ConstantEvaluationLimits::new(16, 16, 16).with_expansions(3)),
             &UnusedTemplateResolver,
             Some(diagnostic_span),
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("constant expansion limit failure must recover"));
@@ -662,9 +776,9 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test function must be callable"));
 
-        let outcome = evaluate_constant_callable_template(
+        let outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &ConstantCallRequest::new(
                 crate::ConstantCallTarget::Declaration(CallableInstanceData::new(
                     callable,
@@ -678,12 +792,21 @@ mod tests {
             &UnusedTemplateResolver,
             None,
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("callable argument template must evaluate"));
 
         assert!(outcome.diagnostics().is_empty());
-        assert_eq!(outcome.value().value(), value);
+
+        assert_eq!(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .value(),
+            value
+        );
     }
 
     #[test]
@@ -771,9 +894,9 @@ mod tests {
             .finish(result, CheckedTemplateCompletion::Complete)
             .unwrap_or_else(|error| panic!("constant body template must validate: {error:?}"));
 
-        let outcome = evaluate_constant_callable_template(
+        let outcome = evaluate_constant_call(
             &TestCheckerContext::new(false),
-            &template,
+            Some(&template),
             &ConstantCallRequest::new(
                 crate::ConstantCallTarget::Declaration(callable),
                 None,
@@ -787,13 +910,20 @@ mod tests {
             },
             None,
             &[],
+            || crate::CheckerOutcome::without_diagnostics(None),
         )
         .into_result()
         .unwrap_or_else(|| panic!("typed constant body template must evaluate"));
 
         assert!(outcome.diagnostics().is_empty());
 
-        let result = values.constant_value_data(outcome.value().value());
+        let result = values.constant_value_data(
+            outcome
+                .value()
+                .as_ref()
+                .expect("checked body evaluates")
+                .value(),
+        );
 
         assert_eq!(result.ty(), outer_type);
 

@@ -12,10 +12,10 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableParameterMode, CallableSignatureQuery, CallableSymbolId,
-    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
-    ImplementationRequirementKey, ImplementationSelection, ProofOutcome, ReceiverMode,
-    SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableParameterMode, CallableSignatureQuery, CheckedConstraintKind,
+    GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
+    GenericTypeConstraintsQuery, ImplementationRequirementKey, ImplementationSelection,
+    ProofOutcome, ReceiverMode, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use super::built_in_operator::{self, PreparedBuiltInOperator};
@@ -106,7 +106,10 @@ pub(super) fn prepare_calls<C>(
     candidate_sets: &[ExpressionCandidateSet],
 ) -> Result<SessionProgress<PreparedExpressions>, CheckerQueryError<C::UpstreamError>>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     let immutable_initializers = request.unit().tree().immutable_initializers();
     let mut calls = Vec::new();
@@ -307,13 +310,16 @@ fn prepare_resolved_candidate<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     let TemplateResolution::Resolved(candidate) = materialized else {
         return Ok(true);
     };
 
-    match generic_constraint_outcome(request, &candidate, diagnostics)? {
+    match candidate_constraint_outcome(request, &candidate, diagnostics)? {
         ProofOutcome::Proven => {
             let selections =
                 generic_constraint_implementation_selections(request, &candidate, diagnostics)?;
@@ -345,13 +351,16 @@ where
     .then_some(call.callee())
 }
 
-fn generic_constraint_outcome<C>(
+fn candidate_constraint_outcome<C>(
     request: CheckerUnitView<'_, C>,
     candidate: &CallableCandidate,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<ProofOutcome, CheckerQueryError<C::UpstreamError>>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     if candidate.generic_constraints().is_empty() {
         return Ok(ProofOutcome::Proven);
@@ -369,22 +378,26 @@ where
 
     let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
-    match active_constraints_prove(request, obligation, diagnostics) {
-        Ok(true) => return Ok(ProofOutcome::Proven),
-        Ok(false) => {}
-        Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Upstream(error)) => {
-            return Err(CheckerQueryError::Upstream(error));
-        }
+    generic_constraint_outcome(request, obligation, diagnostics)
+}
+
+/// Checks static obligations using established lexical premises and cached instance evaluation.
+pub fn generic_constraint_outcome<C>(
+    request: CheckerUnitView<'_, C>,
+    obligation: GenericConstraintObligationKey,
+    diagnostics: &mut DiagnosticBag,
+) -> CheckerQueryResult<ProofOutcome, C::UpstreamError>
+where
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
+{
+    if active_constraints_prove(request, obligation, diagnostics)? {
+        return Ok(ProofOutcome::Proven);
     }
 
-    let result = match request.generic_constraints(obligation) {
-        Ok(result) => result,
-        Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Upstream(error)) => {
-            return Err(CheckerQueryError::Upstream(error));
-        }
-    };
+    let result = request.generic_constraints(obligation)?;
 
     diagnostics.extend(result.diagnostics().iter().cloned());
 
@@ -397,7 +410,10 @@ fn active_constraints_prove<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> CheckerQueryResult<bool, C::UpstreamError>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     let required = request.resolve_symbol_query(
         SymbolQueryRequest::<GenericConstraintsQuery>::new(obligation.owner()),
@@ -409,16 +425,69 @@ where
         return Ok(false);
     }
 
-    let active = active_trait_constraints(request, diagnostics)?;
-    let evidence = active.iter().copied().collect::<Vec<_>>();
+    if required.value().constraints().is_empty() {
+        return Ok(true);
+    }
+
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
+    let active = active_generic_constraints(request, diagnostics, &mut normalizer)?;
+    let evidence = trait_constraint_evidence(&active);
 
     for constraint in required.value().constraints() {
-        let CheckedConstraintKind::TraitSatisfaction {
-            subject,
-            application,
-        } = constraint.kind()
-        else {
-            return Ok(false);
+        let (subject, application) = match constraint.kind() {
+            CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => (subject, application),
+            CheckedConstraintKind::Predicate(predicate) => {
+                let Some(condition) = predicate.condition() else {
+                    return Ok(false);
+                };
+
+                let condition = request
+                    .semantic_values()
+                    .substitute_constant_term(condition, obligation.substitution())
+                    .expect("checked generic predicate substitution belongs to its semantic store");
+
+                let predicate = normalizer.normalize_predicate(
+                    predicate.with_condition(Some(condition), predicate.domain()),
+                )?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                let condition = predicate
+                    .condition()
+                    .expect("normalized static predicate retains its condition");
+
+                if active.iter().any(|constraint| matches!(constraint,
+                    CheckedConstraintKind::Predicate(candidate)
+                        if candidate.domain() == predicate.domain() && candidate.condition() == Some(condition))) {
+                    continue;
+                }
+
+                return Ok(false);
+            }
+            CheckedConstraintKind::TypeEquality { left, right } => {
+                let values = request.semantic_values();
+
+                let left = values
+                    .substitute_type(left, obligation.substitution())
+                    .expect("checked equality substitution is valid");
+
+                let right = values
+                    .substitute_type(right, obligation.substitution())
+                    .expect("checked equality substitution is valid");
+
+                let equal = normalizer.normalize_type(left)? == normalizer.normalize_type(right)?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                if !equal {
+                    return Ok(false);
+                }
+
+                continue;
+            }
         };
 
         let subject = request
@@ -429,7 +498,12 @@ where
             .semantic_values()
             .substitute_trait_application(application, obligation.substitution()).unwrap_or_else(|error| panic!("active_constraints_prove must satisfy its checked construction contract: {error:?}"));
 
-        if active.contains(&(subject, application)) {
+        let subject = normalizer.normalize_type(subject)?;
+        let application = normalizer.normalize_trait_application(application)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
+
+        if evidence.contains(&(subject, application)) {
             continue;
         }
 
@@ -455,45 +529,74 @@ where
     Ok(true)
 }
 
-fn active_trait_constraints<C>(
+fn trait_constraint_evidence(
+    constraints: &BTreeSet<CheckedConstraintKind>,
+) -> Vec<(TypeId, bray_symbols::TraitApplicationId)> {
+    constraints
+        .iter()
+        .filter_map(|constraint| match constraint {
+            CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => Some((*subject, *application)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn active_generic_constraints<C>(
     request: CheckerUnitView<'_, C>,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<BTreeSet<(TypeId, bray_symbols::TraitApplicationId)>, C::UpstreamError>
+    normalizer: &mut crate::TypeNormalizer<'_, C>,
+) -> CheckerQueryResult<BTreeSet<CheckedConstraintKind>, C::UpstreamError>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     let mut active = BTreeSet::new();
 
     let Some(mut owner) = request
-        .containing_callable()
-        .map(CallableSymbolId::into_any)
+        .symbols()
+        .symbol_for_key(request.unit().key().declared_owner())
     else {
-        return Ok(active);
+        panic!("bound generic context retains its declaration identity");
     };
 
     loop {
         if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-            let constraints = request.resolve_symbol_query(SymbolQueryRequest::<
-                GenericConstraintsQuery,
-            >::new(generic_owner))?;
+            let scope = request
+                .context()
+                .generic_constraint_scope(request.semantic_context(), generic_owner)?;
+
+            diagnostics.extend(scope.diagnostics().iter().cloned());
+
+            let constraints = match scope.value() {
+                crate::GenericConstraintScope::Unavailable => {
+                    let Some(container) = request.symbols().containing_symbol(owner) else {
+                        break;
+                    };
+
+                    owner = container;
+                    continue;
+                }
+                crate::GenericConstraintScope::TypeHeader => request.resolve_symbol_query(
+                    SymbolQueryRequest::<GenericTypeConstraintsQuery>::new(generic_owner),
+                )?,
+                crate::GenericConstraintScope::Complete => request.resolve_symbol_query(
+                    SymbolQueryRequest::<GenericConstraintsQuery>::new(generic_owner),
+                )?,
+            };
 
             if constraints.diagnostics().has_errors() {
                 diagnostics.extend(constraints.diagnostics().iter().cloned());
             } else {
-                active.extend(
-                    constraints
-                        .value()
-                        .constraints()
-                        .iter()
-                        .filter_map(|constraint| match constraint.kind() {
-                            CheckedConstraintKind::TraitSatisfaction {
-                                subject,
-                                application,
-                            } => Some((subject, application)),
-                            CheckedConstraintKind::Predicate(_)
-                            | CheckedConstraintKind::TypeEquality { .. } => None,
-                        }),
-                );
+                for constraint in constraints.value().constraints() {
+                    active.insert(normalizer.normalize_constraint(*constraint)?.kind());
+                }
+
+                diagnostics.extend(normalizer.take_diagnostics());
             }
         }
 
@@ -630,6 +733,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     for prepared_call in &prepared.calls {
@@ -851,7 +955,10 @@ fn materialize_call_candidates<'prepared, C>(
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
 ) -> CheckerQueryResult<Option<MaterializedCallCandidates<'prepared>>, C::UpstreamError>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
         panic!(
@@ -969,7 +1076,7 @@ where
             continue;
         };
 
-        let outcome = generic_constraint_outcome(request, &candidate, &mut diagnostics)?;
+        let outcome = candidate_constraint_outcome(request, &candidate, &mut diagnostics)?;
 
         if outcome == ProofOutcome::Proven {
             let selections = generic_constraint_implementation_selections(
@@ -1100,6 +1207,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     loop {
@@ -1148,6 +1256,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     for prepared_call in &prepared.calls {
@@ -1294,6 +1403,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     let mut entries = Vec::new();
@@ -1483,7 +1593,10 @@ fn generic_constraint_implementation_selections<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Vec<crate::ImplementationSelectionEvidence>, CheckerQueryError<C::UpstreamError>>
 where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
 {
     if candidate.generic_constraints().is_empty() {
         return Ok(Vec::new());
@@ -1510,8 +1623,9 @@ where
     }
 
     let mut selections = Vec::new();
-    let active = active_trait_constraints(request, diagnostics)?;
-    let evidence = active.iter().copied().collect::<Vec<_>>();
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
+    let active = active_generic_constraints(request, diagnostics, &mut normalizer)?;
+    let evidence = trait_constraint_evidence(&active);
 
     for constraint in constraints.value().constraints() {
         let CheckedConstraintKind::TraitSatisfaction {
@@ -1529,6 +1643,11 @@ where
         let application = request
             .semantic_values()
             .substitute_trait_application(application, substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in generic_constraint_implementation_selections: {error:?}"));
+
+        let subject = normalizer.normalize_type(subject)?;
+        let application = normalizer.normalize_trait_application(application)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
 
         if crate::built_in_trait_constraint_outcome(request.context(), subject, application)
             == Some(ProofOutcome::Proven)

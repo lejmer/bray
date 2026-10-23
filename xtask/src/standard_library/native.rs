@@ -1008,6 +1008,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
             "asynchronous_file_operations_preserve_data_and_metadata",
             "buffered_file_io_preserves_order_and_flushes",
             "create_or_truncate_replaces_existing_contents",
+            "failed_file_close_retains_the_native_handle_for_retry",
             "file_transfers_preserve_empty_requests_partial_reads_and_eof",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",

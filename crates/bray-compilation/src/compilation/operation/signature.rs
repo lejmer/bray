@@ -129,11 +129,13 @@ pub(super) fn normalize_callable_type_equalities(
         bray_symbols::GenericOwnerId,
         bray_symbols::CheckedConstraint,
     )],
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<CallableSignature, FactQueryError> {
-    let values = binding_context.semantic_values();
+    let checker =
+        CompilationCheckerContext::new(*binding_context).with_type_constraints(constraints);
 
-    signature
-        .try_map_types(|ty| super::constraint::normalize_type_equalities(values, ty, constraints))
+    bray_checker::normalize_callable_signature(&checker, signature, None, diagnostics)
+        .map_err(FactQueryError::from)
 }
 
 pub(super) fn normalize_callable_type_valued_members(

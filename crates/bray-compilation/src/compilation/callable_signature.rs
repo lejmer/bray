@@ -196,14 +196,20 @@ impl Compilation {
 
         diagnostics.add_range(predicates.diagnostics().iter().cloned());
 
-        signature
+        let signature = signature
             .with_predicate_contracts(
                 binding_context.semantic_values(),
                 predicates.value(),
                 instance.substitution(),
             )
-            .map(Some)
-            .map_err(Into::into)
+            .map_err(FactQueryError::from)?;
+
+        bray_checker::normalize_numeric_requirements(
+            &super::checker::CompilationCheckerContext::new(*binding_context),
+            signature,
+        )
+        .map(Some)
+        .map_err(FactQueryError::from)
     }
 
     pub(in crate::compilation) fn resolve_callable_signature_types(

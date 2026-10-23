@@ -145,7 +145,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (less, greater) = match (left, right) {
             (BasicValueEnum::IntValue(left), BasicValueEnum::IntValue(right)) => {
-                let signed = self.signed_integer(concrete_type)?;
+                let signed = self.signed_integer(concrete_type);
 
                 (
                     llvm(self.builder.build_int_compare(
@@ -313,7 +313,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match (left, right) {
             (BasicValueEnum::IntValue(left), BasicValueEnum::IntValue(right)) => {
-                self.integer_binary(operator, left, right, self.signed_integer(operand_type)?)
+                self.integer_binary(operator, left, right, self.signed_integer(operand_type))
             }
             (BasicValueEnum::FloatValue(left), BasicValueEnum::FloatValue(right)) => {
                 self.float_binary(operator, left, right)

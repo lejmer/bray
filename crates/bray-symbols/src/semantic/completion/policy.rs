@@ -28,6 +28,8 @@ pub enum SymbolQueryKind {
     GenericParameters,
     /// Generic parameter identities and unevaluated constraint expressions.
     GenericDeclarationTemplate,
+    /// Checked trait and type-equality premises.
+    GenericTypeConstraints,
     /// Checked generic constraints.
     GenericConstraints,
     /// The callable signature excluding executable body checking.
@@ -82,12 +84,13 @@ pub enum SymbolQueryKind {
     OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 31] = [
+pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 32] = [
     SymbolQueryKind::Members,
     SymbolQueryKind::Imports,
     SymbolQueryKind::Directives,
     SymbolQueryKind::GenericParameters,
     SymbolQueryKind::GenericDeclarationTemplate,
+    SymbolQueryKind::GenericTypeConstraints,
     SymbolQueryKind::GenericConstraints,
     SymbolQueryKind::CallableSignature,
     SymbolQueryKind::CallableResultDependencies,
@@ -125,6 +128,7 @@ impl SymbolQueryKind {
             Self::Directives => "directives",
             Self::GenericParameters => "generic_parameters",
             Self::GenericDeclarationTemplate => "generic_declaration_template",
+            Self::GenericTypeConstraints => "generic_type_constraints",
             Self::GenericConstraints => "generic_constraints",
             Self::CallableSignature => "callable_signature",
             Self::CallableResultDependencies => "callable_result_dependencies",
@@ -160,7 +164,8 @@ impl SymbolQueryKind {
             SymbolCompletionLevel::Identity => false,
             SymbolCompletionLevel::DeclarationSurface => !matches!(
                 self,
-                Self::GenericConstraints
+                Self::GenericTypeConstraints
+                    | Self::GenericConstraints
                     | Self::CallableResultDependencies
                     | Self::CallableContracts
                     | Self::CallablePredicateContracts
@@ -189,6 +194,7 @@ impl SymbolQueryKind {
             Self::Directives => supports_directives(kind),
             Self::GenericParameters
             | Self::GenericDeclarationTemplate
+            | Self::GenericTypeConstraints
             | Self::GenericConstraints => GenericOwnerId::try_new(symbol).is_some(),
             Self::CallableSignature
             | Self::CallableResultDependencies

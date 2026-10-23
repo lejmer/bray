@@ -8,28 +8,26 @@ use bray_binder::{
 };
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_checker::{
-    CheckedConstantTerms, CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerSource, DefaultTargetValidityChecker, ImplementationHookResolution, TargetValidity,
+    CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource,
+    DefaultTargetValidityChecker, ImplementationHookResolution, TargetValidity,
     TargetValidityChecker, TargetValidityContext, TargetValidityRequest,
-    resolve_type_expression_template,
 };
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationDescriptor,
     RecognizedStandardLibraryDeclarationIdentity, RecognizedStandardLibraryDeclarationOwner,
 };
-use bray_diagnostics::DiagnosticResult;
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, is_public_standard_library_package,
 };
 use bray_symbols::{
-    AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationInstanceId,
-    ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, NamedTypeSymbolId,
-    PackageIdentity, SemanticValueStore, StructSymbol, StructSymbolId, SymbolName,
-    SymbolQueryContract, SymbolQueryRequest, SymbolRelationshipKind, TraitApplicationId,
-    TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
-    UnionVariantSymbolId, catalog_declaration_symbol_kind,
+    AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation, GenericOwnerId,
+    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
+    MemberLookupResult, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, StructSymbol,
+    StructSymbolId, SymbolName, SymbolQueryContract, SymbolQueryRequest, SymbolRelationshipKind,
+    TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId, catalog_declaration_symbol_kind,
 };
 use bray_target::{TargetAtomicRepresentation, TargetProfile};
 
@@ -48,6 +46,7 @@ type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>
 pub(super) struct CompilationCheckerContext<'compilation> {
     binding_context: CompilationBindingContext<'compilation>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
+    type_equalities: DiagnosticResult<Vec<(TypeId, TypeId)>>,
     source_standard_library_implementations:
         OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerQueryError>>,
 }
@@ -57,6 +56,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         Self {
             binding_context,
             implementation_witnesses: Arc::from([]),
+            type_equalities: DiagnosticResult::new(Vec::new(), DiagnosticBag::new()),
             source_standard_library_implementations: OnceLock::new(),
         }
     }
@@ -66,6 +66,20 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
     ) -> Self {
         self.implementation_witnesses = witnesses.into_iter().collect::<Vec<_>>().into();
+
+        self
+    }
+
+    pub(super) fn with_type_constraints(
+        mut self,
+        constraints: &[(GenericOwnerId, bray_symbols::CheckedConstraint)],
+    ) -> Self {
+        let equalities = constraints
+            .iter()
+            .filter_map(|(_, constraint)| constraint.type_equality_requirement())
+            .collect();
+
+        self.type_equalities = DiagnosticResult::new(equalities, DiagnosticBag::new());
 
         self
     }
@@ -113,7 +127,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
         loop {
             if let Some(owner) = GenericOwnerId::try_new(symbol)
-                && self.generic_owner_establishes_copyability(owner, copyable, ty)?
+                && self.generic_owner_establishes_copyability(context, owner, copyable, ty)?
             {
                 return Ok(true);
             }
@@ -130,73 +144,52 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
     fn generic_owner_establishes_copyability(
         &self,
+        context: &bray_checker::SemanticUnitContext,
         owner: GenericOwnerId,
         copyable: TraitSymbolId,
         ty: TypeId,
     ) -> CheckerQueryResult<bool> {
-        let generic = self
+        let scope = self.generic_constraint_scope(context, owner)?;
+
+        if *scope.value() == bray_checker::GenericConstraintScope::Unavailable {
+            return Ok(false);
+        }
+
+        let constraints = self
             .binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
-                owner,
-            ))
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::GenericTypeConstraintsQuery,
+            >::new(owner))
             .map_err(checker_binder_error)?;
 
-        for constraint in generic.value().constraints() {
-            let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
+        if constraints.diagnostics().has_errors() {
+            return Ok(false);
+        }
+
+        let mut normalizer = bray_checker::TypeNormalizer::new(self, None);
+
+        for constraint in constraints.value().constraints() {
+            let Some((subject, application)) = constraint.trait_satisfaction_requirement() else {
                 continue;
             };
 
-            if application.definition() != copyable || !application.arguments().is_empty() {
+            let application = self
+                .binding_context
+                .semantic_values()
+                .trait_application_data(application);
+
+            if application.definition() != copyable {
                 continue;
             }
 
-            let constants = self.checked_constraint_constants(subject, application)?;
-
-            let Some(subject) = resolve_type_expression_template(
-                self.binding_context.semantic_values(),
-                subject,
-                &constants,
-            ) else {
-                continue;
-            };
-
-            if subject == ty {
+            if subject == ty
+                || normalizer.normalize_type(subject)? == normalizer.normalize_type(ty)?
+            {
                 return Ok(true);
             }
         }
 
         Ok(false)
-    }
-
-    fn checked_constraint_constants(
-        &self,
-        subject: &bray_symbols::TypeExpressionTemplate,
-        application: &bray_symbols::TraitApplicationTemplate,
-    ) -> CheckerQueryResult<CheckedConstantTerms> {
-        let mut terms = Vec::new();
-
-        for occurrence in subject
-            .constant_expressions()
-            .into_iter()
-            .chain(application.constant_expressions())
-        {
-            let result = self
-                .binding_context
-                .compilation()
-                .embedded_constant_term_with_cancellation(
-                    occurrence,
-                    self.binding_context.cancellation(),
-                )
-                .map_err(checker_query_error)?;
-
-            if result.diagnostics().has_errors() {
-                continue;
-            }
-
-            terms.push((occurrence.key(), *result.value()));
-        }
-
-        Ok(CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|error| panic!("checked_constraint_constants must satisfy its checked construction contract: {error:?}")))
     }
 
     fn source_standard_library_implementations(
@@ -323,6 +316,19 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
     type UpstreamError = FactQueryError;
 
+    fn generic_constraint_scope(
+        &self,
+        context: &bray_checker::SemanticUnitContext,
+        owner: GenericOwnerId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_checker::GenericConstraintScope>> {
+        super::generic_constraint::generic_constraint_scope(
+            &self.binding_context,
+            context.key(),
+            owner,
+        )
+        .map_err(checker_query_error)
+    }
+
     fn inherited_callable_substitution(
         &self,
         instance: bray_symbols::CallableInstanceData,
@@ -432,6 +438,14 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
     fn semantic_values(&self) -> &SemanticValueStore {
         self.binding_context.semantic_values()
+    }
+
+    fn type_equalities(&self) -> DiagnosticResult<&[(TypeId, TypeId)]> {
+        // Normalization shares the immutable diagnostics of the lexical premises.
+        DiagnosticResult::new(
+            self.type_equalities.value().as_slice(),
+            self.type_equalities.diagnostics().clone(),
+        )
     }
 
     fn symbols(&self) -> &bray_symbols::SymbolGraph {
@@ -1120,7 +1134,14 @@ impl Compilation {
     ) -> Result<CompilationCheckerContext<'compilation>, FactQueryError> {
         let binding_context = self.binding_context_for(key, cancellation)?;
 
-        Ok(CompilationCheckerContext::new(binding_context))
+        let type_equalities =
+            super::generic_constraint::lexical_type_equalities(&binding_context, key)?;
+
+        let mut context = CompilationCheckerContext::new(binding_context);
+
+        context.type_equalities = type_equalities;
+
+        Ok(context)
     }
 }
 

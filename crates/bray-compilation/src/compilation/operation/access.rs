@@ -892,8 +892,12 @@ impl Compilation {
             subject_type,
         )?;
 
-        let signature =
-            normalize_callable_type_equalities(binding_context, signature, constraints)?;
+        let signature = normalize_callable_type_equalities(
+            binding_context,
+            signature,
+            constraints,
+            diagnostics,
+        )?;
 
         let result_type = signature.callable_type();
         let defaults = self.resolve_callable_defaults(binding_context, &signature, diagnostics)?;

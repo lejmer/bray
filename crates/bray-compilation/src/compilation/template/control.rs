@@ -598,13 +598,11 @@ impl SourceTemplateBuilder<'_, '_, '_> {
     }
 
     fn is_unit(&self, ty: TypeId) -> bool {
-        bray_checker::type_representation_for_values(
-            self.context.semantic_values(),
-            self.context
-                .compilation()
-                .available_compiler_known_symbols(),
-            ty,
-        ) == Some(bray_compiler_known::RepresentationRole::Unit)
+        self.context
+            .compilation()
+            .available_compiler_known_symbols()
+            .type_representation(self.context.semantic_values(), ty)
+            == Some(bray_compiler_known::RepresentationRole::Unit)
     }
 
     fn boolean_operation(

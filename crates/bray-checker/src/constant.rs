@@ -41,16 +41,15 @@ pub(crate) use literal::{
 pub use machine::{
     fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
 };
-pub(crate) use operation::fold_binary;
+pub(crate) use operation::{fold_binary, fold_numeric_sign};
 pub(crate) use template::checked_substituted_type;
 pub use template::{
     CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_callable_signature_template,
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use template_evaluation::{
-    evaluate_array_length, evaluate_constant_callable_template,
-    evaluate_constant_definition_template, evaluate_generic_constraint_template,
-    evaluate_static_initializer_template,
+    evaluate_array_length, evaluate_constant_call, evaluate_constant_definition_template,
+    evaluate_generic_constraint_template, evaluate_static_initializer_template,
 };
 
 pub use intrinsic::evaluate_constant_intrinsic;

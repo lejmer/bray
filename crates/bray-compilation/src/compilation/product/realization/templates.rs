@@ -1,4 +1,5 @@
 use bray_binder::SymbolQueryProvider;
+use bray_checker::CheckerRequestContext;
 use bray_ir::MirUnitKey;
 use bray_symbols::{CallableSignatureQuery, SymbolQueryRequest};
 
@@ -16,7 +17,11 @@ impl Compilation {
             return Ok(MirUnitKey::Bound(body));
         }
 
-        if self.compiler_provided_heap_method(definition).is_some() {
+        if self.compiler_provided_heap_method(definition).is_some()
+            || self
+                .compiler_provided_numeric_hook(definition, cancellation)?
+                .is_some()
+        {
             return Ok(MirUnitKey::CompilerProvidedCallable(definition));
         }
 
@@ -57,6 +62,66 @@ impl Compilation {
         }
 
         self.codegen_external_callable_template(definition, cancellation)
+    }
+
+    fn compiler_provided_numeric_hook(
+        &self,
+        definition: bray_symbols::CallableDefinitionId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_compiler_known::ImplementationHook>, CodegenPreparationError> {
+        let hook = self
+            .checker_context(cancellation)?
+            .implementation_hook(definition.symbol())
+            .map_err(crate::fact::FactQueryError::from)?;
+
+        Ok(hook
+            .filter(|hook| hook.is_available() && hook.hook().is_numeric_policy())
+            .map(|hook| hook.hook()))
+    }
+
+    pub(in crate::compilation::product) fn codegen_compiler_provided_mir(
+        &self,
+        instance: &super::super::specialization::ConcreteCodegenInstance,
+        unit: bray_ir::MirUnitId,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_ir::MirUnit, CodegenPreparationError> {
+        let definition = self.codegen_callable_definition(instance.key())?;
+
+        let Some(hook) = self.compiler_provided_numeric_hook(definition, cancellation)? else {
+            return self.codegen_heap_method_mir(instance, unit, cancellation);
+        };
+
+        let callable = instance
+            .callable_instance()
+            .expect("numeric callable body retains its selected instance");
+
+        let signature = self.codegen_instance_signature(instance, cancellation)?;
+
+        let parameters = signature
+            .parameters()
+            .iter()
+            .map(|parameter| match parameter {
+                bray_codegen::CodegenParameterMapping::Direct { ty, .. } => *ty,
+                _ => panic!("checked numeric policy has direct scalar parameters"),
+            })
+            .collect::<Vec<_>>();
+
+        let bray_codegen::CodegenResultMapping::Direct { ty: result, .. } = signature.result()
+        else {
+            panic!("checked numeric policy has a direct scalar result");
+        };
+
+        bray_lowering::lower_numeric_callable(
+            self.semantic_value_store()?,
+            self.available_compiler_known_symbols(),
+            unit,
+            callable,
+            hook,
+            &parameters,
+            *result,
+            instance.key().target(),
+        )
+        .map_err(Into::into)
     }
 
     fn codegen_external_callable_template(

@@ -130,8 +130,8 @@ where
             )),
         );
 
+        // Predicate evaluation is certified total. A false condition fails entry with a panic.
         self.push_exit(failed, AnalysisExitKind::Panic, invocation.node());
-        self.push_exit(failed, AnalysisExitKind::Cancellation, invocation.node());
         self.push_edge(current, admitted, AnalysisEdgeKind::Sequential, None);
 
         admitted

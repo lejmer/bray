@@ -22,6 +22,47 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             return Ok(None);
         };
 
+        if hook.is_numeric_policy()
+            && !crate::numeric::can_lower_directly(
+                self.context.semantic_values(),
+                callable.instance(),
+                hook,
+            )
+        {
+            return Ok(None);
+        }
+
+        if hook.is_numeric_policy() {
+            let plan = bray_symbols::NumericTruncation::for_instance(
+                self.context.semantic_values(),
+                self.context.compiler_known_symbols(),
+                callable.instance(),
+                self.builder.target().machine().pointer_width_bits().get(),
+            );
+
+            let input = match call.arguments() {
+                [] => None,
+                [argument] => Some((
+                    argument.value().clone(),
+                    self.builder.operand_type(argument.value()),
+                )),
+                _ => panic!("checked numeric policy has zero or one input"),
+            };
+
+            let context = self.context;
+
+            return crate::numeric::lower_numeric_value(
+                context.semantic_values(),
+                hook,
+                plan,
+                input,
+                result,
+                |operation, ty| self.value(block, operation, ty),
+                |cause| crate::SyntheticLoweringError::SemanticValue(cause).into(),
+            )
+            .map(Some);
+        }
+
         // The operation retains cheap operand descriptors independently of the selected call.
         let inputs = call
             .arguments()
@@ -97,23 +138,6 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                         types,
                         Some(result),
                     )),
-                    result,
-                )
-                .map(Some);
-        }
-
-        if hook == ImplementationHook::NumericTruncate {
-            let [value] = inputs.as_slice() else {
-                panic!("checked numeric policy retains one argument");
-            };
-
-            return self
-                .value(
-                    block,
-                    MirOperationKind::NumericConversion {
-                        kind: bray_ir::MirNumericConversionKind::Truncate,
-                        operand: value.clone(),
-                    },
                     result,
                 )
                 .map(Some);

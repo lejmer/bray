@@ -18,14 +18,17 @@ use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 use bray_testing::test_source_inputs;
 
 use crate::test_support::{
-    package_version, source_function_body_key, source_named_trait_callable_fulfillment_body_key,
+    source_function_body_key, source_named_trait_callable_fulfillment_body_key,
 };
 use crate::{
-    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-    PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, SelectedTarget,
+    WorkerBudget,
 };
 
-use super::fixtures::{compilation_from_sources_for_product_with_platform_services, export};
+use super::fixtures::{
+    compilation_from_sources_for_product_with_platform_services, export,
+    standard_library_compilation, standard_library_compilation_with_options,
+};
 
 #[test]
 fn platform_service_implementations_publish_their_role_with_the_root_template() {
@@ -390,12 +393,12 @@ func conflict<S>(pos pair: &mut Pair<S>)
         source,
     ]);
 
-    let key = crate::test_support::source_function_body_key(&compilation, "run");
+    let key = source_function_body_key(&compilation, "run");
     let flow = compilation.storage_flow(key).expect("slice storage flow");
 
     assert!(flow.diagnostics().is_empty(), "{flow:#?}");
 
-    let key = crate::test_support::source_function_body_key(&compilation, "conflict");
+    let key = source_function_body_key(&compilation, "conflict");
 
     let flow = compilation
         .storage_flow(key)
@@ -3008,70 +3011,6 @@ where
 }
 
 #[test]
-fn numeric_const_truncation_uses_selected_integer_representations() {
-    let sources = [
-        include_str!("../../../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-    ];
-
-    let provider = standard_library_compilation(sources);
-
-    for (input, valid) in [("u16", true), ("r64", false)] {
-        let mut source = format!(
-            r#"
-            module app;
-
-            using std.numeric;
-
-            const func selected(pos value: {input}) -> u8
-            {{
-                return std.numeric.truncate_to<u8>(value);
-            }}
-        "#
-        );
-
-        if valid {
-            source.push_str(
-                r#"
-                const SOURCE: u16 = 257;
-                const VALUE: u8 = std.numeric.truncate_to<u8>(SOURCE);
-                const ARRAY: [u8; VALUE as usize] = [0];
-            "#,
-            );
-        }
-
-        let local = standard_library_compilation(sources.into_iter().chain([source.as_str()]));
-        let imported = super::fixtures::execution_consumer(&provider, &source);
-
-        for compilation in [&local, &imported] {
-            if valid {
-                assert_eq!(
-                    super::fixtures::source_constant_value(compilation, "VALUE").kind(),
-                    &bray_symbols::ConstantValueKind::Integer(
-                        bray_symbols::IntegerConstant::from_u64(1)
-                    )
-                );
-            }
-
-            assert_eq!(
-                !compilation.check_diagnostics().has_errors(),
-                valid,
-                "{source}: {:#?}",
-                compilation.check_diagnostics()
-            );
-        }
-
-        if valid {
-            let _ = export(&local);
-        }
-    }
-}
-
-fn standard_library_compilation(sources: impl IntoIterator<Item = impl AsRef<str>>) -> Compilation {
-    standard_library_compilation_with_options(sources, CompilationOptions::default())
-}
-
-#[test]
 fn empty_raw_copies_preserve_deallocation_authority() {
     for (operation, extent) in [("copy", "0"), ("copy_overlapping", "count")] {
         let source = format!(
@@ -3231,37 +3170,6 @@ fn standard_library_source_section<'a>(source: &'a str, start: &str, end: &str) 
     let source = &source[locate(source, start)..];
 
     &source[..locate(source, end)]
-}
-
-fn standard_library_compilation_with_options(
-    sources: impl IntoIterator<Item = impl AsRef<str>>,
-    options: CompilationOptions,
-) -> Compilation {
-    let package = PackageIdentity::try_new("std")
-        .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
-
-    let product = InterfaceProductIdentity::try_new("library")
-        .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
-
-    let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
-        package.clone(),
-        package_version(),
-        product,
-        bray_package_interface::InterfaceProductKind::Library,
-        "public",
-    )
-    .unwrap_or_else(|| panic!("standard-library export identity must be valid"));
-
-    let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
-
-    let sources = test_source_inputs("standard", sources);
-
-    let request = CompilationRequest::with_options(package, sources, options)
-        .with_standard_library_source_authority()
-        .with_package_interface_export(export);
-
-    Compilation::load(request)
-        .unwrap_or_else(|error| panic!("standard-library compilation must load: {error:?}"))
 }
 
 #[test]

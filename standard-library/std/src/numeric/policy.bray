@@ -1,4 +1,18 @@
 module std.numeric;
 
-/// Converts a numeric value using the explicit truncation policy.
-extern const func truncate_to<Target, Source>(pos source: Source) -> Target;
+/// Whether the scalar type pair supports the truncation policy.
+extern const func supports_truncation<Target, Source>() -> bool
+    executes(pure, total);
+
+/// Whether source belongs to the selected truncation input domain.
+/// Integer truncation and supported lossless conversions accept every source value.
+extern const func in_truncation_domain<Target, Source>(pos source: Source) -> bool
+    with(Source: Copyable, supports_truncation<Target, Source>())
+    executes(pure, total);
+
+/// Converts integers by retaining low bits, reals to integers toward zero, and real targets losslessly.
+/// Real-to-integer inputs must be finite with a representable truncated result.
+extern const func truncate_to<Target, Source>(pos source: Source) -> Target
+    with(Source: Copyable, supports_truncation<Target, Source>())
+    requires(in_truncation_domain<Target, Source>(source))
+    executes(pure, total);

@@ -65,10 +65,19 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                (
-                    owner.clone(),
+                // Substitution is complete here. Retaining the caller's mapping would give
+                // equal condition keys different realizations and duplicate closed helpers.
+                let key = self.predicate_key(
                     MirPredicateReference::condition(condition, types),
+                    &bray_codegen::CodegenSpecialization::NonGeneric,
+                    cancellation,
+                )?;
+
+                return Ok(ConcreteCodegenInstance::closed_helper(
+                    owner,
+                    MirUnitKey::Predicate(key),
                 )
+                .expect("closed predicate retains its established witness context"));
             }
             MirPredicateReference::Predicate(predicate) => {
                 let values = self.semantic_value_store()?;

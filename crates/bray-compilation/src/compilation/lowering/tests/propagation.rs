@@ -29,23 +29,23 @@ const CONVERTED_RESULT_PROPAGATION_SOURCE: &str = concat!(
     "}\n",
 );
 
-const INCOMPATIBLE_RESULT_PROPAGATION_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "func main(pos value: Result<i32, i32>) -> i32\n",
-    "{\n",
-    "    return try value;\n",
-    "}\n",
-);
+const INCOMPATIBLE_RESULT_PROPAGATION_SOURCE: &str = r#"
+module app;
 
-const INCOMPATIBLE_NULLABLE_PROPAGATION_SOURCE: &str = concat!(
-    "module app;\n",
-    "\n",
-    "func main(pos value: i32?) -> i32\n",
-    "{\n",
-    "    return value?;\n",
-    "}\n",
-);
+func main(pos value: Result<i32, i32>) -> i32
+{
+    return try value;
+}
+"#;
+
+const INCOMPATIBLE_NULLABLE_PROPAGATION_SOURCE: &str = r#"
+module app;
+
+func main(pos value: i32?) -> i32
+{
+    return value?;
+}
+"#;
 
 #[test]
 fn propagated_nested_scope_exit_publishes_its_cleanup_plan() {
@@ -234,11 +234,27 @@ fn result_propagation_requires_a_compatible_lexical_boundary() {
     let key = source_callable_body_key(&compilation);
 
     let selections = compilation
-        .semantic_selections(key)
+        .semantic_selections(key.clone())
         .unwrap_or_else(|error| panic!("semantic selections must be available: {error:?}"));
 
     assert_goal_state_diagnostic_kind(
         selections.diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+    );
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("rejected propagation retains its source diagnostic");
+
+    assert!(lowered.value().is_none());
+
+    assert_goal_state_diagnostic_kind(
+        lowered.diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
     );
 }
@@ -249,11 +265,27 @@ fn nullable_propagation_requires_a_nullable_lexical_boundary() {
     let key = source_callable_body_key(&compilation);
 
     let selections = compilation
-        .semantic_selections(key)
+        .semantic_selections(key.clone())
         .unwrap_or_else(|error| panic!("semantic selections must be available: {error:?}"));
 
     assert_goal_state_diagnostic_kind(
         selections.diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+    );
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("rejected propagation retains its source diagnostic");
+
+    assert!(lowered.value().is_none());
+
+    assert_goal_state_diagnostic_kind(
+        lowered.diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
     );
 }

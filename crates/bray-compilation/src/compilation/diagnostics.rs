@@ -1045,7 +1045,7 @@ func main() {}
                 BoundUnitKind::ConstantTemplate,
                 BoundUnitKind::PredicateDefinition,
                 BoundUnitKind::Constraint,
-                BoundUnitKind::ContractClause,
+                BoundUnitKind::Constraint,
                 BoundUnitKind::ContractClause,
                 BoundUnitKind::ContractClause,
             ]
@@ -1558,7 +1558,6 @@ func main(value: r16)
                 (CallableContractClauseKind::Ensures, false),
                 (CallableContractClauseKind::Requires, false),
                 (CallableContractClauseKind::Ensures, true),
-                (CallableContractClauseKind::Static, false),
             ]
         );
     }

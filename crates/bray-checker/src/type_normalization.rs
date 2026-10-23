@@ -51,6 +51,7 @@ where
     request: &'request C,
     diagnostics: DiagnosticBag,
     substitution: Option<GenericSubstitutionId>,
+    equalities: BTreeMap<TypeId, TypeId>,
     normalized: BTreeMap<TypeId, TypeId>,
     active: BTreeSet<TypeId>,
 }
@@ -61,10 +62,17 @@ where
 {
     /// Creates a normalizer that shares results across types in the same context.
     pub fn new(request: &'request C, substitution: Option<GenericSubstitutionId>) -> Self {
+        let equalities = request.type_equalities();
+
+        let representatives =
+            equality_representatives(request.semantic_values(), equalities.value());
+
         Self {
             request,
-            diagnostics: DiagnosticBag::new(),
+            // The normalizer retains the shared diagnostics of its checked premises.
+            diagnostics: equalities.diagnostics().clone(),
             substitution,
+            equalities: representatives,
             normalized: BTreeMap::new(),
             active: BTreeSet::new(),
         }
@@ -86,6 +94,17 @@ where
 
         if !self.active.insert(ty) {
             return Ok(ty);
+        }
+
+        if let Some(canonical) = self.equalities.get(&ty).copied()
+            && canonical != ty
+        {
+            let normalized = self.normalize_type(canonical)?;
+
+            self.active.remove(&ty);
+            self.normalized.insert(ty, normalized);
+
+            return Ok(normalized);
         }
 
         let data = self.request.semantic_values().type_data(ty);
@@ -149,7 +168,7 @@ where
                 member,
             } => {
                 let subject = self.normalize_type(*subject)?;
-                let application = self.normalize_application(*application)?;
+                let application = self.normalize_trait_application(*application)?;
 
                 let result =
                     self.request
@@ -179,7 +198,8 @@ where
             TypeData::Array { element, length } => {
                 let element = self.normalize_type(*element)?;
 
-                let length = self.request.normalize_array_length(*length)?;
+                let length = self.normalize_term(*length)?;
+                let length = self.request.normalize_array_length(length)?;
                 let recovered = length.diagnostics().has_errors();
 
                 self.diagnostics
@@ -223,7 +243,7 @@ where
                 })?
             }
             TypeData::TraitView(application) => {
-                let application = self.normalize_application(*application)?;
+                let application = self.normalize_trait_application(*application)?;
 
                 self.intern(TypeData::TraitView(application))?
             }
@@ -233,38 +253,13 @@ where
 
                 self.intern(TypeData::OwnedIndirection { storage, target })?
             }
-            TypeData::Callable(callable) => {
-                let parameters = callable
-                    .parameters()
-                    .iter()
-                    .map(|parameter| {
-                        self.normalize_type(parameter.ty()).map(|ty| {
-                            CallableParameterData::new(
-                                parameter.name().clone(),
-                                parameter.position(),
-                                parameter.mode(),
-                                ty,
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+            TypeData::Callable(callable) => self.normalize_callable_type(callable)?,
+        };
 
-                let result = self.normalize_type(callable.result())?;
-
-                // Phase behavior is immutable Arc-backed semantic data shared by the rebuilt type.
-                let callable = CallableTypeData::new(
-                    parameters,
-                    result,
-                    callable.constness(),
-                    callable.trust(),
-                    callable.abi(),
-                    callable.dependency_contracts(),
-                )
-                .with_variadic(callable.is_variadic())
-                .with_phase_behaviors(callable.phase_behaviors().clone());
-
-                self.intern(TypeData::Callable(callable))?
-            }
+        let normalized = if normalized != ty && self.equalities.contains_key(&normalized) {
+            self.normalize_type(normalized)?
+        } else {
+            normalized
         };
 
         self.active.remove(&ty);
@@ -273,7 +268,128 @@ where
         Ok(normalized)
     }
 
-    fn normalize_application(
+    fn normalize_callable_type(
+        &mut self,
+        callable: &CallableTypeData,
+    ) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
+        let parameters = callable
+            .parameters()
+            .iter()
+            .map(|parameter| {
+                self.normalize_type(parameter.ty()).map(|ty| {
+                    CallableParameterData::new(
+                        parameter.name().clone(),
+                        parameter.position(),
+                        parameter.mode(),
+                        ty,
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = self.normalize_type(callable.result())?;
+
+        let phases = if self.equalities.is_empty() {
+            // Phase behavior is immutable Arc-backed data shared by the rebuilt type.
+            callable.phase_behaviors().clone()
+        } else {
+            self.prepare_equality_types()?;
+
+            self.request
+                .semantic_values()
+                .replace_phase_types(callable.phase_behaviors(), &self.normalized)
+                .expect("checked type aliases preserve phase contracts")
+        };
+
+        let callable = CallableTypeData::new(
+            parameters,
+            result,
+            callable.constness(),
+            callable.trust(),
+            callable.abi(),
+            phases.dependency_contracts(),
+        )
+        .with_variadic(callable.is_variadic())
+        .with_phase_behaviors(phases);
+
+        self.intern(TypeData::Callable(callable))
+    }
+
+    pub(crate) fn normalize_term(
+        &mut self,
+        term: bray_symbols::ConstantTermId,
+    ) -> Result<bray_symbols::ConstantTermId, CheckerQueryError<C::UpstreamError>> {
+        if self.equalities.is_empty() {
+            return Ok(term);
+        }
+
+        self.prepare_equality_types()?;
+
+        Ok(self
+            .request
+            .semantic_values()
+            .replace_term_types(term, &self.normalized)
+            .expect("checked type aliases preserve constant terms"))
+    }
+
+    /// Normalizes checked trait and predicate premises, retaining equality declarations.
+    pub fn normalize_constraint(
+        &mut self,
+        constraint: bray_symbols::CheckedConstraint,
+    ) -> Result<bray_symbols::CheckedConstraint, CheckerQueryError<C::UpstreamError>> {
+        if self.equalities.is_empty() {
+            return Ok(constraint);
+        }
+
+        Ok(match constraint.kind() {
+            bray_symbols::CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => bray_symbols::CheckedConstraint::trait_satisfaction(
+                constraint.ordinal(),
+                self.normalize_type(subject)?,
+                self.normalize_trait_application(application)?,
+            ),
+            bray_symbols::CheckedConstraintKind::Predicate(predicate) => {
+                bray_symbols::CheckedConstraint::new(
+                    constraint.ordinal(),
+                    self.normalize_predicate(predicate)?,
+                )
+            }
+            bray_symbols::CheckedConstraintKind::TypeEquality { .. } => constraint,
+        })
+    }
+
+    /// Normalizes a checked predicate under the same type aliases as source expressions.
+    pub(crate) fn normalize_predicate(
+        &mut self,
+        predicate: bray_symbols::PredicateSemanticSummary,
+    ) -> Result<bray_symbols::PredicateSemanticSummary, CheckerQueryError<C::UpstreamError>> {
+        if self.equalities.is_empty() {
+            return Ok(predicate);
+        }
+
+        self.prepare_equality_types()?;
+
+        Ok(self
+            .request
+            .semantic_values()
+            .replace_predicate_types(predicate, &self.normalized)
+            .expect("checked type aliases preserve predicate subjects and domain"))
+    }
+
+    fn prepare_equality_types(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let types = self.equalities.keys().copied().collect::<Vec<_>>();
+
+        for ty in types {
+            self.normalize_type(ty)?;
+        }
+
+        Ok(())
+    }
+
+    /// Normalizes type arguments of one checked trait application.
+    pub(crate) fn normalize_trait_application(
         &mut self,
         application: TraitApplicationId,
     ) -> Result<TraitApplicationId, CheckerQueryError<C::UpstreamError>> {
@@ -305,7 +421,9 @@ where
             .iter()
             .map(|binding| match binding.argument() {
                 GenericArgument::Type(ty) => self.normalize_type(ty).map(GenericArgument::Type),
-                GenericArgument::Constant(term) => Ok(GenericArgument::Constant(term)),
+                GenericArgument::Constant(term) => {
+                    self.normalize_term(term).map(GenericArgument::Constant)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -325,4 +443,46 @@ where
                 panic!("intern must satisfy its checked construction contract: {error:?}")
             }))
     }
+}
+
+fn equality_representatives(
+    values: &bray_symbols::SemanticValueStore,
+    equalities: &[(TypeId, TypeId)],
+) -> BTreeMap<TypeId, TypeId> {
+    let mut representatives = BTreeMap::new();
+
+    for &(left, right) in equalities {
+        let left = *representatives.entry(left).or_insert(left);
+        let right = *representatives.entry(right).or_insert(right);
+
+        if left == right {
+            continue;
+        }
+
+        let rank = |ty| {
+            let category = match values.type_data(ty).as_ref() {
+                TypeData::TypeValuedMemberProjection { .. } => 2,
+                TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => 1,
+                _ => 0,
+            };
+
+            (category, ty)
+        };
+
+        let (parent, child) = if rank(left) < rank(right) {
+            (left, right)
+        } else {
+            (right, left)
+        };
+
+        for representative in representatives.values_mut() {
+            if *representative == child {
+                *representative = parent;
+            }
+        }
+    }
+
+    representatives.retain(|ty, representative| ty != representative);
+
+    representatives
 }

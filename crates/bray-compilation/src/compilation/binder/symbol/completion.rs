@@ -8,7 +8,7 @@ use bray_symbols::{
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantDefinitionQuery,
     DeclarationDirectivesQuery, ExactSymbolId, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
-    ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
+    GenericTypeConstraintsQuery, ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
     ImplementationOverloadTemplateQuery, ImplementationSubjectQuery, ImplementationSymbolId,
     ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, ModuleSurfaceQuery,
     ModuleSymbolId, PredicateDefinitionQuery, PredicateDefinitionSymbolId,
@@ -45,6 +45,13 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
             }
             SymbolQueryKind::Directives => {
                 evaluate_typed::<DeclarationDirectivesQuery>(self, request.symbol())
+            }
+            SymbolQueryKind::GenericTypeConstraints => {
+                let owner = GenericOwnerId::try_new(request.symbol()).ok_or_else(|| {
+                    unexpected_symbol_category(request, SemanticSymbolCategory::GenericOwner)
+                })?;
+
+                evaluate_typed::<GenericTypeConstraintsQuery>(self, owner)
             }
             SymbolQueryKind::GenericConstraints => {
                 let owner = GenericOwnerId::try_new(request.symbol()).ok_or_else(|| {

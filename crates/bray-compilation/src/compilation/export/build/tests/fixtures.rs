@@ -195,3 +195,40 @@ pub(super) fn source_constant_value(
 
     values.constant_value_data(result.value().value())
 }
+
+pub(super) fn standard_library_compilation(
+    sources: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Compilation {
+    standard_library_compilation_with_options(sources, CompilationOptions::default())
+}
+
+pub(super) fn standard_library_compilation_with_options(
+    sources: impl IntoIterator<Item = impl AsRef<str>>,
+    options: CompilationOptions,
+) -> Compilation {
+    let package = PackageIdentity::try_new("std")
+        .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+    let product = InterfaceProductIdentity::try_new("library")
+        .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+    let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
+        package.clone(),
+        package_version(),
+        product,
+        bray_package_interface::InterfaceProductKind::Library,
+        "public",
+    )
+    .unwrap_or_else(|| panic!("standard-library export identity must be valid"));
+
+    let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+
+    let sources = test_source_inputs("standard", sources);
+
+    let request = CompilationRequest::with_options(package, sources, options)
+        .with_standard_library_source_authority()
+        .with_package_interface_export(export);
+
+    Compilation::load(request)
+        .unwrap_or_else(|error| panic!("standard-library compilation must load: {error:?}"))
+}

@@ -995,3 +995,51 @@ fn imported_const_array_extents_normalize_mutated_component_types() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn checked_type_equalities_apply_to_exported_bodies_and_imported_calls() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        func invert<T>(pos value: T) -> T
+            with (T == bool)
+        {
+            return !value;
+        }
+        "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (ty, value, valid) in [("bool", "true", true), ("u8", "1", false)] {
+        let source = format!(
+            r#"
+            module app;
+
+            using example.package.api;
+
+            func caller() -> {ty}
+            {{
+                return example.package.api.invert<{ty}>({value});
+            }}
+            "#,
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:#?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
+            );
+        }
+    }
+}

@@ -158,6 +158,8 @@ pub(in crate::analysis) fn call_preserves_storage(
                 bray_compiler_known::ImplementationHook::SequenceLength
                     | bray_compiler_known::ImplementationHook::SequenceIsEmpty
                     | bray_compiler_known::ImplementationHook::NumericTruncate
+                    | bray_compiler_known::ImplementationHook::NumericTruncationSupported
+                    | bray_compiler_known::ImplementationHook::NumericTruncationDomain
             )
         )
 }

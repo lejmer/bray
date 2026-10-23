@@ -96,12 +96,12 @@ where
 
         let mut expected = match diagnostic_type(request, conflict.expected) {
             Ok(expected) => expected,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         let mut actual = match diagnostic_type(request, conflict.actual) {
             Ok(actual) => actual,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         if !conflict.is_directional && actual < expected {
@@ -211,7 +211,7 @@ where
 
         let actual = match diagnostic_type(request, element) {
             Ok(actual) => actual,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         diagnostics.push(
@@ -249,13 +249,13 @@ where
         &mut diagnostics,
     ) {
         Ok(()) => {}
-        Err(error) => return query_outcome(error),
+        Err(error) => return CheckerOutcome::from_query_error(error),
     }
 
     let unproven_generators =
         match unproven_array_generators(request, &checked_types, iteration_sources) {
             Ok(expressions) => expressions,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
     for unproven in unproven_generators {
@@ -300,13 +300,6 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     crate::diagnostic::diagnostic_type(request.context(), ty)
-}
-
-fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
-    match error {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 #[cfg(test)]

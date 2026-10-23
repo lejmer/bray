@@ -23,7 +23,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     CallableSignatureQuery, ConstantTermId, ConstantValueId, DeclarationDirectivesQuery,
-    GenericConstraintsQuery,
+    GenericConstraintsQuery, GenericTypeConstraintsQuery,
 };
 use bray_symbols::{StructFieldTypeQuery, UnionPayloadFieldTypeQuery};
 
@@ -180,7 +180,7 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
-        literals: &bray_bound_tree::CheckedLiteralValues,
+        literals: &CheckedLiteralValues,
     ) -> CheckerOutcome<CheckedMemoryOperations, C::UpstreamError> {
         check_memory_operations(request, selections, literals)
     }
@@ -253,6 +253,7 @@ where
     C: CheckerRequestContext
         + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
         + crate::CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
         + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
@@ -289,6 +290,7 @@ impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
     C: CheckerRequestContext
         + crate::CheckerSemanticQueryProvider<CallableSignatureQuery>
         + crate::CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + crate::CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + crate::CheckerSemanticQueryProvider<StructFieldTypeQuery>
         + crate::CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized
