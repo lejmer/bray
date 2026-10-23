@@ -952,3 +952,46 @@ fn imported_const_array_extents_normalize_return_values_and_nested_helpers() {
             ))
     );
 }
+
+#[test]
+fn imported_const_array_extents_normalize_mutated_component_types() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Items<const count: usize>
+        {
+            mut values: [u8; count + 1];
+        }
+
+        const func update<const count: usize>(pos input: Items<count>) -> Items<count>
+        {
+            let mut changed = input;
+            changed.values = changed.values;
+
+            return changed;
+        }
+    "#,
+    );
+
+    let dependency = implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const PAIR: [u8; 2] = [2, 3];
+        const INPUT: example.package.api.Items<1> = { values = PAIR };
+        const VALUES: example.package.api.Items<1> = example.package.api.update<1>(INPUT);
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}

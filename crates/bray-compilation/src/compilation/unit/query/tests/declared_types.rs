@@ -631,3 +631,35 @@ fn closed_generic_array_extents_check_even_unused_helper_arguments() {
         }
     }
 }
+
+#[test]
+fn const_array_extents_normalize_mutated_component_types() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Items<const count: usize>
+        {
+            mut values: [u8; count + 1];
+        }
+
+        const func update<const count: usize>(pos input: Items<count>) -> Items<count>
+        {
+            let mut changed = input;
+            changed.values = changed.values;
+
+            return changed;
+        }
+
+        const PAIR: [u8; 2] = [2, 3];
+        const INPUT: Items<1> = { values = PAIR };
+        const VALUES: Items<1> = update<1>(INPUT);
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}

@@ -173,6 +173,8 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
 
         match operation {
             CheckedTemplateOperation::Project { member, .. } => {
+                let ty = self.instantiate_type(ty)?;
+
                 self.evaluate_projection(value, &member, ty)
             }
             CheckedTemplateOperation::TupleElement { index, .. } => {
