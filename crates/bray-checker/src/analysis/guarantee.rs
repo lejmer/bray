@@ -1,12 +1,14 @@
 mod unwind;
-pub use unwind::{UnwindCandidate, check_unwind_candidate};
+pub use unwind::{UnwindCall, UnwindCandidate, check_unwind_candidate};
 mod bounds;
 mod check;
 mod cleanup;
 pub(crate) use cleanup::{Cleanup, Plan as CleanupPlan};
 mod completion;
+mod integer;
 mod operation;
 mod postcondition;
+mod predicate;
 mod state;
 mod termination;
 mod trusted;

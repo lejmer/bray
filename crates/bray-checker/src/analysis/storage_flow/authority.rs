@@ -9,7 +9,6 @@ use bray_symbols::{
 
 use crate::{
     CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
-    SemanticUnitContext,
 };
 
 pub(super) fn immutable_field_accesses<C: CheckerRequestContext + ?Sized>(
@@ -101,9 +100,18 @@ pub(super) fn mutable_storage<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
+    if !matches!(
+        request.unit().key().kind(),
+        bray_bound_tree::BoundUnitKind::CallableBody
+            | bray_bound_tree::BoundUnitKind::AnonymousCallable
+            | bray_bound_tree::BoundUnitKind::RuntimeDefault
+    ) {
+        return Ok((BTreeSet::new(), DiagnosticBag::new()));
+    }
+
     if matches!(
-        request.semantic_context(),
-        SemanticUnitContext::AnonymousCallable(_)
+        request.unit().root(),
+        bray_bound_tree::BoundUnitRoot::AnonymousCallable { .. }
     ) {
         let mut mutable = BTreeSet::new();
 

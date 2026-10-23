@@ -721,6 +721,7 @@ mod tests {
 
             let selection = SemanticSelection::Call(SelectedCall::new(
                 resolution,
+                bray_symbols::CallableConstness::Runtime,
                 CallableAbi::Bray,
                 empty_callable_phase_behaviors(),
                 None,
@@ -808,7 +809,7 @@ mod tests {
 
                 let borrow = storage
                     .push_borrow_capability(PlannedBorrowCapability::new(
-                        BorrowCapabilityOrigin::Expression(expressions[0]),
+                        BorrowCapabilityOrigin::Operation((expressions[0]).into()),
                         BorrowKind::Shared,
                         access,
                         None,

@@ -17,6 +17,7 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
     exit: AnyBoundNodeId,
     phase: super::super::super::model::AnalysisScopeExitPhase,
     property: ExecutionProperty,
+    inert: impl Fn(StorageAccessId) -> bool,
     dependencies: &mut Vec<ExecutionDependency>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
@@ -28,6 +29,10 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
         if phase == super::super::super::model::AnalysisScopeExitPhase::LifecycleResolution {
             for access in plan.lifecycle_resolution() {
                 let identity = storage.root_identity(*access);
+
+                if property == ExecutionProperty::Pure && inert(*access) {
+                    continue;
+                }
 
                 let parts = identity
                     .and_then(|identity| cleanup.storage_requirement(identity))

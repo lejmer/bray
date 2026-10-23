@@ -8,7 +8,6 @@ using internal std.platform;
 using std.memory;
 
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
-    uses(foreign_call)
 {
     let native: std.ffi.c.OwnedNarrowString = match trusted std.ffi.c.OwnedNarrowString.from_utf8(name)
     {
@@ -36,7 +35,7 @@ trusted internal func platform_set_current_thread_name(pos name: &string) -> Res
 }
 
 @abi(c)
-trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPointer<u8>
+trusted internal func unix_thread_entry(pos context: DataPointer<u8>) -> DataPointer<u8>
     requires(blocking_execution(), compute_execution())
 {
     trusted internal run_native_thread_start(context);
@@ -44,26 +43,22 @@ trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPoint
     return std.memory.null<u8>();
 }
 
-trusted internal func native_thread_entry() -> RawPointer<u8>
-    ensures(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(result)
-        )
-    )
+trusted internal func native_thread_entry() -> FunctionPointer<std.os.unix.ThreadStartRoutine>
+    ensures(trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = result))
     uses(layout_reinterpret)
 {
     let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
-    let pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+    let pointer: FunctionPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.function_address(entry);
 
-    return trusted std.memory.reinterpret<u8, std.os.unix.ThreadStartRoutine>(pointer);
+    return pointer;
 }
 
 @abi(c)
 trusted internal func platform_thread_create(
-    pos entry: RawPointer<u8>,
-    pos context: RawPointer<u8>,
-    pos owner: RawPointer<u64>,
-    pos native_error: RawPointer<i64>,
+    pos entry: FunctionPointer<std.os.unix.ThreadStartRoutine>,
+    pos context: DataPointer<u8>,
+    pos owner: DataPointer<u64>,
+    pos native_error: DataPointer<i64>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
@@ -80,9 +75,7 @@ trusted internal func platform_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(entry)
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = entry),
     )
     uses(raw_memory, unchecked_init)
 {
@@ -106,10 +99,10 @@ trusted internal func platform_thread_create(
 }
 
 trusted internal func prepare_thread_create(
-    pos entry: RawPointer<u8>,
-    pos context: RawPointer<u8>,
-    pos owner: RawPointer<u64>,
-    pos native_error: RawPointer<i64>,
+    pos entry: FunctionPointer<std.os.unix.ThreadStartRoutine>,
+    pos context: DataPointer<u8>,
+    pos owner: DataPointer<u64>,
+    pos native_error: DataPointer<i64>,
 ) -> (std.platform.PlatformStatus, u64, i64)
     requires(
         trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
@@ -126,9 +119,7 @@ trusted internal func prepare_thread_create(
         trusted core.memory.synchronized_access<i64>(pointer = native_error),
         trusted core.memory.movement_stable<i64>(pointer = native_error),
         trusted core.memory.finalization_pending<i64>(pointer = native_error),
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(
-            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStartRoutine, u8>(entry)
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStartRoutine>(pointer = entry),
     )
     ensures(
         trusted core.memory.valid_write<u64>(pointer = owner, count = 1),
@@ -138,12 +129,7 @@ trusted internal func prepare_thread_create(
     )
     uses(layout_reinterpret)
 {
-    let entry_pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.reinterpret<
-        std.os.unix.ThreadStartRoutine,
-        u8
-    >(entry);
-
-    let callback: std.os.unix.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry_pointer);
+    let callback: std.os.unix.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry);
 
     let observed: (i32, u64) = trusted std.os.unix.pthread_create(
         attributes = std.memory.null<std.os.unix.PThreadAttribute>(),
@@ -165,7 +151,7 @@ trusted internal func prepare_thread_create(
 trusted internal func platform_thread_join(pos owner: u64) -> std.platform.PlatformStatus
     requires(blocking_execution())
 {
-    let status: i32 = trusted std.os.unix.pthread_join(owner, std.memory.null<RawPointer<u8>>());
+    let status: i32 = trusted std.os.unix.pthread_join(owner, std.memory.null<DataPointer<u8>>());
 
     if status != 0
     {
@@ -190,14 +176,12 @@ trusted internal func platform_thread_detach(pos owner: u64) -> std.platform.Pla
 
 @abi(c)
 trusted internal func platform_thread_storage_create(
-    pos destructor: RawPointer<u8>,
-    pos key: RawPointer<u64>,
+    pos destructor: FunctionPointer<std.os.unix.ThreadStorageDestructor>,
+    pos key: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     executes(total)
     requires(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
-            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
@@ -221,14 +205,12 @@ trusted internal func platform_thread_storage_create(
 }
 
 trusted internal func prepare_thread_storage_create(
-    pos destructor: RawPointer<u8>,
-    pos key: RawPointer<u64>,
+    pos destructor: FunctionPointer<std.os.unix.ThreadStorageDestructor>,
+    pos key: DataPointer<u64>,
 ) -> Result<u64, std.platform.PlatformStatus>
     executes(total)
     requires(
-        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(
-            pointer = trusted std.memory.reinterpret<std.os.unix.ThreadStorageDestructor, u8>(destructor)
-        ),
+        trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = destructor),
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
         trusted core.memory.aligned_for<u64>(pointer = key),
     )
@@ -238,12 +220,7 @@ trusted internal func prepare_thread_storage_create(
     )
     uses(layout_reinterpret)
 {
-    let destructor_pointer: RawPointer<std.os.unix.ThreadStorageDestructor> = trusted std.memory.reinterpret<
-        std.os.unix.ThreadStorageDestructor,
-        u8
-    >(destructor);
-
-    let callback: std.os.unix.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
+    let callback: std.os.unix.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor);
     let mut native_key: u64 = 0;
 
     let status: i32 = trusted std.os.unix.pthread_key_create(
@@ -261,16 +238,16 @@ trusted internal func prepare_thread_storage_create(
 
 trusted internal func prepare_thread_storage_load(
     pos key: u64,
-    pos value: RawPointer<RawPointer<u8>>,
-) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+    pos value: DataPointer<DataPointer<u8>>,
+) -> Result<DataPointer<u8>, std.platform.PlatformStatus>
     executes(total)
     requires(
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
     )
     ensures(
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
     )
 {
     return Ok(trusted std.os.unix.pthread_getspecific(key));
@@ -279,7 +256,7 @@ trusted internal func prepare_thread_storage_load(
 @abi(c)
 trusted internal func platform_thread_storage_store(
     pos key: u64,
-    pos value: RawPointer<u8>,
+    pos value: DataPointer<u8>,
 ) -> std.platform.PlatformStatus
     executes(total)
 {

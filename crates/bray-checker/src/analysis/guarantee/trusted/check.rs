@@ -13,11 +13,13 @@ use bray_diagnostics::{
 #[derive(Default)]
 pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeSet<BoundExpressionId>,
+    failed_execution: BTreeSet<BoundExpressionId>,
     transfers: BTreeSet<BoundExpressionId>,
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
     pub(in crate::analysis) returned_input: Option<Option<bray_symbols::ConstantTermId>>,
+    pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
 }
@@ -118,6 +120,17 @@ impl TrustedChecks {
 
         let invocation = operation.occurrence();
 
+        if let Some(contract) = domain
+            .request
+            .trusted_contracts()
+            .and_then(|contracts| contracts.calls.get(&invocation))
+            && !contract.execution_requirements.is_empty()
+            && let Some(entry) = state.entries.get(&invocation)
+            && !entry.proves(&contract.execution_requirements)
+        {
+            self.failed_execution.insert(expression);
+        }
+
         if domain
             .request
             .trusted_contracts()
@@ -149,6 +162,16 @@ impl TrustedChecks {
         };
 
         self.collect_carriers(domain.request, domain.dependencies, state, &result);
+
+        if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            let observed = super::carriers::portable(domain.request, &result);
+
+            match &mut self.observed_result {
+                Some(previous) if *previous != observed => *previous = None,
+                Some(_) => {}
+                None => self.observed_result = Some(observed),
+            }
+        }
 
         let input = super::carriers::returned_input(domain, &result);
 
@@ -191,7 +214,7 @@ impl TrustedChecks {
         }
 
         for node in self.cleanup_failures {
-            diagnostics.add(trusted_diagnostic(
+            diagnostics.add(contract_diagnostic(
                 domain.request,
                 domain.semantics,
                 node,
@@ -200,7 +223,7 @@ impl TrustedChecks {
         }
 
         for expression in self.transfers {
-            diagnostics.add(trusted_diagnostic(
+            diagnostics.add(contract_diagnostic(
                 domain.request,
                 domain.semantics,
                 expression.into(),
@@ -208,8 +231,17 @@ impl TrustedChecks {
             ));
         }
 
+        for expression in self.failed_execution {
+            diagnostics.add(contract_diagnostic(
+                domain.request,
+                domain.semantics,
+                expression.into(),
+                DiagnosticKind::CheckingExecutionRequirementNotProven,
+            ));
+        }
+
         for expression in self.failed {
-            diagnostics.add(trusted_diagnostic(
+            diagnostics.add(contract_diagnostic(
                 domain.request,
                 domain.semantics,
                 expression.into(),
@@ -238,7 +270,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&invocation)
             .expect("invocation attempt retains its entry evidence");
 
-        Some(evidence.proves(&contract.preconditions))
+        Some(
+            evidence.proves(
+                contract
+                    .preconditions
+                    .iter()
+                    .map(|(condition, _)| condition),
+            ),
+        )
     }
 
     pub(in crate::analysis) fn trusted_memory_evidence(
@@ -254,7 +293,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-fn trusted_diagnostic<C: CheckerRequestContext + ?Sized>(
+fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     node: AnyBoundNodeId,
@@ -278,7 +317,9 @@ fn trusted_diagnostic<C: CheckerRequestContext + ?Sized>(
         DiagnosticExpressionCategory::ControlFlow
     };
 
-    let note = if kind == DiagnosticKind::CheckingTrustedWitnessTransferNotProven {
+    let note = if kind == DiagnosticKind::CheckingExecutionRequirementNotProven {
+        DiagnosticNoteKind::ExecutionRequirementEvidenceRequired
+    } else if kind == DiagnosticKind::CheckingTrustedWitnessTransferNotProven {
         DiagnosticNoteKind::TrustedWitnessTransferRequired
     } else {
         DiagnosticNoteKind::TrustedObligationEvidenceRequired
@@ -292,12 +333,17 @@ fn trusted_diagnostic<C: CheckerRequestContext + ?Sized>(
     .with_primary_span(span)
     .with_arg(DiagnosticArg::expression_category(category))
     .with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::TrustedObligationFailure,
+        if kind == DiagnosticKind::CheckingExecutionRequirementNotProven {
+            DiagnosticLabelKind::ExecutionRequirementFailure
+        } else {
+            DiagnosticLabelKind::TrustedObligationFailure
+        },
         span,
     ))
     .with_note(DiagnosticNote::new(note));
 
-    if let AnyBoundNodeId::Expression(expression) = node
+    if kind != DiagnosticKind::CheckingExecutionRequirementNotProven
+        && let AnyBoundNodeId::Expression(expression) = node
         && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
             expressions.selections().expression(expression)
         && let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()

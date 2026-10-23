@@ -19,6 +19,50 @@ use super::diagnostic::source_diagnostic;
 use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
+    /// Binds parameter, result and effect types before checking the outer callable's clauses.
+    /// Nested callable types retain their own independently checked contracts.
+    pub fn bind_callable_header(
+        mut self,
+        syntax: bray_syntax::SyntaxNodeView<'_>,
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>, Upstream> {
+        self.check_cancellation()?;
+
+        let mut parameters = None;
+        let mut result = None;
+        let mut modifiers = None;
+        let mut directives = None;
+
+        bray_syntax::walk_direct_child_nodes(&syntax, |child| {
+            if let Some(value) = child.cast::<ParameterListSyntax>() {
+                parameters = Some(value);
+            }
+
+            if let Some(value) = child.cast::<bray_syntax::CallableResultClauseSyntax>() {
+                result = Some(value.type_expression());
+            }
+
+            if let Some(value) = child.cast::<CallableModifiersSyntax>() {
+                modifiers = Some(value);
+            }
+
+            if let Some(value) = child.cast::<CallableDirectivesSyntax>() {
+                directives = Some(value);
+            }
+
+            bray_syntax::SyntaxWalkControl::SkipChildren
+        });
+
+        let ty = self.bind_callable_type_surface(
+            parameters.as_ref(),
+            result.as_ref(),
+            modifiers.as_ref(),
+            directives.as_ref(),
+            super::execution::callable_execution_properties(syntax),
+        )?;
+
+        Ok(DiagnosticResult::new(ty, self.diagnostics))
+    }
+
     /// Binds the callable type owned by one anonymous callable semantic unit.
     pub fn bind_anonymous_callable_type(
         mut self,
@@ -38,8 +82,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             super::execution::callable_execution_properties(bray_syntax::syntax_node_view(syntax)),
         )?;
 
-        let ty =
-            self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
+        let ty = self.bind_callable_contracts(bray_syntax::syntax_node_view(syntax), ty)?;
 
         self.check_cancellation()?;
 
@@ -243,20 +286,21 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             ));
         }
 
-        self.bind_callable_predicate_contracts(bray_syntax::syntax_node_view(syntax), ty)
+        self.bind_callable_contracts(bray_syntax::syntax_node_view(syntax), ty)
     }
 
-    fn bind_callable_predicate_contracts(
+    fn bind_callable_contracts(
         &mut self,
         syntax: bray_syntax::SyntaxNodeView<'_>,
         ty: TypeExpressionTemplate,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
-        let mut has_predicates = false;
+        let mut has_contracts = false;
 
         bray_syntax::walk_direct_child_nodes(&syntax, |child| {
-            has_predicates |= matches!(
+            has_contracts |= matches!(
                 child.kind(),
                 bray_syntax::SyntaxKind::RequiresClause
+                    | bray_syntax::SyntaxKind::UsesClause
                     | bray_syntax::SyntaxKind::EnsuresClause
                     | bray_syntax::SyntaxKind::WhenClause
             );
@@ -264,7 +308,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             bray_syntax::SyntaxWalkControl::SkipChildren
         });
 
-        if has_predicates {
+        if has_contracts {
             let contracts = self
                 .imports
                 .callable_type_contracts(self.owner, syntax, &ty)?;
@@ -368,7 +412,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         execution_properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let phase_behaviors = bray_symbols::CallablePhaseBehaviors::empty(dependencies)
-            .with_execution_properties(execution_properties);
+            .with_execution_properties(
+                execution_properties
+                    .into_iter()
+                    .chain(constness.execution_properties().iter().copied()),
+            );
 
         let parameters_are_resolved = parameters
             .iter()

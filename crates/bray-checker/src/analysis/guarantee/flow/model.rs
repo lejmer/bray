@@ -30,16 +30,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         self.states.state(block).is_some_and(Option::is_some)
     }
 
-    pub(in crate::analysis::guarantee) fn is_edge_reachable(&self, edge: AnalysisEdgeId) -> bool {
-        let Some(edge) = self.domain.graph.edge(edge) else {
-            return false;
-        };
+    pub(in crate::analysis::guarantee) fn edge_output(
+        &self,
+        edge: AnalysisEdgeId,
+    ) -> Option<ExecutionState> {
+        let edge = self.domain.graph.edge(edge)?;
+        let state = self.output(edge.source())?;
 
-        let Some(state) = self.output(edge.source()) else {
-            return false;
-        };
-
-        self.domain.edge_state(&state, edge).is_some()
+        self.domain.edge_state(&state, edge)
     }
 
     pub(in crate::analysis::guarantee) fn output(
@@ -56,10 +54,10 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
+    pub(in crate::analysis::guarantee) has_bounds_checks: bool,
     pub(in crate::analysis::guarantee) sequence_lengths: &'a [BoundExpressionId],
     pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
-    pub(super) assigned_places: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::BoundBlockId,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
@@ -70,7 +68,9 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
-    pub(super) literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
+    pub(super) input_invariants: &'a [ExecutionCondition],
+    pub(in crate::analysis::guarantee) literals:
+        &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pattern_conditions: &'a BTreeMap<
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
@@ -117,7 +117,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expressions
             .get(&expression)
             .cloned()
-            .unwrap_or_else(|| self.value(state, expression));
+            .unwrap_or_else(|| {
+                if matches!(self.request.view().expression(expression),
+                    Some(BoundExpression::Binary(binary)) if matches!(binary.operator(),
+                        bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr)) {
+                    // An operand may have changed storage after this compound value was
+                    // captured. Its completed truth never licenses re-reading that storage.
+                    ExecutionCondition::Expression(expression)
+                } else {
+                    self.value(state, expression)
+                }
+            });
 
         // Branches inspect Boolean truth, not ownership identity. Use checked
         // equalities to observe a call result through its immutable input snapshot.
@@ -151,9 +161,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .request
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&invocation))
-            && self
-                .call_entry(state, invocation)
-                .is_some_and(|entry| entry.proves(&contract.preconditions))
+            && state.entries.get(&invocation).is_some_and(|entry| {
+                entry.proves(
+                    contract
+                        .preconditions
+                        .iter()
+                        .map(|(condition, _)| condition),
+                )
+            })
         {
             return false;
         }
@@ -268,11 +283,44 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         let mut state = ExecutionState::default();
 
         for place in self.observed_types.keys() {
-            if place.is_callable_input() {
+            if place.is_callable_input()
+                || place.reference().is_some_and(|reference| {
+                    self.request
+                        .trusted_contracts()
+                        .is_some_and(|contracts| contracts.inputs.contains(&reference))
+                })
+            {
                 // Entry places and their immutable snapshots retain the shared field path.
-                state
-                    .current
-                    .insert(place.clone(), ExecutionCondition::Input(place.clone()));
+                let input = ExecutionCondition::Input(place.clone());
+
+                state.current.insert(place.clone(), input.clone());
+
+                if self.unsigned_value(&input) {
+                    let ty = self.observed_types[place]
+                        .expect("typed unsigned entry retains its scalar type");
+
+                    let zero = self
+                        .request
+                        .semantic_values()
+                        .intern_constant_value(bray_symbols::ConstantValueData::new(
+                            ty,
+                            bray_symbols::ConstantValueKind::Integer(
+                                bray_symbols::IntegerConstant::from_u64(0),
+                            ),
+                        ))
+                        .expect("zero belongs to its checked unsigned scalar type");
+
+                    ExecutionCondition::operation(
+                        bray_bound_tree::BoundOperator::GreaterEqual,
+                        vec![
+                            input,
+                            ExecutionCondition::Literal(
+                                self.request.semantic_values().constant_value_data(zero),
+                            ),
+                        ],
+                    )
+                    .assume(true, &mut state.assumptions);
+                }
             }
         }
 
@@ -284,6 +332,15 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         ) {
             for place in assumption.inputs() {
                 // The state owns a key and immutable entry snapshot for each observed input field.
+                let mut root = place.clone();
+
+                root.projections = std::sync::Arc::new([]);
+
+                state
+                    .current
+                    .entry(root.clone())
+                    .or_insert_with(|| ExecutionCondition::Input(root));
+
                 state
                     .current
                     .entry(place.clone())
@@ -291,7 +348,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
         }
 
-        for assumption in self.assumptions {
+        for assumption in self.input_invariants.iter().chain(self.assumptions) {
             if assumption.prove(&state.assumptions, &mut {
                 crate::ExecutionCondition::WORK_LIMIT
             }) == Some(false)
@@ -392,8 +449,13 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         Some(state)
     }
 
-    fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
-        merge(target, boundary, None)
+    fn merge(
+        &self,
+        block: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        boundary: &Self::State,
+    ) -> bool {
+        merge(target, boundary, block)
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
@@ -405,7 +467,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             .iter()
             .filter_map(|id| self.graph.operation(*id))
         {
-            self.operation(&mut state, operation.kind(), None);
+            if !self.operation(&mut state, operation.kind(), None) {
+                return None;
+            }
         }
 
         Some(state)
@@ -421,24 +485,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             .as_ref()
             .and_then(|source| self.edge_state(source, edge));
 
-        if self
-            .graph
-            .block(edge.target())
-            .expect("flow edge has a target")
-            .predecessors()
-            .len()
-            == 1
-        {
-            if *target == incoming {
-                return false;
-            }
-
-            *target = incoming;
-
-            return true;
-        }
-
-        merge(target, &incoming, Some(edge.target()))
+        self.merge(Some(edge.target()), target, &incoming)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

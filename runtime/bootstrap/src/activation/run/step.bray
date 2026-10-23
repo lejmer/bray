@@ -58,7 +58,7 @@ trusted internal func step(
     if header.phase == bray.runtime.bootstrap.activation.CLEANUP &&
         bray.runtime.bootstrap.activation.execution.broadcast_pending(&header)
     {
-        let traversal = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor, root = true);
+        let traversal = trusted bray.runtime.bootstrap.activation.execution.root(&mut cursor);
 
         traversal.broadcast_next = traversal.current;
 
@@ -75,7 +75,7 @@ trusted internal func step(
         trusted descend(&mut cursor);
         trusted abandon(&mut cursor);
 
-        let traversal = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor, root = true);
+        let traversal = trusted bray.runtime.bootstrap.activation.execution.root(&mut cursor);
 
         traversal.broadcast_next = traversal.current;
 

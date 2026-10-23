@@ -132,7 +132,11 @@ impl SelectedScopedUse {
             crate::BoundExecutionSite::ScopedExit(_) => {
                 (self.exit.0, &self.exit.1, self.exit_result)
             }
-            crate::BoundExecutionSite::Node(_) | crate::BoundExecutionSite::Cleanup(_) => {
+            crate::BoundExecutionSite::Iterate(_)
+            | crate::BoundExecutionSite::Next(_)
+            | crate::BoundExecutionSite::CallInput { .. }
+            | crate::BoundExecutionSite::Node(_)
+            | crate::BoundExecutionSite::Cleanup(_) => {
                 panic!("scoped invocation retains its enter or exit phase")
             }
         }

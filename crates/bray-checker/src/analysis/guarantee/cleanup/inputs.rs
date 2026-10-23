@@ -49,6 +49,49 @@ impl Plan {
         Ok(())
     }
 
+    pub(super) fn select_inert_futures<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+        request: CheckerUnitView<'_, C>,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        for entry in selections.entries() {
+            let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+                continue;
+            };
+
+            if !matches!(
+                call.resolution().result(),
+                bray_bound_tree::BoundCallResult::LazyFuture(_)
+            ) || !matches!(
+                call.target(),
+                bray_bound_tree::BoundCallableTarget::Declaration(_)
+            ) {
+                continue;
+            }
+
+            let mut inert = true;
+
+            for input in entry.selection().inputs() {
+                if cleanup_shapes.requirement(input.ty(request.semantic_values()))?
+                    != bray_bound_tree::AsyncStorageCleanupRequirement::None
+                {
+                    inert = false;
+                    break;
+                }
+            }
+
+            if inert {
+                self.inert_futures.insert(
+                    entry.expression(),
+                    cleanup_shapes.requirement(call.resolution().result().completion_type())?,
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     pub(super) fn select_inputs(
         &mut self,
         unit: &bray_bound_tree::BoundUnit,

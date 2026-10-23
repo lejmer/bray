@@ -144,3 +144,24 @@ pub(crate) fn result_payloads(
             .expect("checked Result retains its compiler-known representation"),
     ))
 }
+
+/// Returns the known discriminant of a nullable constant or immediate operand.
+pub(crate) fn nullable_presence(
+    values: &bray_symbols::SemanticValueStore,
+    operand: &bray_ir::MirOperand,
+) -> Option<bool> {
+    match operand {
+        bray_ir::MirOperand::Constant { value, .. } => {
+            match values.constant_value_data(*value).kind() {
+                bray_symbols::ConstantValueKind::NullableAbsent => Some(false),
+                bray_symbols::ConstantValueKind::NullablePresent(_) => Some(true),
+                _ => None,
+            }
+        }
+        bray_ir::MirOperand::Immediate {
+            value: bray_ir::MirImmediateValue::NullableAbsent,
+            ..
+        } => Some(false),
+        _ => None,
+    }
+}

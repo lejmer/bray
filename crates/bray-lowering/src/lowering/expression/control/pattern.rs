@@ -656,7 +656,18 @@ impl Lowerer<'_> {
                     })
                 }
             }
-            None => subject,
+            None => match subject {
+                MirOperand::Copy(place) | MirOperand::Move(place) => self
+                    .pattern_projected_place_operand(
+                        pattern,
+                        place,
+                        current,
+                        operation,
+                        self.source(origin),
+                        binding_type.ty(),
+                    )?,
+                value => value,
+            },
         };
 
         let destination = match storage {
@@ -745,15 +756,16 @@ impl Lowerer<'_> {
     }
 
     fn pattern_operation(&self, pattern: BoundPatternId) -> PatternOperation {
-        self.input
-            .patterns()
-            .pattern(pattern)
+        let checked = self.input.patterns().pattern(pattern);
+
+        checked
             .map(bray_bound_tree::PatternCheckEntry::operation)
             .filter(|operation| *operation != PatternOperation::Recovered)
             .unwrap_or_else(|| {
                 panic!(
-                    "lowering contract violation: UnsupportedPattern {value:?}",
-                    value = pattern
+                    "pattern operation must be established before lowering: pattern={pattern:?}, checked={checked:?}, node={:?}, unit={:?}",
+                    self.pattern(pattern),
+                    self.input.unit().view().key(),
                 )
             })
     }

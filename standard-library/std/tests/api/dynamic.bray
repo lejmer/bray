@@ -8,7 +8,7 @@ using std.testing;
 
 @test
 trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
-    uses(foreign_call, layout_reinterpret)
+    requires(blocking_execution())
 {
     let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.from_string(&"ambient-loader-name");
     let relative: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(relative_result);
@@ -83,7 +83,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
 @test
 trusted func dynamic_library_handle_transfer_disables_owner_cleanup() -> Result<unit, std.ffi.ForeignError>
-    uses(foreign_call, layout_reinterpret)
+    uses(foreign_call)
 {
     let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open(
         std.dynamic.SystemLibrary.CRuntime,

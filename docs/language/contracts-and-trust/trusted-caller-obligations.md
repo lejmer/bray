@@ -55,8 +55,8 @@ A declaration exposes trusted caller obligations when its contract requires trus
 using core.memory;
 
 trusted func copy_bytes_unchecked(
-    destination: RawPointer<u8>,
-    source: RawPointer<u8>,
+    destination: DataPointer<u8>,
+    source: DataPointer<u8>,
     count: usize,
 ) -> unit
     requires(

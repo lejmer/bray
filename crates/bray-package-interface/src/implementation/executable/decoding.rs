@@ -957,6 +957,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             13 => Ok(MirBinaryOperator::BitwiseXor),
             14 => Ok(MirBinaryOperator::ShiftLeft),
             15 => Ok(MirBinaryOperator::ShiftRight),
+            16 => Ok(MirBinaryOperator::Exponentiate),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1083,18 +1084,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        let intrinsic = match read_u32(&mut self.reader)? {
-            0 => None,
-            1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
-            2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
-            3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
-            4 => Some(bray_ir::MirCallIntrinsic::Comparison {
-                less: self.exact_symbol()?,
-                equal: self.exact_symbol()?,
-                greater: self.exact_symbol()?,
-            }),
-            _ => return Err(ExecutableTemplateDecodeError::Malformed),
-        };
+        let intrinsic = self.call_intrinsic()?;
 
         let witness_count = self.count()?;
         let mut witnesses = self.items(witness_count)?;
@@ -1118,6 +1108,47 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         )
         .with_cleanup(cleanup)
         .with_invocation(invocation))
+    }
+
+    fn call_intrinsic(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCallIntrinsic>, ExecutableTemplateDecodeError> {
+        Ok(match read_u32(&mut self.reader)? {
+            0 => None,
+            1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
+            2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
+            3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
+            4 => Some(bray_ir::MirCallIntrinsic::Comparison {
+                less: self.exact_symbol()?,
+                equal: self.exact_symbol()?,
+                greater: self.exact_symbol()?,
+            }),
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        })
+    }
+
+    fn callable_selection(
+        &mut self,
+    ) -> Result<bray_ir::MirCallableSelection, ExecutableTemplateDecodeError> {
+        let reference = MirCallableReference::new(self.callable_instance()?, self.callable_abi()?);
+
+        let dispatch = match read_u32(&mut self.reader)? {
+            0 => None,
+            1 => Some(self.trait_dispatch()?),
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
+        let intrinsic = self.call_intrinsic()?;
+        let count = self.count()?;
+        let mut witnesses = self.items(count)?;
+
+        for _ in 0..count {
+            witnesses.push(self.implementation()?);
+        }
+
+        Ok(bray_ir::MirCallableSelection::new(
+            reference, dispatch, intrinsic, witnesses,
+        ))
     }
 
     fn phase_behaviors(
@@ -1225,10 +1256,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         match read_u32(&mut self.reader)? {
             0 => Ok(bray_ir::MirOutgoingOwner::Value(self.ty()?)),
             1 => Ok(bray_ir::MirOutgoingOwner::Invocation {
-                callable: MirCallableReference::new(
-                    self.callable_instance()?,
-                    self.callable_abi()?,
-                ),
+                selection: self.callable_selection()?,
                 result: self.call_result()?,
             }),
             2 => Ok(bray_ir::MirOutgoingOwner::FrameFactory(self.operand()?)),
@@ -1520,6 +1548,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 pointee: self.ty()?,
             }),
             2 => Ok(Kind::IsNull {
+                pointee: self.ty()?,
+            }),
+            60 => Ok(Kind::ByteAddress {
                 pointee: self.ty()?,
             }),
             3 => Ok(Kind::Offset {
@@ -2110,14 +2141,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 predicate: self.pattern_predicate()?,
                 matched: self.edge()?,
                 unmatched: self.edge()?,
-            }),
-            3 => Ok(MirTerminatorKind::Iterate {
-                cursor: self.place()?,
-                next: MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
-                witness: self.implementation()?,
-                element_type: self.ty()?,
-                item: self.block_id()?,
-                exhausted: self.edge()?,
             }),
             4 => {
                 let discriminant = self.operand()?;
@@ -2719,7 +2742,7 @@ fn validate_decoded_protected_memory_types(
     let uninit = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Uninit")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
-    let raw_pointer = bray_compiler_known::CompilerKnownDeclarationKey::try_new("RawPointer")
+    let data_pointer = bray_compiler_known::CompilerKnownDeclarationKey::try_new("DataPointer")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
     protected_memory_types_valid(
@@ -2729,7 +2752,7 @@ fn validate_decoded_protected_memory_types(
         |ty, wrapper| {
             let expected = match wrapper {
                 ProtectedMemoryWrapper::Uninit => &uninit,
-                ProtectedMemoryWrapper::RawPointer => &raw_pointer,
+                ProtectedMemoryWrapper::DataPointer => &data_pointer,
             };
 
             semantics.compiler_known_type_argument(ty, expected)
@@ -2743,7 +2766,7 @@ fn validate_decoded_protected_memory_types(
 #[derive(Clone, Copy)]
 enum ProtectedMemoryWrapper {
     Uninit,
-    RawPointer,
+    DataPointer,
 }
 
 fn protected_memory_types_valid(
@@ -2786,7 +2809,7 @@ fn protected_memory_types_valid(
                 .and_then(|storage| wrapper_argument(storage, ProtectedMemoryWrapper::Uninit))
                 == Some(element)
                 && result.is_some_and(|result| {
-                    wrapper_argument(result, ProtectedMemoryWrapper::RawPointer) == Some(element)
+                    wrapper_argument(result, ProtectedMemoryWrapper::DataPointer) == Some(element)
                 })
         }
         Kind::UninitWrite { element } => {
@@ -2828,7 +2851,7 @@ fn protected_memory_types_valid(
             let borrow = address_borrow_kind(kind);
 
             borrow_target(*authority, borrow).is_some()
-                && wrapper_argument(*pointer, ProtectedMemoryWrapper::RawPointer) == Some(pointee)
+                && wrapper_argument(*pointer, ProtectedMemoryWrapper::DataPointer) == Some(pointee)
                 && result.is_some_and(|result| borrow_target(result, borrow) == Some(pointee))
         }
         _ => true,
@@ -3170,7 +3193,7 @@ mod tests {
                 result,
                 |ty, wrapper| match (ty, wrapper) {
                     (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => Some(self.element),
-                    (ty, ProtectedMemoryWrapper::RawPointer) if ty == self.pointer => {
+                    (ty, ProtectedMemoryWrapper::DataPointer) if ty == self.pointer => {
                         Some(self.element)
                     }
                     _ => None,

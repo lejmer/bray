@@ -54,7 +54,7 @@ impl super::check::TrustedChecks {
     }
 }
 
-fn portable<C: crate::CheckerRequestContext + ?Sized>(
+pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     condition: &ExecutionCondition,
 ) -> Option<bray_symbols::ConstantTermId> {
@@ -275,18 +275,27 @@ impl ExecutionState {
             let derived = conditions
                 .iter()
                 .flat_map(ExecutionCondition::observations)
-                .filter(|condition| matches!(condition, ExecutionCondition::Trusted(_)))
+                .filter(|condition| {
+                    !condition.contains_trusted()
+                        || matches!(condition, ExecutionCondition::Trusted(_))
+                })
                 .filter(|condition| known.contains(&((*condition).clone(), true)))
                 .cloned()
                 .collect::<Vec<_>>();
 
             for condition in derived {
                 // The carrier and current proof set independently retain this established fact.
-                condition
-                    .clone()
-                    .assume(true, &mut self.trusted_assumptions);
+                if matches!(condition, ExecutionCondition::Trusted(_)) {
+                    condition
+                        .clone()
+                        .assume(true, &mut self.trusted_assumptions);
 
-                conditions.insert(condition);
+                    conditions.insert(condition);
+                } else {
+                    // A checked mixed guarantee can also establish ordinary value bounds.
+                    // Their truth does not supply the qualifier required by trusted calls.
+                    condition.assume(true, &mut self.assumptions);
+                }
             }
         }
     }

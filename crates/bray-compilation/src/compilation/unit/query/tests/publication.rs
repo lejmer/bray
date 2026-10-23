@@ -781,9 +781,14 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
 
     assert!(!body.result().diagnostics().has_errors(), "{body:#?}");
 
-    let execution = compilation.execution_properties(key.clone()).unwrap();
+    let execution = compilation
+        .execution_candidates_with_cancellation(key.clone(), &cancellation)
+        .unwrap();
 
-    assert!(!execution.diagnostics().has_errors(), "{execution:#?}");
+    assert!(
+        !execution.result().diagnostics().has_errors(),
+        "{execution:#?}"
+    );
 
     let reused = compilation
         .prepared_body_analysis_with_cancellation(key.clone(), &cancellation)

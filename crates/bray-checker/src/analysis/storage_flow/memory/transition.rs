@@ -243,6 +243,7 @@ impl State {
 
             if references.unknown
                 || references.displaced
+                || references.inexact
                 || references.targets.iter().any(|target| !target.is_exact())
             {
                 for value in transfer.values.values_mut() {

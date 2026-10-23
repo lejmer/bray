@@ -56,7 +56,16 @@ In ordinary expression context, the operand and any generator body used to produ
 ownership, borrowing, effect, capability, and finalization rules.
 
 In predicate-expression context, the operand and any generator body used to produce it must also obey
-predicate-expression restrictions.
+predicate-expression restrictions. The fold owns its hidden cursor. Its implicit selected protocol calls may mutate
+that cursor when checked summaries prove confinement to the fold's local state and preserve observational evaluation.
+Writes through references stored in the cursor are classified by their reached storage. The protocol calls, delegated
+operations, yielded expressions and cursor cleanup must have established admissible behavior. Termination and finite
+exhaustion require their own proofs. This protocol admission does not make the selected methods unconditionally pure
+or supply a const contract for ordinary direct calls.
+
+Compiled standard-library iterators publish these checked proofs with their dependencies. Consumers reuse the proofs
+and apply only their selected input requirements. Standard-library membership does not discharge dependencies on a
+user-supplied iterator or callable.
 
 ## Navigation
 

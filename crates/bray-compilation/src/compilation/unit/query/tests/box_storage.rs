@@ -33,7 +33,13 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
                 && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
                 && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
         }),
-        "box input must transfer ownership: {flow:?}"
+        "box input {:?} must transfer ownership: {:?}",
+        operand.expression(),
+        flow.value()
+            .operations()
+            .iter()
+            .filter(|operation| operation.expression() == operand.expression())
+            .collect::<Vec<_>>()
     );
 }
 

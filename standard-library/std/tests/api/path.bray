@@ -2,12 +2,11 @@ module bray.standard_library_tests.path;
 
 using std.io;
 using std.path;
-using std.platform;
+using internal std.platform;
 using std.string;
 
 @test
 trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.path.PathError>
-    uses(foreign_call)
 {
     let native: std.path.NativeText = try std.path.NativeText.from_string(&"native");
     let native_path: std.path.Path = try std.path.Path.from_native(native);

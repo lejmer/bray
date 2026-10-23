@@ -8,8 +8,8 @@ using internal bray.runtime.bootstrap;
 
 @abi(c)
 trusted internal func activation(
-    pos descriptor: RawPointer<bray.runtime.bootstrap.storage.Descriptor>,
-    pos destination: RawPointer<bray.runtime.bootstrap.storage.Lease>
+    pos descriptor: DataPointer<bray.runtime.bootstrap.storage.Descriptor>,
+    pos destination: DataPointer<bray.runtime.bootstrap.storage.Lease>
 ) -> usize
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -47,7 +47,7 @@ trusted internal func activation(
 
 trusted internal func acquire(
     pos descriptor: bray.runtime.bootstrap.storage.Descriptor,
-    pos destination: RawPointer<bray.runtime.bootstrap.storage.Lease>
+    pos destination: DataPointer<bray.runtime.bootstrap.storage.Lease>
 ) -> (usize, bray.runtime.bootstrap.storage.Lease)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -69,8 +69,8 @@ trusted internal func acquire(
 @abi(c)
 trusted internal func retirement(
     pos handle: usize,
-    pos backing: RawPointer<bray.runtime.bootstrap.storage.Lease>,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos backing: DataPointer<bray.runtime.bootstrap.storage.Lease>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -122,7 +122,7 @@ trusted internal func retirement(
 
 trusted internal func release_payload(
     pos lease: bray.runtime.bootstrap.storage.Lease,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

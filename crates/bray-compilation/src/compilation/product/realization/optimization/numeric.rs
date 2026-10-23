@@ -262,5 +262,6 @@ fn bound_binary_operator(operator: MirBinaryOperator) -> BoundOperator {
         MirBinaryOperator::BitwiseXor => BoundOperator::BitwiseXor,
         MirBinaryOperator::ShiftLeft => BoundOperator::ShiftLeft,
         MirBinaryOperator::ShiftRight => BoundOperator::ShiftRight,
+        MirBinaryOperator::Exponentiate => BoundOperator::Exponentiate,
     }
 }

@@ -28,6 +28,7 @@ pub mod testing;
 mod tree;
 mod typing;
 mod unit;
+mod unwind;
 mod view;
 
 pub use asynchronous::{
@@ -100,21 +101,21 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
-    StorageInvalidation,
+    StorageInvalidation, StorageMutationScope,
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
     ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget,
     MemberTarget, OperatorTarget, SelectedArgument, SelectedCall, SelectedCompoundAssignment,
     SelectedConstruction, SelectedConstructionInput, SelectedConversion,
-    SelectedImplementationWitness, SelectedIterationProtocolOperation, SelectedIterationSource,
-    SelectedIterationTypes, SelectedOperation, SelectedPredicateApplication,
-    SelectedPredicateArgument, SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver,
-    SelectedScopedUse, SelectionKind, SemanticSelection, SemanticSelectionEntry,
-    SemanticSelectionTableBuildError,
+    SelectedImplementationWitness, SelectedInput, SelectedIterationProtocolOperation,
+    SelectedIterationSource, SelectedIterationTypes, SelectedOperation,
+    SelectedPredicateApplication, SelectedPredicateArgument, SelectedPropagation,
+    SelectedPropagationBoundary, SelectedReceiver, SelectedScopedUse, SelectionKind,
+    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use semantic::{
-    CheckedBodySemantics, CheckedExpressionSemantics, CheckedUnwind, SemanticSnapshotBuildError,
+    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
     SemanticSnapshotInputKind,
 };
 pub use storage::{
@@ -125,22 +126,23 @@ pub use storage::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
     StorageIdentity, StorageIdentityId, StorageMutation, StorageOperationDecision,
-    StorageOperationStatus, StoragePath, StoragePlan, StoragePlanBuildError, StoragePlanBuilder,
-    StorageProjection, StorageProtocolCall, StorageReferencePath, StorageRelationship,
-    StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
-    StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
-    scoped_exit_completes_result, storage_expression_republishes_destructor_receiver,
-    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
+    StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
+    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath,
+    StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
+    StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageStateTarget,
+    StorageSuspensionState, StorageTarget, scoped_exit_completes_result,
+    storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
+    storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,
     CheckedTemplateCapability, CheckedTemplateCompletion, CheckedTemplateConstantUsage,
     CheckedTemplateDispatch, CheckedTemplateEffect, CheckedTemplateExecution,
     CheckedTemplateExecutionRequirement, CheckedTemplateIndexCall, CheckedTemplateInput,
-    CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
-    CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
-    CheckedTemplateTemporary, CheckedTemplateTemporaryId, CheckedTemplateTrustedObligation,
-    CheckedTemplateWitness,
+    CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateLoopBody,
+    CheckedTemplateNode, CheckedTemplateNodeId, CheckedTemplateOperation,
+    CheckedTemplateShortCircuitKind, CheckedTemplateTemporary, CheckedTemplateTemporaryId,
+    CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
 pub use tree::{
     BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundTreeCheckpoint, BoundWalkControl,
@@ -154,3 +156,5 @@ pub use unit::{
     BoundUnitKeyData, BoundUnitKind, DeclaredBoundUnitKey,
 };
 pub use view::BoundUnitView;
+
+pub use unwind::{CheckedUnwind, UnwindBehavior};

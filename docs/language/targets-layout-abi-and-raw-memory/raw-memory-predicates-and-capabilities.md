@@ -3,32 +3,32 @@
 The compiler-known trusted raw memory predicates are under `core.memory`.
 
 ```bray
-trusted predicate valid_read<T>(pointer: RawPointer<T>, count: usize);
+trusted predicate valid_read<T>(pointer: DataPointer<T>, count: usize);
 
-trusted predicate valid_write<T>(pointer: RawPointer<T>, count: usize);
+trusted predicate valid_write<T>(pointer: DataPointer<T>, count: usize);
 
-trusted predicate initialized_as<T>(pointer: RawPointer<T>);
+trusted predicate initialized_as<T>(pointer: DataPointer<T>);
 
-trusted predicate initialized_range_as<T>(pointer: RawPointer<T>, count: usize);
+trusted predicate initialized_range_as<T>(pointer: DataPointer<T>, count: usize);
 
-trusted predicate nul_terminated_read(pointer: RawPointer<u8>);
+trusted predicate nul_terminated_read(pointer: DataPointer<u8>);
 
-trusted predicate wide_nul_terminated_read(pointer: RawPointer<u16>);
+trusted predicate wide_nul_terminated_read(pointer: DataPointer<u16>);
 
-trusted predicate aligned_for<T>(pointer: RawPointer<T>);
+trusted predicate aligned_for<T>(pointer: DataPointer<T>);
 
 trusted predicate non_overlapping<T>(
-    left: RawPointer<T>,
+    left: DataPointer<T>,
     left_count: usize,
-    right: RawPointer<T>,
+    right: DataPointer<T>,
     right_count: usize,
 );
 
-trusted predicate owned_allocation(pointer: RawPointer<u8>, bytes: usize, align: usize);
+trusted predicate owned_allocation(pointer: DataPointer<u8>, bytes: usize, align: usize);
 
-trusted predicate same_allocation<T>(left: RawPointer<T>, right: RawPointer<T>);
+trusted predicate same_allocation<T>(left: DataPointer<T>, right: DataPointer<T>);
 
-trusted predicate callable_address_valid<F>(pointer: RawPointer<F>);
+trusted predicate callable_address_valid<F>(pointer: FunctionPointer<F>);
 ```
 
 `valid_read` means the range can be read as raw storage for `count` values of `T`.

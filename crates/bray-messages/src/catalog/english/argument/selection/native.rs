@@ -216,6 +216,7 @@ const fn format_english_platform_abi_type(
         Type::U32 => "a 32-bit unsigned integer",
         Type::U64 => "a 64-bit unsigned integer",
         Type::I64 => "a 64-bit signed integer",
+        Type::FunctionPointer => "a function pointer",
         Type::PointerU8 => "a raw pointer to bytes",
         Type::PointerU32 => "a raw pointer to 32-bit unsigned integers",
         Type::PointerU64 => "a raw pointer to 64-bit unsigned integers",

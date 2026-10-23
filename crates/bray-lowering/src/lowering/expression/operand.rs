@@ -53,11 +53,15 @@ impl Lowerer<'_> {
             .find_storage_decision_reaching(expression, expression_type, |purpose| {
                 matches!(
                     purpose,
-                    StorageAccessPurpose::Read
-                        | StorageAccessPurpose::Copy
+                    StorageAccessPurpose::Copy
                         | StorageAccessPurpose::Move
                         | StorageAccessPurpose::ValueTransfer
                 )
+            })
+            .or_else(|| {
+                self.find_storage_decision_reaching(expression, expression_type, |purpose| {
+                    purpose == StorageAccessPurpose::Read
+                })
             })
             .or_else(|| {
                 self.find_storage_decision_reaching(expression, expression_type, |purpose| {

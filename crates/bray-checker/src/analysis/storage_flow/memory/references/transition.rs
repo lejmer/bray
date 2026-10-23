@@ -112,54 +112,70 @@ impl State {
 
         let mut roots = BTreeSet::new();
 
-        for target in self.reachable_targets(inputs) {
-            match target.origin {
-                Origin::Storage(path) => {
-                    roots.insert(path.root);
-                }
+        for target in self.transitive_regions(inputs, |_| true).0 {
+            match &target.origin {
                 Origin::Returned { reference, .. } => {
-                    roots.extend(
-                        self.returned_roots
-                            .get(&reference)
-                            .into_iter()
-                            .flatten()
-                            .copied(),
-                    );
+                    roots.extend(self.returned_input_regions(reference).iter().cloned());
                 }
-                Origin::Entry { .. } | Origin::Allocation(_) => {}
+                _ => {
+                    roots.insert(target);
+                }
             }
         }
 
         for (destination, ty) in references {
-            let slot = Target::storage(destination.clone());
+            // Replace the inconclusive forwarding attempt with the complete call-input bound.
+            if let Some(pending) = self.pending.get_mut(&call) {
+                pending.values.remove(&Target::storage(destination.clone()));
+            }
 
-            // This finite union also bounds older executions of a call site at loop joins.
-            self.returned_roots
-                .entry(destination.clone())
-                .or_default()
-                .extend(roots.iter().copied());
-
-            let target = Target {
-                previous: false,
-                origin: Origin::Returned {
-                    reference: destination,
-                    projections: std::sync::Arc::from([]),
-                },
-            };
-
-            self.retire(&target);
-
-            self.contents
-                .entry(target.clone())
-                .or_default()
-                .storage_type = Some(ty);
-
-            self.pending
-                .entry(call)
-                .or_default()
-                .values
-                .insert(slot, References::one(target));
+            self.stage_returned_reference(
+                call,
+                Target::storage(destination.clone()),
+                destination,
+                ty,
+                roots.iter().cloned(),
+            );
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_returned_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        reference: Place,
+        ty: TypeId,
+        inputs: impl IntoIterator<Item = Target>,
+    ) {
+        // The finite union bounds older executions at loop joins. An empty bound
+        // excludes caller inputs without claiming a fresh allocation or exact identity.
+        self.returned_inputs
+            .entry(reference.clone())
+            .or_default()
+            .extend(inputs);
+
+        let target = Target {
+            previous: false,
+            origin: Origin::Returned {
+                reference,
+                projections: std::sync::Arc::from([]),
+            },
+        };
+
+        self.retire(&target);
+
+        self.contents
+            .entry(target.clone())
+            .or_default()
+            .storage_type = Some(ty);
+
+        self.pending
+            .entry(call)
+            .or_default()
+            .values
+            .entry(destination)
+            .or_default()
+            .merge(&References::one(target));
     }
 
     pub(in crate::analysis::storage_flow) fn capture_inputs(
@@ -172,6 +188,20 @@ impl State {
 
         references.unknown = true;
         references.targets.extend(captures);
+    }
+
+    pub(in crate::analysis::storage_flow) fn bound_staged_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: &Target,
+    ) {
+        if let Some(references) = self
+            .pending
+            .get_mut(&call)
+            .and_then(|pending| pending.values.get_mut(destination))
+        {
+            references.inexact = true;
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn stage_null(
@@ -322,16 +352,17 @@ impl State {
         };
 
         // An opaque operation can change the referent without replacing a reference
-        // stored in an invocation-owned value whose address was never available to it.
+        // stored in an unexposed owner or reached through a protected shared entry borrow.
+        // The established observation identifies the slot independently of its referent.
         self.values.retain(|target, _| {
             kind == bray_symbols::DependencyMutationKind::Atomic
-                || match target.storage_path() {
+                || match target.observation_path() {
                     Some(slot) => {
                         unexposed.contains(&slot.root)
                             && !slot
                                 .projections
                                 .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            || !invalidation.invalidates_path(slot, storage)
+                            || !invalidation.invalidates_path(&slot, storage)
                     }
                     None => !matches!(
                         invalidation,
@@ -371,7 +402,7 @@ impl State {
         &mut self,
         slot: Place,
         allocation: BoundExpressionId,
-    ) {
+    ) -> Target {
         // A new execution cannot equate old aliases with this incarnation.
         let current = Target {
             origin: Origin::Allocation(slot.clone()),
@@ -388,7 +419,9 @@ impl State {
         self.contents.insert(current.clone(), contents);
 
         self.values
-            .insert(Target::storage(slot), References::one(current));
+            .insert(Target::storage(slot), References::one(current.clone()));
+
+        current
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {
@@ -403,21 +436,34 @@ impl State {
         );
     }
 
+    fn owned_references(&self, owner: &Target) -> std::borrow::Cow<'_, References> {
+        match self.values.get(owner) {
+            Some(references) => std::borrow::Cow::Borrowed(references),
+            None => std::borrow::Cow::Owned(References::one(
+                owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
+            )),
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn owned_regions(
+        &self,
+        owner: &Target,
+    ) -> Option<Vec<Target>> {
+        self.owned_references(owner).regions()
+    }
+
     pub(in crate::analysis::storage_flow) fn owned_region(
         &mut self,
         owner: Target,
         destination: Place,
-        ty: TypeId,
+        ty: bray_symbols::TypeId,
     ) {
-        let region = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
+        let references = self.owned_references(&owner).into_owned();
 
-        // Owner moves carry the same region independently of the header's later address.
-        // This identifies storage without claiming an initialized value or extent.
-        let references = self
-            .values
+        // The owner and returned view retain independent reference records through moves.
+        self.values
             .entry(owner)
-            .or_insert_with(|| References::one(region))
-            .clone();
+            .or_insert_with(|| references.clone());
 
         for target in &references.targets {
             self.contents

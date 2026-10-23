@@ -41,10 +41,20 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         use crate::analysis::{AnalysisCallPhase, AnalysisOperationKind};
 
+        if matches!(operation, AnalysisOperationKind::Bound(_))
+            && operation
+                .occurrence()
+                .expression()
+                .and_then(|expression| self.request.view().expression(expression))
+                .is_some_and(bray_bound_tree::BoundExpression::has_result_region)
+        {
+            return Ok(());
+        }
+
         if matches!(
             operation,
             AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Attempt,
+                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt,
                 ..
             } | AnalysisOperationKind::Result {
                 phase: crate::analysis::AnalysisResultPhase::Begin,
@@ -52,6 +62,34 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             } | AnalysisOperationKind::ScopeExit { .. }
                 | AnalysisOperationKind::Suspension { .. }
         ) {
+            return Ok(());
+        }
+
+        if let crate::analysis::AnalysisOperationKind::Call {
+            invocation: input @ bray_bound_tree::BoundExecutionSite::CallInput { .. },
+            phase: AnalysisCallPhase::Completion,
+        } = operation
+        {
+            let values = self.input_values(input)?;
+
+            super::state::assign(&mut self.state.values, input, values);
+
+            return Ok(());
+        }
+
+        if let AnalysisOperationKind::Call {
+            invocation:
+                invocation @ (bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
+            phase: AnalysisCallPhase::Completion,
+        } = operation
+        {
+            let values = self.implicit_values(invocation)?;
+
+            super::state::assign(&mut self.state.values, invocation, values);
+
             return Ok(());
         }
 
@@ -65,7 +103,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
 
                 let values = self.expression_values(id, expression)?;
 
-                super::state::assign(&mut self.state.values, id, values);
+                super::state::assign(&mut self.state.values, id.into(), values);
 
                 let sources = if self.inputs.source_inputs.contains(&id) {
                     self.expression_sources(id, expression)
@@ -80,7 +118,12 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                     && let Some(operand) = transfer.operand()
                 {
                     // The selected branch supplies the enclosing expression's result at this edge.
-                    let values = self.state.values.get(&operand).cloned().unwrap_or_default();
+                    let values = self
+                        .state
+                        .values
+                        .get(&(operand).into())
+                        .cloned()
+                        .unwrap_or_default();
 
                     let sources = self
                         .state
@@ -89,7 +132,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                         .cloned()
                         .unwrap_or_default();
 
-                    super::state::assign(&mut self.state.values, target, values);
+                    super::state::assign(&mut self.state.values, target.into(), values);
                     super::state::assign(&mut self.state.sources, target, sources);
                 }
 
@@ -106,9 +149,14 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 };
 
                 if let Some(value) = returned {
-                    self.state
-                        .returned
-                        .extend(self.state.values.get(&value).into_iter().flatten().cloned());
+                    self.state.returned.extend(
+                        self.state
+                            .values
+                            .get(&(value).into())
+                            .into_iter()
+                            .flatten()
+                            .cloned(),
+                    );
                 }
 
                 if self.inputs.returned_errors.contains(&id) {
@@ -121,16 +169,17 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             }
             bray_bound_tree::AnyBoundNodeId::Pattern(pattern) => {
                 if let Some(source) = self.inputs.pattern_subjects.get(&pattern).copied() {
-                    if let Some(SemanticSelection::ScopedUse(scoped)) =
-                        self.selections.expression(source)
-                    {
-                        let values = self.scoped_values(scoped)?;
+                    let values = self.state.values.get(&source).cloned().unwrap_or_default();
 
-                        self.bind_pattern_values(pattern, None, BTreeSet::new(), values)?;
-                    } else {
-                        let values = self.state.values.get(&source).cloned().unwrap_or_default();
-
-                        self.bind_pattern(pattern, source, values)?;
+                    match source {
+                        bray_bound_tree::BoundExecutionSite::Node(
+                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                        ) => self.bind_pattern(pattern, expression, values)?,
+                        bray_bound_tree::BoundExecutionSite::Next(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => {
+                            self.bind_pattern_values(pattern, None, BTreeSet::new(), values)?
+                        }
+                        _ => panic!("binding pattern has an evaluated subject: {source:?}"),
                     }
                 }
             }
@@ -156,7 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         let mut requirements = if let Some(initializer) = self.inputs.projected_initializer(id) {
             self.state
                 .values
-                .get(&initializer)
+                .get(&(initializer).into())
                 .cloned()
                 .unwrap_or_default()
         } else if let Some(SemanticSelection::Operation(operation)) = self.selections.expression(id)
@@ -212,7 +261,12 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::With =>
                 {
-                    let mut values = self.state.values.get(&id).cloned().unwrap_or_default();
+                    let mut values = self
+                        .state
+                        .values
+                        .get(&(id).into())
+                        .cloned()
+                        .unwrap_or_default();
 
                     if let Some(SemanticSelection::ScopedUse(scoped)) =
                         self.selections.expression(id)
@@ -235,7 +289,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Catch =>
                 {
-                    self.state.values.get(&id).cloned().unwrap_or_default()
+                    self.state
+                        .values
+                        .get(&(id).into())
+                        .cloned()
+                        .unwrap_or_default()
                 }
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
@@ -249,7 +307,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 _ => self
                     .inputs
                     .operands(id)
-                    .flat_map(|child| self.state.values.get(&child).into_iter().flatten().cloned())
+                    .flat_map(|child| {
+                        self.state
+                            .values
+                            .get(&(child).into())
+                            .into_iter()
+                            .flatten()
+                            .cloned()
+                    })
                     .collect(),
             }
         };
@@ -290,7 +355,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             return Ok(self
                 .state
                 .values
-                .get(&receiver)
+                .get(&(receiver).into())
                 .cloned()
                 .unwrap_or_default());
         }

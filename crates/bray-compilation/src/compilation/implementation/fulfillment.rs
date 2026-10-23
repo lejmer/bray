@@ -107,7 +107,7 @@ pub(in crate::compilation) fn selected_type_valued_member(
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeValuedMemberResolution, FactQueryError> {
-    let expected_name = fulfillment_name(binding_context, member.into()).ok_or_else(|| {
+    let expected_name = fulfillment_name(binding_context, member.into())?.ok_or_else(|| {
         crate::compilation::SemanticQueryFailure::contract(
             crate::compilation::SemanticQueryContext::Symbol(member.into()),
             crate::compilation::SemanticQueryViolation::Missing(
@@ -116,18 +116,10 @@ pub(in crate::compilation) fn selected_type_valued_member(
         )
     })?;
 
-    let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(binding_context, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name)
-    });
-
-    let Some(fulfillment) = matching.next() else {
+    let Some(fulfillment) = matching_fulfillment(binding_context, fulfillments, expected_name)?
+    else {
         return Ok(TypeValuedMemberResolution::Invalid);
     };
-
-    if matching.next().is_some() {
-        return Ok(TypeValuedMemberResolution::Invalid);
-    }
 
     let result = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<TraitTypeFulfillmentValueQuery>::new(
@@ -234,21 +226,33 @@ pub(in crate::compilation) fn selected_callable(
     binding_context: &CompilationBindingContext<'_>,
     fulfillments: &[TraitCallableFulfillmentSymbolId],
     member: TraitCallableMemberSymbolId,
-) -> Option<TraitCallableFulfillmentSymbolId> {
-    let expected_name = fulfillment_name(binding_context, member.into())?;
+) -> Result<Option<TraitCallableFulfillmentSymbolId>, FactQueryError> {
+    let name = fulfillment_name(binding_context, member.into())?
+        .expect("checked trait callable member retains its name");
 
-    let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(binding_context, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name)
-    });
+    matching_fulfillment(binding_context, fulfillments, name)
+}
 
-    let fulfillment = matching.next()?;
+fn matching_fulfillment<T: Copy + Into<AnySymbolId>>(
+    binding_context: &CompilationBindingContext<'_>,
+    fulfillments: &[T],
+    expected_name: &str,
+) -> Result<Option<T>, FactQueryError> {
+    let mut selected = None;
 
-    if matching.next().is_some() {
-        return None;
+    for fulfillment in fulfillments.iter().copied() {
+        if fulfillment_name(binding_context, fulfillment.into())? != Some(expected_name) {
+            continue;
+        }
+
+        if selected.is_some() {
+            return Ok(None);
+        }
+
+        selected = Some(fulfillment);
     }
 
-    Some(fulfillment)
+    Ok(selected)
 }
 
 #[derive(Clone, Copy)]
@@ -286,7 +290,7 @@ pub(in crate::compilation) fn implementation_callable_instance(
 ) -> Result<Option<ImplementationCallableInstance>, FactQueryError> {
     let values = binding_context.semantic_values();
 
-    match selected_callable(binding_context, fulfillments, member) {
+    match selected_callable(binding_context, fulfillments, member)? {
         Some(fulfillment) => callable_instance(
             values,
             fulfillment.into(),
@@ -395,15 +399,20 @@ pub(in crate::compilation) fn callable_instance(
 fn fulfillment_name<'binding_context>(
     binding_context: &'binding_context CompilationBindingContext<'_>,
     fulfillment: AnySymbolId,
-) -> Option<&'binding_context str> {
+) -> Result<Option<&'binding_context str>, FactQueryError> {
     if let Some(name) = binding_context.symbols().member_name(fulfillment) {
-        return Some(name.as_str());
+        return Ok(Some(name.as_str()));
     }
 
-    let key = binding_context.symbol_key(fulfillment).ok()??;
+    let Some(key) = binding_context
+        .symbol_key(fulfillment)
+        .map_err(binding_query_error)?
+    else {
+        return Ok(None);
+    };
 
     let SymbolKeyData::External(key) = key.data() else {
-        return None;
+        return Ok(None);
     };
 
     let ExternalSymbolKeyData::Declaration {
@@ -411,8 +420,8 @@ fn fulfillment_name<'binding_context>(
         ..
     } = key.data()
     else {
-        return None;
+        return Ok(None);
     };
 
-    Some(name.as_str())
+    Ok(Some(name.as_str()))
 }

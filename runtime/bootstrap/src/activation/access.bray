@@ -18,7 +18,7 @@ trusted internal func description(pos token: &Inactive) -> Descriptor
     ensures(trusted producer(token = token))
     uses(raw_memory)
 {
-    let authorize = trusted lambda(pos owner: &Inactive) -> RawPointer<Descriptor>
+    let authorize = trusted lambda(pos owner: &Inactive) -> DataPointer<Descriptor>
         requires(trusted producer(token = owner))
         ensures(
             trusted core.memory.valid_read<Descriptor>(pointer = result, count = 1),
@@ -62,10 +62,10 @@ trusted internal func publish(pos token: &Inactive) -> u32
 
 // A native producer retains this initialized token and its descriptor provider
 // throughout publication. The contract refers to the exact input slot.
-trusted internal predicate producer_slot(pointer: RawPointer<Inactive>);
+trusted internal predicate producer_slot(pointer: DataPointer<Inactive>);
 
 @abi(c)
-trusted internal func publication(pos pointer: RawPointer<Inactive>) -> u32
+trusted internal func publication(pos pointer: DataPointer<Inactive>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted producer_slot(pointer = pointer),
@@ -79,7 +79,7 @@ trusted internal func publication(pos pointer: RawPointer<Inactive>) -> u32
     return trusted publish(&token);
 }
 
-trusted internal func read_producer(pos source: RawPointer<Inactive>) -> Inactive
+trusted internal func read_producer(pos source: DataPointer<Inactive>) -> Inactive
     requires(
         trusted producer_slot(pointer = source),
         trusted core.memory.valid_read<Inactive>(pointer = source, count = 1),

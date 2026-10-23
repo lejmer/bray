@@ -1,7 +1,6 @@
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
-    DependencyContractInstantiationError, SelectedCall, SelectedIterationSource, StorageIdentity,
-    StoragePlan,
+    DependencyContractInstantiationError, StoragePlan,
 };
 use bray_symbols::{
     BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureQuery,
@@ -9,7 +8,7 @@ use bray_symbols::{
     DependencySubject, DependencySubjectRoot, SymbolQueryRequest, TypeData, TypeExpressionTemplate,
 };
 
-use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
+use super::instantiation::{CallInstantiationContext, expression_access};
 use crate::dependency::implementation::implementation_dependency_source;
 use crate::{
     CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
@@ -19,7 +18,7 @@ pub(crate) fn selected_call_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,
-    call: &SelectedCall,
+    selection: &bray_bound_tree::SemanticSelection,
     values: &crate::dependency::ValueInputs,
 ) -> Result<
     (BoundCallDependencyContracts, Vec<DependencySubjectRoot>),
@@ -28,6 +27,10 @@ pub(crate) fn selected_call_contracts<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
+    let bray_bound_tree::SemanticSelection::Call(call) = selection else {
+        panic!("call contract construction retains its selected callable");
+    };
+
     let contract_target = call
         .resolution()
         .anonymous_body()
@@ -44,7 +47,7 @@ where
 
     let instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
 
-    let template = crate::dependency::call_result_template(request, call, |callable| {
+    let template = crate::dependency::callee_result_template(request, call, |callable| {
         request.callable_result_dependencies(callable)
     })
     .map_err(DependencyContractInstantiationError::Resolution)?;
@@ -53,21 +56,8 @@ where
 
     result_context.set_result_values(values);
 
-    let concrete = DependencyContractTemplateData::new(
-        template
-            .template
-            .requirements()
-            .iter()
-            .filter(|requirement| {
-                !matches!(
-                    requirement,
-                    DependencyRequirement::ResultCall { .. }
-                        | DependencyRequirement::FixedPoint { .. }
-                        | DependencyRequirement::Variable { .. }
-                )
-            })
-            .cloned(),
-    );
+    let concrete =
+        DependencyContractTemplateData::new(concrete_requirements(template.requirements()));
 
     let mut result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
 
@@ -84,23 +74,21 @@ where
         ]));
     }
 
-    let reports = instantiate_reports(&template.template, &mut result_context)?;
+    let reports = instantiate_reports(&template, &mut result_context)?;
 
     let instantiated = if matches!(
         call.resolution().result(),
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     ) {
-        let evaluation =
-            instantiate_reports(&template.immediate_reports(true), &mut result_context)?;
-
-        instantiated
-            .with_reports(evaluation)
-            .with_deferred_reports(reports)
+        instantiated.with_deferred_reports(reports)
     } else {
-        let reports = instantiate_reports(&template.immediate_reports(false), &mut result_context)?;
-
         instantiated.with_reports(reports)
     };
+
+    // Escape classification expands dependency roots, not effects or execution.
+    let expanded =
+        crate::dependency::defaults::expand_result_defaults(request, selection, &template)
+            .map_err(DependencyContractInstantiationError::Resolution)?;
 
     Ok((
         super::references::with_references(
@@ -113,7 +101,7 @@ where
             &template,
         )
         .map_err(DependencyContractInstantiationError::Resolution)?,
-        template.escaping_evaluation_inputs,
+        expanded.escaping_evaluation_inputs,
     ))
 }
 
@@ -175,67 +163,10 @@ where
     })
 }
 
-pub(in crate::dependency) fn selected_iteration_contract<C>(
+pub(crate) fn selected_implicit_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    selection: &SelectedIterationSource,
-) -> Result<
-    BoundDependencyContract,
-    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
->
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    let source = expression_access(storage, selection.source()).unwrap_or_else(|| {
-        panic!("selected_iteration_contract requires iteration source storage access")
-    });
-
-    let cursor = identity_access(
-        storage,
-        StorageIdentity::IterationCursor(selection.expression()),
-    )
-    .unwrap_or_else(|| {
-        panic!("selected_iteration_contract requires checked expression type or node")
-    });
-
-    let element = identity_access(
-        storage,
-        StorageIdentity::IterationElement(selection.expression()),
-    )
-    .unwrap_or_else(|| {
-        panic!("selected_iteration_contract requires checked expression type or node")
-    });
-
-    let iterate = instantiate_hidden_call(
-        request,
-        storage,
-        selection.iterate(),
-        (DependencySubjectRoot::Receiver, source),
-        Some(cursor),
-    )?;
-
-    let next = instantiate_hidden_call(
-        request,
-        storage,
-        selection.next(),
-        (DependencySubjectRoot::Receiver, cursor),
-        Some(element),
-    )?;
-
-    Ok(BoundDependencyContract::new(
-        iterate
-            .invocation()
-            .requirements()
-            .iter()
-            .chain(next.invocation().requirements())
-            .cloned(),
-    ))
-}
-
-pub(crate) fn selected_scoped_contracts<C>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-    scoped: &bray_bound_tree::SelectedScopedUse,
+    selection: &bray_bound_tree::SemanticSelection,
     occurrence: bray_bound_tree::BoundExecutionSite,
     values: &crate::dependency::ValueInputs,
 ) -> Result<
@@ -245,50 +176,69 @@ pub(crate) fn selected_scoped_contracts<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
+    use bray_bound_tree::{BoundExecutionSite as Site, SemanticSelection};
+
     let input = storage
         .occurrence_plans(occurrence)
-        .next()
-        .expect("checked scoped invocation retains its sole input")
-        .access();
+        .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+        .expect("implicit invocation retains its sole input");
 
-    let (callable, root, result) = match occurrence {
-        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
-            let bray_bound_tree::BoundExpression::Structured(bound) = request
-                .view()
-                .expression(expression)
-                .expect("scoped invocation retains its expression")
+    let (callable, root, result, source_expression, source_site) = match (selection, occurrence) {
+        (SemanticSelection::Iteration(iteration), Site::Iterate(_)) => (
+            iteration.iterate(),
+            DependencySubjectRoot::Receiver,
+            Some(
+                storage
+                    .invocation_result(occurrence)
+                    .expect("iterate owns its cursor result"),
+            ),
+            Some(iteration.source()),
+            iteration.source().into(),
+        ),
+        (SemanticSelection::Iteration(iteration), Site::Next(expression)) => (
+            iteration.next(),
+            DependencySubjectRoot::Receiver,
+            Some(
+                storage
+                    .invocation_result(occurrence)
+                    .expect("next owns its nullable result"),
+            ),
+            None,
+            Site::Iterate(expression),
+        ),
+        (SemanticSelection::ScopedUse(scoped), Site::ScopedEnter(expression)) => {
+            let Some(bray_bound_tree::BoundExpression::Structured(bound)) =
+                request.view().expression(expression)
             else {
-                panic!("selected scoped invocation must be a with expression");
+                panic!("scoped entry retains its structured source");
             };
 
-            let bray_bound_tree::StorageBinding::Access(capability) = storage
-                .binding(bray_bound_tree::StorageBindingTarget::PatternSubject(
-                    bound.patterns()[0],
-                ))
-                .expect("scoped pattern retains its capability storage")
-            else {
-                panic!("scoped pattern must observe its capability storage");
+            let Some(bray_bound_tree::StorageBinding::Access(capability)) = storage.binding(
+                bray_bound_tree::StorageBindingTarget::PatternSubject(bound.patterns()[0]),
+            ) else {
+                panic!("scoped entry retains its capability binding");
             };
 
             (
                 scoped.enter().0,
                 DependencySubjectRoot::Receiver,
                 Some(capability),
+                Some(scoped.initializer()),
+                scoped.initializer().into(),
             )
         }
-        bray_bound_tree::BoundExecutionSite::ScopedExit(_) => (
+        (SemanticSelection::ScopedUse(scoped), Site::ScopedExit(expression)) => (
             scoped.exit().0,
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
             None,
+            None,
+            Site::ScopedEnter(expression),
         ),
-        bray_bound_tree::BoundExecutionSite::Node(_)
-        | bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
-            panic!("scoped contract requires its enter or exit occurrence");
-        }
+        _ => panic!("implicit contract has its selected protocol invocation: {occurrence:?}"),
     };
 
     let mut instantiated =
-        instantiate_hidden_call(request, storage, callable, (root, input), result)?;
+        instantiate_hidden_call(request, storage, callable, (root, input.access()), result)?;
 
     let template = request
         .callable_result_dependencies(callable.definition().callable_symbol())
@@ -298,50 +248,52 @@ where
         crate::dependency::returned::resolved_result_template(request, Some(callable), template)
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
+    let mut context = CallInstantiationContext::hidden(
+        request,
+        storage,
+        (root, input.access()),
+        result,
+        source_expression,
+    );
+
+    context.set_result_values(values);
+
+    let concrete =
+        DependencyContractTemplateData::new(concrete_requirements(template.requirements()));
+
     instantiated = instantiated
-        .with_normal_completion(template.normal_completion())
-        .with_normal_storage_preservation(template.preserves_storage_on_normal_return());
-
-    {
-        let mut context = CallInstantiationContext::hidden(
-            request,
-            storage,
-            (root, input),
-            result,
-            matches!(
-                occurrence,
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
-            )
-            .then_some(scoped.initializer()),
-        );
-
-        context.set_result_values(values);
-
-        let concrete = DependencyContractTemplateData::new(
-            template
-                .requirements()
-                .iter()
-                .filter(|requirement| {
-                    !matches!(
-                        requirement,
-                        DependencyRequirement::ResultCall { .. }
-                            | DependencyRequirement::FixedPoint { .. }
-                            | DependencyRequirement::Variable { .. }
-                    )
-                })
-                .cloned(),
-        );
-
-        instantiated = instantiated.with_result(BoundDependencyContract::try_instantiate(
+        .with_result(BoundDependencyContract::try_instantiate(
             &concrete,
             &mut context,
-        )?);
+        )?)
+        .with_reports(instantiate_reports(&template, &mut context)?);
 
-        instantiated = instantiated.with_reports(instantiate_reports(&template, &mut context)?);
-    }
+    let ty = storage
+        .access(input.access())
+        .expect("implicit input retains its checked access")
+        .reached_type();
 
-    super::references::with_scoped_references(request, scoped, occurrence, instantiated, &template)
-        .map_err(DependencyContractInstantiationError::Resolution)
+    let ty = match input.purpose() {
+        bray_bound_tree::StorageAccessPurpose::Borrow(kind) => request
+            .semantic_values()
+            .intern_type(TypeData::Borrow {
+                kind,
+                target: request.semantic_values().unborrowed_type(ty),
+            })
+            .expect("implicit receiver input retains its passed borrow type"),
+        _ => ty,
+    };
+
+    super::references::with_hidden_references(
+        request,
+        root,
+        ty,
+        source_site,
+        occurrence,
+        instantiated,
+        &template,
+    )
+    .map_err(DependencyContractInstantiationError::Resolution)
 }
 
 pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
@@ -355,7 +307,7 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
         requirements
             .map(|requirements| {
                 let concrete =
-                    DependencyContractTemplateData::new(concrete_report_requirements(requirements));
+                    DependencyContractTemplateData::new(concrete_requirements(requirements));
 
                 BoundDependencyContract::try_instantiate(&concrete, context)
             })
@@ -368,7 +320,7 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     ))
 }
 
-pub(super) fn concrete_report_requirements(
+pub(super) fn concrete_requirements(
     requirements: &[DependencyRequirement],
 ) -> Vec<DependencyRequirement> {
     requirements
@@ -378,7 +330,7 @@ pub(super) fn concrete_report_requirements(
             DependencyRequirement::Direct { .. } => vec![requirement.clone()],
             DependencyRequirement::Guarded(guarded) => vec![DependencyRequirement::guarded(
                 guarded.guard().clone(),
-                concrete_report_requirements(guarded.requirements()),
+                concrete_requirements(guarded.requirements()),
             )],
             DependencyRequirement::ResultCall { .. }
             | DependencyRequirement::FixedPoint { .. }
@@ -393,7 +345,7 @@ pub(crate) fn cleanup_report_contract<C: CheckerRequestContext + ?Sized>(
     access: bray_bound_tree::StorageAccessId,
     requirements: &[DependencyRequirement],
 ) -> Result<BoundDependencyContract, CheckerQueryError<C::UpstreamError>> {
-    let template = DependencyContractTemplateData::new(concrete_report_requirements(requirements));
+    let template = DependencyContractTemplateData::new(concrete_requirements(requirements));
 
     let mut context = CallInstantiationContext::hidden(
         request,
@@ -872,7 +824,7 @@ mod tests {
 
             let id = storage
                 .push_borrow_capability(PlannedBorrowCapability::new(
-                    BorrowCapabilityOrigin::Expression(argument),
+                    BorrowCapabilityOrigin::Operation((argument).into()),
                     kind,
                     equivalent_access,
                     None,
@@ -961,7 +913,9 @@ mod tests {
 
         let (_, cursor_access) = push_direct_storage(
             &mut storage,
-            StorageIdentity::IterationCursor(iteration),
+            StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Iterate(
+                iteration,
+            )),
             unit.key().source(),
         );
 
@@ -1082,6 +1036,7 @@ mod tests {
     ) -> SelectedCall {
         SelectedCall::new(
             BoundResolvedCall::new(BoundCallableTarget::Indirect(callable_type), [], result),
+            bray_symbols::CallableConstness::Runtime,
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),
             None,
@@ -1115,7 +1070,7 @@ mod tests {
             request,
             storage,
             expression,
-            call,
+            &bray_bound_tree::SemanticSelection::Call(call.clone()),
             &crate::dependency::ValueInputs::default(),
         )
         .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))

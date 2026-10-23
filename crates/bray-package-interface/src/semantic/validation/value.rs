@@ -87,6 +87,16 @@ impl InterfaceSemantics {
                 ));
             }
 
+            if let Some(term) = contract.observed_result {
+                validate_index(term.to_index(), self.constant_terms.len())?;
+
+                if !contract.normal_completion || !contract.normal_storage_preserved {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Constant,
+                    ));
+                }
+            }
+
             if let Some(input) = contract.returned_input {
                 validate_index(input.to_index(), self.constant_terms.len())?;
             }
@@ -102,7 +112,10 @@ impl InterfaceSemantics {
             }
 
             for relation in &*contract.borrows {
-                self.validate_dependency_subject(relation.entry(), symbol_count, dependency_count)?;
+                if let Some(entry) = relation.entry() {
+                    self.validate_dependency_subject(entry, symbol_count, dependency_count)?;
+                }
+
                 self.validate_dependency_subject(relation.exit(), symbol_count, dependency_count)?;
 
                 self.validate_dependency_projections(
@@ -124,6 +137,7 @@ impl InterfaceSemantics {
 
                 match effect {
                     DependencyStorageEffect::Atomic
+                    | DependencyStorageEffect::Ambient
                     | DependencyStorageEffect::Unknown
                     | DependencyStorageEffect::Escape => {}
                     DependencyStorageEffect::Cleanup(ty) => {

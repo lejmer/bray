@@ -21,7 +21,7 @@ impl Once<T>
         {
             let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.storage);
 
-            let authorize = trusted lambda(pos pointer: RawPointer<std.sync.once.State<T>>)
+            let authorize = trusted lambda(pos pointer: DataPointer<std.sync.once.State<T>>)
                 ensures(
                     trusted core.memory.valid_read<std.sync.once.State<T>>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<std.sync.once.State<T>>(pointer = pointer),

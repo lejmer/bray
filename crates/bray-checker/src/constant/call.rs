@@ -12,60 +12,171 @@ use crate::CheckerQueryResult;
 use super::{ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantReferenceResolution};
 
 /// One evaluated constant call and its transitive deterministic work usage.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct EvaluatedConstantCall {
     value: ConstantValueId,
     usage: ConstantEvaluationUsage,
+    states: Option<Arc<[(u32, ConstantValueId)]>>,
 }
 
 impl EvaluatedConstantCall {
     /// Creates a completed call result with its transitive work usage.
     pub const fn new(value: ConstantValueId, usage: ConstantEvaluationUsage) -> Self {
-        Self { value, usage }
+        Self {
+            value,
+            usage,
+            states: None,
+        }
+    }
+
+    /// Retains the final values of mutable formal referents without creating a source aggregate.
+    pub fn with_states(mut self, states: impl IntoIterator<Item = (u32, ConstantValueId)>) -> Self {
+        let states = states.into_iter().collect::<Vec<_>>();
+
+        self.states = (!states.is_empty()).then(|| states.into());
+
+        self
+    }
+
+    /// Returns committed mutable formal values in receiver-first ordinal order.
+    pub fn states(&self) -> &[(u32, ConstantValueId)] {
+        self.states.as_deref().unwrap_or(&[])
     }
 
     /// Returns the closed call result.
-    pub const fn value(self) -> ConstantValueId {
+    pub const fn value(&self) -> ConstantValueId {
         self.value
     }
 
     /// Returns work consumed by the complete nested evaluation.
-    pub const fn usage(self) -> ConstantEvaluationUsage {
+    pub const fn usage(&self) -> ConstantEvaluationUsage {
         self.usage
+    }
+}
+
+/// The checked implementation identity of a constant invocation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ConstantCallTarget {
+    /// A named callable with its exact generic application.
+    Declaration(CallableInstanceData),
+    /// A capture-free anonymous callable in its enclosing generic application.
+    Anonymous(
+        bray_bound_tree::BoundUnitKey,
+        Option<bray_symbols::GenericSubstitutionId>,
+    ),
+    /// A declaration-owned default provider in its selected generic application.
+    Default(
+        bray_bound_tree::DefaultValueProvider,
+        bray_symbols::GenericSubstitutionId,
+    ),
+    /// A predicate body evaluated internally while checking a constant invocation.
+    Predicate(bray_symbols::PredicateInstanceData),
+}
+
+/// The exact logical signature and caller requirements of a constant invocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstantCallContract {
+    inputs: Arc<[TypeId]>,
+    result: TypeId,
+    requirements: Arc<[bray_symbols::PredicateSemanticSummary]>,
+}
+
+impl ConstantCallContract {
+    /// Retains the selected signature after substitution and checked contract construction.
+    pub fn new(
+        inputs: impl IntoIterator<Item = TypeId>,
+        result: TypeId,
+        requirements: impl IntoIterator<Item = bray_symbols::PredicateSemanticSummary>,
+    ) -> Self {
+        Self {
+            inputs: shared_slice(inputs),
+            result,
+            requirements: shared_slice(requirements),
+        }
+    }
+
+    /// Returns receiver-first logical input types.
+    pub fn inputs(&self) -> &[TypeId] {
+        &self.inputs
+    }
+
+    /// Returns the selected result type.
+    pub const fn result(&self) -> TypeId {
+        self.result
+    }
+
+    /// Returns requirements in their declaration order, retaining their checking domain.
+    pub fn requirements(&self) -> &[bray_symbols::PredicateSemanticSummary] {
+        &self.requirements
     }
 }
 
 /// One selected constant call after its argument expressions have evaluated.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConstantCallRequest {
-    callable: CallableInstanceData,
+    target: ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     limits: ConstantEvaluationLimits,
+    observation: bool,
 }
 
 impl ConstantCallRequest {
     /// Creates a request for one exact selected callable and closed argument list.
     pub fn new(
-        callable: CallableInstanceData,
+        target: ConstantCallTarget,
         selected_implementation: Option<ImplementationInstanceId>,
         arguments: impl IntoIterator<Item = ConstantValueId>,
         result_type: TypeId,
         limits: ConstantEvaluationLimits,
     ) -> Self {
         Self {
-            callable,
+            target,
             selected_implementation,
             arguments: shared_slice(arguments),
             result_type,
             limits,
+            observation: false,
         }
+    }
+
+    /// Selects the checked internal observation domain instead of the source const surface.
+    pub fn with_observation(mut self, observation: bool) -> Self {
+        self.observation = observation;
+
+        self
+    }
+
+    /// Whether this request consumes an internally established observation proof.
+    pub const fn is_observation(&self) -> bool {
+        self.observation
     }
 
     /// Returns the exact substituted callable selected for evaluation.
     pub const fn callable(&self) -> CallableInstanceData {
-        self.callable
+        match &self.target {
+            ConstantCallTarget::Declaration(callable) => *callable,
+            _ => panic!("named constant-call query requires a declaration target"),
+        }
+    }
+
+    /// Returns the exact implementation identity selected for this invocation.
+    pub const fn target(&self) -> &ConstantCallTarget {
+        &self.target
+    }
+
+    /// Returns the selected generic application for every invocation kind.
+    pub const fn substitution(&self) -> bray_symbols::GenericSubstitutionId {
+        match &self.target {
+            ConstantCallTarget::Declaration(callable) => callable.substitution(),
+            ConstantCallTarget::Predicate(predicate) => predicate.substitution(),
+            ConstantCallTarget::Anonymous(_, Some(substitution))
+            | ConstantCallTarget::Default(_, substitution) => *substitution,
+            ConstantCallTarget::Anonymous(_, None) => panic!(
+                "anonymous invocation resolves its lexical generic context before template evaluation"
+            ),
+        }
     }
 
     /// Returns the selected implementation when the callable is a trait fulfillment.
@@ -111,6 +222,19 @@ pub trait ConstantCallResolver: Sync {
         callable: CallableInstanceData,
     ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
+    /// Reads the already selected logical signature without evaluating a body.
+    fn contract(
+        &self,
+        target: &ConstantCallTarget,
+    ) -> CheckerQueryResult<DiagnosticResult<Option<ConstantCallContract>>, Self::UpstreamError>;
+
+    /// Retrieves source context only after a particular requirement has failed.
+    fn requirement_origin(
+        &self,
+        target: &ConstantCallTarget,
+        index: usize,
+    ) -> CheckerQueryResult<Option<bray_source::SourceSpan>, Self::UpstreamError>;
+
     /// Evaluates one exact call without evaluating unrelated semantic queries.
     fn resolve(
         &self,
@@ -120,6 +244,16 @@ pub trait ConstantCallResolver: Sync {
 
 /// Resolves stable references used by an imported const-callable body template.
 pub trait ConstantTemplateResolver: ConstantCallResolver {
+    /// Returns the complete checked expression graph of one ordinary caller requirement.
+    fn requirement_template(
+        &self,
+        target: &ConstantCallTarget,
+        index: usize,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>,
+        Self::UpstreamError,
+    >;
+
     /// Resolves one stable declaration identity into the consuming compilation.
     fn symbol(&self, key: &SymbolKey) -> Option<AnySymbolId>;
 
@@ -139,4 +273,83 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         DiagnosticResult<bray_symbols::StaticReferenceSelection>,
         Self::UpstreamError,
     >;
+}
+
+/// Returns the actual callable/default targets at one checked invocation, excluding cleanup admission.
+/// Abstract trait members retain their declaration identity before witness selection.
+pub fn constant_invocation_targets(
+    selections: &bray_bound_tree::CheckedSemanticSelections,
+    invocation: bray_bound_tree::BoundExecutionSite,
+) -> Vec<crate::ExecutionDependencyTarget> {
+    use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
+
+    let Some(expression) = invocation.expression() else {
+        return Vec::new();
+    };
+
+    // Proof dependencies can also name boundaries with no invocation.
+    let Some(selection) = selections.expression(expression) else {
+        return Vec::new();
+    };
+
+    let mut calls = Vec::new();
+    let mut defaults = Vec::new();
+
+    match invocation {
+        BoundExecutionSite::Node(_) => match selection {
+            SemanticSelection::Call(call) => {
+                return vec![crate::ExecutionDependencyTarget::selected(call)];
+            }
+            SemanticSelection::Operation(operation) => {
+                let _resolved = crate::behavior::collect_operation_behavior(
+                    operation,
+                    None,
+                    &mut calls,
+                    &mut defaults,
+                );
+            }
+            SemanticSelection::Propagation(propagation) => {
+                if let Some(conversion) = propagation.error_conversion() {
+                    let _resolved =
+                        crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
+                }
+            }
+            SemanticSelection::Reference(_)
+            | SemanticSelection::CallableReference(_)
+            | SemanticSelection::StaticReference(_)
+            | SemanticSelection::Predicate(_)
+            | SemanticSelection::Iteration(_)
+            | SemanticSelection::ScopedUse(_) => {}
+        },
+        BoundExecutionSite::CallInput { ordinal, .. } => {
+            let input = selection
+                .input(ordinal)
+                .expect("constant input retains its selected formal");
+
+            if let Some(provider) = input.default_provider() {
+                defaults.push(provider);
+            }
+
+            if let Some(conversion) = input.conversion() {
+                let _resolved =
+                    crate::behavior::collect_conversion_behavior(conversion, None, &mut calls);
+            }
+        }
+        // Implicit cursor operations use their checked observation and finite-progress contracts.
+        BoundExecutionSite::Cleanup(_)
+        | BoundExecutionSite::Iterate(_)
+        | BoundExecutionSite::Next(_)
+        | BoundExecutionSite::ScopedEnter(_)
+        | BoundExecutionSite::ScopedExit(_) => {}
+    }
+
+    calls
+        .into_iter()
+        .map(|call| call.target().into())
+        .chain(
+            defaults
+                .into_iter()
+                .map(crate::ExecutionDependencyTarget::Default),
+        )
+        .collect()
 }

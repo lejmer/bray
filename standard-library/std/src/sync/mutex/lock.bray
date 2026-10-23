@@ -4,6 +4,7 @@ using core.atomic;
 using core.memory;
 using std.memory;
 using internal std.sync.mutex;
+using internal std.sync.tickets;
 
 struct Mutex<T>
 {
@@ -33,7 +34,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -62,7 +63,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -83,17 +84,17 @@ struct Mutex<T>
 
         while true
         {
-            let next = observed & 65535;
-            let serving = observed >> 16;
+            let next = observed & std.sync.tickets.MASK;
+            let serving = observed >> std.sync.tickets.SHIFT;
 
-            if ((next + 65536 - serving) & 65535) == 65535
+            if ((next + std.sync.tickets.CAPACITY - serving) & std.sync.tickets.MASK) == std.sync.tickets.MASK
             {
                 core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
                 observed = core.atomic.load<u32, 1>(&state.tickets);
                 continue;
             }
 
-            let desired = (observed & 4294901760) | ((next + 1) & 65535);
+            let desired = (observed & std.sync.tickets.SERVING_MASK) | ((next + 1) & std.sync.tickets.MASK);
 
             let (current, admitted) = core.atomic.compare_exchange<u32, 3, 1>(
                 &state.tickets,
@@ -112,7 +113,7 @@ struct Mutex<T>
 
         observed = core.atomic.load<u32, 1>(&state.tickets);
 
-        while (observed >> 16) != ticket
+        while (observed >> std.sync.tickets.SHIFT) != ticket
         {
             core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
             observed = core.atomic.load<u32, 1>(&state.tickets);
@@ -137,7 +138,7 @@ struct Mutex<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -154,8 +155,8 @@ struct Mutex<T>
 
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Self>(&self, pointer);
         let observed = core.atomic.load<u32, 1>(&state.tickets);
-        let serving = observed >> 16;
-        let next = observed & 65535;
+        let serving = observed >> std.sync.tickets.SHIFT;
+        let next = observed & std.sync.tickets.MASK;
 
         if next != serving
         {
@@ -165,7 +166,7 @@ struct Mutex<T>
         let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
             &state.tickets,
             expected = observed,
-            desired = (observed & 4294901760) | ((next + 1) & 65535),
+            desired = (observed & std.sync.tickets.SERVING_MASK) | ((next + 1) & std.sync.tickets.MASK),
         );
 
         if !acquired

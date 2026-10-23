@@ -18,6 +18,51 @@ use crate::compilation::{
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
+    pub(in crate::compilation) fn unit_requires_constant_evaluation(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, FactQueryError> {
+        match key.kind() {
+            bray_bound_tree::BoundUnitKind::CallableBody => {
+                let definition = self
+                    .symbol_graph()?
+                    .symbol_for_key(key.declared_owner())
+                    .and_then(bray_symbols::CallableDefinitionId::try_new)
+                    .expect("callable body retains its declaration identity");
+
+                self.declares_constant_callable(definition, cancellation)
+            }
+            bray_bound_tree::BoundUnitKind::AnonymousCallable => {
+                let syntax = self.execution_declaration_node(key.source().syntax())?;
+
+                let lambda = syntax
+                    .cast::<bray_syntax::LambdaExpressionSyntax>()
+                    .expect("anonymous callable retains its lambda syntax");
+
+                Ok(lambda.callable_modifiers().const_token().is_some())
+            }
+            bray_bound_tree::BoundUnitKind::RuntimeDefault => Ok(false),
+            _ => Ok(true),
+        }
+    }
+
+    pub(in crate::compilation) fn execution_unit_declaration(
+        &self,
+        key: &BoundUnitKey,
+    ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
+        match key.kind() {
+            bray_bound_tree::BoundUnitKind::CallableBody
+            | bray_bound_tree::BoundUnitKind::AnonymousCallable => {
+                self.execution_declaration(key.source().syntax())
+            }
+            _ => Ok(DiagnosticResult::new(
+                ExecutionDeclaration::default(),
+                DiagnosticBag::new(),
+            )),
+        }
+    }
+
     pub(in crate::compilation) fn execution_declaration(
         &self,
         anchor: SyntaxAnchor,
@@ -77,207 +122,298 @@ impl Compilation {
         )
     }
 
-    pub(super) fn execution_candidates_with_cancellation(
+    pub(in crate::compilation) fn execution_candidates_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitResult<bray_checker::ExecutionCandidates>>, FactQueryError> {
-        // Fact keys and their immutable publications retain shared unit identities independently.
+        let predicate = !key.is_static_initializer()
+            && (key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                || self.unit_requires_constant_evaluation(&key, cancellation)?);
+
         self.unit_query(
             &self.state.execution_candidates,
             CompilationFactKey::ExecutionCandidates(key.clone()),
             key.clone(),
             cancellation,
             |cancellation| {
-                // Each queried publication owns this Arc-backed unit identity.
-                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-
-                let expressions =
-                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
-
-                let prepared =
-                    self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
-
-                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
-                let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
-                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
-                let flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-                let context = self.checker_context_for(&key, cancellation)?;
-
-                let semantic_context =
-                    semantic_unit_context(context.symbols(), bound.result().value());
-
-                let trusted = self.trusted_contract_inputs(
-                    &key,
-                    bound.result().value(),
-                    expressions.result().value(),
-                    cancellation,
-                )?;
-
-                let unit = bray_checker::CheckerUnitView::new(
-                    bound.result().value(),
-                    &semantic_context,
-                    &context,
-                )
-                .with_trusted_contracts(trusted.value())
-                .with_unwind(body.result().value().unwind());
-
-                let mut diagnostics = DiagnosticBag::merged_all([
-                    bound.result().diagnostics(),
-                    expressions.result().diagnostics(),
-                    prepared.result().diagnostics(),
-                    storage.result().diagnostics(),
-                    body.result().diagnostics(),
-                    memory.result().diagnostics(),
-                    flow.result().diagnostics(),
-                    trusted.diagnostics(),
-                ]);
-
-                let declaration = self.execution_declaration(key.source().syntax())?;
-
-                let requirements = self.execution_condition_inputs(
-                    &key,
-                    declaration.value().requirements(),
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(requirements.diagnostics().iter().cloned());
-
-                let requirements = requirements
-                    .into_parts()
-                    .0
-                    .into_iter()
-                    .map(|(condition, _)| condition)
-                    .collect::<Vec<_>>();
-
-                let contracts = self.execution_call_contracts(
-                    bound.result().value(),
-                    expressions.result().value(),
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(contracts.diagnostics().iter().cloned());
-
-                let check = |property,
-                             assumptions: &[bray_checker::ExecutionCondition],
-                             postconditions: &[(
-                    bray_checker::ExecutionCondition,
-                    bray_source::SourceSpan,
-                )]| {
-                    checker_result(check_execution_candidate(
-                        unit,
-                        prepared.result().value(),
-                        property,
-                        assumptions,
-                        postconditions,
-                        contracts.value(),
-                        expressions.result().value(),
-                        storage.result().value(),
-                        body.result().value(),
-                        memory.result().value(),
-                    ))
-                };
-
-                let mut candidates = bray_checker::ExecutionCandidates::new();
-
-                for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
-                    let candidate = check(Some(property), &requirements, &[])?;
-
-                    diagnostics.add_range(candidate.diagnostics().iter().cloned());
-
-                    candidates.insert(
-                        bray_checker::ExecutionObligation::Property(property, None),
-                        candidate.into_parts().0,
-                    );
-                }
-
-                for domain in declaration.value().domains() {
-                    let guards =
-                        self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
-
-                    let posts = self.predicate_condition_inputs(
-                        &key,
-                        &domain.postconditions,
-                        cancellation,
-                    )?;
-
-                    diagnostics.add_range(guards.diagnostics().iter().cloned());
-                    diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-                    let trusted_producer = self.trusted_predicate_producer(&key)?;
-
-                    // Trusted predicate guarantees are declared sources of authority. Execution
-                    // properties and ordinary postconditions still require their independent proofs.
-                    let posts = posts
-                        .into_parts()
-                        .0
-                        .into_iter()
-                        .map(|(condition, trusted, span)| {
-                            (
-                                if trusted && trusted_producer {
-                                    bray_checker::ExecutionCondition::Boolean(true)
-                                } else {
-                                    condition
-                                },
-                                span,
-                            )
-                        })
-                        .collect::<Vec<_>>();
-
-                    // Each domain owns its entry assumptions while sharing immutable condition operands.
-                    let mut assumptions = requirements.clone();
-
-                    assumptions.extend(
-                        guards
-                            .into_parts()
-                            .0
-                            .into_iter()
-                            .map(|(condition, _)| condition),
-                    );
-
-                    if !domain.guards.is_empty() {
-                        for property in &domain.properties {
-                            let candidate = check(Some(property.property), &assumptions, &[])?;
-
-                            diagnostics.add_range(candidate.diagnostics().iter().cloned());
-
-                            candidates.insert(
-                                bray_checker::ExecutionObligation::Property(
-                                    property.property,
-                                    Some(property.source.into()),
-                                ),
-                                candidate.into_parts().0,
-                            );
-                        }
-                    }
-
-                    for source in posts
-                        .iter()
-                        .map(|(_, source)| *source)
-                        .collect::<std::collections::BTreeSet<_>>()
-                    {
-                        // Each clause proof owns shared immutable condition terms from this normalized domain.
-                        let conditions = posts
-                            .iter()
-                            .filter(|(_, span)| *span == source)
-                            .cloned()
-                            .collect::<Vec<_>>();
-
-                        let candidate = check(None, &assumptions, &conditions)?;
-
-                        diagnostics.add_range(candidate.diagnostics().iter().cloned());
-
-                        candidates.insert(
-                            bray_checker::ExecutionObligation::Postcondition(source.into()),
-                            candidate.into_parts().0,
-                        );
-                    }
-                }
-
-                Ok((DiagnosticResult::new(candidates, diagnostics), Box::new([])))
+                Ok((
+                    self.collect_execution_candidates(&key, predicate, cancellation)?,
+                    Box::new([]),
+                ))
             },
         )
     }
+
+    fn collect_execution_candidates(
+        &self,
+        key: &BoundUnitKey,
+        predicate: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<bray_checker::ExecutionCandidates>, FactQueryError> {
+        // Each queried publication owns this Arc-backed unit identity.
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+        let expressions = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+        let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+        let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+        let flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+        let context = self.checker_context_for(&key, cancellation)?;
+
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
+
+        let trusted = self.trusted_contract_inputs(
+            &key,
+            bound.result().value(),
+            expressions.result().value(),
+            cancellation,
+        )?;
+
+        let behavior = self.selected_body_behavior_with_cancellation(key.clone(), cancellation)?;
+
+        let defaults = self.execution_default_inputs(behavior.result().value(), cancellation)?;
+
+        let recursive = Default::default();
+
+        let unit =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                .with_trusted_contracts(trusted.value())
+                .with_result_dependencies(&defaults, &recursive)
+                .with_unwind(body.result().value().unwind());
+
+        let mut diagnostics = DiagnosticBag::merged_all([
+            bound.result().diagnostics(),
+            expressions.result().diagnostics(),
+            prepared.result().diagnostics(),
+            storage.result().diagnostics(),
+            body.result().diagnostics(),
+            memory.result().diagnostics(),
+            flow.result().diagnostics(),
+            trusted.diagnostics(),
+        ]);
+
+        let declaration = self.execution_unit_declaration(&key)?;
+
+        let requirements = self.execution_condition_inputs(
+            &key,
+            declaration.value().requirements(),
+            cancellation,
+        )?;
+
+        diagnostics.add_range(requirements.diagnostics().iter().cloned());
+
+        let mut requirements = requirements
+            .into_parts()
+            .0
+            .into_iter()
+            .map(|(condition, _)| condition)
+            .collect::<Vec<_>>();
+
+        if key.kind() == bray_bound_tree::BoundUnitKind::ContractClause {
+            let entry = self.clause_entry_conditions(&key, cancellation)?;
+
+            diagnostics.add_range(entry.diagnostics().iter().cloned());
+            requirements.extend(entry.into_parts().0);
+        }
+
+        let contracts = self.execution_call_contracts(
+            bound.result().value(),
+            expressions.result().value(),
+            cancellation,
+        )?;
+
+        diagnostics.add_range(contracts.diagnostics().iter().cloned());
+
+        let check =
+            |property,
+             assumptions: &[bray_checker::ExecutionCondition],
+             postconditions: &[(bray_checker::ExecutionCondition, bray_source::SourceSpan)],
+             diagnostics: &mut DiagnosticBag| {
+                let candidate = checker_result(check_execution_candidate(
+                    unit,
+                    prepared.result().value(),
+                    property,
+                    predicate,
+                    assumptions,
+                    postconditions,
+                    contracts.value(),
+                    expressions.result().value(),
+                    storage.result().value(),
+                    body.result().value(),
+                    memory.result().value(),
+                ))?;
+
+                diagnostics.add_range(candidate.diagnostics().iter().cloned());
+
+                Ok::<_, FactQueryError>(Arc::new(candidate.into_parts().0))
+            };
+
+        let mut candidates = bray_checker::ExecutionCandidates::new();
+
+        for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
+            let candidate = check(
+                Some(bray_checker::ExecutionObligation::Property(property, None)),
+                &requirements,
+                &[],
+                &mut diagnostics,
+            )?;
+
+            candidates.insert(
+                bray_checker::ExecutionObligation::Property(property, None),
+                candidate,
+            );
+        }
+
+        {
+            let total = &candidates
+                [&bray_checker::ExecutionObligation::Property(ExecutionProperty::Total, None)];
+
+            let candidate = if total_covers_termination(
+                predicate,
+                total,
+                trusted.value(),
+                expressions.result().value().types(),
+                storage.result().value(),
+                self.semantic_value_store()?,
+            ) {
+                Arc::clone(total)
+            } else {
+                check(
+                    Some(bray_checker::ExecutionObligation::Termination),
+                    &requirements,
+                    &[],
+                    &mut diagnostics,
+                )?
+            };
+
+            candidates.insert(bray_checker::ExecutionObligation::Termination, candidate);
+        }
+
+        for domain in declaration.value().domains() {
+            let guards = self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
+
+            let posts =
+                self.predicate_condition_inputs(&key, &domain.postconditions, cancellation)?;
+
+            diagnostics.add_range(guards.diagnostics().iter().cloned());
+            diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+            let trusted_producer = self.trusted_predicate_producer(&key)?;
+
+            // Trusted predicate guarantees are declared sources of authority. Execution
+            // properties and ordinary postconditions still require their independent proofs.
+            let posts = posts
+                .into_parts()
+                .0
+                .into_iter()
+                .map(|(condition, domain, span)| {
+                    (
+                        if domain == bray_symbols::PredicateDomain::Trusted && trusted_producer {
+                            bray_checker::ExecutionCondition::Boolean(true)
+                        } else {
+                            condition
+                        },
+                        span,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            // Each domain owns its entry assumptions while sharing immutable condition operands.
+            let mut assumptions = requirements.clone();
+
+            assumptions.extend(
+                guards
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition),
+            );
+
+            if !domain.guards.is_empty() {
+                for property in &domain.properties {
+                    let candidate = check(
+                        Some(bray_checker::ExecutionObligation::Property(
+                            property.property,
+                            None,
+                        )),
+                        &assumptions,
+                        &[],
+                        &mut diagnostics,
+                    )?;
+
+                    candidates.insert(
+                        bray_checker::ExecutionObligation::Property(
+                            property.property,
+                            Some(property.source.into()),
+                        ),
+                        candidate,
+                    );
+                }
+            }
+
+            for source in posts
+                .iter()
+                .map(|(_, source)| *source)
+                .collect::<std::collections::BTreeSet<_>>()
+            {
+                // Each clause proof owns shared immutable condition terms from this normalized domain.
+                let conditions = posts
+                    .iter()
+                    .filter(|(_, span)| *span == source)
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                let candidate = check(None, &assumptions, &conditions, &mut diagnostics)?;
+
+                candidates.insert(
+                    bray_checker::ExecutionObligation::Postcondition(source.into()),
+                    candidate,
+                );
+            }
+        }
+
+        Ok(DiagnosticResult::new(candidates, diagnostics))
+    }
+}
+
+fn total_covers_termination(
+    predicate: bool,
+    total: &bray_checker::ExecutionCandidate,
+    trusted: &bray_checker::TrustedContractInputs,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    storage: &bray_bound_tree::StoragePlan,
+    values: &bray_symbols::SemanticValueStore,
+) -> bool {
+    let optional_step = types.callable_result_type().is_some_and(|ty| {
+        matches!(
+            values.type_data(ty).as_ref(),
+            bray_symbols::TypeData::Nullable(_)
+        )
+    }) && storage.identity_entries().any(|(root, identity)| {
+        matches!(identity, bray_bound_tree::StorageIdentity::Receiver(_))
+            && storage.storage_type(root).is_some_and(|ty| {
+                matches!(
+                    values.type_data(ty).as_ref(),
+                    bray_symbols::TypeData::Borrow {
+                        kind: bray_symbols::BorrowKind::Mutable,
+                        ..
+                    }
+                )
+            })
+    });
+
+    // Runtime checks make admission and normal-completion evidence distinct.
+    let same_entry = !trusted
+        .calls
+        .values()
+        .any(|contract| contract.checks_preconditions);
+
+    same_entry
+        && (predicate || total.failure().is_none() && (!optional_step || total.finite_iteration()))
 }
 
 #[cfg(test)]
@@ -301,7 +437,7 @@ mod tests {
             if required != "bool" {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
 
                 continue;
@@ -325,7 +461,8 @@ mod tests {
                     .dependencies
                     .iter()
                     .any(|(_, _, target, obligation)| {
-                        let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target
+                        let Some(bray_bound_tree::BoundCallableTarget::Declaration(instance)) =
+                            target.callable()
                         else {
                             return false;
                         };
@@ -384,7 +521,7 @@ mod tests {
             r#"
                 module app;
 
-                func change(pos mut value: bool)
+                func change(pos value: &mut bool)
                     executes(pure)
                 {
                     value = false;
@@ -393,7 +530,7 @@ mod tests {
             r#"
                 trusted module app;
 
-                trusted func change(pos mut value: bool)
+                trusted func change(pos value: &mut bool)
                     executes(pure)
                 {
                     value = false;
@@ -1179,7 +1316,6 @@ mod tests {
                 trait Value
                 {
                     func get() -> bool
-                        executes(total)
                     {
                         return true;
                     }

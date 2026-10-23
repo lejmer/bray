@@ -1,0 +1,172 @@
+module std.memory;
+
+using core.memory;
+
+struct MemoryLayout
+{
+    bytes: usize;
+    align: usize;
+}
+
+union MemoryLayoutError
+{
+    SizeOverflow;
+    UnsupportedAlignment;
+}
+
+extern const func size_of<T>() -> usize;
+
+extern const func align_of<T>() -> usize;
+
+extern const func stride_of<T>() -> usize;
+
+extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
+
+extern const func trailing_layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
+
+@copy
+internal union CapacityGrowth
+{
+    Amortized;
+    Exact;
+}
+
+internal func growth_capacity(
+    pos current_length: usize,
+    pos current_capacity: usize,
+    additional: usize,
+    growth: CapacityGrowth,
+) -> Result<usize, MemoryLayoutError>
+{
+    let maximum: usize = ~0;
+
+    if additional > maximum - current_length
+    {
+        return Error(MemoryLayoutError.SizeOverflow);
+    }
+
+    let required: usize = current_length + additional;
+
+    match growth
+    {
+        case CapacityGrowth.Exact { return Ok(required); }
+        case CapacityGrowth.Amortized {}
+    }
+
+    let mut candidate: usize = current_capacity;
+
+    if candidate < 4
+    {
+        candidate = 4;
+    }
+
+    while candidate < required
+    {
+        if candidate > maximum - candidate
+        {
+            return Ok(required);
+        }
+
+        candidate += candidate;
+    }
+
+    return Ok(candidate);
+}
+
+struct RawAllocation
+{
+    pointer: DataPointer<u8>;
+    bytes: usize;
+    align: usize;
+
+    trusted destruct()
+        uses(manual_alloc)
+    {
+        trusted deallocate(self);
+    }
+}
+
+extern trusted func allocate(pos layout: MemoryLayout) -> RawAllocation
+    ensures(
+        result.bytes == layout.bytes,
+        result.align == layout.align,
+        trusted core.memory.owned_allocation(pointer = result.pointer, bytes = result.bytes, align = result.align),
+        trusted core.memory.valid_write<u8>(pointer = result.pointer, count = result.bytes),
+    )
+    uses(manual_alloc);
+
+extern trusted func deallocate(pos allocation: RawAllocation) -> unit
+    uses(manual_alloc);
+
+trusted internal func allocate_value<T>(pos value: T) -> DataPointer<T>
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = byte_address<T>(result),
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+        trusted core.memory.valid_read<T>(pointer = result, count = 1),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+        trusted core.memory.initialized_as<T>(pointer = result),
+    )
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let bytes: usize = internal value_allocation_bytes<T>();
+    let align: usize = align_of<T>();
+    let allocation: DataPointer<u8> = trusted core.memory.allocate(bytes = bytes, align = align);
+    let storage_pointer: DataPointer<T> = trusted internal value_allocation_pointer<T>(allocation);
+
+    trusted write<T>(storage_pointer, value);
+
+    return storage_pointer;
+}
+
+trusted internal func value_allocation_pointer<T>(pos allocation: DataPointer<u8>) -> DataPointer<T>
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = allocation,
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+    )
+    ensures(
+        trusted core.memory.owned_allocation(
+            pointer = allocation,
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted reinterpret<T, u8>(allocation);
+}
+
+trusted internal func deallocate_value<T>(pos pointer: DataPointer<T>)
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = byte_address<T>(pointer),
+            bytes = internal value_allocation_bytes<T>(),
+            align = align_of<T>(),
+        ),
+    )
+    uses(layout_reinterpret, manual_alloc)
+{
+    let allocation: DataPointer<u8> = trusted reinterpret<u8, T>(pointer);
+
+    trusted core.memory.deallocate(allocation, bytes = internal value_allocation_bytes<T>(), align = align_of<T>());
+}
+
+internal const func value_allocation_bytes<T>() -> usize
+{
+    let size: usize = size_of<T>();
+
+    if size == 0
+    {
+        return 1;
+    }
+
+    return size;
+}

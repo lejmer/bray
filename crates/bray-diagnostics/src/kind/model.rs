@@ -379,6 +379,10 @@ define_diagnostic_kinds! {
     CheckingMissingTrustedMemoryGuarantees,
     /// A selected call has no live evidence for its trusted caller obligation.
     CheckingTrustedObligationNotProven,
+    /// A compound execution-context requirement does not follow from caller evidence.
+    CheckingExecutionRequirementNotProven,
+    /// Constant arguments do not establish a selected callable requirement.
+    CheckingConstantCallRequirementNotProven,
     /// A copy or partial move lacks a contract preserving live trusted guarantees.
     CheckingTrustedWitnessTransferNotProven,
     /// A compiler-provided memory operation uses invalidated allocation storage.
@@ -868,6 +872,8 @@ impl DiagnosticKind {
             Self::CheckingInvalidAtomicMemoryOrder => 7097,
             Self::CheckingMissingTrustedMemoryGuarantees => 7084,
             Self::CheckingTrustedObligationNotProven => 7123,
+            Self::CheckingExecutionRequirementNotProven => 7129,
+            Self::CheckingConstantCallRequirementNotProven => 7130,
             Self::CheckingTrustedWitnessTransferNotProven => 7124,
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
@@ -1275,6 +1281,12 @@ impl DiagnosticKind {
                 "checking_missing_trusted_memory_guarantees"
             }
             Self::CheckingTrustedObligationNotProven => "checking_trusted_obligation_not_proven",
+            Self::CheckingExecutionRequirementNotProven => {
+                "checking_execution_requirement_not_proven"
+            }
+            Self::CheckingConstantCallRequirementNotProven => {
+                "checking_constant_call_requirement_not_proven"
+            }
             Self::CheckingTrustedWitnessTransferNotProven => {
                 "checking_trusted_witness_transfer_not_proven"
             }

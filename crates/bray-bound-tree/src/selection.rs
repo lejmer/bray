@@ -1,4 +1,5 @@
 mod call;
+mod input;
 mod iteration;
 mod operation;
 mod predicate;
@@ -8,6 +9,7 @@ mod table;
 mod template;
 
 pub use call::{SelectedArgument, SelectedCall, SelectedImplementationWitness, SelectedReceiver};
+pub use input::SelectedInput;
 pub use iteration::{
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };

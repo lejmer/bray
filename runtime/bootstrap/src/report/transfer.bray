@@ -6,7 +6,7 @@ using std.memory;
 using internal bray.runtime.bootstrap.pool;
 using internal bray.runtime.bootstrap.storage;
 
-trusted internal func take_report(pos pointer: RawPointer<PanicReportData>) -> PanicReportData
+trusted internal func take_report(pos pointer: DataPointer<PanicReportData>) -> PanicReportData
     requires(
         trusted native_report_slot_callbacks(pointer = pointer),
         trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
@@ -32,8 +32,8 @@ trusted internal func take_report(pos pointer: RawPointer<PanicReportData>) -> P
 
 // Moving the primary header leaves the disjoint incident slot untouched.
 trusted internal func take_primary_report(
-    pos primary: RawPointer<PanicReportData>,
-    pos incident: RawPointer<PanicReportData>
+    pos primary: DataPointer<PanicReportData>,
+    pos incident: DataPointer<PanicReportData>
 ) -> PanicReportData
     requires(
         trusted native_report_slot_callbacks(pointer = primary),
@@ -71,8 +71,8 @@ trusted internal func take_primary_report(
 
 @abi(c)
 trusted internal func panic_report_suppression(
-    pos primary: RawPointer<PanicReportData>,
-    pos incident: RawPointer<PanicReportData>
+    pos primary: DataPointer<PanicReportData>,
+    pos incident: DataPointer<PanicReportData>
 ) -> PanicReportData
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

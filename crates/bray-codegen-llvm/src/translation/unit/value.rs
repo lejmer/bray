@@ -266,7 +266,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = representation;
 
         match kind {
-            ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
+            ConstantValueKind::Error
+            | ConstantValueKind::Borrowed(_)
+            | ConstantValueKind::StaticAddress(_) => {
                 panic!("checked MIR value translation violated an established compiler contract")
             }
             ConstantValueKind::Boolean(value) => {

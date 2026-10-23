@@ -349,6 +349,7 @@ fn representation_alignment(
 
     match role {
         RepresentationRole::RawPointer
+        | RepresentationRole::FunctionPointer
         | RepresentationRole::DevicePointer
         | RepresentationRole::String
         | RepresentationRole::Result

@@ -8,6 +8,10 @@ The exact recognized identities are listed by the [conformance catalog](conforma
 
 The recognized numeric-policy operations are `std.numeric.round_to`, `std.numeric.truncate_to`, `std.numeric.saturate_to`, and `std.numeric.wrap_to`.
 
+`std.numeric.truncate_to` exposes `const`. Predicate and constant evaluation certify the selected source and target
+representations. Integer truncation uses the defined integer policy. A floating conversion does not gain totality from
+the modifier and is rejected in these contexts unless its conversion domain can be established.
+
 `std.numeric.round_to` accepts the recognized `std.numeric.RoundingRule` union.
 
 The public string API consists of `string.length()`, `string.is_empty()`, `string.get(index)`,

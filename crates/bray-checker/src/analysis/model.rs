@@ -57,6 +57,7 @@ impl AnalysisOperationKind {
         match self {
             Self::Call { invocation, .. } => invocation,
             Self::Suspension { occurrence, .. } => occurrence,
+            Self::ScopeExit { exit, .. } => bray_bound_tree::BoundExecutionSite::Cleanup(exit),
             _ => bray_bound_tree::BoundExecutionSite::Node(self.node()),
         }
     }
@@ -83,6 +84,7 @@ pub(crate) enum AnalysisResultPhase {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisCallPhase {
+    Input,
     Attempt,
     Completion,
 }
@@ -170,14 +172,8 @@ impl AnalysisOperation {
     }
 
     pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
-        self.cleanup_suspension.then(|| {
-            let node = match self.kind {
-                AnalysisOperationKind::ScopeExit { exit, .. } => exit,
-                _ => self.kind.node(),
-            };
-
-            bray_bound_tree::BoundExecutionSite::Cleanup(node)
-        })
+        self.cleanup_suspension
+            .then(|| bray_bound_tree::BoundExecutionSite::Cleanup(self.kind.occurrence().node()))
     }
 
     pub(crate) fn suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
@@ -254,7 +250,10 @@ pub(crate) enum AnalysisRefinement {
     TrustBoundary(BoundExpressionId),
     PreconditionFailure(bray_bound_tree::BoundExecutionSite),
     InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    InvocationCancellation(bray_bound_tree::BoundExecutionSite),
     InvocationCompletion(bray_bound_tree::BoundExecutionSite),
+    InvocationPresence(bray_bound_tree::BoundExecutionSite, bool),
+    InvocationBoolean(bray_bound_tree::BoundExecutionSite, bool),
     CleanupRequired {
         scope: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
@@ -308,6 +307,7 @@ impl AnalysisEdge {
             self.refinement,
             Some(
                 AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::InvocationCancellation(_)
                     | AnalysisRefinement::PreconditionFailure(_)
                     | AnalysisRefinement::CleanupRequired { .. }
             )
@@ -671,8 +671,11 @@ impl ControlFlowGraph {
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
             Some(
                 AnalysisRefinement::InvocationFailure(invocation)
+                | AnalysisRefinement::InvocationCancellation(invocation)
                 | AnalysisRefinement::PreconditionFailure(invocation)
-                | AnalysisRefinement::InvocationCompletion(invocation),
+                | AnalysisRefinement::InvocationCompletion(invocation)
+                | AnalysisRefinement::InvocationPresence(invocation, _)
+                | AnalysisRefinement::InvocationBoolean(invocation, _),
             ) => invocation.node().unit() == self.unit,
             Some(AnalysisRefinement::CleanupRequired { scope, exit }) => {
                 scope.unit() == self.unit && exit.unit() == self.unit

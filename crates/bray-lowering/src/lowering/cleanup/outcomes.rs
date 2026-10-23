@@ -133,18 +133,18 @@ impl Lowerer<'_> {
     ) -> Result<MirCleanupEdge, LoweringError> {
         let plans = self.cleanup_plans(0, exit);
 
-        let broadcast = self.builder.push_block(
+        let entry = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::CleanupBroadcast,
         )?;
 
         let outcome = self
-            .create_cleanup_outcome(broadcast, source)?
+            .create_cleanup_outcome(entry, source)?
             .with_retention(Some(Arc::new(retention)));
 
         let broadcast = self.seed_pending_failure(
             &outcome,
-            broadcast,
+            entry,
             source,
             CleanupFailure::Cancellation(None),
             CleanupDestination::PropagateCancellation,
@@ -182,7 +182,7 @@ impl Lowerer<'_> {
 
         Ok(MirCleanupEdge::new(
             MirCleanupPhase::TaskCancellation,
-            MirEdge::new(broadcast, []),
+            MirEdge::new(entry, []),
         ))
     }
 
@@ -471,6 +471,7 @@ impl Lowerer<'_> {
             });
         }
 
+        let pending_inputs = temporaries;
         let mut temporaries = temporaries.iter().rev().peekable();
 
         for plan in plans {
@@ -507,6 +508,10 @@ impl Lowerer<'_> {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
+                if self.input_cleanup_owns(*access, phase, pending_inputs) {
+                    continue;
+                }
+
                 steps.push(AbnormalCleanupStep {
                     occurrence: Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit())),
                     operation: AbnormalCleanupOperation::Access {

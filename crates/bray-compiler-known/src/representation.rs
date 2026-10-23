@@ -57,8 +57,10 @@ define_catalog_enum! {
         String => "String",
         /// A bounded half-open integer range.
         Range => "Range",
-        /// A compiler-controlled raw pointer.
-        RawPointer => "RawPointer",
+        /// A compiler-controlled pointer to data storage.
+        RawPointer => "DataPointer",
+        /// A compiler-controlled raw function entry address.
+        FunctionPointer => "FunctionPointer",
         /// A compiler-controlled pointer in the selected target's device address space.
         DevicePointer => "DevicePointer",
         /// Protected compiler-controlled atomic storage.

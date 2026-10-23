@@ -84,7 +84,12 @@ impl Lowerer<'_> {
         };
 
         bray_ir::MirOutgoingOwner::Invocation {
-            callable: bray_ir::MirCallableReference::new(scoped.exit().0, ty.abi()),
+            selection: bray_ir::MirCallableSelection::new(
+                bray_ir::MirCallableReference::new(scoped.exit().0, ty.abi()),
+                None,
+                None,
+                [],
+            ),
             result: scoped.exit_result(),
         }
     }

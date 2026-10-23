@@ -437,7 +437,7 @@
             {
               "name": "pointer",
               "native": "sival_ptr",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *",
               "offset": 0
             }
@@ -481,7 +481,7 @@
             },
             {
               "name": "time",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "struct timespec *"
             }
           ],
@@ -495,11 +495,11 @@
           "parameters": [
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "trusted": true,
           "requires": [
@@ -514,7 +514,7 @@
           "parameters": [
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -535,7 +535,7 @@
             },
             {
               "name": "time",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "struct timespec *"
             }
           ],
@@ -578,7 +578,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -596,7 +596,7 @@
           "native": "dlerror",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "char *",
           "link": "dl",
           "error_state": "returns and clears the calling native thread's dynamic loader state",
@@ -614,7 +614,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -623,7 +623,7 @@
               "native_type": "int"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "dl",
           "error_state": "returns null and records dynamic loader state on failure",
@@ -642,16 +642,16 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
               "name": "name",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "dl",
           "error_state": "returns null and records dynamic loader state when lookup fails",
@@ -667,7 +667,7 @@
           "native": "__errno_location",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<i32>",
+          "result": "DataPointer<i32>",
           "native_result": "int *",
           "link": "c",
           "symbol": {
@@ -694,7 +694,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -723,7 +723,7 @@
               "native_type": "off_t"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "void *",
           "link": "c",
           "error_state": "returns MAP_FAILED and sets ERRNO",
@@ -741,7 +741,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -768,7 +768,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -796,12 +796,12 @@
           "parameters": [
             {
               "name": "thread",
-              "type": "RawPointer<u64>",
+              "type": "DataPointer<u64>",
               "native_type": "pthread_t *"
             },
             {
               "name": "attributes",
-              "type": "RawPointer<PThreadAttribute>",
+              "type": "DataPointer<PThreadAttribute>",
               "native_type": "const pthread_attr_t *"
             },
             {
@@ -811,7 +811,7 @@
             },
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -846,7 +846,7 @@
             },
             {
               "name": "name",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -887,7 +887,7 @@
         {
           "name": "ENVIRON",
           "native": "environ",
-          "type": "RawPointer<RawPointer<u8>>",
+          "type": "DataPointer<DataPointer<u8>>",
           "native_type": "char **",
           "link": "c",
           "mutable": true,
@@ -920,7 +920,7 @@
           "library": "libc.so.6",
           "symbol": "environ",
           "target": "data",
-          "type": "RawPointer<RawPointer<u8>>",
+          "type": "DataPointer<DataPointer<u8>>",
           "ownership": "the returned owner retains the loaded C runtime",
           "dependencies": [
             "blocking_execution",

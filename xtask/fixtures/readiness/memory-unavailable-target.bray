@@ -5,7 +5,7 @@ using core.memory;
 trusted func main()
     uses(manual_alloc, raw_memory)
 {
-    let pointer: RawPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 1);
+    let pointer: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 1);
 
     trusted core.memory.deallocate(pointer = pointer, bytes = 8, align = 1);
 }

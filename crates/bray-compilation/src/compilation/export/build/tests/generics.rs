@@ -682,13 +682,13 @@ fn named_callable_contract_applications_export_in_public_signatures() {
         trusted module app;
 
         callable ThreadStart = @abi(c)
-        func(pos context: RawPointer<u8>) -> RawPointer<u8>;
+        func(pos context: DataPointer<u8>) -> DataPointer<u8>;
 
         callable Transform<T> = @abi(c)
         func(pos value: T) -> T;
 
         callable FixedTransform<const N: usize> = @abi(c)
-        func(pos value: RawPointer<[u8; N]>) -> RawPointer<[u8; N]>;
+        func(pos value: DataPointer<[u8; N]>) -> DataPointer<[u8; N]>;
 
         trusted func register(pos start: ThreadStart, pos transform: Transform<i32>, pos fixed: FixedTransform<4>) -> i32
         {

@@ -49,6 +49,26 @@ impl StoragePath {
         storage.access_at(self.root, &self.projections)
     }
 
+    /// Whether the path stays within its inline value without reaching another owner or protected storage.
+    pub fn is_inline(&self) -> bool {
+        Self::inline_projections(&self.projections)
+    }
+
+    pub(super) fn inline_projections(projections: &[StorageProjection]) -> bool {
+        projections.iter().all(|projection| {
+            matches!(
+                projection,
+                StorageProjection::ProductField(_)
+                    | StorageProjection::TupleElement(_)
+                    | StorageProjection::Element(_)
+                    | StorageProjection::ElementFromStart(_)
+                    | StorageProjection::ElementFromEnd(_)
+                    | StorageProjection::ActiveUnionPayloadField { .. }
+                    | StorageProjection::NullableValue
+            )
+        })
+    }
+
     /// Whether each selector identifies one component independently of evaluation.
     pub fn is_exact(&self) -> bool {
         self.projections

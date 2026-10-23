@@ -62,7 +62,9 @@ impl ExecutionPlace {
         matches!(
             self.reference(),
             Some(BoundReferenceTarget::Surface(
-                AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_)
+                AnySymbolId::CallableParameter(_)
+                    | AnySymbolId::PredicateParameter(_)
+                    | AnySymbolId::ReceiverParameter(_)
             )) | Some(BoundReferenceTarget::Local(
                 bray_symbols::AnyLocalSymbolId::AnonymousCallableParameter(_)
             ))
@@ -73,11 +75,13 @@ impl ExecutionPlace {
         storage: &bray_bound_tree::StoragePlan,
         target: bray_bound_tree::StorageBindingTarget,
     ) -> Option<Self> {
-        if let Some(reference) = storage_binding_reference(target) {
+        if let Some(reference) = target.reference_target() {
             return Some(reference.into());
         }
 
-        let bray_bound_tree::StorageBindingTarget::PatternDiscard(_) = target else {
+        let (bray_bound_tree::StorageBindingTarget::PatternDiscard(_)
+        | bray_bound_tree::StorageBindingTarget::InvocationInput { .. }) = target
+        else {
             return None;
         };
 
@@ -122,6 +126,9 @@ impl ExecutionPlace {
             bray_bound_tree::StorageIdentity::Receiver(receiver) => {
                 BoundReferenceTarget::Surface(receiver.into())
             }
+            bray_bound_tree::StorageIdentity::ContractParameter(parameter) => {
+                BoundReferenceTarget::Local(parameter.into())
+            }
             bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
                 BoundReferenceTarget::Local(parameter.into())
             }
@@ -131,10 +138,15 @@ impl ExecutionPlace {
             kind => {
                 if let Some(reference) = storage
                     .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
-                    .find_map(storage_binding_reference)
+                    .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
                 {
                     reference
-                } else if matches!(kind, bray_bound_tree::StorageIdentity::LocalOwned(_)) {
+                } else if matches!(
+                    kind,
+                    bray_bound_tree::StorageIdentity::LocalOwned(_)
+                        | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                        | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                ) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),
                         projections: Arc::new([]),
@@ -261,25 +273,5 @@ impl ExecutionPlace {
 
     pub(crate) fn overlaps(&self, other: &Self) -> bool {
         self.contains(other) || other.contains(self)
-    }
-}
-
-fn storage_binding_reference(
-    target: bray_bound_tree::StorageBindingTarget,
-) -> Option<BoundReferenceTarget> {
-    match target {
-        bray_bound_tree::StorageBindingTarget::Local(id) => {
-            Some(BoundReferenceTarget::Local(id.into()))
-        }
-        bray_bound_tree::StorageBindingTarget::Parameter(id) => {
-            Some(BoundReferenceTarget::Surface(id.into()))
-        }
-        bray_bound_tree::StorageBindingTarget::Receiver(id) => {
-            Some(BoundReferenceTarget::Surface(id.into()))
-        }
-        bray_bound_tree::StorageBindingTarget::AnonymousParameter(id) => {
-            Some(BoundReferenceTarget::Local(id.into()))
-        }
-        _ => None,
     }
 }

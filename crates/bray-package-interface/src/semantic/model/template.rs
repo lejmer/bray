@@ -32,12 +32,29 @@ pub enum InterfaceCheckedTemplateInputKind {
 pub struct InterfaceCheckedTemplateInput {
     kind: InterfaceCheckedTemplateInputKind,
     ty: InterfaceTypeId,
+    state_output: Option<CheckedTemplateNodeId>,
 }
 
 impl InterfaceCheckedTemplateInput {
     /// Creates one explicit typed template input.
     pub const fn new(kind: InterfaceCheckedTemplateInputKind, ty: InterfaceTypeId) -> Self {
-        Self { kind, ty }
+        Self {
+            kind,
+            ty,
+            state_output: None,
+        }
+    }
+
+    /// Retains the final value of a formal mutable referent interpreted as a value snapshot.
+    pub const fn with_state_output(mut self, output: Option<CheckedTemplateNodeId>) -> Self {
+        self.state_output = output;
+
+        self
+    }
+
+    /// Returns the final value of this mutable input frame, when present.
+    pub const fn state_output(&self) -> Option<CheckedTemplateNodeId> {
+        self.state_output
     }
 
     /// Returns the input's stable semantic role.
@@ -54,6 +71,9 @@ impl InterfaceCheckedTemplateInput {
 /// Portable checked behavior retained by one interface template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCheckedTemplateExecution {
+    properties: Arc<[bray_symbols::ExecutionProperty]>,
+    constant_eligible: bool,
+    may_unwind: bool,
     requirements: Arc<[InterfaceSymbolReference]>,
     current_run_cancellation: CurrentRunCancellation,
 }
@@ -65,9 +85,41 @@ impl InterfaceCheckedTemplateExecution {
         current_run_cancellation: CurrentRunCancellation,
     ) -> Self {
         Self {
+            properties: Arc::from([]),
+            constant_eligible: false,
+            may_unwind: true,
             requirements: sorted_unique_shared_slice(requirements),
             current_run_cancellation,
         }
+    }
+
+    /// Retains universal execution proofs established by the owning analysis.
+    pub fn with_certification(
+        mut self,
+        properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
+        constant_eligible: bool,
+        may_unwind: bool,
+    ) -> Self {
+        self.properties = sorted_unique_shared_slice(properties);
+        self.constant_eligible = constant_eligible;
+        self.may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Returns certified ordinary execution properties in semantic-set order.
+    pub fn properties(&self) -> &[bray_symbols::ExecutionProperty] {
+        &self.properties
+    }
+
+    /// Whether the owning analysis established the stricter constant-evaluation restrictions.
+    pub const fn constant_eligible(&self) -> bool {
+        self.constant_eligible
+    }
+
+    /// Whether evaluation can propagate panic or cancellation.
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
     }
 
     /// Returns execution-lane requirements in canonical semantic-set order.
@@ -116,6 +168,11 @@ impl InterfaceCheckedTemplateBehavior {
             result_dependencies,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Returns the complete checked execution behavior of this template.
+    pub const fn execution(&self) -> &InterfaceCheckedTemplateExecution {
+        &self.execution
     }
 
     /// Returns checked effects in canonical semantic-set order.
@@ -192,6 +249,7 @@ pub type InterfaceCheckedTemplateIndexCall = bray_bound_tree::CheckedTemplateInd
 /// One typed normalized operation in deterministic dependency order.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCheckedTemplateNode {
+    unsigned_integer_bits: Option<std::num::NonZeroU8>,
     operation: InterfaceCheckedTemplateOperation,
     ty: InterfaceTypeId,
 }
@@ -199,7 +257,30 @@ pub struct InterfaceCheckedTemplateNode {
 impl InterfaceCheckedTemplateNode {
     /// Creates one typed interface-template operation.
     pub const fn new(operation: InterfaceCheckedTemplateOperation, ty: InterfaceTypeId) -> Self {
-        Self { operation, ty }
+        Self {
+            operation,
+            ty,
+            unsigned_integer_bits: None,
+        }
+    }
+
+    /// Retains the owning analysis's unsigned value-width proof without changing the declared type.
+    pub const fn with_unsigned_integer_bits(mut self, bits: Option<std::num::NonZeroU8>) -> Self {
+        if let Some(bits) = bits {
+            assert!(
+                bits.get() <= 64,
+                "u64 value bounds require at most 64 unsigned bits"
+            );
+        }
+
+        self.unsigned_integer_bits = bits;
+
+        self
+    }
+
+    /// Returns the established unsigned value width used by native exact arithmetic.
+    pub const fn unsigned_integer_bits(&self) -> Option<std::num::NonZeroU8> {
+        self.unsigned_integer_bits
     }
 
     /// Returns the normalized operation.
@@ -218,21 +299,12 @@ impl InterfaceCheckedTemplateNode {
 pub struct InterfaceCheckedTemplateTemporary {
     initializer: CheckedTemplateNodeId,
     ty: InterfaceTypeId,
-    dependency_contract: InterfaceDependencyContractId,
 }
 
 impl InterfaceCheckedTemplateTemporary {
     /// Creates one typed temporary initialized by an earlier template node.
-    pub const fn new(
-        initializer: CheckedTemplateNodeId,
-        ty: InterfaceTypeId,
-        dependency_contract: InterfaceDependencyContractId,
-    ) -> Self {
-        Self {
-            initializer,
-            ty,
-            dependency_contract,
-        }
+    pub const fn new(initializer: CheckedTemplateNodeId, ty: InterfaceTypeId) -> Self {
+        Self { initializer, ty }
     }
 
     /// Returns the node whose value initializes this temporary.
@@ -243,11 +315,6 @@ impl InterfaceCheckedTemplateTemporary {
     /// Returns the checked temporary type.
     pub const fn ty(self) -> InterfaceTypeId {
         self.ty
-    }
-
-    /// Returns the dependencies carried by the stored value.
-    pub const fn dependency_contract(self) -> InterfaceDependencyContractId {
-        self.dependency_contract
     }
 }
 
@@ -297,7 +364,7 @@ impl InterfaceCheckedTemplate {
         &self.nodes
     }
 
-    /// Returns temporaries in allocation order with nondecreasing initializer nodes.
+    /// Returns explicitly materialized temporaries in deterministic allocation order.
     pub fn temporaries(&self) -> &[InterfaceCheckedTemplateTemporary] {
         &self.temporaries
     }

@@ -86,8 +86,12 @@ impl Compilation {
             }
         }
 
+        let identity = self
+            .binding_context(cancellation)
+            .map(|context| self.portable_codegen_symbol_key(&context, definition.symbol()));
+
         panic!(
-            "demanded callable {definition:?} has no executable body, compiler-provided implementation or native import"
+            "demanded callable {definition:?} ({identity:?}) has no executable body, compiler-provided implementation or native import"
         );
     }
 }

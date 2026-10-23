@@ -13,12 +13,12 @@ func alternate() -> never
 trusted func main() -> i32
     uses(device_memory, intrinsic, layout_reinterpret, manual_alloc, raw_memory, unchecked_alias, unchecked_init)
 {
-    let released: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
+    let released: DataPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
     let released_ok = !core.memory.is_null<u8>(released);
 
     trusted core.memory.deallocate(pointer = released, bytes = 16, align = 4);
 
-    let empty: RawPointer<u8> = trusted core.memory.allocate(bytes = 0, align = 64);
+    let empty: DataPointer<u8> = trusted core.memory.allocate(bytes = 0, align = 64);
     let empty_address: usize = trusted core.target.expose_address<u8>(empty);
     let empty_ok: bool = !core.memory.is_null<u8>(empty) && empty_address % 64 == 0;
 
@@ -52,11 +52,11 @@ trusted func main() -> i32
     let overlapping_destination = core.memory.address_of<u8>(&copied_bytes[1]);
     let copied: u8 = trusted core.memory.read<u8>(overlapping_destination);
 
-    let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
-    let advanced: RawPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 0);
+    let bytes: DataPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
+    let advanced: DataPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 0);
     let address: usize = trusted core.target.expose_address<u8>(advanced);
-    let reconstructed: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
-    let null: RawPointer<u8> = core.memory.null<u8>();
+    let reconstructed: DataPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
+    let null: DataPointer<u8> = core.memory.null<u8>();
 
     trusted core.target.compiler_fence(MemoryOrder.SequentiallyConsistent);
     trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
@@ -83,7 +83,7 @@ trusted func main() -> i32
         labels = (alternate,),
     );
 
-    trusted core.target.branching_assembly<(RawPointer<u8>,), unit, (func() -> never,)>(
+    trusted core.target.branching_assembly<(DataPointer<u8>,), unit, (func() -> never,)>(
         template = "",
         constraints = "m,label",
         clobbers = "",
@@ -110,7 +110,7 @@ trusted func main() -> i32
 }
 
 // The fixed instruction changes one initialized byte and cannot change its storage.
-trusted func increment(pos pointer: RawPointer<u8>)
+trusted func increment(pos pointer: DataPointer<u8>)
     requires(
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
         trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
@@ -125,7 +125,7 @@ trusted func increment(pos pointer: RawPointer<u8>)
     )
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.assembly<(RawPointer<u8>,), unit>(
+    trusted core.target.assembly<(DataPointer<u8>,), unit>(
         template = "incb $0",
         constraints = "m",
         clobbers = "memory",
@@ -137,7 +137,7 @@ trusted func increment(pos pointer: RawPointer<u8>)
 
 // Two overlapping ranges within one three-byte exclusive view. Pointer arithmetic
 // itself grants no authority; these bounds are the trusted projection contract.
-trusted func overlap_pointers(pos pointer: RawPointer<u8>) -> (RawPointer<u8>, RawPointer<u8>)
+trusted func overlap_pointers(pos pointer: DataPointer<u8>) -> (DataPointer<u8>, DataPointer<u8>)
     requires(
         trusted core.memory.valid_read<u8>(pointer = pointer, count = 3),
         trusted core.memory.valid_write<u8>(pointer = pointer, count = 3),
@@ -154,7 +154,10 @@ trusted func overlap_pointers(pos pointer: RawPointer<u8>) -> (RawPointer<u8>, R
 }
 
 // The exclusive destination borrow excludes overlap with the readable source.
-trusted func separate_pointers(pos source: &[u8; 2], pos destination: &mut [u8; 3]) -> (RawPointer<u8>, RawPointer<u8>)
+trusted func separate_pointers(
+    pos source: &[u8; 2],
+    pos destination: &mut [u8; 3]
+) -> (DataPointer<u8>, DataPointer<u8>)
     ensures(
         trusted core.memory.valid_read<u8>(pointer = result.0, count = 2),
         trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = 2),

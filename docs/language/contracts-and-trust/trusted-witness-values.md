@@ -23,10 +23,10 @@ using core.memory;
 
 struct ReadableByte
 {
-    pointer: RawPointer<u8>;
+    pointer: DataPointer<u8>;
 }
 
-trusted func assume_readable_byte(pos pointer: RawPointer<u8>) -> ReadableByte
+trusted func assume_readable_byte(pos pointer: DataPointer<u8>) -> ReadableByte
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),

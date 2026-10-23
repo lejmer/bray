@@ -216,7 +216,12 @@ impl FixedPointDomain for ReachabilityDomain<'_> {
         }
     }
 
-    fn merge_boundary(&self, target: &mut Self::State, incoming: &Self::State) -> bool {
+    fn merge(
+        &self,
+        _: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        incoming: &Self::State,
+    ) -> bool {
         merge_state(target, *incoming)
     }
 
@@ -240,7 +245,7 @@ impl FixedPointDomain for ReachabilityDomain<'_> {
             *source
         };
 
-        merge_state(target, incoming)
+        self.merge(Some(edge.target()), target, &incoming)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

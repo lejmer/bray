@@ -69,6 +69,7 @@ impl InterfaceSemantics {
         Ok(())
     }
 
+    // rust-style: allow(function-too-large, reason = "one callable contract boundary checks domains and supplied evidence against the same signature and proof graph")
     fn validate_execution_contract(
         &self,
         contract: &InterfaceCallableContract,
@@ -139,7 +140,14 @@ impl InterfaceSemantics {
         let mut supplied = BTreeSet::new();
 
         for proof in &*execution.evidence {
-            if !declared.contains(&proof.obligation)
+            let internal = proof.obligation.is_internal()
+                && matches!(
+                    proof.origin,
+                    CallableExecutionOrigin::CheckedBody
+                        | CallableExecutionOrigin::CompilerIntrinsic
+                );
+
+            if (!internal && !declared.contains(&proof.obligation))
                 || !supplied.insert(proof.obligation)
                 || !is_strictly_sorted(&proof.dependencies)
             {
@@ -180,6 +188,53 @@ impl InterfaceSemantics {
                             }
                         }
                     }
+                    CallableExecutionTarget::Requirement {
+                        callable,
+                        requirement: (subject, application),
+                    } => {
+                        if proof.origin != CallableExecutionOrigin::CheckedBody
+                            || !(internal && required.is_internal()
+                                || matches!(required, Obligation::Property(_, None)))
+                            || subject
+                                .to_index()
+                                .is_none_or(|index| index >= self.types.len())
+                        {
+                            return Err(invalid());
+                        }
+
+                        let instance = callable
+                            .to_index()
+                            .and_then(|index| self.callable_instances.get(index))
+                            .ok_or_else(invalid)?;
+
+                        let application = application
+                            .to_index()
+                            .and_then(|index| self.trait_applications.get(index))
+                            .ok_or_else(invalid)?;
+
+                        if !validate_symbol_kind(&instance.definition, surface)?.is_callable()
+                            || !super::reference::reference_is_owned_by(
+                                &instance.definition,
+                                &application.definition,
+                                surface,
+                            )?
+                        {
+                            return Err(invalid());
+                        }
+
+                        let substitution = instance
+                            .substitution
+                            .to_index()
+                            .and_then(|index| self.substitutions.get(index))
+                            .ok_or_else(invalid)?;
+
+                        if substitution.owner != instance.definition {
+                            return Err(invalid());
+                        }
+
+                        // This is a premise, not evidence for the abstract member. Its exact selected
+                        // implementation is discharged when the checked provider is instantiated.
+                    }
                     CallableExecutionTarget::Indirect(ty) => {
                         let Some(InterfaceType::Callable {
                             invocation_behavior,
@@ -206,10 +261,13 @@ impl InterfaceSemantics {
                         || !proof.dependencies.is_empty()
                         || !matches!(
                             proof.obligation,
-                            Obligation::Property(
-                                ExecutionProperty::Pure | ExecutionProperty::Total,
-                                _
-                            )
+                            Obligation::Observation
+                                | Obligation::Termination
+                                | Obligation::FiniteIteration
+                                | Obligation::Property(
+                                    ExecutionProperty::Pure | ExecutionProperty::Total,
+                                    _
+                                )
                         )
                     {
                         return Err(invalid());
@@ -264,7 +322,12 @@ impl InterfaceSemantics {
             }
         }
 
-        if declared != supplied {
+        let public = supplied
+            .into_iter()
+            .filter(|obligation| !obligation.is_internal())
+            .collect();
+
+        if declared != public {
             return Err(invalid());
         }
 
@@ -476,7 +539,9 @@ impl InterfaceSemantics {
 
                     pending.push(*subject);
                 }
-                _ => return Err(invalid()),
+                _ => {
+                    return Err(invalid());
+                }
             }
         }
 

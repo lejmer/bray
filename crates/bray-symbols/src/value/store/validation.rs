@@ -83,6 +83,16 @@ pub(super) fn validate_constant_value_data(
     tables.types.get(store, data.ty());
 
     match data.kind() {
+        ConstantValueKind::Borrowed(value) => {
+            let borrowed = tables.constant_values.get(store, *value);
+            let ty = tables.types.get(store, data.ty());
+
+            assert!(
+                matches!(ty, TypeData::Borrow { kind: crate::BorrowKind::Shared, target }
+                if *target == borrowed.ty()),
+                "constant observation retains its shared referent type: {data:?}"
+            );
+        }
         ConstantValueKind::NullablePresent(value) => {
             tables.constant_values.get(store, *value);
         }
@@ -294,6 +304,10 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    if let Some(result) = data.observed_result() {
+        tables.constant_terms.get(store, result);
+    }
+
     if let Some(input) = data.returned_input() {
         tables.constant_terms.get(store, input);
     }
@@ -304,7 +318,10 @@ pub(super) fn validate_dependency_template_data(
     }
 
     for relation in data.borrows() {
-        validate_dependency_subject(tables, store, relation.entry());
+        if let Some(entry) = relation.entry() {
+            validate_dependency_subject(tables, store, entry);
+        }
+
         validate_dependency_subject(tables, store, relation.exit());
         validate_dependency_projections(tables, store, relation.target_projections());
     }
@@ -326,6 +343,7 @@ pub(super) fn validate_dependency_template_data(
 
         match effect {
             DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {

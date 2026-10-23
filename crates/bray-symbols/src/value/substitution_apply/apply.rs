@@ -488,6 +488,9 @@ impl SemanticValueStore {
             ConstantValueKind::StaticAddress(selection) => ConstantValueKind::StaticAddress(
                 self.substitute_static_reference(selection, substitution)?,
             ),
+            ConstantValueKind::Borrowed(value) => ConstantValueKind::Borrowed(
+                self.substitute_constant_value_data(*value, substitution, substituted)?,
+            ),
             ConstantValueKind::Unit => ConstantValueKind::Unit,
             ConstantValueKind::NullableAbsent => ConstantValueKind::NullableAbsent,
             ConstantValueKind::NullablePresent(value) => ConstantValueKind::NullablePresent(
@@ -926,11 +929,14 @@ mod tests {
 
         let projected_reference = |index| {
             crate::DependencyBorrowRelation::new(
-                DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0))),
+                Some(DependencySubject::root(DependencySubjectRoot::Parameter(
+                    SymbolOrdinal::new(0),
+                ))),
                 DependencySubject::root(DependencySubjectRoot::Result),
                 crate::DependencyReferenceKind::Borrow,
             )
             .with_target_projections([DependencyProjection::Element(index)])
+            .with_exactness(false)
         };
 
         let invocation = store

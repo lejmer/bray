@@ -384,6 +384,7 @@ impl Compilation {
                         | RepresentationRole::Unit
                         | RepresentationRole::Never
                         | RepresentationRole::RawPointer
+                        | RepresentationRole::FunctionPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Uninit
                 ) =>

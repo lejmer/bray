@@ -10,7 +10,8 @@ use crate::{
 };
 
 pub(crate) struct Cleanup<'a> {
-    pub(super) selected: Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
+    pub(in crate::analysis::guarantee) selected:
+        Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
     pub(in crate::analysis) plan: &'a Plan,
     pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
 }
@@ -20,6 +21,10 @@ pub(crate) struct Plan {
     pub(crate) input_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
+    pub(in crate::analysis::guarantee) inert_futures: BTreeMap<
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::AsyncStorageCleanupRequirement,
+    >,
     pub(crate) scoped_error_quiescence:
         BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
@@ -84,6 +89,13 @@ impl<'a> Cleanup<'a> {
 }
 
 impl Plan {
+    pub(in crate::analysis) fn opaque_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.steps.values().flatten().filter_map(|step| match step {
+            Step::Opaque { ty, .. } => Some(*ty),
+            Step::Lifecycle { .. } => None,
+        })
+    }
+
     pub(crate) fn finalizer(&self, ty: TypeId) -> Option<bray_bound_tree::LifecycleCallable> {
         self.lifecycles
             .get(&(ty, TypeAssociatedLifecycleSlot::Finalizer))
@@ -280,9 +292,10 @@ impl Plan {
                         .borrows()
                         .iter()
                         .filter_map(move |relation| {
-                            (relation.dereferences() == 0
+                            (relation.is_exact()
+                                && relation.dereferences() == 0
                                 && relation.target_projections().is_empty()
-                                && relation.entry() == relation.exit()
+                                && relation.entry() == Some(relation.exit())
                                 && relation.exit().subject_root()
                                     == bray_symbols::DependencySubjectRoot::Receiver)
                                 .then(|| {
@@ -309,16 +322,14 @@ impl Plan {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        if request.unit().key().kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            return Ok(DiagnosticResult::new(prepared, diagnostics));
-        }
-
         prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
         let mut accesses = storage
             .identity_entries()
-            .filter_map(|(identity, _)| {
-                if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity) {
+            .filter_map(|(identity, slot)| {
+                if !slot.is_invocation_owned(storage.kind())
+                    || bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
+                {
                     return None;
                 }
 
@@ -445,6 +456,7 @@ impl Plan {
 
         prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
         prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
+        prepared.select_inert_futures(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
     }
@@ -566,14 +578,12 @@ fn lifecycle(
                 Err(error) => return Err(error),
             };
 
-            let destination = match (completion, predicate.is_trusted()) {
-                (false, true) => &mut contract.requirements,
-                (false, false) => &mut contract.preconditions,
-                (true, true) => &mut contract.guarantees,
-                (true, false) => &mut contract.postconditions,
-            };
-
-            destination.push(condition);
+            match (completion, predicate.is_trusted()) {
+                (false, true) => contract.requirements.push(condition),
+                (false, false) => contract.preconditions.push((condition, predicate.domain())),
+                (true, true) => contract.guarantees.push(condition),
+                (true, false) => contract.postconditions.push(condition),
+            }
         }
     }
 

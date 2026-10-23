@@ -55,10 +55,18 @@ impl InternState {
             let mut borrows = Vec::with_capacity(input.borrows.len());
 
             for relation in input.borrows.iter() {
-                let (Some(entry), Some(exit)) = (
-                    self.convert_dependency_subject(relation.entry(), symbols)?,
-                    self.convert_dependency_subject(relation.exit(), symbols)?,
-                ) else {
+                let entry = match relation.entry() {
+                    Some(entry) => {
+                        let Some(entry) = self.convert_dependency_subject(entry, symbols)? else {
+                            break;
+                        };
+
+                        Some(entry)
+                    }
+                    None => None,
+                };
+
+                let Some(exit) = self.convert_dependency_subject(relation.exit(), symbols)? else {
                     break;
                 };
 
@@ -71,6 +79,7 @@ impl InternState {
                 borrows.push(
                     bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
                         .with_dereferences(relation.dereferences())
+                        .with_exactness(relation.is_exact())
                         .with_target_projections(projections),
                 );
             }
@@ -112,12 +121,23 @@ impl InternState {
                 None
             };
 
+            let observed_result = if let Some(term) = input.observed_result {
+                let Some(term) = self.constant_term_id(term) else {
+                    continue;
+                };
+
+                Some(term)
+            } else {
+                None
+            };
+
             self.dependency_contracts[index] = Some(
                 store.intern_dependency_contract_template(
                     contract
                         .with_borrows(borrows)
                         .with_carriers(carriers)
                         .with_returned_input(returned_input)
+                        .with_observed_result(observed_result)
                         .with_effects(effects)
                         .with_normal_completion(input.normal_completion)
                         .with_normal_storage_preservation(input.normal_storage_preserved),
@@ -356,6 +376,7 @@ impl InternState {
         for effect in input {
             effects.push(match effect {
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                 DependencyStorageEffect::Cleanup(ty) => {

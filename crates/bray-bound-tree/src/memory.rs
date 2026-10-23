@@ -763,6 +763,24 @@ pub enum MemoryLayoutQueryKind {
     Trailing,
 }
 
+impl MemoryLayoutQueryKind {
+    /// Classifies the established implementation hook of a target-layout declaration.
+    pub const fn for_implementation_hook(
+        hook: bray_compiler_known::ImplementationHook,
+    ) -> Option<Self> {
+        use bray_compiler_known::ImplementationHook;
+
+        match hook {
+            ImplementationHook::MemorySizeOf => Some(Self::Size),
+            ImplementationHook::MemoryAlignOf => Some(Self::Alignment),
+            ImplementationHook::MemoryStrideOf => Some(Self::Stride),
+            ImplementationHook::MemoryLayoutOf => Some(Self::Layout),
+            ImplementationHook::MemoryTrailingLayoutOf => Some(Self::Trailing),
+            _ => None,
+        }
+    }
+}
+
 /// Integer fetch behavior selected for protected atomic storage.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AtomicFetchKind {
@@ -842,6 +860,11 @@ pub enum CheckedMemoryOperationKind {
         /// Offset unit selected by the declaration.
         unit: MemoryOffsetUnit,
         /// Pointed-to value type.
+        pointee: TypeId,
+    },
+    /// Observe a data pointer's exact address without granting memory authority.
+    ByteAddress {
+        /// Original data pointee type.
         pointee: TypeId,
     },
     /// Reinterpret a raw pointer's element type.
@@ -1111,6 +1134,7 @@ impl CheckedMemoryOperationKind {
             | Self::UninitMove { .. }
             | Self::Address { .. }
             | Self::IsNull { .. }
+            | Self::ByteAddress { .. }
             | Self::Reinterpret { .. }
             | Self::CallableFromPointer { .. }
             | Self::PointerFromCallable { .. }
@@ -1179,6 +1203,7 @@ impl CheckedMemoryOperationKind {
             | Self::UninitMove { .. }
             | Self::Address { .. }
             | Self::IsNull { .. }
+            | Self::ByteAddress { .. }
             | Self::Reinterpret { .. }
             | Self::CallableFromPointer { .. }
             | Self::PointerFromCallable { .. }

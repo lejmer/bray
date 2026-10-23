@@ -151,3 +151,41 @@ fn destructor_ownership_rejections_identify_the_operation_and_obligation() {
         );
     }
 }
+
+#[test]
+fn constant_call_requirements_identify_the_call_and_required_correction() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingConstantCallRequirementNotProven,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_arg(DiagnosticArg::expression_category(
+        bray_diagnostics::DiagnosticExpressionCategory::Call,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements,
+    ));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.primary_span(), Some(span));
+
+    assert_eq!(
+        rendered.message(),
+        "this call has constant arguments that do not establish its requires clauses"
+    );
+
+    let [note] = rendered.notes() else {
+        panic!("constant-call requirement retains its correction");
+    };
+
+    assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
+    assert_eq!(
+        note.message(),
+        "supply constant arguments that satisfy the selected callable's requires(...) clauses"
+    );
+}

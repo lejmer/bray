@@ -5,7 +5,7 @@ standard-library declarations. They live under `std`, participate in ordinary vi
 recognized by name by the language.
 
 Every public declaration written in this chapter is normative. Its module, name, generic parameters, ownership
-modifiers, result, and contracts are exact. Private representation and lowering are not language-visible and cannot
+modifiers, result, and contracts are exact. Representation details and lowering are not language-visible and cannot
 change the public contract.
 
 General stream, path, filesystem, process-context, raw child-process, clock, and entropy semantics are defined by
@@ -20,7 +20,10 @@ are:
 ```bray
 impl Once<T>
 {
-    static const func empty() -> Self;
+    static func empty() -> Self;
+
+    static const func prepare() ->
+        (std.sync.once.Marker, Uninit<std.sync.once.State<T>>);
 
     func get_or_init(pos initializer: func() -> T) -> &T
         requires(blocking_execution());
@@ -30,8 +33,10 @@ impl Once<T>
 }
 ```
 
-`empty()` is valid in static-initializer constant evaluation and creates the `empty` state without executing runtime
-code.
+`empty()` forms an empty runtime owner with its cleanup backing. `prepare()` creates its initialized fields without
+forming the owner. A static initializer moves those fields into the static's `instance` and `storage` fields, as shown
+in [static storage declarations](../declarations/static-storage-declarations.md). Lifecycle obligations attach when the
+static owner materializes. Preparation grants no authority over another cell.
 
 The first successful initializer publishes exactly one completely initialized `T`. Concurrent callers wait for that
 attempt and observe its synchronization edge before borrowing the value. Normal completion changes the state to

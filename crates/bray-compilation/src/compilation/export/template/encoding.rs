@@ -11,7 +11,7 @@ use bray_package_interface::{
 use super::super::PackageInterfaceExportError;
 use super::super::semantic::SemanticExporter;
 
-pub(super) fn encode_template(
+pub(in crate::compilation::export) fn encode_template(
     export: &mut SemanticExporter<'_>,
     template: &CheckedTemplate,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
@@ -35,10 +35,10 @@ pub(super) fn encode_template(
                 }
             };
 
-            Ok(InterfaceCheckedTemplateInput::new(
-                kind,
-                export.type_id(input.ty())?,
-            ))
+            Ok(
+                InterfaceCheckedTemplateInput::new(kind, export.type_id(input.ty())?)
+                    .with_state_output(input.state_output()),
+            )
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
@@ -71,7 +71,8 @@ pub(super) fn encode_template(
             Ok(InterfaceCheckedTemplateNode::new(
                 operation,
                 references.borrow_mut().type_id(node.ty())?,
-            ))
+            )
+            .with_unsigned_integer_bits(node.unsigned_integer_bits()))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
@@ -82,7 +83,6 @@ pub(super) fn encode_template(
             Ok(InterfaceCheckedTemplateTemporary::new(
                 temporary.initializer(),
                 export.type_id(temporary.ty())?,
-                export.dependency_contract_id(temporary.dependency_contract())?,
             ))
         })
         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
@@ -112,6 +112,11 @@ pub(super) fn encode_template(
                 .map(|requirement| export.key_reference(requirement.declaration()))
                 .collect::<Result<Vec<_>, _>>()?,
             behavior.current_run_cancellation(),
+        )
+        .with_certification(
+            behavior.execution().properties().iter().copied(),
+            behavior.execution().constant_eligible(),
+            behavior.execution().may_unwind(),
         ),
         behavior.lifecycle_obligations().iter().copied(),
         export.dependency_contract_id(behavior.dependency_contract())?,

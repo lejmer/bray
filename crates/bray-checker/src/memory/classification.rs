@@ -83,7 +83,17 @@ where
         return Ok(None);
     }
 
-    if let Some(kind) = layout_query_kind(hook)
+    if matches!(
+        hook,
+        ImplementationHook::FunctionPointerReinterpret
+            | ImplementationHook::FunctionPointerFromData
+            | ImplementationHook::FunctionPointerToData
+    ) && !validate_function_pointer_target(request, hook, expression, diagnostics)
+    {
+        return Ok(None);
+    }
+
+    if let Some(kind) = MemoryLayoutQueryKind::for_implementation_hook(hook)
         && !validate_layout_query_type(request, hook, kind, types, expression, diagnostics)?
     {
         return Ok(None);
@@ -286,7 +296,10 @@ where
                 pointee: one_type_argument(types)?,
             }
         }
-        ImplementationHook::RawPointerReinterpret => {
+        ImplementationHook::RawPointerByteAddress => CheckedMemoryOperationKind::ByteAddress {
+            pointee: one_type_argument(types)?,
+        },
+        ImplementationHook::RawPointerReinterpret | ImplementationHook::FunctionPointerReinterpret => {
             let [target, source] = types else {
                 panic!("Semantic-selection inputs do not describe the requested bound unit or operation category. in classify_direct_memory_operation");
             };
@@ -295,6 +308,22 @@ where
                 source: *source,
                 target: *target,
             }
+        }
+        ImplementationHook::FunctionPointerFromData | ImplementationHook::FunctionPointerToData => {
+            let callable = one_type_argument(types)?;
+
+            let byte = crate::representation::representation_type(
+                request,
+                bray_compiler_known::RepresentationRole::ScalarU8,
+            );
+
+            let (source, target) = if hook == ImplementationHook::FunctionPointerFromData {
+                (byte, callable)
+            } else {
+                (callable, byte)
+            };
+
+            CheckedMemoryOperationKind::Reinterpret { source, target }
         }
         ImplementationHook::CallableFromPointer => {
             CheckedMemoryOperationKind::CallableFromPointer {
@@ -336,7 +365,7 @@ where
         | ImplementationHook::MemoryLayoutOf
         | ImplementationHook::MemoryTrailingLayoutOf => CheckedMemoryOperationKind::LayoutQuery {
             ty: one_type_argument(types)?,
-            kind: layout_query_kind(hook).unwrap_or_else(|| panic!("classify_direct_memory_operation requires layout query classification, hook: {hook:?}")),
+            kind: MemoryLayoutQueryKind::for_implementation_hook(hook).unwrap_or_else(|| panic!("classify_direct_memory_operation requires layout query classification, hook: {hook:?}")),
         },
         _ => return Ok(None),
     };
@@ -354,17 +383,6 @@ fn one_type_argument<Upstream>(
     };
 
     Ok(*ty)
-}
-
-const fn layout_query_kind(hook: ImplementationHook) -> Option<MemoryLayoutQueryKind> {
-    match hook {
-        ImplementationHook::MemorySizeOf => Some(MemoryLayoutQueryKind::Size),
-        ImplementationHook::MemoryAlignOf => Some(MemoryLayoutQueryKind::Alignment),
-        ImplementationHook::MemoryStrideOf => Some(MemoryLayoutQueryKind::Stride),
-        ImplementationHook::MemoryLayoutOf => Some(MemoryLayoutQueryKind::Layout),
-        ImplementationHook::MemoryTrailingLayoutOf => Some(MemoryLayoutQueryKind::Trailing),
-        _ => None,
-    }
 }
 
 const fn memory_operation_requires_complete_pointee(hook: ImplementationHook) -> bool {
@@ -411,9 +429,7 @@ where
 
     let data = request.semantic_values().type_data(pointee);
 
-    if matches!(data.as_ref(), bray_symbols::TypeData::Error)
-        || complete && !matches!(data.as_ref(), bray_symbols::TypeData::Callable(_))
-    {
+    if matches!(data.as_ref(), bray_symbols::TypeData::Error) || complete {
         return Ok(true);
     }
 
@@ -583,26 +599,45 @@ where
         return Ok(false);
     }
 
-    if !request
+    Ok(validate_function_pointer_target(
+        request,
+        hook,
+        expression,
+        diagnostics,
+    ))
+}
+
+fn validate_function_pointer_target<C>(
+    request: CheckerUnitView<'_, C>,
+    hook: ImplementationHook,
+    expression: bray_bound_tree::BoundExpressionId,
+    diagnostics: &mut DiagnosticBag,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if request
         .selected_target()
         .properties()
         .operations()
         .callable_addresses()
     {
-        let operation =
-            crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("validate_callable_address_type requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
-
-        crate::memory_diagnostics::add_target_memory_operation_unavailable(
-            span,
-            request.selected_target().identity().as_str(),
-            operation,
-            diagnostics,
-        );
-
-        return Ok(false);
+        return true;
     }
 
-    Ok(true)
+    let span = crate::diagnostic::expression_span(request, expression);
+
+    let operation = crate::memory_diagnostics::diagnostic_memory_operation(hook)
+        .expect("function-pointer operations retain their diagnostic classification");
+
+    crate::memory_diagnostics::add_target_memory_operation_unavailable(
+        span,
+        request.selected_target().identity().as_str(),
+        operation,
+        diagnostics,
+    );
+
+    false
 }
 
 fn classify_allocation_and_buffer_operation<Upstream>(

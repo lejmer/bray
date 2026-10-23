@@ -82,26 +82,6 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         Ok(replacements)
     }
 
-    pub(super) fn local_operand(
-        &mut self,
-        block: MirBlockId,
-        mut operand: MirOperand,
-    ) -> Result<MirOperand, C::Error> {
-        let mut values = Vec::new();
-
-        operand.for_each_operand(|operand| {
-            if let MirOperand::Value(value) = operand {
-                if self.value_blocks[value] != block {
-                    values.push(*value);
-                }
-            }
-        });
-
-        operand.substitute_values(&self.replacements(block, values)?);
-
-        Ok(operand)
-    }
-
     pub(super) fn local_operation(
         &mut self,
         block: MirBlockId,

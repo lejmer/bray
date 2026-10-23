@@ -190,7 +190,7 @@ mod tests {
 
         let capability = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(expressions[1]),
+                BorrowCapabilityOrigin::Operation((expressions[1]).into()),
                 BorrowKind::Shared,
                 destination,
                 None,

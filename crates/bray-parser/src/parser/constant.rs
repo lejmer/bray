@@ -153,6 +153,10 @@ impl Parser {
     }
 
     fn at_constant_following_item_start(&mut self) -> bool {
+        if self.should_parse_lambda_expression() {
+            return false;
+        }
+
         self.at_any(&MODULE_ITEM_START_KINDS) || self.at_any(&CONSTANT_FOLLOWING_MEMBER_START_KINDS)
     }
 
@@ -162,7 +166,7 @@ impl Parser {
 
     pub(super) fn at_constant_declaration_start(&mut self) -> bool {
         if self.at(SyntaxKind::ConstKeyword) {
-            return true;
+            return !self.should_parse_lambda_expression();
         }
 
         self.at_visibility_modifier() && self.lookahead(1).kind() == SyntaxKind::ConstKeyword

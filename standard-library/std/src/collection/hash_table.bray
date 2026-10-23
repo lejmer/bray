@@ -138,7 +138,7 @@ internal func hash_table_probe_distance(pos ideal: usize, pos actual: usize, pos
 trusted internal func hash_table_item<Item>(pos table: &HashTable<Item>, index: usize) -> &Item
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<Item> = trusted hash_table_item_pointer(table, index = index);
+    let pointer: DataPointer<Item> = trusted hash_table_item_pointer(table, index = index);
 
     return trusted std.memory.borrow_from<Item, HashTable<Item>>(table, pointer);
 }
@@ -146,12 +146,12 @@ trusted internal func hash_table_item<Item>(pos table: &HashTable<Item>, index: 
 trusted internal func hash_table_item_mut<Item>(pos table: &mut HashTable<Item>, index: usize) -> &mut Item
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<Item> = trusted hash_table_item_pointer_mut(table, index = index);
+    let pointer: DataPointer<Item> = trusted hash_table_item_pointer_mut(table, index = index);
 
     return trusted std.memory.borrow_mut_from<Item, HashTable<Item>>(table, pointer);
 }
 
-trusted internal func hash_table_item_pointer<Item>(pos table: &HashTable<Item>, index: usize) -> RawPointer<Item>
+trusted internal func hash_table_item_pointer<Item>(pos table: &HashTable<Item>, index: usize) -> DataPointer<Item>
     ensures(
         trusted core.memory.valid_read<Item>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Item>(pointer = result),
@@ -179,7 +179,7 @@ trusted internal func hash_table_item_pointer<Item>(pos table: &HashTable<Item>,
 trusted internal func hash_table_item_pointer_mut<Item>(
     pos table: &mut HashTable<Item>,
     index: usize
-) -> RawPointer<Item>
+) -> DataPointer<Item>
     ensures(
         trusted core.memory.valid_write<Item>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Item>(pointer = result),
@@ -220,7 +220,7 @@ trusted internal func hash_table_hash(pos hashes: &std.memory.RawBuffer<u128>, i
     uses(raw_memory)
 {
     let values: &[u128] = trusted std.memory.initialized_slice<u128>(hashes);
-    let pointer: RawPointer<u128> = std.memory.address_of<u128>(&values[index]);
+    let pointer: DataPointer<u128> = std.memory.address_of<u128>(&values[index]);
 
     return trusted std.memory.read<u128>(pointer);
 }

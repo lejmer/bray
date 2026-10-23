@@ -5,6 +5,7 @@ using core.target;
 using internal bray.runtime.bootstrap.report.incident;
 using core.memory;
 using std.memory;
+using std.memory.function;
 using internal bray.runtime.bootstrap.pool;
 
 @layout(c)
@@ -144,8 +145,10 @@ trusted internal func serialized_primary(pos primary: &StoredReportPrimary) -> R
     {
         case ?callback
         {
-            yield trusted core.target.expose_address<PanicMessageCopy>(
-                trusted std.memory.pointer_from_callable<PanicMessageCopy>(callback)
+            yield trusted core.target.expose_address<u8>(
+                trusted std.memory.function.to_data<PanicMessageCopy>(
+                    trusted std.memory.function_address<PanicMessageCopy>(callback)
+                )
             );
         }
         case none { yield 0; }
@@ -155,8 +158,10 @@ trusted internal func serialized_primary(pos primary: &StoredReportPrimary) -> R
     {
         case ?callback
         {
-            yield trusted core.target.expose_address<PanicMessageRelease>(
-                trusted std.memory.pointer_from_callable<PanicMessageRelease>(callback)
+            yield trusted core.target.expose_address<u8>(
+                trusted std.memory.function.to_data<PanicMessageRelease>(
+                    trusted std.memory.function_address<PanicMessageRelease>(callback)
+                )
             );
         }
         case none { yield 0; }
@@ -224,9 +229,9 @@ trusted internal func detach_record(pos pool: &mut ReportPool, pos chain: &mut R
 
 @abi(c)
 trusted internal func report_records_take(
-    pos source: RawPointer<ReportRecords>,
+    pos source: DataPointer<ReportRecords>,
     pos count: usize,
-    pos destination: RawPointer<ReportRecords>,
+    pos destination: DataPointer<ReportRecords>,
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -253,8 +258,8 @@ trusted internal func take_record_values(
     pos mut input: ReportRecords,
     pos mut output: ReportRecords,
     pos count: usize,
-    pos source: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportRecords>
+    pos source: DataPointer<ReportRecords>,
+    pos destination: DataPointer<ReportRecords>
 ) -> (ReportRecords, ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -287,8 +292,8 @@ trusted internal func take_record_values(
 
 @abi(c)
 trusted internal func report_records_append(
-    pos destination: RawPointer<ReportRecords>,
-    pos source: RawPointer<ReportRecords>
+    pos destination: DataPointer<ReportRecords>,
+    pos source: DataPointer<ReportRecords>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -314,8 +319,8 @@ trusted internal func report_records_append(
 trusted internal func append_record_values(
     pos mut left: ReportRecords,
     pos right: ReportRecords,
-    pos destination: RawPointer<ReportRecords>,
-    pos source: RawPointer<ReportRecords>
+    pos destination: DataPointer<ReportRecords>,
+    pos source: DataPointer<ReportRecords>
 ) -> (ReportRecords, ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -380,7 +385,7 @@ trusted internal func exchange_record(pos handle: usize, pos value: ReportValue)
 }
 
 @abi(c)
-trusted internal func report_record_exchange(pos handle: usize, pos primary: RawPointer<ReportPrimary>)
+trusted internal func report_record_exchange(pos handle: usize, pos primary: DataPointer<ReportPrimary>)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted native_primary_slot_callbacks(pointer = primary),
@@ -401,7 +406,7 @@ trusted internal func report_record_exchange(pos handle: usize, pos primary: Raw
 trusted internal func exchange_record_value(
     pos handle: usize,
     pos value: ReportPrimary,
-    pos primary: RawPointer<ReportPrimary>
+    pos primary: DataPointer<ReportPrimary>
 ) -> ReportPrimary
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -418,7 +423,10 @@ trusted internal func exchange_record_value(
 }
 
 @abi(c)
-trusted internal func report_segment_mark(pos chain: RawPointer<ReportRecords>, pos metadata: RawPointer<ReportSegment>)
+trusted internal func report_segment_mark(
+    pos chain: DataPointer<ReportRecords>,
+    pos metadata: DataPointer<ReportSegment>
+)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
@@ -445,9 +453,9 @@ trusted internal func report_segment_mark(pos chain: RawPointer<ReportRecords>, 
 
 @abi(c)
 trusted internal func report_segment_take(
-    pos chain: RawPointer<ReportRecords>,
-    pos metadata: RawPointer<ReportSegment>,
-    pos destination: RawPointer<ReportRecords>,
+    pos chain: DataPointer<ReportRecords>,
+    pos metadata: DataPointer<ReportSegment>,
+    pos destination: DataPointer<ReportRecords>,
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -472,9 +480,9 @@ trusted internal func report_segment_take(
 
 trusted internal func take_segment_values(
     pos mut source: ReportRecords,
-    pos chain: RawPointer<ReportRecords>,
-    pos metadata: RawPointer<ReportSegment>,
-    pos destination: RawPointer<ReportRecords>
+    pos chain: DataPointer<ReportRecords>,
+    pos metadata: DataPointer<ReportSegment>,
+    pos destination: DataPointer<ReportRecords>
 ) -> (ReportRecords, ReportSegment, ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundUnit, CheckedExpressionSemantics, SemanticSelection,
+    BoundExpressionId, BoundUnit, CheckedExpressionSemantics, SemanticSelection,
 };
 use bray_symbols::SemanticValueStore;
 
@@ -23,93 +23,23 @@ pub(super) fn selected_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> Option<ExecutionCondition> {
-    let bound = unit.view().expression(expression)?;
-
     if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression) {
-        if call.implementation_hook()
-            == Some(bray_compiler_known::ImplementationHook::RawPointerReinterpret)
-            && let [
-                bray_bound_tree::SelectedArgument::Explicit {
-                    expression: pointer,
-                    conversion,
-                    ..
-                },
-            ] = call.arguments()
-            && matches!(
-                conversion.target(),
-                bray_bound_tree::ConversionTarget::Identity
-            )
-        {
-            return Some(expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, *pointer, budget,
-                predicates,
-            ));
-        }
-
-        let observed_intrinsic = matches!(
-            call.implementation_hook(),
-            Some(
-                bray_compiler_known::ImplementationHook::SequenceLength
-                    | bray_compiler_known::ImplementationHook::SequenceIsEmpty
-                    | bray_compiler_known::ImplementationHook::RawPointerIsNull
-            )
-        );
-
-        let constant = matches!(bound, BoundExpression::Call(bound_call)
-            if semantics.types().expression(bound_call.callee()).is_some_and(|ty|
-                matches!(values.type_data(ty.ty()).as_ref(), bray_symbols::TypeData::Callable(callable)
-                    if callable.constness() == bray_symbols::CallableConstness::Constant)));
-
-        if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
-            && (observed_intrinsic || constant)
-        {
-            let arguments = call_argument_conditions(
-                call, unit, semantics, values, literals, patterns, current, evaluated, budget,
-                predicates,
-            );
-
-            let arguments = if matches!(
-                call.implementation_hook(),
-                Some(
-                    bray_compiler_known::ImplementationHook::SequenceLength
-                        | bray_compiler_known::ImplementationHook::SequenceIsEmpty
+        return Some(selected_call_condition(
+            values,
+            predicates,
+            expression,
+            call,
+            |budget| {
+                call_argument_conditions(
+                    call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                    predicates,
                 )
-            ) {
-                arguments
-                    .into_iter()
-                    .map(|argument| argument.owner_identity().clone())
-                    .collect()
-            } else {
-                arguments
-            };
-
-            let condition = ExecutionCondition::call(callable, arguments);
-
-            // Losing an input's symbolic contents does not erase the identity of the
-            // actual returned value. Repeated evaluations already retire this identity.
-            return Some(if condition == ExecutionCondition::Unknown {
-                ExecutionCondition::Expression(expression)
-            } else {
-                condition
-            });
-        }
-
-        if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
-            let arguments = call_argument_conditions(
-                call, unit, semantics, values, literals, patterns, current, evaluated, budget,
-                predicates,
-            );
-
-            return Some(predicate_condition(
-                values, predicates, predicate, arguments, budget,
-            ));
-        }
-
-        // A runtime call has a value identity even when its contents are opaque.
-        return Some(ExecutionCondition::Expression(expression));
+            },
+            budget,
+        ));
     }
 
     if let Some(SemanticSelection::Predicate(predicate)) =
@@ -162,6 +92,97 @@ pub(super) fn selected_condition(
     None
 }
 
+pub(crate) fn selected_call_condition(
+    values: &SemanticValueStore,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+    >,
+    expression: BoundExpressionId,
+    call: &bray_bound_tree::SelectedCall,
+    arguments: impl FnOnce(&mut usize) -> Vec<ExecutionCondition>,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    use bray_compiler_known::ImplementationHook as Hook;
+
+    if matches!(
+        call.implementation_hook(),
+        Some(
+            Hook::RawPointerReinterpret
+                | Hook::FunctionPointerReinterpret
+                | Hook::FunctionPointerFromData
+                | Hook::FunctionPointerToData
+                | Hook::RawPointerByteAddress
+        )
+    ) && let [bray_bound_tree::SelectedArgument::Explicit { conversion, .. }] = call.arguments()
+        && matches!(
+            conversion.target(),
+            bray_bound_tree::ConversionTarget::Identity
+        )
+    {
+        return arguments(budget)
+            .into_iter()
+            .next()
+            .expect("pointer projection has its single input");
+    }
+
+    if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
+        let mut arguments = arguments(budget);
+
+        for input in call.arguments() {
+            let (ordinal, ty) = match input {
+                bray_bound_tree::SelectedArgument::Explicit {
+                    ordinal,
+                    conversion,
+                    ..
+                } => (*ordinal, conversion.target_type()),
+                bray_bound_tree::SelectedArgument::Default { ordinal, ty, .. } => (*ordinal, *ty),
+            };
+
+            if matches!(
+                values.type_data(ty).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) {
+                let index = usize::try_from(ordinal).expect("input ordinal fits host")
+                    + usize::from(call.receiver().is_some());
+
+                arguments[index] = arguments[index].clone().borrowed();
+            }
+        }
+
+        return predicate_condition(values, predicates, predicate, arguments, budget);
+    }
+
+    let observed_intrinsic = matches!(
+        call.implementation_hook(),
+        Some(Hook::SequenceLength | Hook::SequenceIsEmpty | Hook::RawPointerIsNull)
+    );
+
+    if let Some(callable) = call.resolution().declaration_source()
+        && (observed_intrinsic || call.constness() == bray_symbols::CallableConstness::Constant)
+    {
+        let mut arguments = arguments(budget);
+
+        if matches!(
+            call.implementation_hook(),
+            Some(Hook::SequenceLength | Hook::SequenceIsEmpty)
+        ) {
+            for value in &mut arguments {
+                *value = value.owner_identity().clone();
+            }
+        }
+
+        let condition = ExecutionCondition::call(callable, arguments);
+
+        return if condition == ExecutionCondition::Unknown {
+            ExecutionCondition::Expression(expression)
+        } else {
+            condition
+        };
+    }
+
+    ExecutionCondition::Expression(expression)
+}
+
 fn call_argument_conditions(
     call: &bray_bound_tree::SelectedCall,
     unit: &BoundUnit,
@@ -176,7 +197,7 @@ fn call_argument_conditions(
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> Vec<ExecutionCondition> {
     let mut arguments = Vec::new();
@@ -233,18 +254,6 @@ fn call_argument_conditions(
                         condition
                     };
 
-                let condition = if matches!(
-                    call.target(),
-                    bray_bound_tree::BoundCallableTarget::Predicate(_)
-                ) && matches!(
-                    values.type_data(conversion.target_type()).as_ref(),
-                    bray_symbols::TypeData::Borrow { .. }
-                ) {
-                    condition.borrowed()
-                } else {
-                    condition
-                };
-
                 (*ordinal, condition)
             }
             bray_bound_tree::SelectedArgument::Explicit { ordinal, .. }
@@ -257,20 +266,68 @@ fn call_argument_conditions(
     parameters.sort_by_key(|(ordinal, _)| *ordinal);
     arguments.extend(parameters.into_iter().map(|(_, value)| value));
 
+    for argument in call.arguments() {
+        if let bray_bound_tree::SelectedArgument::Default {
+            provider, ordinal, ..
+        } = argument
+        {
+            let place = bray_bound_tree::BoundReferenceTarget::Surface((*provider).into()).into();
+
+            if let Some(meaning) = current.get(&place) {
+                let meaning = match call.resolution().declaration_source() {
+                    Some(callable) => crate::substitute_execution_condition(
+                        values,
+                        meaning,
+                        callable.substitution(),
+                    )
+                    .expect("checked default application belongs to this semantic store"),
+                    None => meaning.clone(), // Lexical anonymous input paths are already selected.
+                };
+
+                let inputs = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, value)| {
+                        (
+                            crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                                u32::try_from(ordinal).expect("argument ordinal fits"),
+                            )),
+                            value.clone(),
+                        )
+                    })
+                    .collect();
+
+                arguments[usize::try_from(*ordinal).expect("default ordinal fits")
+                    + usize::from(call.receiver().is_some())] = meaning.substitute(
+                    &|place| {
+                        place
+                            .value_in(&inputs)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &ExecutionCondition::Unknown,
+                    budget,
+                );
+            }
+        }
+    }
+
     arguments
 }
 
 fn predicate_condition(
     values: &SemanticValueStore,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
     predicate: bray_symbols::PredicateInstanceData,
     arguments: Vec<ExecutionCondition>,
     budget: &mut usize,
 ) -> ExecutionCondition {
-    if let Some(term) = predicates.and_then(|predicates| predicates.get(&predicate)) {
-        return crate::execution_guarantees::portable::decode(values, *term, &arguments, budget)
+    if let Some(term) = predicates
+        .and_then(|predicates| predicates.get(&predicate))
+        .and_then(|predicate| predicate.condition())
+    {
+        return crate::execution_guarantees::portable::decode(values, term, &arguments, budget)
             .expect("checked predicate terms belong to this semantic value store");
     }
 

@@ -568,6 +568,7 @@ define_profile_query_kinds! {
     GeneratedLifecycle = 1086 => "generated_lifecycle",
     CleanupCompletion = 1087 => "cleanup_completion",
     DestructionBody = 1088 => "destruction_body",
+    ConstantBodyTemplate = 1089 => "constant_body_template",
 }
 
 impl ProfileQueryKind {
@@ -589,6 +590,7 @@ impl ProfileQueryKind {
             CompilationFactKey::DeclaredUnits => Self::DeclaredUnits,
             CompilationFactKey::ConstantInstance(_) => Self::ConstantInstance,
             CompilationFactKey::ConstantCall(_) => Self::ConstantCall,
+            CompilationFactKey::ConstantBodyTemplate(_) => Self::ConstantBodyTemplate,
             CompilationFactKey::ConstantCallCycle(_) => Self::ConstantCallCycle,
             CompilationFactKey::CheckedControlFlow(_) => Self::CheckedControlFlow,
             CompilationFactKey::CheckedPatterns(_) => Self::CheckedPatterns,
@@ -714,6 +716,7 @@ mod tests {
                 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062, 1_063,
                 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075, 1_076,
                 1_077, 1_078, 1_079, 1_080, 1_081, 1_082, 1_083, 1_084, 1_085, 1_086, 1_087, 1_088,
+                1_089,
             ]
         );
     }

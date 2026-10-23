@@ -1107,6 +1107,7 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         RepresentationRole::String
         | RepresentationRole::Range
         | RepresentationRole::RawPointer
+        | RepresentationRole::FunctionPointer
         | RepresentationRole::DevicePointer => MemberRepresentation {
             finite: true,
             plain: false,

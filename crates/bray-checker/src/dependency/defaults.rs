@@ -1,5 +1,5 @@
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
-use bray_bound_tree::{SelectedArgument, SelectedReceiver};
+use bray_bound_tree::SemanticSelection;
 use bray_symbols::{
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
     DependencySubjectRoot,
@@ -8,79 +8,31 @@ use bray_symbols::{
 /// Dependencies retained by a selected call, including inputs whose call-owned storage would escape.
 pub(crate) struct CallResultDependencies {
     pub(crate) template: DependencyContractTemplateData,
-    pub(crate) evaluation_effects: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
-    pub(crate) evaluation_completes: bool,
-    pub(crate) evaluation_preserves_storage: bool,
-    pub(crate) evaluation_reports: DependencyContractTemplateData,
     pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
-}
-
-impl CallResultDependencies {
-    pub(crate) fn immediate_reports(&self, deferred: bool) -> DependencyContractTemplateData {
-        let mut result = self.evaluation_reports.clone();
-
-        if !deferred {
-            for (normal, requirements) in [
-                (true, self.template.completion_reports()),
-                (false, self.template.abnormal_reports()),
-            ] {
-                if let Some(requirements) = requirements {
-                    let previous = if normal {
-                        result.completion_reports()
-                    } else {
-                        result.abnormal_reports()
-                    };
-
-                    let merged = previous
-                        .into_iter()
-                        .flatten()
-                        .chain(requirements)
-                        .cloned()
-                        .collect::<Vec<_>>();
-
-                    result = if normal {
-                        result.with_completion_reports(merged)
-                    } else {
-                        result.with_abnormal_reports(merged)
-                    };
-                }
-            }
-        }
-
-        result
-    }
 }
 
 /// Replaces omitted inputs with their declaration-owned provider dependencies.
 pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    arguments: &[SelectedArgument],
-    receiver: Option<&SelectedReceiver>,
-    instance: Option<bray_symbols::CallableInstanceData>,
+    selection: &SemanticSelection,
     template: &DependencyContractTemplateData,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut defaults = std::collections::BTreeMap::new();
 
-    for argument in arguments {
-        let SelectedArgument::Default {
-            parameter,
-            provider,
-            ..
-        } = argument
-        else {
-            continue;
-        };
+    for input in selection
+        .inputs()
+        .filter(|input| input.default_provider().is_some())
+    {
+        let ordinal = selection
+            .input_ordinal(input.root())
+            .expect("default input has its ordinal");
 
-        let provider = request.default_result_dependencies(
-            bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
-        )?;
+        let provider = super::call::selected_input_template(request, selection, ordinal)?;
 
-        let provider = super::resolved_result_template(request, instance, provider)?;
-
-        defaults.insert(*parameter, provider);
+        defaults.insert(input.root(), provider);
     }
 
-    let mut expanded = expand(request, arguments, receiver, template, &defaults)?;
+    let mut expanded = expand(request, selection, template, &defaults)?;
 
     for (completion, requirements) in [
         (true, template.completion_reports()),
@@ -89,8 +41,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         if let Some(requirements) = requirements {
             let reports = expand(
                 request,
-                arguments,
-                receiver,
+                selection,
                 &DependencyContractTemplateData::new(requirements.iter().cloned()),
                 &defaults,
             )?;
@@ -111,63 +62,17 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    for completion in [true, false] {
-        let mut reports = None::<Vec<DependencyRequirement>>;
-
-        for provider in defaults.values() {
-            let requirements = if completion {
-                provider.completion_reports()
-            } else {
-                provider.abnormal_reports()
-            };
-
-            for requirements in requirements.into_iter().chain(
-                (!completion)
-                    .then(|| provider.completion_reports())
-                    .flatten(),
-            ) {
-                let output = expand(
-                    request,
-                    arguments,
-                    receiver,
-                    &DependencyContractTemplateData::new(requirements.iter().cloned()),
-                    &defaults,
-                )?;
-
-                reports
-                    .get_or_insert_default()
-                    .extend(output.template.requirements().iter().cloned());
-
-                expanded
-                    .escaping_evaluation_inputs
-                    .extend(output.escaping_evaluation_inputs);
-            }
-        }
-
-        if let Some(reports) = reports {
-            expanded.evaluation_reports = if completion {
-                expanded.evaluation_reports.with_completion_reports(reports)
-            } else {
-                expanded.evaluation_reports.with_abnormal_reports(reports)
-            };
-        }
-    }
-
     expanded.escaping_evaluation_inputs.sort();
     expanded.escaping_evaluation_inputs.dedup();
 
     Ok(expanded)
 }
 
-type Defaults = std::collections::BTreeMap<
-    bray_symbols::CallableParameterSymbolId,
-    DependencyContractTemplateData,
->;
+type Defaults = std::collections::BTreeMap<DependencySubjectRoot, DependencyContractTemplateData>;
 
 fn expand<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    arguments: &[SelectedArgument],
-    receiver: Option<&SelectedReceiver>,
+    selection: &SemanticSelection,
     template: &DependencyContractTemplateData,
     defaults: &Defaults,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
@@ -192,14 +97,11 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             let definitions = definitions
                 .iter()
                 .map(|definition| {
-                    expand_witness_input_defaults(
-                        request, arguments, receiver, definition, defaults,
-                    )
+                    expand_witness_input_defaults(request, selection, definition, defaults)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let roots =
-                expand_witness_input_defaults(request, arguments, receiver, &roots, defaults)?;
+            let roots = expand_witness_input_defaults(request, selection, &roots, defaults)?;
 
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
@@ -220,7 +122,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                expand_call_inputs(request, arguments, receiver, &inputs, defaults)?,
+                expand_call_inputs(request, selection, &inputs, defaults)?,
                 output,
             ));
 
@@ -251,37 +153,25 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         if from_default
             && *kind == DependencyRequirementKind::StorageAlive
-            && default_borrows_argument_storage(arguments, receiver, subject, request)?
+            && default_borrows_argument_storage(selection, subject, request)?
         {
             escaping_evaluation_inputs.insert(subject.subject_root());
             continue;
         }
 
-        let default = match subject.subject_root() {
-            DependencySubjectRoot::Parameter(ordinal) => {
-                arguments.iter().find_map(|argument| match argument {
-                    SelectedArgument::Default {
-                        parameter,
-                        ordinal: actual,
-                        ..
-                    } if *actual == ordinal.raw() => Some(*parameter),
-                    _ => None,
-                })
-            }
-            _ => None,
-        };
+        let root = subject.subject_root();
 
-        let Some(parameter) = default else {
+        let Some(default) = defaults.get(&root) else {
             result.push(requirement);
             continue;
         };
 
-        if !visited.insert(parameter) {
+        if !visited.insert(root) {
             continue;
         }
 
         pending.extend(
-            defaults[&parameter]
+            default
                 .requirements()
                 .iter()
                 .cloned()
@@ -289,44 +179,36 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         );
     }
 
-    // Default providers execute when arguments are evaluated, even for a lazy call.
-    let evaluation_effects = bray_symbols::DependencyStorageEffect::normalize(
-        defaults
-            .values()
-            .flat_map(|provider| provider.effects())
-            .cloned(),
-    );
-
-    let evaluation_completes = defaults
-        .values()
-        .all(DependencyContractTemplateData::normal_completion);
+    let omitted_origins = template
+        .borrows()
+        .iter()
+        .filter(|relation| {
+            relation.entry().is_some_and(|entry| {
+                selection
+                    .input_ordinal(entry.subject_root())
+                    .and_then(|ordinal| selection.input(ordinal))
+                    .and_then(|input| input.expression())
+                    .is_none()
+            })
+        })
+        .map(|relation| relation.exit().clone())
+        .collect::<std::collections::BTreeSet<_>>();
 
     Ok(CallResultDependencies {
-        // Default arguments have no caller expression to anchor an exact entry identity.
         template: template.with_requirements(result).with_borrows(
             template
                 .borrows()
                 .iter()
-                .filter(|relation| {
-                    super::result_argument(arguments, receiver, relation.entry().subject_root())
-                        .is_some()
-                })
+                .filter(|relation| !omitted_origins.contains(relation.exit()))
                 .cloned(),
         ),
-        evaluation_effects,
-        evaluation_completes,
-        evaluation_preserves_storage: defaults
-            .values()
-            .all(DependencyContractTemplateData::preserves_storage_on_normal_return),
-        evaluation_reports: DependencyContractTemplateData::new([]),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }
 
 fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    arguments: &[SelectedArgument],
-    receiver: Option<&SelectedReceiver>,
+    selection: &SemanticSelection,
     inputs: &[bray_symbols::DependencyCallInput],
     defaults: &Defaults,
 ) -> Result<Vec<bray_symbols::DependencyCallInput>, CheckerQueryError<C::UpstreamError>> {
@@ -335,20 +217,8 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
         .map(|input| {
             Ok(bray_symbols::DependencyCallInput::new(
                 input.root(),
-                expand_witness_input_defaults(
-                    request,
-                    arguments,
-                    receiver,
-                    input.values(),
-                    defaults,
-                )?,
-                expand_witness_input_defaults(
-                    request,
-                    arguments,
-                    receiver,
-                    input.storage(),
-                    defaults,
-                )?,
+                expand_witness_input_defaults(request, selection, input.values(), defaults)?,
+                expand_witness_input_defaults(request, selection, input.storage(), defaults)?,
             ))
         })
         .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
@@ -356,13 +226,12 @@ fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
 
 fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    arguments: &[SelectedArgument],
-    receiver: Option<&SelectedReceiver>,
+    selection: &SemanticSelection,
     requirements: &[DependencyRequirement],
     defaults: &Defaults,
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(requirements.iter().cloned());
-    let expanded = expand(request, arguments, receiver, &template, defaults)?;
+    let expanded = expand(request, selection, &template, defaults)?;
 
     let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
         DependencyRequirement::direct(
@@ -381,8 +250,7 @@ fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
 }
 
 fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
-    arguments: &[SelectedArgument],
-    receiver: Option<&SelectedReceiver>,
+    selection: &SemanticSelection,
     subject: &bray_symbols::DependencySubject,
     request: CheckerUnitView<'_, C>,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
@@ -392,42 +260,23 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
         return Ok(true);
     }
 
-    let mut ty = match root {
-        DependencySubjectRoot::Parameter(ordinal) => {
-            match arguments.iter().find(|argument| match argument {
-                SelectedArgument::Explicit {
-                    ordinal: actual, ..
-                }
-                | SelectedArgument::Default {
-                    ordinal: actual, ..
-                } => *actual == ordinal.raw(),
-            }) {
-                Some(SelectedArgument::Explicit { conversion, .. }) => conversion.target_type(),
-                Some(SelectedArgument::Default { ty, .. }) => *ty,
-                None => {
-                    panic!(
-                        "Semantic-selection inputs do not describe the requested bound unit or operation category. in default_borrows_argument_storage"
-                    );
-                }
-            }
-        }
-        DependencySubjectRoot::Receiver => {
-            let receiver = receiver.unwrap_or_else(|| {
-                panic!("default_borrows_argument_storage requires borrowed result receiver")
-            });
-
-            if !matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Consuming
-                    | bray_symbols::ReceiverMode::ConsumingMutable
-            ) {
-                return Ok(false);
-            }
-
-            receiver.target_type()
-        }
-        _ => return Ok(false),
+    let Some(input) = selection
+        .input_ordinal(root)
+        .and_then(|ordinal| selection.input(ordinal))
+    else {
+        return Ok(false);
     };
+
+    let mut ty = input.ty(request.semantic_values());
+
+    if let bray_bound_tree::SelectedInput::Receiver(receiver) = input
+        && !matches!(
+            receiver.mode(),
+            bray_symbols::ReceiverMode::Consuming | bray_symbols::ReceiverMode::ConsumingMutable
+        )
+    {
+        return Ok(false);
+    }
 
     for projection in subject.projections() {
         let data = request.semantic_values().type_data(ty);

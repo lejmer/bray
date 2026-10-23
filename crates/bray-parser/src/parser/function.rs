@@ -227,6 +227,31 @@ mod tests {
     };
 
     #[test]
+    fn module_target_gates_on_functions_are_diagnosed() {
+        for source in [
+            r#"
+                module app;
+                @target(true)
+                func invalid() {}
+            "#,
+            r#"
+                module app;
+                @target(false)
+                @test(serial)
+                trusted func invalid() {}
+            "#,
+        ] {
+            let sources = source_store([source]);
+            let parsed = parse_compilation_unit(&sources);
+
+            assert_eq!(
+                parse_diagnostic_kinds(&parsed),
+                vec![DiagnosticKind::SyntaxInvalidDirectiveTarget]
+            );
+        }
+    }
+
+    #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
             "module main; ",

@@ -29,7 +29,6 @@ impl Parser {
         if name.kind() == SyntaxKind::IdentifierToken
             && let Some(text) = self.token_text(&name)
             && let Some(kind) = SyntaxKind::directive_from_name(text)
-            && !kind.is_contribution_gate_directive()
         {
             let source = self.syntax_source();
 

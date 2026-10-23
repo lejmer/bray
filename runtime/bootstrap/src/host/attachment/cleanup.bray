@@ -43,7 +43,7 @@ trusted internal func thread_attachment_mark_main() -> u32
 }
 
 @abi(c)
-trusted internal func thread_attachment_cleanup(pos pointer: RawPointer<AttachmentCleanup>) -> u32
+trusted internal func thread_attachment_cleanup(pos pointer: FunctionPointer<AttachmentCleanup>) -> u32
     requires(trusted core.memory.callable_address_valid<AttachmentCleanup>(pointer = pointer))
     uses(layout_reinterpret)
 {

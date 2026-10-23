@@ -192,6 +192,7 @@ fn validate_declaration_order(
     Ok(())
 }
 
+// rust-style: allow(function-too-large, reason = "one template boundary shares graph bounds and callable context while validating the complete declared template")
 fn validate_template(
     semantics: &InterfaceSemantics,
     template: &InterfaceCheckedTemplate,
@@ -200,7 +201,38 @@ fn validate_template(
     symbol_count: usize,
     dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
+    if template.behavior().execution().may_unwind()
+        && template
+            .behavior()
+            .execution()
+            .properties()
+            .contains(&bray_symbols::ExecutionProperty::Total)
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    if template.behavior().execution().constant_eligible()
+        && (!template.behavior().effects().is_empty()
+            || !template.behavior().capabilities().is_empty()
+            || !template.behavior().trusted_obligations().is_empty()
+            || !template.behavior().execution_requirements().is_empty()
+            || template.behavior().current_run_cancellation()
+                != bray_symbols::CurrentRunCancellation::NotEntered
+            || template.behavior().execution().properties()
+                != [
+                    bray_symbols::ExecutionProperty::Pure,
+                    bray_symbols::ExecutionProperty::Total,
+                ])
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
     if template.nodes().is_empty()
+        || !is_strictly_sorted(template.behavior().execution().properties())
         || !is_strictly_sorted(template.behavior().effects())
         || !is_strictly_sorted(template.behavior().capabilities())
         || !is_strictly_sorted(template.behavior().trusted_obligations())
@@ -223,6 +255,21 @@ fn validate_template(
         }
 
         validate_index(input.ty().to_index(), semantics.types.len())?;
+
+        if let Some(output) = input.state_output() {
+            if template.kind() != bray_bound_tree::CheckedTemplateKind::ConstantCallableBody
+                || !matches!(
+                    input.kind(),
+                    InterfaceCheckedTemplateInputKind::Receiver
+                        | InterfaceCheckedTemplateInputKind::Parameter(_)
+                )
+                || node_type(template, output) != Some(input.ty())
+            {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+        }
 
         match input.kind() {
             InterfaceCheckedTemplateInputKind::GenericType(parameter) => {
@@ -258,12 +305,68 @@ fn validate_template(
         dependency_count,
     };
 
-    for (node_index, node) in template.nodes().iter().enumerate() {
-        validate_index(node.ty().to_index(), semantics.types.len())?;
-        validate_operation(context, node, node_index)?;
-    }
+    let mut unbound = None::<Vec<BTreeSet<bray_bound_tree::CheckedTemplateNodeId>>>;
 
-    let mut previous_initializer = None;
+    for (node_index, node) in template.nodes().iter().enumerate() {
+        validate_node_type(semantics, node)?;
+        validate_operation(context, node, node_index)?;
+
+        if matches!(
+            node.operation(),
+            InterfaceCheckedTemplateOperation::ArrayElement { .. }
+                | InterfaceCheckedTemplateOperation::LoopValue { .. }
+        ) && unbound.is_none()
+        {
+            unbound = Some(vec![BTreeSet::new(); node_index]);
+        }
+
+        let Some(unbound) = &mut unbound else {
+            continue;
+        };
+
+        let mut elements = BTreeSet::new();
+
+        node.operation()
+            .try_for_each_node_reference::<InterfaceValidationError>(|reference| {
+                let index = checked_index(compact_index(reference.raw()), unbound.len())?;
+
+                elements.extend(unbound[index].iter().copied());
+
+                Ok(())
+            })?;
+
+        match node.operation() {
+            InterfaceCheckedTemplateOperation::ArrayElement { .. }
+            | InterfaceCheckedTemplateOperation::LoopValue { .. } => {
+                elements.insert(bray_bound_tree::CheckedTemplateNodeId::new(
+                    u32::try_from(node_index).expect("validated template node count fits its IDs"),
+                ));
+            }
+            InterfaceCheckedTemplateOperation::ArrayTransform { element, .. } => {
+                elements.remove(element);
+            }
+            InterfaceCheckedTemplateOperation::Loop { bindings, .. } => {
+                for binding in bindings.iter() {
+                    elements.remove(binding);
+                }
+            }
+            InterfaceCheckedTemplateOperation::Temporary(temporary) => {
+                let initializer = template.temporaries()
+                    [usize::try_from(temporary.raw()).expect("validated temporary ID fits host")]
+                .initializer();
+
+                elements.extend(
+                    unbound[usize::try_from(initializer.raw())
+                        .expect("validated initializer ID fits host")]
+                    .iter()
+                    .copied(),
+                );
+            }
+            _ => {}
+        }
+
+        unbound.push(elements);
+    }
 
     for temporary in template.temporaries() {
         let initializer = checked_index(
@@ -271,20 +374,7 @@ fn validate_template(
             template.nodes().len(),
         )?;
 
-        if previous_initializer.is_some_and(|previous| initializer < previous) {
-            return Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template,
-            ));
-        }
-
-        previous_initializer = Some(initializer);
-
         validate_index(temporary.ty().to_index(), semantics.types.len())?;
-
-        validate_index(
-            temporary.dependency_contract().to_index(),
-            semantics.dependency_contracts.len(),
-        )?;
 
         if template.nodes()[initializer].ty() != temporary.ty() {
             return Err(crate::semantic::codec::invalid_value(
@@ -293,10 +383,27 @@ fn validate_template(
         }
     }
 
-    validate_index(
+    let result = checked_index(
         compact_index(template.result().raw()),
         template.nodes().len(),
     )?;
+
+    if unbound.is_some_and(|unbound| {
+        !unbound[result].is_empty()
+            || template
+                .inputs()
+                .iter()
+                .filter_map(|input| input.state_output())
+                .any(|output| {
+                    !unbound
+                        [usize::try_from(output.raw()).expect("validated state output fits host")]
+                    .is_empty()
+                })
+    }) {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
 
     validate_index(
         template.behavior().dependency_contract().to_index(),
@@ -313,6 +420,10 @@ fn validate_template(
         .result_dependencies()
         .to_index()
         .expect("validated template result dependency index")];
+
+    if let Some(term) = result_dependencies.observed_result {
+        semantics.validate_execution_term(term, template.inputs().len(), false, surface)?;
+    }
 
     if let Some(input) = result_dependencies.returned_input {
         semantics.validate_returned_input(input, template.inputs().len(), surface)?;
@@ -345,6 +456,26 @@ fn validate_template(
     Ok(())
 }
 
+fn validate_node_type(
+    semantics: &InterfaceSemantics,
+    node: &InterfaceCheckedTemplateNode,
+) -> Result<(), InterfaceValidationError> {
+    validate_index(node.ty().to_index(), semantics.types.len())?;
+
+    if node.unsigned_integer_bits().is_some()
+        && unborrowed_type(semantics, node.ty())
+            .and_then(type_representation)
+            .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+            .is_none()
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_operation(
     context: TemplateValidationContext<'_>,
     node: &InterfaceCheckedTemplateNode,
@@ -352,7 +483,7 @@ fn validate_operation(
 ) -> Result<(), InterfaceValidationError> {
     validate_operation_references(context, node.operation(), node_index)?;
 
-    validate_operation_type(context.semantics, context.template, node)
+    validate_operation_type(context.semantics, context.template, node, node_index)
 }
 
 fn validate_operation_references(
@@ -366,6 +497,7 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Input(input) => {
             checked_index(compact_index(input.raw()), context.template.inputs().len())?;
         }
+        InterfaceCheckedTemplateOperation::Unreachable => {}
         InterfaceCheckedTemplateOperation::Constant { term, .. } => {
             validate_index(term.to_index(), context.semantics.constant_terms.len())?;
         }
@@ -388,6 +520,7 @@ fn validate_operation_references(
             dispatch,
             arguments,
             ordinals,
+            state_inputs,
         } => {
             let mut ordered = ordinals.to_vec();
 
@@ -399,6 +532,17 @@ fn validate_operation_references(
                     .enumerate()
                     .any(|(index, ordinal)| usize::try_from(*ordinal).ok() != Some(index))
             {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+
+            if state_inputs.as_ref().is_some_and(|inputs| {
+                !is_strictly_sorted(inputs)
+                    || inputs
+                        .iter()
+                        .any(|ordinal| operation.state_argument(*ordinal).is_none())
+            }) {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Template,
                 ));
@@ -418,62 +562,50 @@ fn validate_operation_references(
             validate_index(target.to_index(), context.semantics.types.len())?;
         }
         InterfaceCheckedTemplateOperation::VariantTest { subject, variant } => {
-            if validate_template_reference(context, variant)? != SymbolKind::UnionVariant {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            }
-
-            let mut subject_type = node_type(context.template, *subject);
-            let mut owner = None;
-
-            for _ in 0..=context.semantics.types.len() {
-                match subject_type.and_then(|ty| type_at(context.semantics, ty)) {
-                    Some(InterfaceType::Borrow { target, .. }) => subject_type = Some(*target),
-                    Some(InterfaceType::Named { definition, .. }) => {
-                        owner = Some(definition);
-                        break;
-                    }
-                    _ => break,
-                }
-            }
-
-            let owned = match (variant, owner) {
-                (InterfaceTemplateReference::Symbol(variant), Some(owner)) => {
-                    super::surface::reference_has_owner(variant, owner, context.surface)?
-                }
-                (InterfaceTemplateReference::Support(_), Some(owner))
-                    if !matches!(owner, crate::InterfaceSymbolReference::CompilerKnown(_)) =>
-                {
-                    template_reference_key(context, variant)?.owner()
-                        == Some(reference_key(owner, context.surface)?)
-                }
-                _ => false,
-            };
-
-            if !owned {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            }
+            validate_variant_owner(
+                context,
+                variant,
+                node_type(context.template, *subject)
+                    .expect("prior checked subject retains its type"),
+            )?;
         }
         InterfaceCheckedTemplateOperation::Project { member, .. } => {
             validate_template_reference(context, member)?;
         }
-        InterfaceCheckedTemplateOperation::Product(fields) => {
-            let Some(InterfaceType::Named { definition, .. }) =
-                type_at(context.semantics, context.template.nodes()[node_index].ty())
-            else {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
+        InterfaceCheckedTemplateOperation::Construct { variant, fields } => {
+            let ty = context.template.nodes()[node_index].ty();
+
+            let (owner, kind) = if let Some(variant) = variant {
+                validate_variant_owner(context, variant, ty)?;
+
+                (
+                    template_reference_key(context, variant)?,
+                    SymbolKind::UnionPayloadField,
+                )
+            } else {
+                let Some(InterfaceType::Named { definition, .. }) = type_at(context.semantics, ty)
+                else {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
+                };
+
+                if validate_symbol_kind(definition, context.surface)? != SymbolKind::Struct {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
+                }
+
+                (
+                    reference_key(definition, context.surface)?,
+                    SymbolKind::StructField,
+                )
             };
 
-            let owner = reference_key(definition, context.surface)?;
             let mut seen = std::collections::BTreeSet::new();
 
             for field in fields.iter() {
-                if validate_template_reference(context, field.field())? != SymbolKind::StructField
+                if validate_template_reference(context, field.field())? != kind
                     || template_reference_key(context, field.field())?.owner() != Some(owner)
                     || !seen.insert(field.field())
                 {
@@ -483,12 +615,23 @@ fn validate_operation_references(
                 }
             }
         }
-        InterfaceCheckedTemplateOperation::Unary { .. }
+        InterfaceCheckedTemplateOperation::StateAfter { .. }
+        | InterfaceCheckedTemplateOperation::LoopValue { .. }
+        | InterfaceCheckedTemplateOperation::Loop { .. }
+        | InterfaceCheckedTemplateOperation::Update { .. }
+        | InterfaceCheckedTemplateOperation::Snapshot { .. }
+        | InterfaceCheckedTemplateOperation::Sequence { .. }
+        | InterfaceCheckedTemplateOperation::ArrayElement { .. }
+        | InterfaceCheckedTemplateOperation::ArrayTransform { .. }
+        | InterfaceCheckedTemplateOperation::Unary { .. }
+        | InterfaceCheckedTemplateOperation::MachineUnary { .. }
         | InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::MachineBinary { .. }
         | InterfaceCheckedTemplateOperation::Borrow { .. }
         | InterfaceCheckedTemplateOperation::Tuple(_)
         | InterfaceCheckedTemplateOperation::Array(_)
         | InterfaceCheckedTemplateOperation::TupleElement { .. }
+        | InterfaceCheckedTemplateOperation::NullableValue { .. }
         | InterfaceCheckedTemplateOperation::Conditional { .. }
         | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
@@ -506,21 +649,143 @@ fn validate_operation_references(
     Ok(())
 }
 
+fn validate_variant_owner(
+    context: TemplateValidationContext<'_>,
+    variant: &InterfaceTemplateReference,
+    subject_type: crate::InterfaceTypeId,
+) -> Result<(), InterfaceValidationError> {
+    if validate_template_reference(context, variant)? != SymbolKind::UnionVariant {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    let owner = match unborrowed_type(context.semantics, subject_type) {
+        Some(InterfaceType::Named { definition, .. }) => Some(definition),
+        _ => None,
+    };
+
+    let owned = match (variant, owner) {
+        (InterfaceTemplateReference::Symbol(variant), Some(owner)) => {
+            super::surface::reference_has_owner(variant, owner, context.surface)?
+        }
+        (InterfaceTemplateReference::Support(_), Some(owner))
+            if !matches!(owner, crate::InterfaceSymbolReference::CompilerKnown(_)) =>
+        {
+            template_reference_key(context, variant)?.owner()
+                == Some(reference_key(owner, context.surface)?)
+        }
+        _ => false,
+    };
+
+    if !owned {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    Ok(())
+}
+
+// rust-style: allow(function-too-large, reason = "one exhaustive operation type dispatch checks the closed template vocabulary against the same graph type environment")
 fn validate_operation_type(
     semantics: &InterfaceSemantics,
     template: &InterfaceCheckedTemplate,
     node: &InterfaceCheckedTemplateNode,
+    node_index: usize,
 ) -> Result<(), InterfaceValidationError> {
     let valid = match node.operation() {
+        InterfaceCheckedTemplateOperation::Unreachable => true,
+        InterfaceCheckedTemplateOperation::LoopValue { initial } => {
+            node_type(template, *initial) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::Loop {
+            start,
+            bindings,
+            condition,
+            body,
+            next,
+            completed,
+            outputs,
+        } => {
+            start.raw() < u32::try_from(node_index).expect("validated node fits ID")
+                && bindings.len() == next.len()
+                && bindings.len() == outputs.len()
+                && bindings.iter().copied().collect::<BTreeSet<_>>().len() == bindings.len()
+                && node_type(template, *completed) == Some(node.ty())
+                && representation_type(
+                    semantics,
+                    node_type(template, *condition),
+                    bray_compiler_known::RepresentationRole::ScalarBool,
+                )
+                && (!matches!(body, bray_bound_tree::CheckedTemplateLoopBody::Return(_))
+                    || (node_type(template, body.node()) == Some(node.ty())
+                        && matches!(
+                            type_at(semantics, node.ty()),
+                            Some(InterfaceType::Nullable(_))
+                        )))
+                && bindings.iter().zip(next.iter()).zip(outputs.iter()).all(
+                    |((binding, next), output)| {
+                        binding.raw() >= start.raw()
+                            && matches!(
+                                template.nodes()[usize::try_from(binding.raw())
+                                    .expect("validated binder fits host")]
+                                .operation(),
+                                InterfaceCheckedTemplateOperation::LoopValue { .. }
+                            )
+                            && node_type(template, *binding) == node_type(template, *next)
+                            && node_type(template, *binding) == node_type(template, *output)
+                    },
+                )
+        }
+        InterfaceCheckedTemplateOperation::StateAfter { operation, ordinal } => {
+            template
+                .nodes()
+                .get(usize::try_from(operation.raw()).expect("validated operation fits host"))
+                .and_then(|operation| operation.operation().state_output_nodes(*ordinal))
+                .and_then(|(left, right)| left.or(right))
+                .and_then(|value| node_type(template, value))
+                == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::Update {
+            subject,
+            base,
+            component,
+            value,
+        } => {
+            node_type(template, *subject) == Some(node.ty())
+                && node_type(template, *base) == Some(node.ty())
+                && node_type(template, *component) == node_type(template, *value)
+                && InterfaceCheckedTemplateOperation::is_inline_component(*base, *component, |id| {
+                    let node = template.nodes().get(usize::try_from(id.raw()).ok()?)?;
+                    let operation = node.operation();
+                    let parent = operation.inline_projection_subject()?;
+
+                    if matches!(
+                        type_at(semantics, node_type(template, parent)?),
+                        Some(InterfaceType::Borrow { .. } | InterfaceType::Slice(_))
+                    ) {
+                        return None;
+                    }
+
+                    Some(operation)
+                })
+        }
+        InterfaceCheckedTemplateOperation::Snapshot { value }
+        | InterfaceCheckedTemplateOperation::Sequence { value, .. } => {
+            node_type(template, *value) == Some(node.ty())
+        }
         InterfaceCheckedTemplateOperation::Input(input) => {
             let input_index = checked_index(compact_index(input.raw()), template.inputs().len())?;
 
             template.inputs()[input_index].ty() == node.ty()
         }
-        InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
+        InterfaceCheckedTemplateOperation::Unary { operand, .. }
+        | InterfaceCheckedTemplateOperation::MachineUnary { operand, .. } => {
             node_type(template, *operand) == Some(node.ty())
         }
         InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::MachineBinary { .. }
         | InterfaceCheckedTemplateOperation::VariantTest { .. } => true,
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
             let Some(InterfaceType::Borrow {
@@ -559,17 +824,40 @@ fn validate_operation_type(
         }
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
-            let Some(InterfaceType::Tuple(types)) = type_at(semantics, node.ty()) else {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            };
+            let types = tuple_elements(semantics, node.ty());
 
-            elements.len() == types.len()
-                && elements
-                    .iter()
-                    .zip(types.iter())
-                    .all(|(element, ty)| node_type(template, *element) == Some(*ty))
+            types.is_some_and(|types| {
+                elements.len() == types.len()
+                    && elements
+                        .iter()
+                        .zip(types.iter())
+                        .all(|(element, ty)| node_type(template, *element) == Some(*ty))
+            })
+        }
+        InterfaceCheckedTemplateOperation::ArrayElement { subject } => {
+            matches!(node_type(template, *subject).and_then(|ty| unborrowed_type(semantics, ty)),
+                Some(InterfaceType::Array { element, .. }) if *element == node.ty())
+        }
+        InterfaceCheckedTemplateOperation::ArrayTransform {
+            subject,
+            element,
+            value,
+        } => {
+            let source =
+                node_type(template, *subject).and_then(|ty| unborrowed_type(semantics, ty));
+
+            let target = type_at(semantics, node.ty());
+
+            let binding = &template.nodes()
+                [usize::try_from(element.raw()).expect("validated transform element fits host")];
+
+            matches!((source, target),
+                (Some(InterfaceType::Array { length: source, .. }),
+                 Some(InterfaceType::Array { element: target, length }))
+                    if source == length && node_type(template, *value) == Some(*target))
+                && matches!(binding.operation(), InterfaceCheckedTemplateOperation::ArrayElement { subject: input }
+                    if input == subject)
+                && element.raw() <= value.raw()
         }
         InterfaceCheckedTemplateOperation::Array(elements) => {
             let Some(InterfaceType::Array { element, .. }) = type_at(semantics, node.ty()) else {
@@ -582,7 +870,7 @@ fn validate_operation_type(
                 .iter()
                 .all(|node| node_type(template, *node) == Some(*element))
         }
-        InterfaceCheckedTemplateOperation::Product(_) => {
+        InterfaceCheckedTemplateOperation::Construct { .. } => {
             matches!(
                 type_at(semantics, node.ty()),
                 Some(InterfaceType::Named { .. })
@@ -602,16 +890,42 @@ fn validate_operation_type(
                 if indexed_element_type(semantics, template, *subject) == Some(*element))
         }
         InterfaceCheckedTemplateOperation::Conditional {
+            condition,
             when_true,
             when_false,
-            ..
+            state_outputs,
         } => {
-            node_type(template, *when_true) == Some(node.ty())
+            representation_type(
+                semantics,
+                node_type(template, *condition),
+                bray_compiler_known::RepresentationRole::ScalarBool,
+            ) && node_type(template, *when_true) == Some(node.ty())
                 && node_type(template, *when_false) == Some(node.ty())
+                && state_outputs.iter().all(|(left, right)| {
+                    let Some(source) = left.or(*right) else {
+                        return false;
+                    };
+
+                    let expected = node_type(template, source);
+
+                    expected.is_some()
+                        && [*left, *right]
+                            .into_iter()
+                            .flatten()
+                            .all(|source| node_type(template, source) == expected)
+                })
         }
         InterfaceCheckedTemplateOperation::ShortCircuit { left, right, .. } => {
-            node_type(template, *left) == Some(node.ty())
+            representation_type(
+                semantics,
+                Some(node.ty()),
+                bray_compiler_known::RepresentationRole::ScalarBool,
+            ) && node_type(template, *left) == Some(node.ty())
                 && node_type(template, *right) == Some(node.ty())
+        }
+        InterfaceCheckedTemplateOperation::NullableValue { subject } => {
+            matches!(node_type(template, *subject).and_then(|ty| unborrowed_type(semantics, ty)),
+                Some(InterfaceType::Nullable(value)) if *value == node.ty())
         }
         InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
             let mut subject_type = node_type(template, *subject);
@@ -619,20 +933,20 @@ fn validate_operation_type(
             let mut matches_element = false;
 
             for _ in 0..=semantics.types.len() {
-                match subject_type.and_then(|ty| type_at(semantics, ty)) {
-                    Some(
-                        InterfaceType::Borrow { target, .. }
-                        | InterfaceType::OwnedIndirection { target, .. },
-                    ) => {
+                match subject_type.and_then(|ty| unborrowed_type(semantics, ty)) {
+                    Some(InterfaceType::OwnedIndirection { target, .. }) => {
                         subject_type = Some(*target);
                     }
-                    Some(InterfaceType::Tuple(elements)) => {
-                        matches_element = index.to_index().and_then(|index| elements.get(index))
-                            == Some(&node.ty());
+                    _ => {
+                        matches_element = subject_type
+                            .and_then(|ty| tuple_elements(semantics, ty))
+                            .is_some_and(|elements| {
+                                index.to_index().and_then(|index| elements.get(index))
+                                    == Some(&node.ty())
+                            });
 
                         break;
                     }
-                    _ => break,
                 }
             }
 
@@ -721,8 +1035,15 @@ fn validate_call_references(
             SymbolKind::Predicate
                 | SymbolKind::TraitPredicateMember
                 | SymbolKind::TraitPredicateFulfillment
+                | SymbolKind::CallableParameterDefaultProvider
         )
     {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    if declaration_kind == SymbolKind::CallableParameterDefaultProvider && dispatch.is_some() {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Template,
         ));
@@ -748,9 +1069,8 @@ fn indexed_element_type(
     let mut ty = node_type(template, subject)?;
 
     loop {
-        match type_at(semantics, ty)? {
-            InterfaceType::Borrow { target, .. }
-            | InterfaceType::OwnedIndirection { target, .. } => ty = *target,
+        match unborrowed_type(semantics, ty)? {
+            InterfaceType::OwnedIndirection { target, .. } => ty = *target,
             InterfaceType::Array { element, .. } | InterfaceType::Slice(element) => {
                 return Some(*element);
             }
@@ -877,6 +1197,48 @@ fn node_type(
         .map(|node| node.ty())
 }
 
+fn unborrowed_type(
+    semantics: &InterfaceSemantics,
+    mut ty: crate::InterfaceTypeId,
+) -> Option<&InterfaceType> {
+    for _ in 0..=semantics.types.len() {
+        match type_at(semantics, ty)? {
+            InterfaceType::Borrow { target, .. } => ty = *target,
+            value => return Some(value),
+        }
+    }
+
+    None
+}
+
+fn representation_type(
+    semantics: &InterfaceSemantics,
+    ty: Option<crate::InterfaceTypeId>,
+    expected: bray_compiler_known::RepresentationRole,
+) -> bool {
+    ty.and_then(|ty| type_at(semantics, ty))
+        .and_then(type_representation)
+        == Some(expected)
+}
+
+fn type_representation(ty: &InterfaceType) -> Option<bray_compiler_known::RepresentationRole> {
+    let InterfaceType::Named {
+        definition: crate::InterfaceSymbolReference::CompilerKnown(key),
+        ..
+    } = ty
+    else {
+        return None;
+    };
+
+    let bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. } = key.key().data() else {
+        return None;
+    };
+
+    bray_compiler_known::COMPILER_KNOWN_CATALOG
+        .compiler_known_declaration_by_key(key)
+        .and_then(|declaration| declaration.representation_role())
+}
+
 fn type_at(semantics: &InterfaceSemantics, ty: crate::InterfaceTypeId) -> Option<&InterfaceType> {
     semantics.types.get(ty.to_index()?)
 }
@@ -890,4 +1252,33 @@ fn support_index(
 
 fn compact_index(raw: u32) -> Option<usize> {
     usize::try_from(raw).ok()
+}
+
+fn tuple_elements(
+    semantics: &InterfaceSemantics,
+    ty: crate::InterfaceTypeId,
+) -> Option<std::borrow::Cow<'_, [crate::InterfaceTypeId]>> {
+    match unborrowed_type(semantics, ty)? {
+        InterfaceType::Tuple(elements) => Some(std::borrow::Cow::Borrowed(elements)),
+        InterfaceType::Named { substitution, .. }
+            if representation_type(
+                semantics,
+                Some(ty),
+                bray_compiler_known::RepresentationRole::Range,
+            ) =>
+        {
+            let substitution = semantics.substitutions.get(substitution.to_index()?)?;
+
+            let [binding] = substitution.bindings.as_ref() else {
+                return None;
+            };
+
+            let crate::InterfaceGenericArgument::Type(element) = binding.argument else {
+                return None;
+            };
+
+            Some(std::borrow::Cow::Owned(vec![element, element]))
+        }
+        _ => None,
+    }
 }

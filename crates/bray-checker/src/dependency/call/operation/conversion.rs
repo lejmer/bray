@@ -7,7 +7,7 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
-pub(super) fn conversion_dependencies<C: CheckerRequestContext + ?Sized>(
+pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     conversion: &SelectedConversion,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
@@ -102,13 +102,42 @@ pub(super) fn conversion_dependencies<C: CheckerRequestContext + ?Sized>(
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {
-            Ok(
-                DependencyContractTemplateData::new([DependencyRequirement::direct(
-                    DependencySubject::root(DependencySubjectRoot::Receiver),
-                    DependencyRequirementKind::ValueDependencies,
-                )])
-                .with_effects([]),
-            )
+            let mut result = DependencyContractTemplateData::new([DependencyRequirement::direct(
+                DependencySubject::root(DependencySubjectRoot::Receiver),
+                DependencyRequirementKind::ValueDependencies,
+            )])
+            .with_effects([]);
+
+            if matches!(
+                conversion.target(),
+                ConversionTarget::Identity
+                    | ConversionTarget::CallableContract
+                    | ConversionTarget::NullablePresent
+            ) {
+                let values = request.semantic_values();
+
+                let input = values
+                    .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(
+                        SymbolOrdinal::new(0),
+                    ))
+                    .expect("canonical conversion input belongs to the checked semantic store");
+
+                let input = if matches!(conversion.target(), ConversionTarget::NullablePresent) {
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(
+                            input,
+                        ))
+                        .expect(
+                            "canonical nullable conversion belongs to the checked semantic store",
+                        )
+                } else {
+                    input
+                };
+
+                result = result.with_returned_input(Some(input));
+            }
+
+            Ok(result)
         }
     }
 }
@@ -167,6 +196,7 @@ fn project_effect(
             .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind)),
         DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
+        | DependencyStorageEffect::Ambient
         | DependencyStorageEffect::Unknown
         | DependencyStorageEffect::Cleanup(_) => effect.clone(),
     }

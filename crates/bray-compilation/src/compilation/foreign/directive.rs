@@ -25,17 +25,24 @@ use crate::compilation::substitution::named_type;
 use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
+pub(in crate::compilation) fn foreign_call_capability(
+    compilation: &Compilation,
+) -> Option<TrustedCapabilitySymbolId> {
+    let key = CompilerKnownDeclarationKey::try_new("ForeignCall")
+        .expect("compiler-known foreign call key is valid");
+
+    compilation
+        .available_compiler_known_symbols()
+        .declaration_symbol(&key)
+}
+
 pub(super) fn validate_foreign_import_requirements(
     compilation: &Compilation,
     anchor: bray_declarations::SyntaxAnchor,
     contracts: &CallableContractSet,
     diagnostics: &mut DiagnosticBag,
 ) {
-    let foreign_call = CompilerKnownDeclarationKey::try_new("ForeignCall").and_then(|key| {
-        compilation
-            .available_compiler_known_symbols()
-            .declaration_symbol::<TrustedCapabilitySymbolId>(&key)
-    });
+    let foreign_call = foreign_call_capability(compilation);
 
     let has_foreign_call = foreign_call.is_some_and(|foreign_call| {
         contract_phases(contracts).any(|phase| {

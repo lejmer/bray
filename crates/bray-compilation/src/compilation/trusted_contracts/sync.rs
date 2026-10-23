@@ -166,9 +166,15 @@ fn production_sync_compilation_for_target(
 ) -> Compilation {
     let sources = [
         include_str!("../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../standard-library/std/src/sync.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../standard-library/std/src/sync/tickets.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
         include_str!("../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
@@ -1061,6 +1067,44 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
     }
 }
 
+fn body_belongs_to(
+    compilation: &Compilation,
+    key: &bray_bound_tree::BoundUnitKey,
+    modules: &[&[&str]],
+    types: &[&str],
+) -> bool {
+    let symbols = compilation.symbol_graph().unwrap();
+
+    let mut symbol = symbols
+        .symbol_for_key(key.declared_owner())
+        .expect("declared body retains its symbol");
+
+    let module = symbols
+        .containing_module(symbol)
+        .expect("declared body belongs to its module");
+
+    if modules
+        .iter()
+        .any(|path| module.path().segments().eq(path.iter().copied()))
+    {
+        return true;
+    }
+
+    while let Some(owner) = symbols.containing_symbol(symbol) {
+        if matches!(owner, bray_symbols::AnySymbolId::Struct(_))
+            && symbols
+                .member_name(owner)
+                .is_some_and(|name| types.contains(&name.as_str()))
+        {
+            return true;
+        }
+
+        symbol = owner;
+    }
+
+    false
+}
+
 #[test]
 fn production_lock_declarations_check_their_own_bodies() {
     let compilation = production_sync_compilation(
@@ -1074,7 +1118,24 @@ using core.target;
 
     for key in compilation.declared_unit_keys_for_test().unwrap() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
-            || !matches!(key.source().syntax().source_id().raw(), 4..=6 | 8..=10 | 28..=32)
+            || !body_belongs_to(
+                &compilation,
+                &key,
+                &[
+                    &["std", "sync", "spin_lock"],
+                    &["std", "sync", "mutex"],
+                    &["std", "sync", "rw_lock"],
+                ],
+                &[
+                    "SpinLock",
+                    "SpinLockGuard",
+                    "Mutex",
+                    "MutexGuard",
+                    "RwLock",
+                    "RwLockReadGuard",
+                    "RwLockWriteGuard",
+                ],
+            )
         {
             continue;
         }
@@ -1114,9 +1175,10 @@ fn consuming_guard_release_keeps_its_destructors_reference_effects() {
         .type_callable_members()
         .iter()
         .find(|member| {
-            member
-                .syntax_anchor()
-                .is_some_and(|anchor| anchor.source_id().raw() == 5)
+            symbols
+                .containing_symbol(member.id().into())
+                .and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| name.as_str() == "SpinLockGuard")
                 && symbols
                     .member_name(member.id().into())
                     .is_some_and(|name| name.as_str() == "unlock")
@@ -1191,9 +1253,26 @@ using core.target;
             continue;
         }
 
-        let source = key.source().syntax().source_id().raw();
-
-        if !matches!(source, 4..=6 | 8..=10 | 28..=32 | 38..=39) {
+        if !body_belongs_to(
+            &compilation,
+            &key,
+            &[
+                &["std", "sync", "spin_lock"],
+                &["std", "sync", "mutex"],
+                &["std", "sync", "rw_lock"],
+                &["std", "sync", "condition"],
+            ],
+            &[
+                "SpinLock",
+                "SpinLockGuard",
+                "Mutex",
+                "MutexGuard",
+                "RwLock",
+                "RwLockReadGuard",
+                "RwLockWriteGuard",
+                "ConditionVariable",
+            ],
+        ) {
             continue;
         }
 
@@ -1328,8 +1407,8 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     assert_eq!(
         template.borrows(),
         &[bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(1)
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             bray_symbols::DependencyReferenceKind::Borrow,
@@ -1346,9 +1425,10 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         .type_callable_members()
         .iter()
         .find(|member| {
-            member
-                .syntax_anchor()
-                .is_some_and(|anchor| anchor.source_id().raw() == 5)
+            symbols
+                .containing_symbol(member.id().into())
+                .and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| name.as_str() == "SpinLockGuard")
                 && symbols
                     .member_name(member.id().into())
                     .is_some_and(|name| name.as_str() == "get")
@@ -1384,11 +1464,16 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         });
 
     assert_eq!(
-        relation.entry().subject_root(),
+        relation.entry().expect("input origin").subject_root(),
         bray_symbols::DependencySubjectRoot::Receiver
     );
 
-    assert_eq!(relation.entry().projections().len(), 1, "{relation:#?}");
+    assert_eq!(
+        relation.entry().expect("input origin").projections().len(),
+        1,
+        "{relation:#?}"
+    );
+
     assert_eq!(relation.target_projections().len(), 4, "{relation:#?}");
 
     assert_eq!(
@@ -1968,6 +2053,8 @@ fn production_spin_lock_rejects_detached_authority() {
             r#"
             module app;
             using internal std.sync;
+            using std.memory;
+            using core.atomic;
             func production_probe() {{
                 let lock = std.sync.SpinLock<u32>(7);
                 {body}
@@ -2052,7 +2139,12 @@ fn native_atomic_word_declarations_check_for_every_target() {
 
         for key in compilation.declared_unit_keys_for_test().unwrap() {
             if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
-                || !matches!(key.source().syntax().source_id().raw(), 35..=37)
+                || !body_belongs_to(
+                    &compilation,
+                    &key,
+                    &[&["bray", "runtime", "bootstrap", "atomic"]],
+                    &[],
+                )
             {
                 continue;
             }
@@ -2206,7 +2298,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
             func observe_marker(pos value: &Marker) requires(trusted held(value)) executes(pure, total) {{}}
             func observe_word(pos value: &core.atomic.Atomic<u32>) requires(trusted ready(value)) executes(pure, total) {{}}
             func observe_scalar(pos value: &u32) requires(trusted unchanged(value)) executes(pure, total) {{}}
-            trusted func production_probe(pos pointer: RawPointer<core.atomic.Atomic<u32>>, pos marker: &Marker,
+            trusted func production_probe(pos pointer: DataPointer<core.atomic.Atomic<u32>>, pos marker: &Marker,
                 pos word: &core.atomic.Atomic<u32>, pos scalar: &u32)
                 requires(trusted held(marker), trusted ready(word), trusted unchanged(scalar),
                     trusted core.memory.valid_read<core.atomic.Atomic<u32>>(pointer = pointer, count = 1),
@@ -2264,10 +2356,10 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
                 uses(raw_memory, unchecked_alias) {{
                 return trusted std.memory.borrow_from<u32, Anchor>(owner, std.memory.address_of<u32>(payload));
             }}
-            trusted func address_view(pos owner: &u32) -> RawPointer<u32>
+            trusted func address_view(pos owner: &u32) -> DataPointer<u32>
                 ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
                 executes(pure, total) {{ return std.memory.address_of<u32>(owner); }}
-            func observe(pos pointer: RawPointer<u32>)
+            func observe(pos pointer: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 executes(pure, total) {{}}
             func production_probe(pos payload: &u32) {{
@@ -2434,7 +2526,12 @@ fn production_once_declarations_check_their_own_bodies() {
 
     for key in application.declared_unit_keys_for_test().unwrap() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
-            || !matches!(key.source().syntax().source_id().raw(), 40..=44)
+            || !body_belongs_to(
+                &application,
+                &key,
+                &[&["std", "sync", "once"]],
+                &["Once", "Lazy"],
+            )
         {
             continue;
         }
@@ -2803,7 +2900,16 @@ fn static_once_keeps_initializer_authority() {
         module app;
 
         using std.sync;
-        static CELL: std.sync.Once<u32> = std.sync.Once<u32>.empty();
+        static CELL: std.sync.Once<u32> =
+        {
+            let prepared = std.sync.Once<u32>.prepare();
+
+            yield
+            {
+                instance = prepared.0,
+                storage = prepared.1,
+            };
+        };
         func caller(pos callback: func() -> u32) requires(blocking_execution()) {
             let value = CELL.get_or_init(callback);
         }
@@ -2825,6 +2931,7 @@ fn static_once_keeps_initializer_authority() {
 fn static_initializers_preserve_only_established_owner_authority() {
     for (initializer, mutation, valid) in [
         ("create()", "", true),
+        ("{ let prepared = create(); yield prepared; }", "", true),
         ("Owner { marker = Marker {} }", "", false),
         ("create()", "change();", true),
         (
@@ -2852,7 +2959,7 @@ fn static_initializers_preserve_only_established_owner_authority() {
             static OWNER: Owner = {initializer};
             func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {{}}
             extern func change();
-            extern func publish(pos pointer: RawPointer<Owner>);
+            extern func publish(pos pointer: DataPointer<Owner>);
             trusted func caller() uses(raw_memory) {{ {mutation} observe(&OWNER); }}
         "#
         );
@@ -2888,7 +2995,7 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
         using core.memory;
         using std.memory;
         @abi(c)
-        trusted func sink(destination: RawPointer<u8>, length: u64, transferred: RawPointer<u64>)
+        trusted func sink(destination: DataPointer<u8>, length: u64, transferred: DataPointer<u64>)
             requires(
                 length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),
                 trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
@@ -3016,7 +3123,7 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
             sender.close();
             return Ok(unit);
         }
-        func fabricated(pos pointer: RawPointer<std.channel.ChannelCore<u32>>) {
+        func fabricated(pos pointer: DataPointer<std.channel.ChannelCore<u32>>) {
             let sender: std.channel.Sender<u32> = {
                 owner = { instance = std.channel.owner.Marker {}, core = pointer },
             };
@@ -3135,7 +3242,7 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             extern trusted func opaque();
             extern trusted func replace(pos owner: &mut &Owner);
             extern trusted func replace_owner(pos owner: &mut Owner);
-            extern trusted func publish(pos pointer: RawPointer<Owner>);
+            extern trusted func publish(pos pointer: DataPointer<Owner>);
             struct Holder {{ owner: &mut Owner; }}
             extern trusted func replace_holder(pos holder: Holder);
             trusted func caller() uses(raw_memory) {{ {body} }}
@@ -3463,7 +3570,7 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
             func signal() {{ core.atomic.store<u32, 2>(&WORD, 1); }}
             extern trusted func replace(pos value: &mut u32);
-            extern trusted func publish(pos pointer: RawPointer<u32>);
+            extern trusted func publish(pos pointer: DataPointer<u32>);
             trusted func caller(pos initial: u32) -> u32 ensures(result == initial) uses(raw_memory) {{
                 let mut value = initial;
                 {effect}
@@ -3530,7 +3637,14 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
         trusted module app;
 
         using std.memory;
-        struct Owner { mut first: u32; mut second: u32; mut third: usize; mut fourth: usize; mut pointer: RawPointer<u8>; }
+        struct Owner
+        {
+            mut first: u32;
+            mut second: u32;
+            mut third: usize;
+            mut fourth: usize;
+            mut pointer: DataPointer<u8>;
+        }
         trusted predicate live(owner: &Owner);
         trusted func make() -> (u32, Owner) ensures(trusted live(&result.1)) {
             return (1, Owner { first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>() });
@@ -3631,9 +3745,21 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         module app;
 
         using std.channel;
+        using std.fs;
+        using std.io;
+        using std.path;
         using std.sync;
         using std.testing;
-        static ONCE: std.sync.Once<u32> = std.sync.Once<u32>.empty();
+        static ONCE: std.sync.Once<u32> =
+        {
+            let prepared = std.sync.Once<u32>.prepare();
+
+            yield
+            {
+                instance = prepared.0,
+                storage = prepared.1,
+            };
+        };
         func initialized_value() -> u32 { return 37; }
         func static_once_case() requires(blocking_execution()) {
             let _ = catch { let _ = ONCE.get_or_init(initialized_value); };
@@ -3654,6 +3780,36 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         func once_case(pos callback: func() -> u32) requires(blocking_execution()) {
             let once = std.sync.Once<u32>.empty();
             let _ = once.get_or_init(callback);
+        }
+        async func channel_wait_case() {
+            let (sender, receiver) = std.testing.assert_ok<
+                (std.channel.Sender<u32>, std.channel.Receiver<u32>), std.channel.ChannelError
+            >(std.channel.bounded<u32>(capacity = 1));
+            let _ = catch { let _ = await sender.send(1); };
+        }
+        func completed_file_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+            requires(blocking_execution()) {
+            let options = std.fs.OpenOptions(access = std.fs.FileAccess.ReadWrite,
+                creation = std.fs.FileCreation.CreateNew);
+            let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+                std.fs.File.open(path, options = options));
+            let mut buffer: bytes<1> = [0];
+            let _ = file.read(&mut buffer[..]);
+            let _ = file.write(&buffer[..]);
+            std.testing.assert_ok<unit, std.io.IoError>(file.close());
+            assert(file.is_complete());
+            std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(path));
+            return Ok(unit);
+        }
+        func completed_directory_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+            requires(blocking_execution()) {
+            let mut directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+                std.fs.Directory.open(path));
+            let first = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
+                directory.next());
+            std.testing.assert_ok<unit, std.io.IoError>(directory.close());
+            assert(directory.is_complete());
+            return Ok(unit);
         }
         async func worker(pos lock: &std.sync.Mutex<u32>)
             requires(blocking_execution(), trusted std.sync.mutex.valid(&lock.instance))
@@ -3684,6 +3840,9 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         "once_case",
         "task_case",
         "static_once_case",
+        "channel_wait_case",
+        "completed_file_case",
+        "completed_directory_case",
     ]
     .into_iter()
     .filter_map(|name| {
@@ -3691,10 +3850,16 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
             .lowered_unit(source_function_body_key(&application, name))
             .unwrap();
 
-        checked
-            .diagnostics()
-            .has_errors()
-            .then(|| format!("{name}: {:?}", checked.diagnostics()))
+        checked.diagnostics().has_errors().then(|| {
+            format!(
+                "{name}: {:?}. Source: {:?}",
+                checked.diagnostics(),
+                crate::test_support::diagnostic_source_fragments(
+                    &application,
+                    checked.diagnostics()
+                )
+            )
+        })
     })
     .collect::<Vec<_>>();
 
@@ -3706,16 +3871,51 @@ fn task_observation_preserves_the_shared_owner_marker() {
     let application = compilation(
         r#"
         trusted module app;
-        struct Marker {}
-        struct Owner { marker: Marker; }
+
+        struct Marker
+        {
+        }
+
         trusted predicate live(marker: &Marker);
-        trusted func make() -> Owner ensures(trusted live(&result.marker)) { return { marker = Marker {} }; }
+
+        struct Owner
+        {
+            marker: Marker;
+
+            trusted destruct()
+                requires(trusted live(&self.marker))
+            {
+            }
+        }
+
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker {},
+            };
+        }
+
+        extern async func suspend();
+
         async func work(pos owner: &Owner)
-            requires(trusted live(&owner.marker)) ensures(trusted live(&owner.marker)) {}
-        func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {}
-        async func caller() {
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+        {
+            await suspend();
+        }
+
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {
+        }
+
+        async func caller()
+        {
             let owner = make();
             let task = work(&owner).start();
+
             try await task.join();
             observe(&owner);
         }
@@ -3923,7 +4123,7 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             true,
         ),
         (
-            "let owner = { let task = work(&value).start(); Holder { task = task } }; opaque(); value = 1;",
+            "let owner = { let task = work(&value).start(); yield Holder { task = task }; }; opaque(); value = 1;",
             false,
         ),
         (

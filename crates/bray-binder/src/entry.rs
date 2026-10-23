@@ -10,4 +10,6 @@ pub use expression::{
     bind_contract_clause_expressions, bind_embedded_constant, bind_predicate_definition,
     bind_runtime_default, bind_target_gate,
 };
-pub(crate) use support::push_callable_inputs_for;
+pub(crate) use support::{
+    push_callable_input_names_for, push_callable_inputs_for, push_contract_parameter,
+};

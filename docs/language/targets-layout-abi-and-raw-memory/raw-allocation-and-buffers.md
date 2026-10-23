@@ -9,7 +9,7 @@ using core.memory;
 
 struct RawAllocation
 {
-    pointer: RawPointer<u8>;
+    pointer: DataPointer<u8>;
     bytes: usize;
     align: usize;
 }
@@ -77,12 +77,12 @@ using core.memory;
 
 struct RawBuffer<T>
 {
-    pointer: RawPointer<T>;
+    pointer: DataPointer<T>;
     capacity: usize;
     initialized: usize;
 
     trusted construct(capacity: usize) -> Result<Self, MemoryLayoutError>
-        uses(manual_alloc, layout_reinterpret);
+        uses(manual_alloc);
 }
 
 func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
@@ -94,7 +94,7 @@ func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize
         trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = result),
     );
 
-func pointer<T>(pos buffer: &RawBuffer<T>) -> RawPointer<T>;
+func pointer<T>(pos buffer: &RawBuffer<T>) -> DataPointer<T>;
 
 trusted func initialized_slice<T>(pos buffer: &RawBuffer<T>) -> &[T]
     ensures(trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = buffer.initialized))
@@ -104,7 +104,7 @@ trusted func initialized_slice_mut<T>(pos buffer: &mut RawBuffer<T>) -> &mut [T]
     ensures(trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = buffer.initialized))
     uses(raw_memory);
 
-trusted func spare_pointer<T>(pos buffer: &mut RawBuffer<T>) -> RawPointer<T>
+trusted func spare_pointer<T>(pos buffer: &mut RawBuffer<T>) -> DataPointer<T>
     ensures(
         trusted core.memory.valid_write(pointer = result, count = buffer.capacity - buffer.initialized),
         trusted core.memory.aligned_for<T>(pointer = result),

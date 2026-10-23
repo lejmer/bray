@@ -30,6 +30,15 @@ pub enum BoundUnitKind {
 }
 
 impl BoundUnitKind {
+    /// Whether executable arithmetic uses the operand's machine representation.
+    /// Contract and declaration expressions retain exact integer arithmetic.
+    pub const fn uses_machine_arithmetic(self) -> bool {
+        matches!(
+            self,
+            Self::CallableBody | Self::AnonymousCallable | Self::RuntimeDefault
+        )
+    }
+
     /// Returns this bound-unit kind's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -219,6 +228,13 @@ pub enum BoundUnitKeyData {
     Constraint(DeclaredBoundUnitKey),
     /// A callable contract clause.
     ContractClause(DeclaredBoundUnitKey),
+    /// A clause whose inputs belong to a callable type or anonymous callable header.
+    CallableTypeClause {
+        /// The lexical declaration and exact clause source.
+        declaration: DeclaredBoundUnitKey,
+        /// The callable header supplying parameter and result types.
+        callable: BoundSourceAnchor,
+    },
     /// A module contribution target-selection expression.
     TargetGate(DeclaredBoundUnitKey),
 }
@@ -234,7 +250,9 @@ impl BoundUnitKeyData {
             Self::EmbeddedConstant(_) => BoundUnitKind::EmbeddedConstant,
             Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
             Self::Constraint(_) => BoundUnitKind::Constraint,
-            Self::ContractClause(_) => BoundUnitKind::ContractClause,
+            Self::ContractClause(_) | Self::CallableTypeClause { .. } => {
+                BoundUnitKind::ContractClause
+            }
             Self::TargetGate(_) => BoundUnitKind::TargetGate,
         }
     }
@@ -251,6 +269,7 @@ impl BoundUnitKeyData {
             | Self::ContractClause(key)
             | Self::TargetGate(key) => key.source(),
             Self::AnonymousCallable(key) => key.source(),
+            Self::CallableTypeClause { declaration, .. } => declaration.source(),
         }
     }
 }
@@ -351,6 +370,26 @@ impl BoundUnitKey {
         )
     }
 
+    /// Creates a contract unit whose inputs come from an independently bound callable header.
+    pub fn callable_type_clause(
+        owner: SymbolKey,
+        callable: BoundSourceAnchor,
+        source: BoundSourceAnchor,
+    ) -> Self {
+        Self(Arc::new(BoundUnitKeyData::CallableTypeClause {
+            declaration: DeclaredBoundUnitKey::new(owner, source),
+            callable,
+        }))
+    }
+
+    /// Returns the callable header supplying this clause's local inputs.
+    pub fn callable_type_header(&self) -> Option<BoundSourceAnchor> {
+        match self.data() {
+            BoundUnitKeyData::CallableTypeClause { callable, .. } => Some(*callable),
+            _ => None,
+        }
+    }
+
     /// Creates a key for a module contribution target-selection expression.
     ///
     /// Returns `None` unless the owner is a logical module.
@@ -373,6 +412,12 @@ impl BoundUnitKey {
         self.0.kind()
     }
 
+    /// Whether this unit prepares one owned static instance rather than a named constant value.
+    pub fn is_static_initializer(&self) -> bool {
+        self.kind() == BoundUnitKind::ConstantTemplate
+            && self.declared_owner().kind() == bray_symbols::SymbolKind::Static
+    }
+
     /// Returns the exact source construct checked by the unit.
     pub fn source(&self) -> BoundSourceAnchor {
         self.0.source()
@@ -390,6 +435,7 @@ impl BoundUnitKey {
             | BoundUnitKeyData::ContractClause(key)
             | BoundUnitKeyData::TargetGate(key) => key.owner(),
             BoundUnitKeyData::AnonymousCallable(key) => key.enclosing().declared_owner(),
+            BoundUnitKeyData::CallableTypeClause { declaration, .. } => declaration.owner(),
         }
     }
 

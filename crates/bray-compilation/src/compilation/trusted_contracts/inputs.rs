@@ -1,4 +1,3 @@
-use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundCallableTarget, BoundUnit, BoundUnitKey, CheckedExpressionSemantics, SemanticSelection,
 };
@@ -22,28 +21,24 @@ impl Compilation {
         inputs.predicates =
             self.execution_predicate_inputs(semantics, cancellation, &mut diagnostics)?;
 
-        if !matches!(
+        let callable_body = matches!(
             key.kind(),
             bray_bound_tree::BoundUnitKind::CallableBody
                 | bray_bound_tree::BoundUnitKind::AnonymousCallable
                 | bray_bound_tree::BoundUnitKind::ConstantTemplate
-        ) {
-            return Ok(DiagnosticResult::new(inputs, diagnostics));
+        );
+
+        let trusted = callable_body && self.trusted_predicate_producer(key)?;
+
+        if key.callable_type_header().is_some() {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
 
-        let trusted = self.trusted_predicate_producer(key)?;
+        // Predicate units check obligations, without inferring returned witness authority.
+        inputs.infer_result_witnesses = callable_body && !trusted;
 
-        inputs.infer_result_witnesses = !trusted;
-
-        if key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
-            let context = self.binding_context(cancellation)?;
-
-            let owner = context
-                .symbols()
-                .symbol_for_key(key.declared_owner())
-                .expect("checked callable body retains its owner");
-
-            inputs.inputs = self.execution_callable_inputs(owner, cancellation)?;
+        if callable_body && key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
 
             let declared = self.execution_declaration(key.source().syntax())?;
 
@@ -55,8 +50,8 @@ impl Compilation {
 
             diagnostics.add_range(requirements.diagnostics().iter().cloned());
 
-            for (condition, trusted, _) in requirements.into_parts().0 {
-                if trusted {
+            for (condition, domain, _) in requirements.into_parts().0 {
+                if domain == bray_symbols::PredicateDomain::Trusted {
                     inputs.requirements.push(condition);
                 } else {
                     inputs.preconditions.push(condition);
@@ -77,8 +72,8 @@ impl Compilation {
                     inputs
                         .guarantees
                         .extend(guarantees.into_parts().0.into_iter().filter_map(
-                            |(mut condition, trusted, span)| {
-                                if !trusted {
+                            |(mut condition, domain, span)| {
+                                if domain != bray_symbols::PredicateDomain::Trusted {
                                     return None;
                                 }
 
@@ -107,12 +102,17 @@ impl Compilation {
             }
         }
 
+        if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
+        }
+
         for (expression, node) in bound.tree().expressions() {
-            if let Some(SemanticSelection::ScopedUse(scoped)) =
-                semantics.selections().expression(expression)
+            if let Some(
+                selection @ (SemanticSelection::ScopedUse(_) | SemanticSelection::Iteration(_)),
+            ) = semantics.selections().expression(expression)
             {
-                self.add_scoped_trusted_contracts(
-                    scoped,
+                self.add_implicit_trusted_contracts(
+                    selection,
                     &mut inputs,
                     cancellation,
                     &mut diagnostics,
@@ -126,6 +126,7 @@ impl Compilation {
                 if let Some(SemanticSelection::Operation(operation)) =
                     semantics.selections().expression(expression)
                     && let Some(contract) = self.trusted_operation_contract(
+                        expression,
                         operation,
                         node,
                         cancellation,
@@ -196,6 +197,7 @@ impl Compilation {
             }
 
             if !contract.requirements.is_empty()
+                || !contract.execution_requirements.is_empty()
                 || !contract.preconditions.is_empty()
                 || !contract.guarantees.is_empty()
                 || !contract.postconditions.is_empty()
@@ -210,10 +212,14 @@ impl Compilation {
             || !inputs.guarantees.is_empty()
             || !inputs.calls.is_empty();
 
-        if needs_predicate_flow {
-            inputs.constants =
-                self.execution_constant_inputs(bound, semantics, cancellation, &mut diagnostics)?;
+        inputs.constants.extend(self.execution_constant_inputs(
+            bound,
+            semantics,
+            cancellation,
+            &mut diagnostics,
+        )?);
 
+        if needs_predicate_flow {
             inputs
                 .statics
                 .extend(semantics.selections().entries().iter().filter_map(|entry| {

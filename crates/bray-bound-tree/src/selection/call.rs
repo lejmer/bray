@@ -5,7 +5,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallablePhaseBehaviors, ImplementationInstanceId,
-    ImplementationRequirementKey, ReceiverMode, ReceiverParameterSymbolId,
+    ImplementationRequirementKey, ReceiverMode, ReceiverParameterSymbolId, SymbolOrdinal,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
@@ -134,6 +134,7 @@ pub enum SelectedArgument {
 /// One exact callable, ABI, implementation witnesses, and normalized argument mapping.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCall {
+    constness: bray_symbols::CallableConstness,
     invocation: bray_symbols::CallableInvocation,
     resolution: BoundResolvedCall,
     abi: CallableAbi,
@@ -161,6 +162,7 @@ impl SelectedCall {
     /// Creates a complete callable selection.
     pub fn new(
         resolution: BoundResolvedCall,
+        constness: bray_symbols::CallableConstness,
         abi: CallableAbi,
         phase_behaviors: CallablePhaseBehaviors,
         receiver: Option<SelectedReceiver>,
@@ -168,6 +170,7 @@ impl SelectedCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            constness,
             invocation: bray_symbols::CallableInvocation::for_abi(abi),
             resolution,
             abi,
@@ -197,26 +200,31 @@ impl SelectedCall {
         self.abi
     }
 
+    /// Returns the const contract of the selected callable surface.
+    pub const fn constness(&self) -> bray_symbols::CallableConstness {
+        self.constness
+    }
+
     /// Returns the complete checked invocation and deferred-execution behavior.
     pub fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
         &self.phase_behaviors
     }
 
-    /// Whether this invocation, including omitted defaults and argument conversions,
-    /// can enter current-run cancellation. Indirect and trait dispatch stay conservative.
+    /// Whether the selected surface can propagate current-run cancellation.
+    /// Only unconditional totality supplies this guarantee before body behavior is checked.
     pub fn may_enter_current_run_cancellation(&self) -> bool {
-        !matches!(self.target(), BoundCallableTarget::Declaration(_))
-            || self.resolution().trait_dispatch().is_some()
-            || self.evaluates_defaults()
-            || self.arguments().iter().any(|argument| {
-                matches!(argument,
-                SelectedArgument::Explicit { conversion, .. } if conversion.invokes_source())
-            })
-            || self
-                .phase_behaviors()
-                .invocation()
-                .current_run_cancellation()
-                == bray_symbols::CurrentRunCancellation::MayEnter
+        self.abi() == CallableAbi::Bray
+            && !matches!(
+                self.resolution().result(),
+                crate::BoundCallResult::LazyFuture(_)
+            )
+            && (!matches!(self.target(), BoundCallableTarget::Declaration(_))
+                || self.resolution().trait_dispatch().is_some()
+                || !self
+                    .phase_behaviors()
+                    .invocation()
+                    .execution_properties()
+                    .contains(&bray_symbols::ExecutionProperty::Total))
     }
 
     /// Returns the checked receiver mapping for an instance call.
@@ -249,6 +257,63 @@ impl SelectedCall {
     /// Returns compiler-provided behavior selected for this exact declaration.
     pub const fn implementation_hook(&self) -> Option<ImplementationHook> {
         self.implementation_hook
+    }
+
+    /// Returns the receiver-first ordinal of a formal input.
+    pub fn input_ordinal(
+        &self,
+        root: bray_symbols::DependencySubjectRoot,
+    ) -> Option<SymbolOrdinal> {
+        match root {
+            bray_symbols::DependencySubjectRoot::Receiver if self.receiver.is_some() => {
+                Some(SymbolOrdinal::new(0))
+            }
+            bray_symbols::DependencySubjectRoot::Parameter(ordinal) => {
+                let offset = u32::from(self.receiver.is_some());
+
+                Some(SymbolOrdinal::new(
+                    ordinal
+                        .raw()
+                        .checked_add(offset)
+                        .expect("selected input ordinal fits receiver-first order"),
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the evaluated value supplying one formal input.
+    pub fn input_site(
+        &self,
+        expression: BoundExpressionId,
+        root: bray_symbols::DependencySubjectRoot,
+    ) -> Option<crate::BoundExecutionSite> {
+        if self.evaluates_defaults() {
+            return self
+                .input_ordinal(root)
+                .map(|ordinal| crate::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                });
+        }
+
+        match root {
+            bray_symbols::DependencySubjectRoot::Receiver => self
+                .receiver
+                .as_ref()
+                .map(|receiver| receiver.expression().into()),
+            bray_symbols::DependencySubjectRoot::Parameter(ordinal) => {
+                self.arguments.iter().find_map(|argument| match argument {
+                    SelectedArgument::Explicit {
+                        expression,
+                        ordinal: actual,
+                        ..
+                    } if *actual == ordinal.raw() => Some((*expression).into()),
+                    _ => None,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Returns explicit arguments in source order followed by defaults in parameter order.

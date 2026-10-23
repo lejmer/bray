@@ -181,9 +181,11 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
     pub(in crate::compilation) unwind_candidates: UnitQueryCache<bray_checker::UnwindCandidate>,
-    pub(in crate::compilation) unwind_behavior: UnitQueryCache<bool>,
+    pub(in crate::compilation) unwind_behavior: UnitQueryCache<bray_bound_tree::UnwindBehavior>,
     pub(in crate::compilation) execution_candidates:
         UnitQueryCache<bray_checker::ExecutionCandidates>,
+    pub(in crate::compilation) constant_body_templates:
+        UnitQueryCache<Option<bray_bound_tree::CheckedTemplate>>,
     pub(in crate::compilation) cleanup_completion:
         UnitQueryCache<crate::compilation::execution_guarantees::CompletedCleanup>,
     pub(in crate::compilation) certified_execution:

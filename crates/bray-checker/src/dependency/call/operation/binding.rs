@@ -29,22 +29,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
     let inputs = operands
         .iter()
         .copied()
-        .filter_map(|(root, input)| {
-            let operand = input.expression()?;
-
-            let subject = match input {
-                OperationInput::Borrow(_, _) => input
-                    .borrow_plan(storage)
-                    .expect("borrow input has a plan")
-                    .access(),
-                OperationInput::Value(_) | OperationInput::Nullable(_) => {
-                    expression_access(storage, operand)
-                        .expect("selected invocation input retains its storage access")
-                }
-            };
-
-            Some((root, subject, Some(operand)))
-        })
+        .filter_map(|(root, input)| Some((root, input.access(storage)?, input.expression())))
         .collect::<Vec<_>>();
 
     let mut context = CallInstantiationContext::hidden_inputs(
@@ -57,34 +42,23 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
     context.set_result_values(values);
 
     let concrete = DependencyContractTemplateData::new(
-        super::super::contract::concrete_report_requirements(template.template.requirements()),
+        super::super::contract::concrete_requirements(template.template.requirements()),
     );
 
     let result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
 
-    let reports = super::super::contract::instantiate_reports(
-        &template.immediate_reports(false),
-        &mut context,
-    )?;
+    let reports = super::super::contract::instantiate_reports(&template.template, &mut context)?;
 
     let contracts =
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)
             .with_reports(reports)
             .with_input_count(inputs.len())
-            .with_effects(
-                template
-                    .template
-                    .effects()
-                    .iter()
-                    .chain(template.evaluation_effects.iter())
-                    .cloned(),
-            )
-            .with_normal_completion(
-                template.template.normal_completion() && template.evaluation_completes,
-            )
+            .with_effects(template.template.effects().iter().cloned())
+            .with_carriers(template.template.carriers().iter().cloned())
+            .with_returned_input(template.template.returned_input())
+            .with_normal_completion(template.template.normal_completion())
             .with_normal_storage_preservation(
-                template.template.preserves_storage_on_normal_return()
-                    && template.evaluation_preserves_storage,
+                template.template.preserves_storage_on_normal_return(),
             );
 
     let contracts = super::super::references::with_reference_inputs(

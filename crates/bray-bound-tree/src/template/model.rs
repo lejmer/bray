@@ -92,12 +92,29 @@ pub enum CheckedTemplateInputKind {
 pub struct CheckedTemplateInput {
     kind: CheckedTemplateInputKind,
     ty: TypeId,
+    state_output: Option<CheckedTemplateNodeId>,
 }
 
 impl CheckedTemplateInput {
     /// Creates an explicit typed template input.
     pub const fn new(kind: CheckedTemplateInputKind, ty: TypeId) -> Self {
-        Self { kind, ty }
+        Self {
+            kind,
+            ty,
+            state_output: None,
+        }
+    }
+
+    /// Retains the final value of a formal mutable referent interpreted as a value snapshot.
+    pub const fn with_state_output(mut self, output: Option<CheckedTemplateNodeId>) -> Self {
+        self.state_output = output;
+
+        self
+    }
+
+    /// Returns the final value of this mutable input frame, when present.
+    pub const fn state_output(&self) -> Option<CheckedTemplateNodeId> {
+        self.state_output
     }
 
     /// Returns the input's stable semantic role.
@@ -151,6 +168,9 @@ define_stable_requirement!(
 /// Execution-context behavior retained by a checked template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedTemplateExecution {
+    properties: Arc<[bray_symbols::ExecutionProperty]>,
+    constant_eligible: bool,
+    may_unwind: bool,
     requirements: Arc<[CheckedTemplateExecutionRequirement]>,
     current_run_cancellation: CurrentRunCancellation,
 }
@@ -162,9 +182,41 @@ impl CheckedTemplateExecution {
         current_run_cancellation: CurrentRunCancellation,
     ) -> Self {
         Self {
+            properties: Arc::from([]),
+            constant_eligible: false,
+            may_unwind: true,
             requirements: sorted_unique_shared_slice(requirements),
             current_run_cancellation,
         }
+    }
+
+    /// Retains universal execution proofs established by the owning analysis.
+    pub fn with_certification(
+        mut self,
+        properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
+        constant_eligible: bool,
+        may_unwind: bool,
+    ) -> Self {
+        self.properties = sorted_unique_shared_slice(properties);
+        self.constant_eligible = constant_eligible;
+        self.may_unwind = may_unwind;
+
+        self
+    }
+
+    /// Returns certified ordinary execution properties in semantic-set order.
+    pub fn properties(&self) -> &[bray_symbols::ExecutionProperty] {
+        &self.properties
+    }
+
+    /// Whether the owning analysis established the stricter constant-evaluation restrictions.
+    pub const fn constant_eligible(&self) -> bool {
+        self.constant_eligible
+    }
+
+    /// Whether evaluation can propagate panic or cancellation.
+    pub const fn may_unwind(&self) -> bool {
+        self.may_unwind
     }
 
     /// Returns execution-lane requirements in canonical semantic-set order.
@@ -217,6 +269,11 @@ impl CheckedTemplateBehavior {
             result_dependencies,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Returns the complete checked execution behavior of this template.
+    pub const fn execution(&self) -> &CheckedTemplateExecution {
+        &self.execution
     }
 
     /// Returns checked effects in canonical semantic-set order.
@@ -311,6 +368,7 @@ impl CheckedTemplateConstantUsage {
 /// One typed normalized operation in deterministic dependency order.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedTemplateNode {
+    unsigned_integer_bits: Option<std::num::NonZeroU8>,
     operation: CheckedTemplateOperation,
     ty: TypeId,
 }
@@ -318,7 +376,30 @@ pub struct CheckedTemplateNode {
 impl CheckedTemplateNode {
     /// Creates one typed checked-template operation.
     pub const fn new(operation: CheckedTemplateOperation, ty: TypeId) -> Self {
-        Self { operation, ty }
+        Self {
+            operation,
+            ty,
+            unsigned_integer_bits: None,
+        }
+    }
+
+    /// Retains the owning analysis's unsigned value-width proof without changing the declared type.
+    pub const fn with_unsigned_integer_bits(mut self, bits: Option<std::num::NonZeroU8>) -> Self {
+        if let Some(bits) = bits {
+            assert!(
+                bits.get() <= 64,
+                "u64 value bounds require at most 64 unsigned bits"
+            );
+        }
+
+        self.unsigned_integer_bits = bits;
+
+        self
+    }
+
+    /// Returns the established unsigned value width used by native exact arithmetic.
+    pub const fn unsigned_integer_bits(&self) -> Option<std::num::NonZeroU8> {
+        self.unsigned_integer_bits
     }
 
     /// Returns the normalized operation.
@@ -337,20 +418,12 @@ impl CheckedTemplateNode {
 pub struct CheckedTemplateTemporary {
     initializer: CheckedTemplateNodeId,
     ty: TypeId,
-    dependency_contract: DependencyContractTemplateId,
 }
 
 impl CheckedTemplateTemporary {
-    pub(crate) const fn new(
-        initializer: CheckedTemplateNodeId,
-        ty: TypeId,
-        dependency_contract: DependencyContractTemplateId,
-    ) -> Self {
-        Self {
-            initializer,
-            ty,
-            dependency_contract,
-        }
+    /// Creates storage for one already-checked initializer value.
+    pub const fn new(initializer: CheckedTemplateNodeId, ty: TypeId) -> Self {
+        Self { initializer, ty }
     }
 
     /// Returns the node whose value initializes this temporary.
@@ -361,11 +434,6 @@ impl CheckedTemplateTemporary {
     /// Returns the checked temporary type.
     pub const fn ty(self) -> TypeId {
         self.ty
-    }
-
-    /// Returns the dependencies carried by the stored value.
-    pub const fn dependency_contract(self) -> DependencyContractTemplateId {
-        self.dependency_contract
     }
 }
 

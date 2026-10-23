@@ -94,7 +94,10 @@ fn target_abi_value_from_named(
     cancellation: &CancellationToken,
 ) -> Result<Option<TargetAbiValue>, FactQueryError> {
     if let Some(role) = compiler_known_representation(compilation, definition) {
-        if role == RepresentationRole::RawPointer {
+        if matches!(
+            role,
+            RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
+        ) {
             return Ok(Some(TargetAbiValue::RawPointer));
         }
 

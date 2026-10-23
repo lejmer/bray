@@ -135,10 +135,31 @@ where
             let operator = binary.operator();
 
             let next = self.push_block();
+            let outcome = self.push_block();
+            let conjunction = operator == BoundOperator::LogicalAnd;
+            let destination = if conjunction { unmatched } else { matched };
+
+            // Both short-circuit paths establish the completed Boolean outcome.
+            // Keep it at their join instead of losing it with operand-only refinements.
+            self.push_edge(
+                outcome,
+                destination.0,
+                destination.1,
+                Some(AnalysisRefinement::Condition {
+                    expression: id,
+                    value: !conjunction,
+                }),
+            );
+
+            let (matched, unmatched) = if conjunction {
+                (matched, (outcome, unmatched.1))
+            } else {
+                ((outcome, matched.1), unmatched)
+            };
 
             self.push_bound(current, id.into());
 
-            if operator == BoundOperator::LogicalAnd {
+            if conjunction {
                 self.build_condition(
                     left,
                     current,

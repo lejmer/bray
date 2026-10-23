@@ -10,8 +10,8 @@ using internal std.platform;
 @copy
 internal struct WindowsChildHandles
 {
-    parent: RawPointer<u8>;
-    child: RawPointer<u8>;
+    parent: DataPointer<u8>;
+    child: DataPointer<u8>;
     parent_owned: bool;
     child_owned: bool;
 }
@@ -57,7 +57,7 @@ trusted internal func platform_child_spawn(
 
     let mut security: [u64; 3] = [0, 0, 0];
 
-    let security_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+    let security_pointer: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
         std.memory.address_of_mut<u64>(&mut security[0])
     );
 
@@ -115,7 +115,7 @@ trusted internal func platform_child_spawn(
         }
     };
 
-    let mut inherited: [RawPointer<u8>; 3] = [input.child, output.child, error.child];
+    let mut inherited: [DataPointer<u8>; 3] = [input.child, output.child, error.child];
     let mut attribute_size: usize = 0;
 
     let _: i32 = trusted std.os.windows.initialize_proc_thread_attribute_list(
@@ -147,7 +147,7 @@ trusted internal func platform_child_spawn(
         }
     };
 
-    let attributes_pointer: RawPointer<u8> = std.memory.pointer<u8>(&attributes);
+    let attributes_pointer: DataPointer<u8> = std.memory.pointer<u8>(&attributes);
 
     if trusted std.os.windows.initialize_proc_thread_attribute_list(
         attributes_pointer,
@@ -168,8 +168,8 @@ trusted internal func platform_child_spawn(
         attributes_pointer,
         flags = 0,
         attribute = std.os.windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-        value = trusted std.memory.reinterpret<u8, RawPointer<u8>>(
-            std.memory.address_of_mut<RawPointer<u8>>(&mut inherited[0])
+        value = trusted std.memory.reinterpret<u8, DataPointer<u8>>(
+            std.memory.address_of_mut<DataPointer<u8>>(&mut inherited[0])
         ),
         size = target.pointer.BYTES * 3,
         previous = std.memory.null<u8>(),
@@ -187,7 +187,7 @@ trusted internal func platform_child_spawn(
 
     let mut startup: [u64; 14] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    let startup_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+    let startup_pointer: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
         std.memory.address_of_mut<u64>(&mut startup[0])
     );
 
@@ -229,11 +229,11 @@ trusted internal func platform_child_spawn(
 
     let mut process_information: [u64; 3] = [0, 0, 0];
 
-    let process_information_pointer: RawPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
+    let process_information_pointer: DataPointer<u8> = trusted std.memory.reinterpret<u8, u64>(
         std.memory.address_of_mut<u64>(&mut process_information[0])
     );
 
-    let working_pointer: RawPointer<u16> = trusted internal windows_optional_text_pointer(&storage.working_directory);
+    let working_pointer: DataPointer<u16> = trusted internal windows_optional_text_pointer(&storage.working_directory);
 
     let created: i32 = trusted std.os.windows.create_process_w(
         trusted internal windows_text_pointer(&storage.executable),
@@ -263,12 +263,12 @@ trusted internal func platform_child_spawn(
         return creation_status;
     }
 
-    let process_handle: RawPointer<u8> = trusted internal read_windows_pointer(
+    let process_handle: DataPointer<u8> = trusted internal read_windows_pointer(
         &process_information[..],
         offset = std.os.windows.PROCESS_INFORMATION_PROCESS_OFFSET,
     );
 
-    let thread_handle: RawPointer<u8> = trusted internal read_windows_pointer(
+    let thread_handle: DataPointer<u8> = trusted internal read_windows_pointer(
         &process_information[..],
         offset = std.os.windows.PROCESS_INFORMATION_THREAD_OFFSET,
     );
@@ -311,8 +311,8 @@ trusted internal func platform_child_spawn(
 @abi(c)
 trusted internal func platform_child_wait(
     pos child: u64,
-    pos terminal: RawPointer<u32>,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos terminal: DataPointer<u32>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
@@ -337,8 +337,8 @@ trusted internal func platform_child_wait(
 // Waiting and querying the process cannot access or release the caller's output slots.
 trusted internal func prepare_child_wait(
     pos child: u64,
-    pos terminal: RawPointer<u32>,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos terminal: DataPointer<u32>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> Result<PlatformExitStatus, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_write<u32>(pointer = terminal, count = 1),
@@ -354,7 +354,7 @@ trusted internal func prepare_child_wait(
     )
     uses(foreign_call)
 {
-    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+    let process: DataPointer<u8> = trusted internal std.platform.handle_pointer(child);
 
     if !trusted internal valid_windows_handle(process)
     {
@@ -408,7 +408,7 @@ trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) ->
         return internal std.platform.invalid_input_status();
     }
 
-    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+    let process: DataPointer<u8> = trusted internal std.platform.handle_pointer(child);
 
     if !trusted internal valid_windows_handle(process)
     {
@@ -438,7 +438,7 @@ trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) ->
 @abi(c)
 trusted internal func platform_child_reap(
     pos child: u64,
-    pos status: RawPointer<PlatformExitStatus>,
+    pos status: DataPointer<PlatformExitStatus>,
 ) -> std.platform.PlatformStatus
 {
     if std.memory.is_null<PlatformExitStatus>(status)
@@ -453,7 +453,7 @@ trusted internal func platform_child_reap(
 trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
+    let process: DataPointer<u8> = trusted internal std.platform.handle_pointer(child);
 
     if !trusted internal valid_windows_handle(process)
     {

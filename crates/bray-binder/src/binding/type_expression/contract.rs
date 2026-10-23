@@ -88,7 +88,10 @@ impl CallableTypeQualifiers {
         mut self,
         properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
     ) -> Self {
-        self.execution_properties = properties.into_iter().collect();
+        self.execution_properties = properties
+            .into_iter()
+            .chain(self.constness.execution_properties().iter().copied())
+            .collect();
 
         self
     }

@@ -19,7 +19,7 @@ internal struct ExitScope
     native: bool;
 }
 
-trusted internal func native_exit_scope(pos value: RawPointer<u8>) -> ExitScope
+trusted internal func native_exit_scope(pos value: DataPointer<u8>) -> ExitScope
     requires(trusted native_attachment_exit())
     ensures(trusted exit_scope_live(owner = &result))
     uses(intrinsic)
@@ -43,7 +43,7 @@ trusted internal func explicit_exit_scope() -> ExitScope
 }
 
 // The platform adapter empties the slot before entering local destruction.
-trusted internal func finish_native_attachment(pos value: RawPointer<u8>)
+trusted internal func finish_native_attachment(pos value: DataPointer<u8>)
     requires(trusted native_attachment_exit())
 {
     let scope: ExitScope = trusted native_exit_scope(value);

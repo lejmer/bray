@@ -142,7 +142,7 @@ struct Status
 
 @symbol(name = "bray_parse")
 @abi(c)
-func parse_entry(pos text: RawPointer<u8>) -> Status
+func parse_entry(pos text: DataPointer<u8>) -> Status
 {
     let result = catch
     {
@@ -164,7 +164,7 @@ A foreign callback type is an ABI-qualified callable type.
 
 ```bray
 callable VisitCallback =
-    @abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32;
+    @abi(c) func(pos context: DataPointer<u8>, pos value: i32) -> i32;
 ```
 
 A named function declaration with the same ABI can satisfy the callback type.
@@ -177,7 +177,7 @@ Foreign callback APIs that need state use an explicit context pointer or an ABI-
 @layout(c)
 struct CallbackPair
 {
-    context: RawPointer<u8>;
+    context: DataPointer<u8>;
     call: VisitCallback;
 }
 ```

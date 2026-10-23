@@ -4,62 +4,14 @@ use crate::analysis::storage_flow::model::StorageAbsence;
 use bray_bound_tree::{BorrowCapabilityId, BoundExecutionSite, BoundExpressionId};
 use bray_symbols::TypeId;
 
-pub(in crate::analysis::storage_flow) use bray_bound_tree::StoragePath as Place;
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::analysis::storage_flow) enum Origin {
-    Entry {
-        reference: Place,
-        // Successive borrow layers at the same component path denote distinct entry snapshots.
-        layer: usize,
-        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
-    },
-    // One returned referent has stable identity without equating it with a lifetime anchor.
-    Returned {
-        reference: Place,
-        projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
-    },
-    Storage(Place),
-    Allocation(Place),
-}
-
-/// `previous` summarizes older executions of one creation site. It is never a must-alias.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::analysis::storage_flow) struct Target {
-    // Epoch precedes the path in ordering so subtree ranges cannot cross an older cell.
-    pub(super) previous: bool,
-    pub(in crate::analysis::storage_flow) origin: Origin,
-}
-
-impl Origin {
-    pub(in crate::analysis::storage_flow) fn entry(reference: Place) -> Self {
-        Self::Entry {
-            reference,
-            layer: 1,
-            projections: std::sync::Arc::from([]),
-        }
-    }
-}
-
-impl Target {
-    pub(in crate::analysis::storage_flow) fn storage(place: Place) -> Self {
-        Self {
-            origin: Origin::Storage(place),
-            previous: false,
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn storage_path(&self) -> Option<&Place> {
-        match &self.origin {
-            Origin::Storage(place) if !self.previous => Some(place),
-            _ => None,
-        }
-    }
-}
+pub(in crate::analysis::storage_flow) use bray_bound_tree::{
+    StorageOrigin as Origin, StoragePath as Place, StorageTarget as Target,
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Effect {
     Unknown,
+    Ambient,
     Escape,
     Atomic,
     Mutation(Target, bray_symbols::DependencyMutationKind),
@@ -94,7 +46,7 @@ impl Effect {
                     })
             }
             Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
-            Self::Atomic => false,
+            Self::Ambient | Self::Atomic => false,
         }
     }
 
@@ -104,7 +56,7 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
         }
     }
 }
@@ -114,6 +66,7 @@ pub(super) struct References {
     pub(super) targets: BTreeSet<Target>,
     pub(super) unknown: bool,
     pub(super) displaced: bool,
+    pub(super) inexact: bool,
 }
 
 impl References {
@@ -123,6 +76,7 @@ impl References {
             unknown: false,
             targets: BTreeSet::from([target]),
             displaced: false,
+            inexact: false,
         }
     }
 
@@ -130,13 +84,18 @@ impl References {
         let count = self.targets.len();
         let unknown = self.unknown;
         let displaced = self.displaced;
+        let inexact = self.inexact;
 
         // Targets contain shared immutable projection paths.
         self.targets.extend(incoming.targets.iter().cloned());
         self.unknown |= incoming.unknown;
         self.displaced |= incoming.displaced;
+        self.inexact |= incoming.inexact;
 
-        self.targets.len() != count || self.unknown != unknown || self.displaced != displaced
+        self.targets.len() != count
+            || self.unknown != unknown
+            || self.displaced != displaced
+            || self.inexact != inexact
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
@@ -160,6 +119,7 @@ impl References {
     pub(super) fn is_exact(&self) -> bool {
         !self.unknown
             && !self.displaced
+            && !self.inexact
             && self.targets.len() == 1
             && self
                 .targets
@@ -316,7 +276,7 @@ impl Transfer {
 pub(in crate::analysis::storage_flow) struct State {
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
-    pub(super) returned_roots: BTreeMap<Place, BTreeSet<bray_bound_tree::StorageIdentityId>>,
+    pub(super) returned_inputs: BTreeMap<Place, BTreeSet<Target>>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
@@ -357,11 +317,11 @@ impl State {
             right_absent,
         );
 
-        for (reference, roots) in &incoming.returned_roots {
-            let previous = self.returned_roots.entry(reference.clone()).or_default();
+        for (reference, roots) in &incoming.returned_inputs {
+            let previous = self.returned_inputs.entry(reference.clone()).or_default();
             let count = previous.len();
 
-            previous.extend(roots);
+            previous.extend(roots.iter().cloned());
             changed |= previous.len() != count;
         }
 
@@ -454,8 +414,22 @@ fn merge_references<K: Clone + Ord>(
 
     for (slot, references) in target.iter_mut() {
         match incoming.get(slot) {
+            Some(incoming) if target_absent(slot) => {
+                if references != incoming {
+                    // The inactive predecessor contributes no address alternative.
+                    // Each value owns its alternatives and shares immutable target paths.
+                    *references = incoming.clone();
+                    changed = true;
+                }
+            }
+            Some(_) if incoming_absent(slot) => {}
             Some(incoming) => {
+                let nullable = references.targets.is_empty() != incoming.targets.is_empty();
+                let inexact = references.inexact;
+
                 changed |= references.merge(incoming);
+                references.inexact |= nullable;
+                changed |= references.inexact != inexact;
             }
             None if !references.unknown && !incoming_absent(slot) => {
                 references.unknown = true;
@@ -510,12 +484,16 @@ impl ReferenceExit {
 
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
-    ) -> impl Iterator<Item = (&Place, &Origin, bool)> {
+    ) -> impl Iterator<Item = (&Place, &Origin, bool, bool)> {
         self.slots.iter().flat_map(|(slot, references)| {
-            references
-                .targets
-                .iter()
-                .map(move |target| (slot, &target.origin, references.is_exact()))
+            references.targets.iter().map(move |target| {
+                (
+                    slot,
+                    &target.origin,
+                    references.is_exact(),
+                    !references.unknown && !references.displaced,
+                )
+            })
         })
     }
 }

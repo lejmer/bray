@@ -46,7 +46,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
         }
     }
 
-    for (expression, node) in request.unit().tree().expressions() {
+    for (expression, _) in request.unit().tree().expressions() {
         if let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) {
             for occurrence in [
                 BoundExecutionSite::ScopedEnter(expression),
@@ -79,23 +79,15 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
             continue;
         };
 
-        let constant = matches!(node, bray_bound_tree::BoundExpression::Call(bound)
-            if expressions.types().expression(bound.callee()).is_some_and(|entry|
-                matches!(request.semantic_values().type_data(entry.ty()).as_ref(), TypeData::Callable(callable)
-                    if callable.constness() == bray_symbols::CallableConstness::Constant)));
-
-        if constant
-            || call_preserves_storage(
-                call,
-                memory
-                    .operation(expression)
-                    .map(|operation| operation.kind()),
-            )
-            || !matches!(
-                call.resolution().result(),
-                bray_bound_tree::BoundCallResult::Immediate(_)
-            )
-        {
+        if call_preserves_storage(
+            call,
+            memory
+                .operation(expression)
+                .map(|operation| operation.kind()),
+        ) || !matches!(
+            call.resolution().result(),
+            bray_bound_tree::BoundCallResult::Immediate(_)
+        ) {
             accesses.remove(&expression.into());
             continue;
         }
@@ -141,6 +133,16 @@ pub(in crate::analysis) fn call_preserves_storage(
     call: &SelectedCall,
     operation: Option<bray_bound_tree::CheckedMemoryOperationKind>,
 ) -> bool {
+    // Predicate and const declarations establish observational computation.
+    // Their callers rely on that contract, including imported and opaque predicates.
+    if matches!(
+        call.target(),
+        bray_bound_tree::BoundCallableTarget::Predicate(_)
+    ) || call.constness() == bray_symbols::CallableConstness::Constant
+    {
+        return true;
+    }
+
     if let Some(operation) = operation {
         return crate::memory::execution::storage_effect(operation)
             == crate::memory::execution::StorageEffect::None;

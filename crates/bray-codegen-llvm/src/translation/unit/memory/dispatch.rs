@@ -52,6 +52,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::Null { .. }
             | CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::Offset { .. }
+            | CheckedMemoryOperationKind::ByteAddress { .. }
             | CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::CallableFromPointer { .. }
             | CheckedMemoryOperationKind::PointerFromCallable { .. }
@@ -281,7 +282,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.dynamic_offset_pointer(pointer, offset, stride)
                     .map(|value| Some(value.into()))
             }
-            CheckedMemoryOperationKind::Reinterpret { .. } => {
+            CheckedMemoryOperationKind::ByteAddress { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. } => {
                 let [pointer] = memory.operands() else {
                     panic!(
                         "checked MIR memory translation violated an established compiler contract"

@@ -4,6 +4,7 @@ using core.atomic;
 using core.memory;
 using std.memory;
 using internal std.sync.spin_lock;
+using internal std.sync.tickets;
 
 struct SpinLockGuard<T>
 {
@@ -17,7 +18,7 @@ struct SpinLockGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
@@ -33,10 +34,10 @@ struct SpinLockGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
     }
 
-    internal trusted func pointer() -> RawPointer<T>
+    internal trusted func pointer() -> DataPointer<T>
         requires(trusted std.sync.spin_lock.acquired(&self.acquisition))
         ensures(
             trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -53,7 +54,7 @@ struct SpinLockGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.lock.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),

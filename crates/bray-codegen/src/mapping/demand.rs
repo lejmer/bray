@@ -116,6 +116,9 @@ pub fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
 /// Returns constant values directly retained by one aggregate constant.
 pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = ConstantValueId> {
     let values: Vec<_> = match kind {
+        ConstantValueKind::Borrowed(_) => {
+            panic!("constant observation reached generated-code demands")
+        }
         ConstantValueKind::NullablePresent(value) => vec![*value],
         ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => values.to_vec(),
         ConstantValueKind::Product(fields) => fields.iter().map(|field| *field.value()).collect(),
@@ -237,10 +240,7 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
             collect_edge_values(matched, demands);
             collect_edge_values(unmatched, demands);
         }
-        MirTerminatorKind::Iterate {
-            cursor, exhausted, ..
-        }
-        | MirTerminatorKind::RangeIterate {
+        MirTerminatorKind::RangeIterate {
             cursor, exhausted, ..
         } => {
             collect_place_values(cursor, demands);

@@ -38,7 +38,14 @@ trusted internal func read(
     ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
     uses(intrinsic)
 {
-    let header = trusted access(cursor, root = root);
+    let header = if root
+    {
+        yield trusted bray.runtime.bootstrap.activation.execution.root(cursor);
+    }
+    else
+    {
+        yield trusted access(cursor);
+    };
 
     return
     {
@@ -68,7 +75,6 @@ trusted internal func read(
 // reconstructed records cannot create another selected capability.
 trusted internal func access(
     pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
-    root: bool = false,
 ) -> &mut bray.runtime.bootstrap.activation.Header
     requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
     ensures(
@@ -77,22 +83,29 @@ trusted internal func access(
     )
     uses(raw_memory, unchecked_alias)
 {
-    // Issue the existing guarantees for the same selected field. Returning an
-    // address through a shared Cursor borrow would keep that borrow alive while
-    // borrow_mut_from needs the exclusive Cursor. No storage changes here.
-    trusted certify(&cursor, root);
-
-    if root
-    {
-        let pointer = cursor.root;
-
-        return trusted std.memory.borrow_mut_from<
-            bray.runtime.bootstrap.activation.Header,
-            bray.runtime.bootstrap.activation.run.Cursor
-        >(cursor, pointer);
-    }
+    trusted certify(&cursor, false);
 
     let pointer = cursor.pointer;
+
+    return trusted std.memory.borrow_mut_from<
+        bray.runtime.bootstrap.activation.Header,
+        bray.runtime.bootstrap.activation.run.Cursor
+    >(cursor, pointer);
+}
+
+trusted internal func root(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+) -> &mut bray.runtime.bootstrap.activation.Header
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.progress.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.incoming.report),
+    )
+    uses(raw_memory, unchecked_alias)
+{
+    trusted certify(&cursor, true);
+
+    let pointer = cursor.root;
 
     return trusted std.memory.borrow_mut_from<
         bray.runtime.bootstrap.activation.Header,
@@ -115,7 +128,7 @@ trusted internal func describe(
 
     let authorize = trusted lambda(
         pos cursor: &bray.runtime.bootstrap.activation.run.Cursor,
-        pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>
+        pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>
     )
         requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
         ensures(

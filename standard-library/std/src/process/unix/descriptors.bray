@@ -141,8 +141,8 @@ trusted internal func normalized_descriptor(pos descriptor: i32) -> Result<i32, 
 }
 
 trusted internal func configure_spawn_actions(
-    pos actions: RawPointer<u8>,
-    pos working_directory: RawPointer<u8>,
+    pos actions: DataPointer<u8>,
+    pos working_directory: DataPointer<u8>,
     pos input: ChildDescriptors,
     pos output: ChildDescriptors,
     pos error: ChildDescriptors,
@@ -175,7 +175,10 @@ trusted internal func configure_spawn_actions(
     return trusted internal configure_child_descriptors(actions, error);
 }
 
-trusted internal func configure_child_descriptors(pos actions: RawPointer<u8>, pos descriptors: ChildDescriptors) -> i32
+trusted internal func configure_child_descriptors(
+    pos actions: DataPointer<u8>,
+    pos descriptors: ChildDescriptors
+) -> i32
 {
     if descriptors.child >= 0
     {

@@ -115,7 +115,7 @@ func(pos value: i32) -> i32
 async func(pos request: Request) -> Response
 trusted func(pos bytes: &mut [u8])
     uses(raw_memory)
-@abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32
+@abi(c) func(pos context: DataPointer<u8>, pos value: i32) -> i32
 ```
 
 The parameter list uses the same parameter grammar as callable declarations.

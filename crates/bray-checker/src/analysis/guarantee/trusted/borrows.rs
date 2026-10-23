@@ -132,10 +132,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
-        if !matches!(
+        let retains_identity = matches!(
             result,
             ExecutionCondition::Expression(_) | ExecutionCondition::ScopedCapability(_)
-        ) {
+        ) || matches!(&result, ExecutionCondition::PostState(
+                bray_bound_tree::StorageMutation::Operation(site), _) if *site == invocation);
+
+        if !retains_identity {
             return result;
         }
 
@@ -193,7 +196,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let ordinal = match relation.entry().subject_root() {
+            let entry = relation
+                .entry()
+                .expect("value-preserving reference has an exact input origin");
+
+            let ordinal = match entry.subject_root() {
                 DependencySubjectRoot::Receiver => 0,
                 DependencySubjectRoot::Parameter(ordinal) => {
                     ordinal.raw() + u32::from(has_receiver)
@@ -203,7 +210,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let Some(input) = project_place(
                 ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
-                relation.entry(),
+                entry,
             ) else {
                 continue;
             };

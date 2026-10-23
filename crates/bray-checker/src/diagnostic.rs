@@ -348,6 +348,7 @@ pub(crate) const fn diagnostic_representation(role: RepresentationRole) -> Optio
         RepresentationRole::Never => Some(DiagnosticType::Never),
         RepresentationRole::String => Some(DiagnosticType::String),
         RepresentationRole::RawPointer
+        | RepresentationRole::FunctionPointer
         | RepresentationRole::Range
         | RepresentationRole::DevicePointer
         | RepresentationRole::Atomic

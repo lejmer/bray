@@ -131,7 +131,18 @@ where
         self.push_exit(failure, AnalysisExitKind::Panic, invocation.node());
 
         if self.invocation_may_cancel(invocation) {
-            self.push_exit(failure, AnalysisExitKind::Cancellation, invocation.node());
+            let cancelled = self.push_block();
+
+            self.push_edge(
+                failure,
+                cancelled,
+                AnalysisEdgeKind::Sequential,
+                Some(super::model::AnalysisRefinement::InvocationCancellation(
+                    invocation,
+                )),
+            );
+
+            self.push_exit(cancelled, AnalysisExitKind::Cancellation, invocation.node());
         }
     }
 

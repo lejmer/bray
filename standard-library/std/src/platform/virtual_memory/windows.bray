@@ -8,10 +8,10 @@ using internal std.platform;
 trusted internal func platform_map(
     pos bytes: usize,
     access: Access,
-) -> Result<RawPointer<u8>, std.platform.PlatformStatus>
+) -> Result<DataPointer<u8>, std.platform.PlatformStatus>
     uses(foreign_call)
 {
-    let address: RawPointer<u8> = trusted std.os.windows.virtual_alloc(
+    let address: DataPointer<u8> = trusted std.os.windows.virtual_alloc(
         std.memory.null<u8>(),
         size = bytes,
         allocation_type = std.os.windows.MEM_RESERVE | std.os.windows.MEM_COMMIT,
@@ -27,7 +27,7 @@ trusted internal func platform_map(
 }
 
 trusted internal func platform_protect(
-    pos address: RawPointer<u8>,
+    pos address: DataPointer<u8>,
     bytes: usize,
     access: Access,
 ) -> std.platform.PlatformStatus
@@ -50,7 +50,7 @@ trusted internal func platform_protect(
     return internal std.platform.success_status();
 }
 
-trusted internal func platform_unmap(pos address: RawPointer<u8>, bytes: usize) -> std.platform.PlatformStatus
+trusted internal func platform_unmap(pos address: DataPointer<u8>, bytes: usize) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
     if bytes == 0

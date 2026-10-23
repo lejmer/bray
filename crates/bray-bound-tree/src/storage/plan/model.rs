@@ -5,9 +5,9 @@ use super::contracts::{
 use super::resolve::resolve_accesses;
 use crate::storage::builder::StoragePlanBuilder;
 use crate::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-    StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAlternativeId, StorageIdentity,
-    StorageIdentityId, StoragePath, StorageProjection, StorageRelationship,
+    AnyBoundNodeId, BorrowCapabilityId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId,
+    StorageAccessPurpose, StorageAlternativeId, StorageIdentity, StorageIdentityId, StoragePath,
+    StorageProjection, StorageRelationship,
 };
 use bray_symbols::{BorrowKind, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,13 +27,12 @@ pub struct StoragePlan {
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
     accesses_by_path: Arc<[usize]>,
     borrow_capabilities: Arc<[PlannedBorrowCapability]>,
-    borrows_by_expression:
-        BTreeMap<(BoundExpressionId, BorrowKind, StorageAccessId), BorrowCapabilityId>,
+    borrows_by_occurrence:
+        BTreeMap<(crate::BoundExecutionSite, BorrowKind, StorageAccessId), BorrowCapabilityId>,
     bindings: Arc<[(StorageBindingTarget, StorageBinding)]>,
     bindings_by_storage: Arc<[usize]>,
     plans: Arc<[StorageAccessPlan]>,
     plans_by_occurrence: Arc<[usize]>,
-    plans_by_expression: Arc<[usize]>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -101,34 +100,32 @@ impl StoragePlan {
         });
 
         let mut plans_by_occurrence = (0..plans.len()).collect::<Vec<_>>();
-        let mut plans_by_expression = plans_by_occurrence.clone();
 
         plans_by_occurrence.sort_unstable_by_key(|index| (plans[*index].occurrence(), *index));
-        plans_by_expression.sort_unstable_by_key(|index| (plans[*index].expression(), *index));
 
         let bindings = bindings.into_iter().collect::<Vec<_>>();
         let mut bindings_by_storage = (0..bindings.len()).collect::<Vec<_>>();
 
         bindings_by_storage.sort_unstable_by_key(|index| (bindings[*index].1, *index));
 
-        let borrows_by_expression = borrow_capabilities
+        let borrows_by_occurrence = borrow_capabilities
             .iter()
             .enumerate()
             .filter_map(|(index, capability)| {
-                let expression = capability.expression()?;
+                let occurrence = capability.occurrence()?;
 
                 let slot = u32::try_from(index)
                     .expect("validated borrow capability index fits its identity");
 
                 Some((
-                    (expression, capability.kind(), capability.access()),
+                    (occurrence, capability.kind(), capability.access()),
                     BorrowCapabilityId::from_storage_slot(unit, slot),
                 ))
             })
             .collect();
 
         Self {
-            borrows_by_expression,
+            borrows_by_occurrence,
             unit,
             kind,
             copyable_types: BTreeSet::new(),
@@ -144,7 +141,6 @@ impl StoragePlan {
             bindings_by_storage: bindings_by_storage.into(),
             plans: plans.into(),
             plans_by_occurrence: plans_by_occurrence.into(),
-            plans_by_expression: plans_by_expression.into(),
         }
     }
 
@@ -365,8 +361,8 @@ impl StoragePlan {
             return None;
         };
 
-        self.borrows_by_expression
-            .get(&(plan.expression(), kind, plan.access()))
+        self.borrows_by_occurrence
+            .get(&(plan.occurrence(), kind, plan.access()))
             .copied()
             .or_else(|| {
                 let capability = self.access(plan.access())?.root().borrow_capability()?;
@@ -431,21 +427,6 @@ impl StoragePlan {
             .map(|index| self.bindings[*index])
             .take_while(move |(_, actual)| *actual == binding)
             .map(|(target, _)| target)
-    }
-
-    /// Returns every planned use of one expression occurrence.
-    pub fn expression_plans(
-        &self,
-        expression: BoundExpressionId,
-    ) -> impl Iterator<Item = StorageAccessPlan> + '_ {
-        let first = self
-            .plans_by_expression
-            .partition_point(|index| self.plans[*index].expression() < expression);
-
-        self.plans_by_expression[first..]
-            .iter()
-            .map(|index| self.plans[*index])
-            .take_while(move |plan| plan.expression() == expression)
     }
 
     /// Returns the access plans for one node in their original evaluation order.
@@ -757,12 +738,8 @@ mod tests {
         );
 
         assert_eq!(
-            plan.expression_plans(expressions[0]).collect::<Vec<_>>(),
-            [
-                plan.access_plans()[0],
-                plan.access_plans()[2],
-                plan.access_plans()[4]
-            ]
+            plan.node_plans((expressions[0]).into()).collect::<Vec<_>>(),
+            [plan.access_plans()[1]]
         );
 
         assert_eq!(
@@ -776,7 +753,7 @@ mod tests {
         );
 
         assert_eq!(
-            plan.expression_plans(crate::BoundExpressionId::from_slot(unit, 3))
+            plan.node_plans(crate::BoundExpressionId::from_slot(unit, 3).into())
                 .count(),
             0
         );
@@ -927,7 +904,7 @@ mod tests {
 
         let capability = builder
             .push_borrow_capability(crate::PlannedBorrowCapability::new(
-                crate::BorrowCapabilityOrigin::Expression(expression),
+                crate::BorrowCapabilityOrigin::Operation((expression).into()),
                 bray_symbols::BorrowKind::Mutable,
                 owner_access,
                 None,
@@ -967,7 +944,9 @@ mod tests {
 
         let child = builder
             .push_borrow_capability(crate::PlannedBorrowCapability::new(
-                crate::BorrowCapabilityOrigin::Expression(BoundExpressionId::from_slot(unit, 2)),
+                crate::BorrowCapabilityOrigin::Operation(
+                    (BoundExpressionId::from_slot(unit, 2)).into(),
+                ),
                 bray_symbols::BorrowKind::Shared,
                 first,
                 Some(capability),

@@ -10,7 +10,11 @@ pub(crate) const fn implementation_dependency_source(
         | ImplementationHook::PointerFromCallable
         | ImplementationHook::RawPointerOffset
         | ImplementationHook::RawPointerByteOffset
-        | ImplementationHook::RawPointerReinterpret => Some((
+        | ImplementationHook::RawPointerByteAddress
+        | ImplementationHook::RawPointerReinterpret
+        | ImplementationHook::FunctionPointerReinterpret
+        | ImplementationHook::FunctionPointerFromData
+        | ImplementationHook::FunctionPointerToData => Some((
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
             None,
         )),
@@ -55,8 +59,8 @@ pub(super) fn implementation_borrow(
 
     Some(
         bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                SymbolOrdinal::new(parameter),
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter)),
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             kind,

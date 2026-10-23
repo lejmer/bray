@@ -96,7 +96,7 @@
           "parameters": [
             {
               "name": "directory",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "DIR *"
             }
           ],
@@ -118,7 +118,7 @@
           "parameters": [
             {
               "name": "directory",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "DIR *"
             }
           ],
@@ -172,7 +172,7 @@
             },
             {
               "name": "status",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "struct stat *"
             }
           ],
@@ -200,12 +200,12 @@
             },
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
               "name": "status",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "struct stat *"
             },
             {
@@ -255,7 +255,7 @@
           "parameters": [
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "char *"
             },
             {
@@ -264,7 +264,7 @@
               "native_type": "size_t"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "char *",
           "link": "c",
           "error_state": "returns null and sets the C runtime error state",
@@ -363,7 +363,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -391,7 +391,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -423,12 +423,12 @@
           "parameters": [
             {
               "name": "duration",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "const struct timespec *"
             },
             {
               "name": "remaining",
-              "type": "RawPointer<Timespec>",
+              "type": "DataPointer<Timespec>",
               "native_type": "struct timespec *"
             }
           ],
@@ -451,11 +451,11 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "DIR *",
           "link": "c",
           "error_state": "returns null and sets the C runtime error state",
@@ -474,32 +474,32 @@
           "parameters": [
             {
               "name": "process",
-              "type": "RawPointer<i32>",
+              "type": "DataPointer<i32>",
               "native_type": "pid_t *"
             },
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "const posix_spawn_file_actions_t *"
             },
             {
               "name": "attributes",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const posix_spawnattr_t *"
             },
             {
               "name": "arguments",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "char *const []"
             },
             {
               "name": "environment",
-              "type": "RawPointer<RawPointer<u8>>",
+              "type": "DataPointer<DataPointer<u8>>",
               "native_type": "char *const []"
             }
           ],
@@ -527,7 +527,7 @@
             },
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -563,11 +563,11 @@
           "parameters": [
             {
               "name": "directory",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "DIR *"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "struct dirent *",
           "link": "c",
           "error_state": "returns null at exhaustion or after setting the C runtime error state",
@@ -586,12 +586,12 @@
           "parameters": [
             {
               "name": "source",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -614,7 +614,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -637,7 +637,7 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -660,12 +660,12 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
               "name": "status",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "struct stat *"
             }
           ],
@@ -688,12 +688,12 @@
           "parameters": [
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "posix_spawn_file_actions_t *"
             },
             {
               "name": "path",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             }
           ],
@@ -715,7 +715,7 @@
           "parameters": [
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "posix_spawn_file_actions_t *"
             },
             {
@@ -742,7 +742,7 @@
           "parameters": [
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "posix_spawn_file_actions_t *"
             },
             {
@@ -774,7 +774,7 @@
           "parameters": [
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "posix_spawn_file_actions_t *"
             }
           ],
@@ -796,7 +796,7 @@
           "parameters": [
             {
               "name": "actions",
-              "type": "RawPointer<PosixSpawnFileActions>",
+              "type": "DataPointer<PosixSpawnFileActions>",
               "native_type": "posix_spawn_file_actions_t *"
             }
           ],
@@ -834,7 +834,7 @@
             },
             {
               "name": "descriptors",
-              "type": "RawPointer<i32>",
+              "type": "DataPointer<i32>",
               "native_type": "int [2]"
             }
           ],
@@ -872,7 +872,7 @@
             },
             {
               "name": "status",
-              "type": "RawPointer<i32>",
+              "type": "DataPointer<i32>",
               "native_type": "int *"
             },
             {
@@ -905,7 +905,7 @@
             },
             {
               "name": "source",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const void *"
             },
             {
@@ -940,7 +940,7 @@
           "parameters": [
             {
               "name": "text",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "const char *"
             },
             {
@@ -962,8 +962,8 @@
             "trusted core.memory.nul_terminated_read(pointer = text)",
             "trusted core.memory.valid_read<u8>(pointer = text, count = result)",
             "trusted core.memory.initialized_range_as<u8>(pointer = text, count = result)",
-            "result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1)",
-            "result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1)"
+            "result >= limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1)",
+            "result >= limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1)"
           ],
           "dependencies": [
             "foreign_call",

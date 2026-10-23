@@ -6,7 +6,7 @@ use bray_symbols::{
 
 #[derive(Clone, Copy)]
 pub(crate) enum OperationInput {
-    Value(BoundExpressionId),
+    Value(bray_bound_tree::BoundExecutionSite),
     Borrow(BoundExpressionId, BorrowKind),
     Nullable(Option<BoundExpressionId>),
 }
@@ -22,15 +22,41 @@ impl OperationInput {
 
         Some(
             storage
-                .expression_plans(expression)
+                .node_plans((expression).into())
                 .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Borrow(kind))
                 .expect("selected invocation input retains its implicit borrow plan"),
         )
     }
 
+    pub(crate) fn access(
+        self,
+        storage: &bray_bound_tree::StoragePlan,
+    ) -> Option<bray_bound_tree::StorageAccessId> {
+        match self {
+            Self::Borrow(_, _) => self.borrow_plan(storage).map(|plan| plan.access()),
+            Self::Value(bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            }) => Some(
+                storage
+                    .invocation_input(expression, ordinal)
+                    .expect("staged operation input has its slot"),
+            ),
+            _ => self.expression().map(|expression| {
+                super::super::instantiation::expression_access(storage, expression)
+                    .expect("selected operation input has its source access")
+            }),
+        }
+    }
+
     pub(crate) fn expression(self) -> Option<BoundExpressionId> {
         match self {
-            Self::Value(expression) | Self::Borrow(expression, _) => Some(expression),
+            Self::Value(bray_bound_tree::BoundExecutionSite::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+            ))
+            | Self::Borrow(expression, _) => Some(expression),
+            Self::Value(bray_bound_tree::BoundExecutionSite::CallInput { .. }) => None,
+            Self::Value(other) => panic!("operation value has an evaluated value site: {other:?}"),
             Self::Nullable(expression) => expression,
         }
     }
@@ -100,19 +126,37 @@ pub(crate) fn operation_inputs(
     }
 
     if let SelectedOperation::Construction(construction) = operation {
+        let staged = construction
+            .inputs()
+            .iter()
+            .any(|input| matches!(input, SelectedConstructionInput::Default { .. }));
+
         return construction
             .inputs()
             .iter()
-            .filter_map(|input| match input {
-                SelectedConstructionInput::Explicit {
-                    expression,
-                    ordinal,
-                    ..
-                } => Some((
-                    DependencySubjectRoot::Parameter(SymbolOrdinal::new(*ordinal)),
-                    OperationInput::Value(*expression),
-                )),
-                SelectedConstructionInput::Default { .. } => None,
+            .filter_map(|input| {
+                let (SelectedConstructionInput::Explicit { ordinal, .. }
+                | SelectedConstructionInput::Default { ordinal, .. }) = input;
+
+                let ordinal = SymbolOrdinal::new(*ordinal);
+
+                let source = if staged {
+                    bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression,
+                        ordinal,
+                    }
+                } else {
+                    let SelectedConstructionInput::Explicit { expression, .. } = input else {
+                        unreachable!("unstaged construction has no defaults");
+                    };
+
+                    (*expression).into()
+                };
+
+                Some((
+                    DependencySubjectRoot::Parameter(ordinal),
+                    OperationInput::Value(source),
+                ))
             })
             .collect();
     }
@@ -129,7 +173,7 @@ pub(crate) fn operation_inputs(
             let input = if operation.operator_target().is_some() {
                 OperationInput::Borrow(expression, BorrowKind::Shared)
             } else {
-                OperationInput::Value(expression)
+                OperationInput::Value(expression.into())
             };
 
             (root, input)

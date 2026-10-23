@@ -105,6 +105,7 @@ where
         if !matches!(
             provenance,
             bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                 | bray_bound_tree::StorageIdentity::LocalOwned(_)
                 | bray_bound_tree::StorageIdentity::Parameter(_)
                 | bray_bound_tree::StorageIdentity::Receiver(_)
@@ -310,7 +311,7 @@ where
 
     let mut requirements = Vec::with_capacity(storage.identities().len());
 
-    for (identity, _) in storage.identity_entries() {
+    for (identity, slot) in storage.identity_entries() {
         let mut cleanup = match (
             storage.root_access(identity),
             storage.storage_type(identity),
@@ -321,6 +322,9 @@ where
             (_, None) => AsyncStorageCleanupRequirement::Recovered(
                 AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
             ),
+            (Some(_), Some(_)) if !slot.is_invocation_owned(storage.kind()) => {
+                AsyncStorageCleanupRequirement::None
+            }
             (Some(_), Some(ty)) => cleanup_shapes.requirement(ty)?,
         };
 

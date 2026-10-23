@@ -8,6 +8,7 @@ using internal std.platform;
 using std.task;
 using std.atomic;
 using std.memory;
+using std.memory.function;
 using std.run;
 
 func start<State, T>(pos entry: Entry<State, T>, pos state: State) -> Result<Thread<T>, ThreadError>
@@ -28,7 +29,7 @@ trusted internal func start_with_completion<State, T>(
         native = std.memory.null<TransferredThreadValue<NativeThreadStart<State, T>>>(),
     };
 
-    let storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>> = trusted internal allocate_thread_value<
+    let storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>> = trusted internal allocate_thread_value<
         ThreadStorage<T>
     >(
         {
@@ -65,14 +66,14 @@ trusted internal func start_with_completion<State, T>(
         },
     );
 
-    let native_context: RawPointer<TransferredThreadValue<NativeThreadStart<State, T>>> =
+    let native_context: DataPointer<TransferredThreadValue<NativeThreadStart<State, T>>> =
         trusted internal allocate_thread_value<NativeThreadStart<State, T>>(native_start);
 
     construction.native = native_context;
 
-    let callback: RawPointer<u8> = trusted internal native_thread_entry();
+    let callback = trusted internal native_thread_entry();
 
-    let context_bytes: RawPointer<u8> = trusted std.memory.reinterpret<
+    let context_bytes: DataPointer<u8> = trusted std.memory.reinterpret<
         u8,
         TransferredThreadValue<NativeThreadStart<State, T>>
     >(native_context);
@@ -207,7 +208,7 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
     requires(blocking_execution(), compute_execution())
     uses(intrinsic, raw_memory)
 {
-    let pointer: RawPointer<NativeThreadStart<State, T>> = trusted core.target.from_exposed_address<
+    let pointer: DataPointer<NativeThreadStart<State, T>> = trusted core.target.from_exposed_address<
         NativeThreadStart<State, T>
     >(address = context);
 
@@ -215,13 +216,13 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
         NativeThreadStart<State, T>
     >(pointer);
 
-    let work_pointer: RawPointer<TransferredThreadValue<ThreadStart<State, T>>> = native_start.work;
+    let work_pointer: DataPointer<TransferredThreadValue<ThreadStart<State, T>>> = native_start.work;
 
     native_start.work = std.memory.null<TransferredThreadValue<ThreadStart<State, T>>>();
 
     let work: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(work_pointer);
 
-    let storage_pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>> = work.storage;
+    let storage_pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>> = work.storage;
 
     {
         let control: &ThreadControl = trusted internal thread_control<T>(storage_pointer);
@@ -244,7 +245,7 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
         TransferredThreadValue<ThreadStorage<T>>
     >(storage_pointer);
 
-    let result_pointer: RawPointer<Uninit<T>> = std.memory.address_of<Uninit<T>>(&storage.value.result);
+    let result_pointer: DataPointer<Uninit<T>> = std.memory.address_of<Uninit<T>>(&storage.value.result);
     let result: &mut Uninit<T> = trusted internal transferred_value<Uninit<T>>(result_pointer);
     let _: &mut T = std.memory.uninit_write<T>(result, value);
 }
@@ -253,7 +254,7 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
 trusted internal func native_thread_cancellation_requested(pos context: usize) -> u32
     uses(intrinsic, raw_memory)
 {
-    let control_pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
+    let control_pointer: DataPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
         address = context
     );
 
@@ -262,7 +263,7 @@ trusted internal func native_thread_cancellation_requested(pos context: usize) -
     return control.cancellation.load(order = std.atomic.LoadOrder.Acquire);
 }
 
-trusted internal func publish_native_thread_outcome(pos control_pointer: RawPointer<ThreadControl>, pos outcome: u32)
+trusted internal func publish_native_thread_outcome(pos control_pointer: DataPointer<ThreadControl>, pos outcome: u32)
     uses(raw_memory)
 {
     let control: &ThreadControl = trusted internal transferred_shared_value<ThreadControl>(control_pointer);
@@ -285,11 +286,11 @@ trusted internal func publish_native_thread_outcome(pos control_pointer: RawPoin
     }
 }
 
-trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
+trusted internal func run_native_thread_start(pos context: DataPointer<u8>)
     requires(blocking_execution(), compute_execution())
     uses(intrinsic, layout_reinterpret, raw_memory)
 {
-    let pointer: RawPointer<NativeThreadDispatch> = trusted std.memory.reinterpret<NativeThreadDispatch, u8>(context);
+    let pointer: DataPointer<NativeThreadDispatch> = trusted std.memory.reinterpret<NativeThreadDispatch, u8>(context);
 
     let dispatch: &NativeThreadDispatch = trusted internal transferred_shared_value<NativeThreadDispatch>(pointer);
 
@@ -302,7 +303,7 @@ trusted internal func run_owned_native_thread_start<State, T>(pos context: usize
     requires(blocking_execution(), compute_execution())
     uses(intrinsic, raw_memory, unchecked_init)
 {
-    let pointer: RawPointer<TransferredThreadValue<NativeThreadStart<State, T>>> =
+    let pointer: DataPointer<TransferredThreadValue<NativeThreadStart<State, T>>> =
         trusted core.target.from_exposed_address<TransferredThreadValue<NativeThreadStart<State, T>>>(
         address = context
     );
@@ -313,7 +314,7 @@ trusted internal func run_owned_native_thread_start<State, T>(pos context: usize
 
     let native: &NativeThreadStart<State, T> = &owner.value;
 
-    let storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>> = native.storage;
+    let storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>> = native.storage;
 
     let outcome: Result<u32, PanicReport> = catch trusted internal execute_owned_native_thread<State, T>(
         trusted internal take_transferred_value<NativeThreadStart<State, T>>(pointer)
@@ -324,7 +325,7 @@ trusted internal func run_owned_native_thread_start<State, T>(pos context: usize
         case Ok(state) { yield state; }
         case Error(incident)
         {
-            let report: RawPointer<PanicReport> = trusted internal thread_report_destination<T>(storage);
+            let report: DataPointer<PanicReport> = trusted internal thread_report_destination<T>(storage);
 
             trusted std.memory.write<PanicReport>(report, incident);
             yield 2;
@@ -347,11 +348,11 @@ trusted internal func execute_owned_native_thread<State, T>(pos mut native_start
 
     let cancellation_callback: ThreadCancellationObservation = native_thread_cancellation_requested;
 
-    let cancellation_pointer: RawPointer<ThreadCancellationObservation> = trusted std.memory.pointer_from_callable(
+    let cancellation_pointer: FunctionPointer<ThreadCancellationObservation> = trusted std.memory.function_address(
         cancellation_callback
     );
 
-    let cancellation: RawPointer<u8> = trusted std.memory.reinterpret<u8, ThreadCancellationObservation>(
+    let cancellation: DataPointer<u8> = trusted std.memory.function.to_data<ThreadCancellationObservation>(
         cancellation_pointer
     );
 
@@ -359,7 +360,7 @@ trusted internal func execute_owned_native_thread<State, T>(pos mut native_start
         trusted internal thread_storage_control_pointer<T>(native_start.storage)
     );
 
-    let report_destination: RawPointer<PanicReport> = trusted internal thread_report_destination<T>(
+    let report_destination: DataPointer<PanicReport> = trusted internal thread_report_destination<T>(
         native_start.storage
     );
 
@@ -480,7 +481,7 @@ trusted internal func joined_thread_storage<T>(pos thread: &mut Thread<T>) -> (u
 
     assert(internal std.platform.successful_status(status), "a created native thread could not be joined");
 
-    let storage_pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>> = thread.storage;
+    let storage_pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>> = thread.storage;
 
     thread.active = false;
 
@@ -500,7 +501,7 @@ trusted internal func wait_for_thread_state(pos control: &ThreadControl) -> u32
 }
 
 trusted internal func wait_for_thread_storage_state<T>(
-    pos storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>
+    pos storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>>
 ) -> u32
     requires(blocking_execution())
 {

@@ -337,9 +337,9 @@ mod tests {
         };
 
         let Some(pointer) =
-            provider.declaration_symbol::<StructSymbolId>(&declaration_key("RawPointer"))
+            provider.declaration_symbol::<StructSymbolId>(&declaration_key("DataPointer"))
         else {
-            panic!("RawPointer should have a struct symbol");
+            panic!("DataPointer should have a struct symbol");
         };
 
         let Some(copy) =

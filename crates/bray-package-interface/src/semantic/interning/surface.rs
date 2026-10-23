@@ -232,6 +232,20 @@ impl InternState {
                             .callable_instance_id(callable)
                             .map(bray_symbols::CallableExecutionTarget::Callable)
                             .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
+                        bray_symbols::CallableExecutionTarget::Requirement {
+                            callable,
+                            requirement: (subject, application),
+                        } => Ok(bray_symbols::CallableExecutionTarget::Requirement {
+                            callable: self
+                                .callable_instance_id(callable)
+                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                            requirement: bray_symbols::ImplementationRequirementKey::new(
+                                self.type_id(subject)
+                                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                                self.trait_application_id(application)
+                                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                            ),
+                        }),
                         bray_symbols::CallableExecutionTarget::Indirect(ty) => self
                             .type_id(ty)
                             .map(bray_symbols::CallableExecutionTarget::Indirect)

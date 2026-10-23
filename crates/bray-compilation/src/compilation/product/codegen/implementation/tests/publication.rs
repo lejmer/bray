@@ -26,7 +26,7 @@ fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
         "extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;\n",
         "@link(name = \"native\")\n",
         "@symbol(name = \"native_pointer\")\n",
-        "extern trusted static mut NATIVE_POINTER: RawPointer<u8>;\n",
+        "extern trusted static mut NATIVE_POINTER: DataPointer<u8>;\n",
         "@symbol(name = \"unused_export\")\n",
         "static UNUSED_EXPORT: i32 = 7;\n",
         "@symbol(name = \"weak_export\", binding = weak)\n",
@@ -38,8 +38,8 @@ fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
         "func main()\n",
         "{\n",
         "    let value: i32 = weak_export();\n",
-        "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
-        "    let pointer_storage: RawPointer<RawPointer<u8>> = NATIVE_POINTER;\n",
+        "    let pointer: DataPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
+        "    let pointer_storage: DataPointer<DataPointer<u8>> = NATIVE_POINTER;\n",
         "}\n",
     );
 
@@ -415,7 +415,7 @@ fn library_publication_preserves_named_native_dependencies() {
                 } else {
                     format!(
                         r#"
-                        trusted func get_{suffix}_{index}() -> RawPointer<i32>
+                        trusted func get_{suffix}_{index}() -> DataPointer<i32>
                         {{
                             return {storage};
                         }}
@@ -476,7 +476,7 @@ fn optional_native_storage_keeps_unrelated_library_exports_exact() {
             @symbol(name = "optional_native_value", presence = optional)
             extern trusted static NATIVE_VALUE: i32;
 
-            trusted func optional_value() -> RawPointer<i32> {
+            trusted func optional_value() -> DataPointer<i32> {
                 return NATIVE_VALUE;
             }
 

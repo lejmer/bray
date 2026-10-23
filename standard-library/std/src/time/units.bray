@@ -1,0 +1,3 @@
+trusted module std.time;
+
+const NANOSECONDS_PER_SECOND: u32 = 1_000_000_000;

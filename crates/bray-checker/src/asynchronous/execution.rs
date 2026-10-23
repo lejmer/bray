@@ -138,12 +138,15 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                     && callable_type.execution() == CallableExecution::Synchronous;
 
                                 dependencies.push(ExecutionDependency {
-                                    target: BoundCallableTarget::Declaration(*callable),
-                                    property: if mode == ExecutionCleanupMode::Admission {
-                                        ExecutionProperty::Total
-                                    } else {
-                                        property
-                                    },
+                                    target: (BoundCallableTarget::Declaration(*callable)).into(),
+                                    obligation: crate::ExecutionObligation::Property(
+                                        if mode == ExecutionCleanupMode::Admission {
+                                            ExecutionProperty::Total
+                                        } else {
+                                            property
+                                        },
+                                        None,
+                                    ),
                                     occurrence: node.into(),
                                 });
                             }

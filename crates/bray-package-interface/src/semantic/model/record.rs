@@ -407,7 +407,11 @@ impl InterfaceCallablePhaseBehavior {
 /// Checked phase-separated contracts for one callable.
 pub type InterfaceCallableExecutionContract = bray_symbols::CallableExecutionContract<
     super::InterfaceConstantTermId,
-    bray_symbols::CallableExecutionTarget<super::InterfaceCallableInstanceId, InterfaceTypeId>,
+    bray_symbols::CallableExecutionTarget<
+        super::InterfaceCallableInstanceId,
+        InterfaceTypeId,
+        (InterfaceTypeId, super::InterfaceTraitApplicationId),
+    >,
 >;
 
 /// Checked phase-separated contracts for one callable.

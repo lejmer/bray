@@ -380,6 +380,7 @@ impl Lowerer<'_> {
             (MirBlockId, MirBlockId, bray_ir::MirPlace),
         >,
     ) -> Result<MirBlockId, LoweringError> {
+        let pending_inputs = temporaries;
         let mut temporaries = temporaries.iter().rev().peekable();
         let previous_occurrence = self.cleanup_occurrence;
 
@@ -414,6 +415,10 @@ impl Lowerer<'_> {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
+                if self.input_cleanup_owns(*access, phase, pending_inputs) {
+                    continue;
+                }
+
                 let completed = self.input.finalizer_is_complete(plan.exit(), *access);
 
                 block = self

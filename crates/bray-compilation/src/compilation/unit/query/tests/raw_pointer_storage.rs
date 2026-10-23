@@ -1,4 +1,4 @@
-use crate::test_support::{source_function_body_key, source_input};
+use crate::test_support::source_function_body_key;
 use crate::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::PackageIdentity;
@@ -45,7 +45,7 @@ using std.memory;
 func main()
 {
     let mut value: i32 = 1;
-    let pointer: RawPointer<i32> = std.memory.address_of<i32>(&value);
+    let pointer: DataPointer<i32> = std.memory.address_of<i32>(&value);
     std.memory.is_null<i32>(pointer);
     value = 2;
 }
@@ -61,7 +61,7 @@ fn raw_pointer_assignment_preserves_addressed_storage_initialization() {
 using std.memory;
 trusted func main(pos value: &usize) -> usize uses(raw_memory)
 {
-    let pointer: RawPointer<usize> = std.memory.address_of<usize>(value);
+    let pointer: DataPointer<usize> = std.memory.address_of<usize>(value);
 
     return trusted std.memory.read<usize>(pointer);
 }
@@ -76,7 +76,7 @@ fn borrow_of_recovered_storage_preserves_the_original_diagnostic() {
         r#"trusted module std.test;
 
 using std.memory;
-trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {
+trusted func main() -> DataPointer<u8> uses(layout_reinterpret) {
     let mut report: Missing = {};
     return trusted std.memory.reinterpret<u8, Missing>(std.memory.address_of_mut(&mut report));
 }
@@ -91,10 +91,10 @@ fn mutable_owned_aggregate_can_be_addressed_inside_pointer_reinterpretation() {
 
 using std.memory;
 struct Report { mut cause: u32; }
-trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {
+trusted func main() -> DataPointer<u8> uses(layout_reinterpret) {
     let mut report: Report = empty_report();
     if report.cause == 0 { report.cause = 1; }
-    let result: RawPointer<u8> = trusted std.memory.reinterpret<u8, Report>(std.memory.address_of_mut(&mut report));
+    let result: DataPointer<u8> = trusted std.memory.reinterpret<u8, Report>(std.memory.address_of_mut(&mut report));
     return result;
 }
 func empty_report() -> Report { return { cause = 0 }; }
@@ -108,7 +108,7 @@ fn mutable_slice_element_can_be_reborrowed_for_a_raw_pointer() {
         r#"module std.test;
 
 using std.memory;
-func main(pos bytes: & mut [u8]) -> RawPointer<u8>
+func main(pos bytes: & mut [u8]) -> DataPointer<u8>
 {
     if bytes.is_empty()
     {
@@ -149,17 +149,16 @@ fn standard_memory_compilation(source: &str) -> Compilation {
 
     let request = CompilationRequest::with_options(
         package,
-        vec![
-            source_input(
-                include_str!("../../../../../../../standard-library/std/src/std.bray"),
-                0,
-            ),
-            source_input(
-                include_str!("../../../../../../../standard-library/std/src/memory.bray"),
-                1,
-            ),
-            source_input(source, 2),
-        ],
+        crate::test_support::source_inputs(&[
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            source,
+        ]),
         crate::CompilationOptions::new(
             crate::WorkerBudget::serial(),
             bray_symbols::ProductKind::Library,
@@ -238,7 +237,7 @@ fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
         @abi(c)
         @symbol(name = "change")
         @link(name = "native")
-        extern trusted func change(pos target: RawPointer<i32>)
+        extern trusted func change(pos target: DataPointer<i32>)
             uses(foreign_call);
 
         struct Owner
@@ -282,7 +281,7 @@ fn terminal_destructor_distinguishes_local_address_formation_from_escape() {
             @abi(c)
             @symbol(name = "publish")
             @link(name = "native")
-            extern trusted func publish(pos pointer: RawPointer<i32>) uses(foreign_call);
+            extern trusted func publish(pos pointer: DataPointer<i32>) uses(foreign_call);
 
             func increment(pos value: &mut i32)
             {{

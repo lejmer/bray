@@ -475,14 +475,15 @@ mod tests {
     }
 
     #[test]
-    fn concrete_witnesses_are_checked_and_open_termination_dependencies_are_rejected() {
-        for (parameters, subject, constraint, valid) in [
-            ("", "Value", "", true),
-            ("<T>", "T", "with(T: Readable)", false),
+    fn abstract_calls_use_only_declared_unconditional_trait_promises() {
+        for (parameters, subject, constraint, promise, valid) in [
+            ("", "Value", "", "executes(total)", true),
+            ("<T>", "T", "with(T: Readable)", "executes(total)", true),
+            ("<T>", "T", "with(T: Readable)", "", false),
         ] {
             let source = r#"
                 module app;
-                trait Readable { func read() -> bool executes(total); }
+                trait Readable { func read() -> bool PROMISE; }
                 struct Value {}
                 impl Value(Readable)
                 {
@@ -497,7 +498,8 @@ mod tests {
             "#
             .replace("PARAMETERS", parameters)
             .replace("SUBJECT", subject)
-            .replace("CONSTRAINT", constraint);
+            .replace("CONSTRAINT", constraint)
+            .replace("PROMISE", promise);
 
             let compilation = compilation(&source);
 

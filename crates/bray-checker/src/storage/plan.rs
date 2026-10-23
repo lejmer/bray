@@ -161,6 +161,23 @@ where
                 )
             });
 
+        let result_type =
+            expressions
+                .types()
+                .callable_result_type()
+                .or_else(|| match request.root() {
+                    CheckerUnitRoot::Expression(expression) => {
+                        expressions.types().expression(expression).map(|ty| ty.ty())
+                    }
+                    _ => None,
+                });
+
+        if let Some(ty) = result_type {
+            builder
+                .set_identity_type(result_storage, ty)
+                .expect("checked result storage retains its declared type");
+        }
+
         builder
             .bind(
                 StorageBindingTarget::Result,
@@ -289,7 +306,29 @@ where
                 self.install_declared_inputs(context.declaration())?;
             }
             SemanticUnitContext::ContractClause(context) => {
-                self.install_declared_inputs(context.declaration().declaration())?;
+                if self.request.unit().key().callable_type_header().is_some() {
+                    let parameters = self
+                        .request
+                        .unit()
+                        .local_symbols()
+                        .bindings()
+                        .iter()
+                        .filter(|binding| binding.key().ordinal().is_some())
+                        .map(|binding| binding.id())
+                        .collect::<Vec<_>>();
+
+                    for parameter in parameters {
+                        let reference = BoundReferenceTarget::Local(parameter.into());
+
+                        self.bind_entry(
+                            StorageBindingTarget::Local(parameter),
+                            StorageIdentity::ContractParameter(parameter),
+                            self.entry_storage(reference)?,
+                        )?;
+                    }
+                } else {
+                    self.install_declared_inputs(context.declaration().declaration())?;
+                }
             }
         }
 
@@ -688,7 +727,10 @@ fn declared_callable_entry<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let Some(callable) = request.containing_callable() else {
+    let Some(callable) = request
+        .containing_callable()
+        .filter(|_| request.unit().key().callable_type_header().is_none())
+    else {
         return Ok(DeclaredCallableEntry {
             parameter_types: BTreeMap::new(),
             receiver: None,

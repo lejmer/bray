@@ -13,11 +13,14 @@ mod replacement;
 mod retention;
 mod scope;
 mod shape;
+mod target;
+
+pub use target::{StorageOrigin, StorageTarget};
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
-    StorageOperationDecision, StorageOperationStatus, StorageSuspensionState,
+    StorageOperationDecision, StorageOperationStatus, StorageStateTarget, StorageSuspensionState,
 };
 pub use liveness::{
     LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, LivenessBuildError, OwnerRetention,

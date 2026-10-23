@@ -237,6 +237,9 @@ impl<'a> SemanticExporter<'a> {
                 let data = self.values.constant_value_data(id);
 
                 let kind = match data.kind() {
+                    ConstantValueKind::Borrowed(_) => {
+                        panic!("constant observation reached materialized output")
+                    }
                     ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
                         return Err(incomplete_type());
                     }

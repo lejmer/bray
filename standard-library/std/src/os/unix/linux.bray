@@ -3,6 +3,7 @@ trusted internal module std.os.unix;
 
 using core.memory;
 using std.memory;
+using std.memory.function;
 using std.numeric;
 using std.os.linux;
 
@@ -76,56 +77,56 @@ trusted func close(pos descriptor: i32) -> i32
     return trusted std.os.linux.close(descriptor);
 }
 
-trusted func create_directory(pos path: RawPointer<u8>, mode: u32) -> i32
+trusted func create_directory(pos path: DataPointer<u8>, mode: u32) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.mkdir(path, mode = mode);
 }
 
-trusted func close_directory(pos directory: RawPointer<u8>) -> i32
+trusted func close_directory(pos directory: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.close_directory(directory);
 }
 
-trusted func directory_descriptor(pos directory: RawPointer<u8>) -> i32
+trusted func directory_descriptor(pos directory: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.directory_descriptor(directory);
 }
 
-trusted func dlclose(pos handle: RawPointer<u8>) -> i32
+trusted func dlclose(pos handle: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.dlclose(handle);
 }
 
-trusted func dlerror() -> RawPointer<u8>
+trusted func dlerror() -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.dlerror();
 }
 
-trusted func dlopen(pos path: RawPointer<u8>, mode: i32) -> RawPointer<u8>
+trusted func dlopen(pos path: DataPointer<u8>, mode: i32) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.dlopen(path, mode = mode);
 }
 
-trusted func dlsym(pos handle: RawPointer<u8>, pos name: RawPointer<u8>) -> RawPointer<u8>
+trusted func dlsym(pos handle: DataPointer<u8>, pos name: DataPointer<u8>) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.dlsym(handle, name);
 }
 
 trusted func mmap(
-    pos address: RawPointer<u8>,
+    pos address: DataPointer<u8>,
     pos length: usize,
     pos protection: i32,
     pos flags: i32,
     pos descriptor: i32,
     pos offset: i64,
-) -> RawPointer<u8>
+) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.mmap(address, length, protection, flags, descriptor, offset);
@@ -137,7 +138,7 @@ trusted func flush(pos descriptor: i32) -> i32
     return trusted std.os.linux.fsync(descriptor);
 }
 
-trusted func file_status(pos descriptor: i32, pos status: RawPointer<u8>) -> i32
+trusted func file_status(pos descriptor: i32, pos status: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.file_status(descriptor, status);
@@ -145,8 +146,8 @@ trusted func file_status(pos descriptor: i32, pos status: RawPointer<u8>) -> i32
 
 trusted func file_status_at(
     pos directory: i32,
-    pos path: RawPointer<u8>,
-    pos status: RawPointer<u8>,
+    pos path: DataPointer<u8>,
+    pos status: DataPointer<u8>,
     pos flags: i32,
 ) -> i32
     uses(foreign_call)
@@ -154,7 +155,7 @@ trusted func file_status_at(
     return trusted std.os.linux.file_status_at(directory, path, status, flags);
 }
 
-trusted func working_directory(pos destination: RawPointer<u8>, capacity: usize) -> RawPointer<u8>
+trusted func working_directory(pos destination: DataPointer<u8>, capacity: usize) -> DataPointer<u8>
     requires(capacity != 0, trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
     ensures(core.memory.is_null<u8>(result) || trusted core.memory.nul_terminated_read(pointer = result))
     uses(foreign_call)
@@ -162,40 +163,40 @@ trusted func working_directory(pos destination: RawPointer<u8>, capacity: usize)
     return trusted std.os.linux.getcwd(destination, capacity = capacity);
 }
 
-trusted func narrow_string_length(pos text: RawPointer<u8>, pos limit: usize) -> usize
+trusted func narrow_string_length(pos text: DataPointer<u8>, pos limit: usize) -> usize
     requires(trusted core.memory.nul_terminated_read(pointer = text))
     ensures(
         result <= limit,
         trusted core.memory.nul_terminated_read(pointer = text),
         trusted core.memory.valid_read<u8>(pointer = text, count = result),
         trusted core.memory.initialized_range_as<u8>(pointer = text, count = result),
-        result == limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
-        result == limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.valid_read<u8>(pointer = text, count = result + 1),
+        result >= limit || trusted core.memory.initialized_range_as<u8>(pointer = text, count = result + 1),
     )
     uses(foreign_call)
 {
     return trusted std.os.linux.narrow_string_length(text, limit);
 }
 
-trusted func open_file(pos path: RawPointer<u8>, flags: i32, mode: u32) -> i32
+trusted func open_file(pos path: DataPointer<u8>, flags: i32, mode: u32) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.open(path, flags, mode);
 }
 
-trusted func open_directory(pos path: RawPointer<u8>) -> RawPointer<u8>
+trusted func open_directory(pos path: DataPointer<u8>) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.open_directory(path);
 }
 
-trusted func path_status(pos path: RawPointer<u8>, pos status: RawPointer<u8>) -> i32
+trusted func path_status(pos path: DataPointer<u8>, pos status: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.path_status(path, status);
 }
 
-trusted func read_directory(pos directory: RawPointer<u8>) -> RawPointer<u8>
+trusted func read_directory(pos directory: DataPointer<u8>) -> DataPointer<u8>
     uses(foreign_call)
 {
     return trusted std.os.linux.read_directory(directory);
@@ -207,19 +208,19 @@ trusted func seek(pos descriptor: i32, offset: i64, origin: i32) -> i64
     return trusted std.os.linux.lseek(descriptor, offset, origin);
 }
 
-trusted func mprotect(pos address: RawPointer<u8>, pos length: usize, pos protection: i32) -> i32
+trusted func mprotect(pos address: DataPointer<u8>, pos length: usize, pos protection: i32) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.mprotect(address, length, protection);
 }
 
-trusted func munmap(pos address: RawPointer<u8>, pos length: usize) -> i32
+trusted func munmap(pos address: DataPointer<u8>, pos length: usize) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.munmap(address, length);
 }
 
-trusted func read(pos descriptor: i32, pos destination: RawPointer<u8>, pos length: usize) -> isize
+trusted func read(pos descriptor: i32, pos destination: DataPointer<u8>, pos length: usize) -> isize
     requires(length == 0 || trusted core.memory.valid_write<u8>(pointer = destination, count = length))
     ensures(
         result < 0 || std.numeric.truncate_to<usize>(result) <= length,
@@ -237,25 +238,25 @@ trusted func read(pos descriptor: i32, pos destination: RawPointer<u8>, pos leng
     return trusted std.os.linux.read(descriptor, destination = destination, length = length);
 }
 
-trusted func remove_directory(pos path: RawPointer<u8>) -> i32
+trusted func remove_directory(pos path: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.rmdir(path);
 }
 
-trusted func remove_file(pos path: RawPointer<u8>) -> i32
+trusted func remove_file(pos path: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.unlink(path);
 }
 
-trusted func rename_path(pos source: RawPointer<u8>, pos destination: RawPointer<u8>) -> i32
+trusted func rename_path(pos source: DataPointer<u8>, pos destination: DataPointer<u8>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.rename(source, destination);
 }
 
-trusted func write(pos descriptor: i32, pos source: RawPointer<u8>, pos length: usize) -> isize
+trusted func write(pos descriptor: i32, pos source: DataPointer<u8>, pos length: usize) -> isize
     requires(
         length == 0 || trusted core.memory.valid_read<u8>(pointer = source, count = length),
         length == 0 || trusted core.memory.initialized_range_as<u8>(pointer = source, count = length),
@@ -277,7 +278,7 @@ trusted func socket_pair() -> (i32, [i32; 2])
         return (-1, pair);
     }
 
-    let descriptors: RawPointer<i32> = internal std.memory.slice_pointer_mut<i32>(output, count = 2);
+    let descriptors: DataPointer<i32> = internal std.memory.slice_pointer_mut<i32>(output, count = 2);
 
     let status: i32 = trusted std.os.linux.socket_pair(
         std.os.linux.AF_UNIX,
@@ -295,7 +296,7 @@ trusted func duplicate_close_on_exec(pos descriptor: i32, minimum: i32) -> i32
     return trusted std.os.linux.fcntl(descriptor, std.os.linux.F_DUPFD_CLOEXEC, minimum);
 }
 
-trusted func initialize_spawn_actions(pos actions: RawPointer<u8>) -> i32
+trusted func initialize_spawn_actions(pos actions: DataPointer<u8>) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.linux.spawn_actions_initialize(
@@ -303,7 +304,7 @@ trusted func initialize_spawn_actions(pos actions: RawPointer<u8>) -> i32
     );
 }
 
-trusted func add_spawn_close(pos actions: RawPointer<u8>, descriptor: i32) -> i32
+trusted func add_spawn_close(pos actions: DataPointer<u8>, descriptor: i32) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.linux.spawn_actions_add_close(
@@ -312,7 +313,7 @@ trusted func add_spawn_close(pos actions: RawPointer<u8>, descriptor: i32) -> i3
     );
 }
 
-trusted func add_spawn_duplicate(pos actions: RawPointer<u8>, source: i32, destination: i32) -> i32
+trusted func add_spawn_duplicate(pos actions: DataPointer<u8>, source: i32, destination: i32) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.linux.spawn_actions_add_duplicate(
@@ -322,7 +323,7 @@ trusted func add_spawn_duplicate(pos actions: RawPointer<u8>, source: i32, desti
     );
 }
 
-trusted func add_spawn_working_directory(pos actions: RawPointer<u8>, path: RawPointer<u8>) -> i32
+trusted func add_spawn_working_directory(pos actions: DataPointer<u8>, path: DataPointer<u8>) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.linux.spawn_actions_add_chdir(
@@ -331,7 +332,7 @@ trusted func add_spawn_working_directory(pos actions: RawPointer<u8>, path: RawP
     );
 }
 
-trusted func destroy_spawn_actions(pos actions: RawPointer<u8>) -> i32
+trusted func destroy_spawn_actions(pos actions: DataPointer<u8>) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.linux.spawn_actions_destroy(
@@ -340,11 +341,11 @@ trusted func destroy_spawn_actions(pos actions: RawPointer<u8>) -> i32
 }
 
 trusted func spawn(
-    pos process: RawPointer<i32>,
-    pos executable: RawPointer<u8>,
-    pos actions: RawPointer<u8>,
-    pos arguments: RawPointer<RawPointer<u8>>,
-    pos environment: RawPointer<RawPointer<u8>>,
+    pos process: DataPointer<i32>,
+    pos executable: DataPointer<u8>,
+    pos actions: DataPointer<u8>,
+    pos arguments: DataPointer<DataPointer<u8>>,
+    pos environment: DataPointer<DataPointer<u8>>,
 ) -> i32
     uses(foreign_call, layout_reinterpret)
 {
@@ -358,7 +359,7 @@ trusted func spawn(
     );
 }
 
-trusted func wait(pos process: i32, pos status: RawPointer<i32>) -> i32
+trusted func wait(pos process: i32, pos status: DataPointer<i32>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.wait_pid(process, status, options = 0);
@@ -377,15 +378,15 @@ trusted func signal(pos process: i32, force: bool) -> i32
 }
 
 trusted func pthread_create(
-    pos attributes: RawPointer<PThreadAttribute>,
+    pos attributes: DataPointer<PThreadAttribute>,
     pos entry: ThreadStartRoutine,
-    pos context: RawPointer<u8>,
+    pos context: DataPointer<u8>,
 ) -> (i32, u64)
     uses(foreign_call, layout_reinterpret)
 {
-    let entry_pointer: RawPointer<ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+    let entry_pointer: FunctionPointer<ThreadStartRoutine> = trusted std.memory.function_address(entry);
 
-    let native_pointer: RawPointer<std.os.linux.ThreadStartRoutine> = trusted std.memory.reinterpret<
+    let native_pointer: FunctionPointer<std.os.linux.ThreadStartRoutine> = trusted std.memory.function.reinterpret<
         std.os.linux.ThreadStartRoutine,
         ThreadStartRoutine
     >(entry_pointer);
@@ -415,7 +416,7 @@ trusted func pthread_detach(pos thread: u64) -> i32
     return trusted std.os.linux.pthread_detach(thread);
 }
 
-trusted func pthread_join(pos thread: u64, pos result: RawPointer<RawPointer<u8>>) -> i32
+trusted func pthread_join(pos thread: u64, pos result: DataPointer<DataPointer<u8>>) -> i32
     uses(foreign_call)
 {
     return trusted std.os.linux.pthread_join(thread, result);
@@ -427,7 +428,7 @@ trusted func pthread_self() -> u64
     return trusted std.os.linux.pthread_self();
 }
 
-trusted func pthread_key_create(pos key: RawPointer<u64>, pos destructor: ThreadStorageDestructor) -> i32
+trusted func pthread_key_create(pos key: DataPointer<u64>, pos destructor: ThreadStorageDestructor) -> i32
     executes(total)
     requires(
         trusted core.memory.valid_write<u64>(pointer = key, count = 1),
@@ -446,7 +447,7 @@ trusted func pthread_key_create(pos key: RawPointer<u64>, pos destructor: Thread
 }
 
 trusted internal func prepare_pthread_key_create(
-    pos key: RawPointer<u64>,
+    pos key: DataPointer<u64>,
     pos destructor: ThreadStorageDestructor
 ) -> (i32, u64)
     executes(total)
@@ -460,9 +461,9 @@ trusted internal func prepare_pthread_key_create(
     )
     uses(foreign_call, layout_reinterpret)
 {
-    let destructor_pointer: RawPointer<ThreadStorageDestructor> = trusted std.memory.pointer_from_callable(destructor);
+    let destructor_pointer: FunctionPointer<ThreadStorageDestructor> = trusted std.memory.function_address(destructor);
 
-    let native_pointer: RawPointer<std.os.linux.ThreadStorageDestructor> = trusted std.memory.reinterpret<
+    let native_pointer: FunctionPointer<std.os.linux.ThreadStorageDestructor> = trusted std.memory.function.reinterpret<
         std.os.linux.ThreadStorageDestructor,
         ThreadStorageDestructor
     >(destructor_pointer);
@@ -485,7 +486,7 @@ trusted func pthread_key_delete(pos key: u64) -> i32
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.os.linux.EINVAL;
     }
@@ -493,11 +494,11 @@ trusted func pthread_key_delete(pos key: u64) -> i32
     return trusted std.os.linux.pthread_key_delete(std.numeric.truncate_to<u32>(key));
 }
 
-trusted func pthread_getspecific(pos key: u64) -> RawPointer<u8>
+trusted func pthread_getspecific(pos key: u64) -> DataPointer<u8>
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.memory.null<u8>();
     }
@@ -505,11 +506,11 @@ trusted func pthread_getspecific(pos key: u64) -> RawPointer<u8>
     return trusted std.os.linux.pthread_getspecific(std.numeric.truncate_to<u32>(key));
 }
 
-trusted func pthread_setspecific(pos key: u64, pos value: RawPointer<u8>) -> i32
+trusted func pthread_setspecific(pos key: u64, pos value: DataPointer<u8>) -> i32
     executes(total)
     uses(foreign_call)
 {
-    if key > 4294967295
+    if key > (std.numeric.U32_MAX as u64)
     {
         return std.os.linux.EINVAL;
     }

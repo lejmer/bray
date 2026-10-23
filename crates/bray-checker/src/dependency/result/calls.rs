@@ -25,18 +25,16 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             result.extend(
                 self.state
                     .values
-                    .get(&bound.callee())
+                    .get(&bound.callee().into())
                     .into_iter()
                     .flatten()
                     .cloned(),
             );
         }
 
-        result.extend(
-            self.mapped_result_values(template.template.requirements(), |root| {
-                crate::dependency::result_argument(call.arguments(), call.receiver(), root)
-            })?,
-        );
+        result.extend(self.mapped_result_values(template.requirements(), |root| {
+            call.input_site(expression, root)
+        })?);
 
         Ok(result)
     }
@@ -44,31 +42,67 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     pub(super) fn selected_result_template(
         &self,
         call: &bray_bound_tree::SelectedCall,
-    ) -> Result<
-        crate::dependency::defaults::CallResultDependencies,
-        CheckerQueryError<C::UpstreamError>,
-    > {
-        let recursive = super::super::returned::declaration_source(call).is_some_and(|instance| {
-            self.request
-                .is_recursive_result(instance.definition().callable_symbol())
-                && call.resolution().trait_dispatch().is_none()
-        });
+    ) -> Result<bray_symbols::DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>>
+    {
+        let recursive = call
+            .resolution()
+            .declaration_source()
+            .is_some_and(|instance| {
+                self.request
+                    .is_recursive_result(instance.definition().callable_symbol())
+                    && call.resolution().trait_dispatch().is_none()
+            });
 
         if recursive {
             let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
 
-            crate::dependency::defaults::expand_result_defaults(
-                self.request,
-                call.arguments(),
-                call.receiver(),
-                super::super::returned::declaration_source(call),
-                &template,
-            )
+            Ok(template)
         } else {
-            crate::dependency::call_result_template(self.request, call, |callable| {
+            crate::dependency::callee_result_template(self.request, call, |callable| {
                 self.request.callable_result_dependencies(callable)
             })
         }
+    }
+
+    pub(super) fn implicit_values(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let expression = invocation
+            .expression()
+            .expect("implicit result has its source owner");
+
+        let selection = self
+            .selections
+            .expression(expression)
+            .expect("implicit invocation retains its selected protocol");
+
+        if matches!(
+            invocation,
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+        ) && let SemanticSelection::ScopedUse(scoped) = selection
+        {
+            return self.scoped_values(scoped);
+        }
+
+        let callable = self
+            .selections
+            .invoked_callable(invocation)
+            .expect("implicit invocation retains its callable");
+
+        let template = self
+            .request
+            .callable_result_dependencies(callable.definition().callable_symbol())?;
+
+        let template = crate::dependency::returned::resolved_result_template(
+            self.request,
+            Some(callable),
+            template,
+        )?;
+
+        self.mapped_result_values(template.requirements(), |root| {
+            selection.invocation_input_site(invocation, root)
+        })
     }
 
     pub(super) fn scoped_values(
@@ -117,7 +151,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         };
 
         self.mapped_result_values(template.requirements(), |root| {
-            (root == bray_symbols::DependencySubjectRoot::Receiver).then_some(scoped.initializer())
+            (root == bray_symbols::DependencySubjectRoot::Receiver)
+                .then_some(scoped.initializer().into())
         })
     }
 
@@ -184,6 +219,35 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         use bray_bound_tree::BoundExecutionSite;
 
         match occurrence {
+            BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            } => {
+                let selection = self
+                    .selections
+                    .expression(expression)
+                    .expect("report-producing input retains its invocation");
+
+                let template = crate::dependency::call::selected_input_template(
+                    self.request,
+                    selection,
+                    ordinal,
+                )?;
+
+                let requirements = if output.is_abnormal() {
+                    template.abnormal_reports()
+                } else {
+                    template.completion_reports()
+                };
+
+                requirements
+                    .map(|requirements| {
+                        self.mapped_result_values(requirements, |root| {
+                            self.input_argument_site(occurrence, root)
+                        })
+                    })
+                    .transpose()
+            }
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 if let Some(SemanticSelection::Operation(operation)) =
                     self.selections.expression(expression)
@@ -195,7 +259,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     )?
                     .expect("report-producing operator retains its source invocation");
 
-                    let reports = template.immediate_reports(false);
+                    let reports = template.template;
 
                     let requirements = if output.is_abnormal() {
                         reports.abnormal_reports()
@@ -217,18 +281,22 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
                 let template = self.selected_result_template(call)?;
 
-                let reports = if matches!(
+                let deferred = matches!(
                     output,
                     bray_bound_tree::CallReportOutput::DeferredCompleted
                         | bray_bound_tree::CallReportOutput::DeferredAbnormal
-                ) {
-                    template.template
-                } else {
-                    template.immediate_reports(matches!(
+                );
+
+                if !deferred
+                    && matches!(
                         call.resolution().result(),
                         bray_bound_tree::BoundCallResult::LazyFuture(_)
-                    ))
-                };
+                    )
+                {
+                    return Ok(None);
+                }
+
+                let reports = template;
 
                 let requirements = if output.is_abnormal() {
                     reports.abnormal_reports()
@@ -239,24 +307,24 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 requirements
                     .map(|requirements| {
                         self.mapped_result_values(requirements, |root| {
-                            crate::dependency::result_argument(
-                                call.arguments(),
-                                call.receiver(),
-                                root,
-                            )
+                            call.input_site(expression, root)
                         })
                     })
                     .transpose()
             }
-            BoundExecutionSite::ScopedEnter(expression)
+            BoundExecutionSite::Iterate(expression)
+            | BoundExecutionSite::Next(expression)
+            | BoundExecutionSite::ScopedEnter(expression)
             | BoundExecutionSite::ScopedExit(expression) => {
-                let Some(SemanticSelection::ScopedUse(scoped)) =
-                    self.selections.expression(expression)
-                else {
-                    panic!("report-producing scope retains its selected invocation");
-                };
+                let selection = self
+                    .selections
+                    .expression(expression)
+                    .expect("report-producing invocation retains its selected protocol");
 
-                let instance = scoped.invocation(occurrence).0;
+                let instance = self
+                    .selections
+                    .invoked_callable(occurrence)
+                    .expect("implicit report producer retains its exact callable");
 
                 let template = self
                     .request
@@ -276,16 +344,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
                 requirements
                     .map(|requirements| {
-                        let mapped = if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
-                            self.map_exit_values(scoped, requirements)
-                        } else {
-                            self.mapped_result_values(requirements, |root| {
-                                (root == bray_symbols::DependencySubjectRoot::Receiver)
-                                    .then_some(scoped.initializer())
-                            })
-                        };
-
-                        mapped
+                        self.mapped_result_values(requirements, |root| {
+                            selection.invocation_input_site(occurrence, root)
+                        })
                     })
                     .transpose()
             }
@@ -322,8 +383,10 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                         .borrowed_values(operand, subject.projections())
                         .into_iter()
                         .collect()),
-                    crate::dependency::call::OperationInput::Value(operand)
-                    | crate::dependency::call::OperationInput::Nullable(Some(operand)) => {
+                    crate::dependency::call::OperationInput::Value(operand) => {
+                        self.mapped_site_values(operand, subject.projections(), kind)
+                    }
+                    crate::dependency::call::OperationInput::Nullable(Some(operand)) => {
                         self.mapped_input_values(operand, subject.projections(), kind)
                     }
                     crate::dependency::call::OperationInput::Nullable(None) => Ok(Vec::new()),
@@ -335,10 +398,12 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         )
     }
 
-    fn mapped_result_values(
+    pub(super) fn mapped_result_values(
         &self,
         requirements: &[DependencyRequirement],
-        argument: impl Fn(bray_symbols::DependencySubjectRoot) -> Option<BoundExpressionId>,
+        argument: impl Fn(
+            bray_symbols::DependencySubjectRoot,
+        ) -> Option<bray_bound_tree::BoundExecutionSite>,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         Ok(
             crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
@@ -346,13 +411,13 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
                 };
 
-                self.mapped_input_values(argument, subject.projections(), kind)
+                self.mapped_site_values(argument, subject.projections(), kind)
             }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in mapped_result_values: {error:?}"))
             .into_iter()
             .collect(),
         )
     }
-    fn mapped_input_values(
+    pub(super) fn mapped_input_values(
         &self,
         argument: BoundExpressionId,
         path: &[bray_symbols::DependencyProjection],

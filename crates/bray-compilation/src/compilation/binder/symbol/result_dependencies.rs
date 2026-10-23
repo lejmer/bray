@@ -75,10 +75,15 @@ fn infer_reachable_results(
         return Ok(result);
     }
 
+    // A declaration without a body has explicit arguments and an explicit receiver.
+    // Unlike an opaque callable value, it has no hidden captured environment.
     let empty = context
         .semantic_values()
-        .empty_dependency_contract_template()
-        .expect("empty result dependency template satisfies the semantic store contract");
+        .intern_dependency_contract_template(
+            bray_symbols::DependencyContractTemplateData::new([])
+                .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call()),
+        )
+        .expect("declared result dependency template satisfies the semantic store contract");
 
     Ok(DiagnosticResult::new(empty, DiagnosticBag::new()))
 }
@@ -389,14 +394,8 @@ fn body_result_dependencies(
     checked: &bray_symbols::DependencyContractTemplateData,
     previous: &bray_symbols::DependencyContractTemplateData,
 ) -> bray_symbols::DependencyContractTemplateData {
-    // Normal outcomes and mutations grow. Once a normal outcome exists, exact
-    // relations can only survive intersection with every subsequently discovered outcome.
-    let borrows = if !previous.normal_completion() {
-        checked.borrows()
-    } else {
-        previous.borrows()
-    };
-
+    // Normal outcomes and mutations grow. Complete origin bounds grow with them,
+    // while value and authority promises must hold on every normal outcome.
     let mut result = bray_symbols::DependencyContractTemplateData::new(
         previous
             .requirements()
@@ -404,16 +403,7 @@ fn body_result_dependencies(
             .chain(checked.requirements())
             .cloned(),
     )
-    .with_borrows(
-        borrows
-            .iter()
-            .filter(|relation| {
-                !previous.normal_completion()
-                    || !checked.normal_completion()
-                    || checked.borrows().binary_search(relation).is_ok()
-            })
-            .cloned(),
-    )
+    .with_borrows(combined_result_borrows(checked, previous))
     .with_carriers(
         (if !previous.normal_completion() {
             checked.carriers()
@@ -428,6 +418,15 @@ fn body_result_dependencies(
         })
         .cloned(),
     )
+    .with_observed_result(if !previous.normal_completion() {
+        checked.observed_result()
+    } else if !checked.normal_completion()
+        || previous.observed_result() == checked.observed_result()
+    {
+        previous.observed_result()
+    } else {
+        None
+    })
     .with_returned_input(if !previous.normal_completion() {
         checked.returned_input()
     } else if !checked.normal_completion() || previous.returned_input() == checked.returned_input()
@@ -466,6 +465,49 @@ fn body_result_dependencies(
     }
 
     result
+}
+
+fn combined_result_borrows(
+    checked: &bray_symbols::DependencyContractTemplateData,
+    previous: &bray_symbols::DependencyContractTemplateData,
+) -> Vec<bray_symbols::DependencyBorrowRelation> {
+    let both = checked.normal_completion() && previous.normal_completion();
+
+    let bounded = |summary: &bray_symbols::DependencyContractTemplateData| {
+        summary
+            .borrows()
+            .iter()
+            .map(|relation| relation.exit().clone())
+            .collect::<BTreeSet<_>>()
+    };
+
+    let checked_exits = both.then(|| bounded(checked));
+    let previous_exits = both.then(|| bounded(previous));
+
+    previous
+        .borrows()
+        .iter()
+        .filter(|_| previous.normal_completion())
+        .chain(
+            checked
+                .borrows()
+                .iter()
+                .filter(|_| checked.normal_completion()),
+        )
+        .filter(|relation| {
+            !both
+                || checked_exits
+                    .as_ref()
+                    .expect("both outcomes have origin sets")
+                    .contains(relation.exit())
+                    && previous_exits
+                        .as_ref()
+                        .expect("both outcomes have origin sets")
+                        .contains(relation.exit())
+        })
+        // The next approximation owns its relations and shares their immutable projection paths.
+        .cloned()
+        .collect()
 }
 
 fn body_key(

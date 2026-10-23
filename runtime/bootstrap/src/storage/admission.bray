@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.storage;
 
+using std.numeric;
 using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.pool.growth;
@@ -104,7 +105,7 @@ trusted internal func reserve(
         return Ok(true);
     }
 
-    let maximum: usize = (~0) >> 1;
+    let maximum: usize = std.numeric.USIZE_MAX >> 1;
     let padding: usize = shape.descriptor.align - 1;
 
     if padding >= maximum || shape.descriptor.bytes > maximum - padding
@@ -178,7 +179,7 @@ trusted internal func reserve(
         case none { return trusted core.target.abort(); }
     };
 
-    let pointer: RawPointer<u8> = std.memory.pointer<u8>(&region);
+    let pointer: DataPointer<u8> = std.memory.pointer<u8>(&region);
     let address: usize = trusted core.target.expose_address<u8>(pointer);
     let skip: usize = (shape.descriptor.align - (address & padding)) & padding;
     let first: usize = shape.total + 1;

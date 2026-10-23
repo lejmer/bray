@@ -6,9 +6,9 @@ using std.memory;
 
 @abi(c)
 trusted internal func entropy_fill(
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: u64,
-    pos transferred: RawPointer<u64>,
+    pos transferred: DataPointer<u64>,
 ) -> PlatformStatus
     requires(
         trusted core.memory.valid_write<u8>(pointer = destination, count = length as usize),

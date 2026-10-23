@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.report.sink;
 
+using std.numeric;
 using core.target;
 using core.memory;
 using std.memory;
@@ -17,13 +18,13 @@ internal struct State
 
 // The native owner holds the sink mutex and retains its complete chain. The slot
 // is exclusive for this call. Callbacks run only after the native lock is released.
-trusted internal predicate owned(pointer: RawPointer<State>);
+trusted internal predicate owned(pointer: DataPointer<State>);
 
 @abi(c)
 trusted internal func transfer(
-    pos pointer: RawPointer<State>,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
-    pos metadata: RawPointer<bray.runtime.bootstrap.ReportSegment>
+    pos pointer: DataPointer<State>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos metadata: DataPointer<bray.runtime.bootstrap.ReportSegment>
 )
     requires(
         trusted owned(pointer = pointer),
@@ -53,8 +54,8 @@ trusted internal func transfer(
 }
 
 trusted internal func read_transfer(
-    pos pointer: RawPointer<State>,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>
+    pos pointer: DataPointer<State>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>
 ) -> State
     requires(
         trusted core.memory.valid_read<State>(pointer = pointer, count = 1),
@@ -79,8 +80,8 @@ trusted internal func append(
     pos mut state: State,
     pos mut records: bray.runtime.bootstrap.ReportRecords,
     pos mut segment: bray.runtime.bootstrap.ReportSegment,
-    pos pointer: RawPointer<State>,
-    pos incoming: RawPointer<bray.runtime.bootstrap.ReportRecords>
+    pos pointer: DataPointer<State>,
+    pos incoming: DataPointer<bray.runtime.bootstrap.ReportRecords>
 ) -> State
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -97,7 +98,7 @@ trusted internal func append(
     )
     uses(intrinsic)
 {
-    if state.next_ordinal == ~0 || state.pending_count == ~0
+    if state.next_ordinal == std.numeric.U64_MAX || state.pending_count == std.numeric.USIZE_MAX
     {
         trusted core.target.abort();
     }
@@ -120,7 +121,7 @@ trusted internal func append(
 }
 
 @abi(c)
-trusted internal func begin(pos pointer: RawPointer<State>) -> u32
+trusted internal func begin(pos pointer: DataPointer<State>) -> u32
     requires(
         trusted owned(pointer = pointer),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -146,8 +147,8 @@ trusted internal func begin(pos pointer: RawPointer<State>) -> u32
 
 @abi(c)
 trusted internal func take(
-    pos pointer: RawPointer<State>,
-    pos batch: RawPointer<bray.runtime.bootstrap.ReportRecords>
+    pos pointer: DataPointer<State>,
+    pos batch: DataPointer<bray.runtime.bootstrap.ReportRecords>
 ) -> u32
     requires(
         trusted owned(pointer = pointer),
@@ -180,7 +181,7 @@ trusted internal func take(
 }
 
 @abi(c)
-trusted internal func finish(pos pointer: RawPointer<State>)
+trusted internal func finish(pos pointer: DataPointer<State>)
     requires(
         trusted owned(pointer = pointer),
         trusted bray.runtime.bootstrap.pool.protocol_access(),

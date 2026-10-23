@@ -1,5 +1,6 @@
 mod calls;
 mod core;
+mod inputs;
 mod sources;
 mod state;
 

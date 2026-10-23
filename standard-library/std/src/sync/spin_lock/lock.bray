@@ -5,6 +5,7 @@ using core.atomic;
 using core.memory;
 using std.memory;
 using internal std.sync.spin_lock;
+using internal std.sync.tickets;
 
 struct SpinLock<T>
 {
@@ -14,7 +15,30 @@ struct SpinLock<T>
     trusted construct(pos value: T) -> Self
         ensures(trusted std.sync.spin_lock.valid(&result.instance))
     {
-        return std.sync.spin_lock.initialize<T>(value);
+        let prepared = SpinLock<T>.prepare(value);
+
+        return
+        {
+            instance = prepared.0,
+            storage = prepared.1,
+        };
+    }
+
+    /// Prepares initialized fields for ownership formation, including static materialization.
+    static trusted const func prepare(pos value: T) -> (std.sync.spin_lock.Marker, Uninit<std.sync.spin_lock.State<T>>)
+        ensures(trusted std.sync.spin_lock.valid(marker = &result.0))
+    {
+        return (
+            std.sync.spin_lock.Marker
+            {
+            },
+            std.memory.uninit_from<std.sync.spin_lock.State<T>>(
+                {
+                    tickets = core.atomic.initialize<u32>(0),
+                    value = std.memory.uninit_from<T>(value),
+                }
+            ),
+        );
     }
 
     trusted destruct()
@@ -23,7 +47,7 @@ struct SpinLock<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
@@ -54,7 +78,7 @@ struct SpinLock<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
@@ -75,17 +99,17 @@ struct SpinLock<T>
 
         while true
         {
-            let next = observed & 65535;
-            let serving = observed >> 16;
+            let next = observed & std.sync.tickets.MASK;
+            let serving = observed >> std.sync.tickets.SHIFT;
 
-            if ((next + 65536 - serving) & 65535) == 65535
+            if ((next + std.sync.tickets.CAPACITY - serving) & std.sync.tickets.MASK) == std.sync.tickets.MASK
             {
                 trusted internal spin_loop();
                 observed = core.atomic.load<u32, 1>(&state.tickets);
                 continue;
             }
 
-            let desired = (observed & 4294901760) | ((next + 1) & 65535);
+            let desired = (observed & std.sync.tickets.SERVING_MASK) | ((next + 1) & std.sync.tickets.MASK);
 
             let (current, admitted) = core.atomic.compare_exchange<u32, 3, 1>(
                 &state.tickets,
@@ -102,7 +126,7 @@ struct SpinLock<T>
             observed = current;
         }
 
-        while (core.atomic.load<u32, 1>(&state.tickets) >> 16) != ticket
+        while (core.atomic.load<u32, 1>(&state.tickets) >> std.sync.tickets.SHIFT) != ticket
         {
             trusted internal spin_loop();
         }
@@ -126,7 +150,7 @@ struct SpinLock<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.spin_lock.State<T>>(&self.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.spin_lock.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.spin_lock.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.spin_lock.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.spin_lock.State<T>>(pointer = pointer),
@@ -143,8 +167,8 @@ struct SpinLock<T>
 
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, Self>(&self, pointer);
         let observed = core.atomic.load<u32, 1>(&state.tickets);
-        let serving = observed >> 16;
-        let next = observed & 65535;
+        let serving = observed >> std.sync.tickets.SHIFT;
+        let next = observed & std.sync.tickets.MASK;
 
         if next != serving
         {
@@ -154,7 +178,7 @@ struct SpinLock<T>
         let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
             &state.tickets,
             expected = observed,
-            desired = (observed & 4294901760) | ((next + 1) & 65535),
+            desired = (observed & std.sync.tickets.SERVING_MASK) | ((next + 1) & std.sync.tickets.MASK),
         );
 
         if !acquired

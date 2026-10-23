@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+use bray_bound_tree::BoundOperator;
+use bray_symbols::ConstantValueKind;
+
 use crate::execution_guarantees::ExecutionCondition;
 
 use super::super::super::id::AnalysisBlockId;
@@ -34,6 +37,14 @@ pub(in crate::analysis) fn merge(
         .extend(incoming.completion_dependencies.iter().copied());
 
     changed |= dependencies != target.completion_dependencies.len();
+
+    let before = target.deferred_invocations.len();
+
+    target
+        .deferred_invocations
+        .retain(|value, source| incoming.deferred_invocations.get(value) == Some(source));
+
+    changed |= before != target.deferred_invocations.len();
 
     for (expression, evidence) in &incoming.entries {
         match target.entries.entry(*expression) {
@@ -139,6 +150,7 @@ fn join_observations<'a>(
     let mut joins = false;
     let mut results = Vec::new();
     let mut joined_facts = Vec::new();
+    let mut needs_condition_proof = false;
     let mut stable_values = std::collections::BTreeSet::new();
     let mut stable_identities = std::collections::BTreeSet::new();
 
@@ -183,6 +195,14 @@ fn join_observations<'a>(
         };
 
         if value != other && joined != ExecutionCondition::Unknown {
+            needs_condition_proof |= matches!(
+                value,
+                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
+            ) || matches!(
+                other,
+                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
+            );
+
             let left_truth =
                 value.prove(&target.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
 
@@ -238,6 +258,8 @@ fn join_observations<'a>(
                 }
             }
 
+            needs_condition_proof |= value != joined && stable_values.contains(value);
+
             // Literal payloads are shared by unrelated places and contract constants.
             // Joining their slots must not rename the constant itself.
             if value == joined
@@ -288,6 +310,7 @@ fn join_observations<'a>(
             value,
             other,
             Some(ExecutionCondition::Expression(expression)),
+            &mut joined_facts,
             &mut { ExecutionCondition::WORK_LIMIT },
         );
 
@@ -315,6 +338,10 @@ fn join_observations<'a>(
     }
 
     if joins {
+        if needs_condition_proof {
+            joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
+        }
+
         target.join_values(&left, &left_identities);
 
         let incoming = incoming_joined.to_mut();
@@ -340,6 +367,77 @@ fn join_observations<'a>(
     }
 
     (incoming_joined, changed)
+}
+
+fn common_join_conditions(
+    left: &ExecutionState,
+    right: &ExecutionState,
+    joined: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+) -> Vec<(ExecutionCondition, bool)> {
+    let mut left_inputs = BTreeMap::new();
+    let mut right_inputs = BTreeMap::new();
+    let mut left_candidates = BTreeMap::new();
+    let mut right_candidates = BTreeMap::new();
+
+    for (place, value) in joined {
+        if value == &ExecutionCondition::Unknown {
+            continue;
+        }
+
+        for (state, inputs, candidates) in [
+            (left, &mut left_inputs, &mut left_candidates),
+            (right, &mut right_inputs, &mut right_candidates),
+        ] {
+            let input = place
+                .value_in(&state.current)
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            if input == *value {
+                continue;
+            }
+
+            insert_replacement(inputs, value, &input);
+
+            if !matches!(
+                input,
+                ExecutionCondition::Literal(_)
+                    | ExecutionCondition::Boolean(_)
+                    | ExecutionCondition::Unknown
+            ) {
+                insert_replacement(candidates, &input, value);
+            }
+        }
+    }
+
+    // These are proposals, not renamings of established facts. A copied input may
+    // still exist elsewhere, and a literal may occur in unrelated slots. Prove each
+    // proposal against both predecessors before exposing it on the joined value.
+    let candidates = [(left, &left_candidates), (right, &right_candidates)]
+        .into_iter()
+        .flat_map(|(state, replacements)| {
+            state
+                .assumptions
+                .iter()
+                .map(move |(condition, holds)| (condition.with_equalities(replacements), *holds))
+        })
+        .take(ExecutionCondition::WORK_LIMIT)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    candidates
+        .into_iter()
+        .filter(|(condition, holds)| {
+            [(left, &left_inputs), (right, &right_inputs)]
+                .into_iter()
+                .all(|(state, inputs)| {
+                    let instantiated = condition.with_equalities(inputs);
+
+                    let proven = instantiated
+                        .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+
+                    proven == Some(*holds)
+                })
+        })
+        .collect()
 }
 
 fn result_replacements(
@@ -428,13 +526,16 @@ fn insert_replacement(
 }
 
 fn join_components(left: &ExecutionCondition, right: &ExecutionCondition) -> ExecutionCondition {
-    common_components(left, right, None, &mut { ExecutionCondition::WORK_LIMIT })
+    common_components(left, right, None, &mut Vec::new(), &mut {
+        ExecutionCondition::WORK_LIMIT
+    })
 }
 
 fn common_components(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
     result: Option<ExecutionCondition>,
+    facts: &mut Vec<(ExecutionCondition, bool)>,
     budget: &mut usize,
 ) -> ExecutionCondition {
     if left == right {
@@ -454,7 +555,7 @@ fn common_components(
     if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
     {
         // Joining an owned result does not identify different borrowed referents.
-        return common_components(left, right, None, budget).borrowed();
+        return common_components(left, right, None, facts, budget).borrowed();
     }
 
     if matches!(left, ExecutionCondition::Borrowed(_))
@@ -476,7 +577,48 @@ fn common_components(
     projections.extend(fields(right));
 
     if projections.is_empty() {
-        return result.unwrap_or(ExecutionCondition::Unknown);
+        let joined = result.unwrap_or(ExecutionCondition::Unknown);
+
+        if joined != ExecutionCondition::Unknown
+            && let (ExecutionCondition::Literal(left), ExecutionCondition::Literal(right)) =
+                (left, right)
+            && matches!(
+                (left.kind(), right.kind()),
+                (ConstantValueKind::Integer(_), ConstantValueKind::Integer(_))
+            )
+            && let Ok(ConstantValueKind::Boolean(ordered)) = crate::constant::fold_binary(
+                BoundOperator::LessEqual,
+                left.kind(),
+                right.kind(),
+                crate::ConstantEvaluationLimits::default().integer_bits(),
+            )
+        {
+            // A yielded result keeps these bounds for this evaluation. Literals
+            // remain independent values and are never renamed to the result.
+            let (lower, upper) = if ordered {
+                (left, right)
+            } else {
+                (right, left)
+            };
+
+            for (operator, bound) in [
+                (BoundOperator::GreaterEqual, lower),
+                (BoundOperator::LessEqual, upper),
+            ] {
+                facts.push((
+                    ExecutionCondition::operation(
+                        operator,
+                        vec![
+                            joined.clone(),
+                            ExecutionCondition::Literal(std::sync::Arc::clone(bound)),
+                        ],
+                    ),
+                    true,
+                ));
+            }
+        }
+
+        return joined;
     }
 
     // Ordinary observations retain only a shared identity. Yielded owners instead
@@ -499,7 +641,10 @@ fn common_components(
                 .as_ref()
                 .map(|result| result.clone().project(projection));
 
-            (projection, common_components(&left, &right, result, budget))
+            (
+                projection,
+                common_components(&left, &right, result, facts, budget),
+            )
         })
         .collect();
 

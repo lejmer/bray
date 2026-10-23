@@ -21,7 +21,7 @@ internal static SYNCHRONIZATION: Uninit<Synchronization> = core.memory.uninit_fr
     }
 );
 
-trusted internal func synchronization_pointer() -> RawPointer<Synchronization>
+trusted internal func synchronization_pointer() -> DataPointer<Synchronization>
     ensures(
         trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Synchronization>(pointer = result),
@@ -47,7 +47,7 @@ trusted internal func initialized() -> bool
     return core.atomic.load<u64, 1>(&synchronization.key) != 0;
 }
 
-trusted internal func lease_synchronization_pointer(pos lease: &HostLease) -> RawPointer<Synchronization>
+trusted internal func lease_synchronization_pointer(pos lease: &HostLease) -> DataPointer<Synchronization>
     requires(trusted host_access_live(owner = &lease.acquisition))
     ensures(
         trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),

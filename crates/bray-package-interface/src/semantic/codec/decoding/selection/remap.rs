@@ -252,10 +252,13 @@ fn remap_dependency_contract(
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
-            let mut entry = relation.entry().clone();
+            let mut entry = relation.entry().cloned();
             let mut exit = relation.exit().clone();
 
-            remap_dependency_subject(&mut entry, maps)?;
+            if let Some(entry) = &mut entry {
+                remap_dependency_subject(entry, maps)?;
+            }
+
             remap_dependency_subject(&mut exit, maps)?;
 
             let mut projections = relation.target_projections().to_vec();
@@ -265,10 +268,16 @@ fn remap_dependency_contract(
             Ok(
                 bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
                     .with_dereferences(relation.dereferences())
+                    .with_exactness(relation.is_exact())
                     .with_target_projections(projections),
             )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    contract.observed_result = contract
+        .observed_result
+        .map(|term| maps.constant_term_id(term))
+        .transpose()?;
 
     contract.returned_input = contract
         .returned_input
@@ -302,6 +311,7 @@ fn remap_dependency_contract(
 
         match effect {
             DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {

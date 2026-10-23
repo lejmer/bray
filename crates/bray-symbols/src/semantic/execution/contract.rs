@@ -12,21 +12,42 @@ pub const EXECUTION_CONDITION_WORK_LIMIT: usize = 128;
 pub enum CallableExecutionObligation<C> {
     /// A property on every valid input, or on one identified entry domain.
     Property(ExecutionProperty, Option<C>),
+    /// Deterministic observation relative to direct mutable input referents.
+    /// This internal proof does not establish caller-visible purity.
+    Observation,
+    /// Completion of a checked observational provider, retaining implementation premises.
+    Termination,
+    /// Every successful step progresses a finite retained cursor.
+    FiniteIteration,
     /// A normal-completion predicate.
     Postcondition(C),
 }
 
 impl<C: Copy> CallableExecutionObligation<C> {
+    /// Whether this is checked implementation metadata rather than a source execution promise.
+    pub const fn is_internal(self) -> bool {
+        matches!(
+            self,
+            Self::Observation | Self::Termination | Self::FiniteIteration
+        )
+    }
+
     /// Whether a proof cycle would assume its own completion.
     pub const fn requires_acyclic_proof(self) -> bool {
-        !matches!(self, Self::Property(ExecutionProperty::Pure, _))
+        !matches!(
+            self,
+            Self::Property(ExecutionProperty::Pure, _) | Self::Observation
+        )
     }
 
     /// Returns the property when this is an execution obligation.
     pub const fn property(self) -> Option<ExecutionProperty> {
         match self {
             Self::Property(property, _) => Some(property),
-            Self::Postcondition(_) => None,
+            Self::Postcondition(_)
+            | Self::Observation
+            | Self::Termination
+            | Self::FiniteIteration => None,
         }
     }
 }
@@ -67,9 +88,16 @@ pub enum CallableExecutionOrigin {
 
 /// A selected proof target retaining either a callable instance or its opaque type.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CallableExecutionTarget<C, T> {
+pub enum CallableExecutionTarget<C, T, R> {
     /// An exact declaration and generic substitution.
     Callable(C),
+    /// A selected trait method whose implementation supplies the retained proof premise.
+    Requirement {
+        /// The abstract method with its exact generic substitution.
+        callable: C,
+        /// The subject and trait application used by ordinary implementation selection.
+        requirement: R,
+    },
     /// An opaque callable contract, which can support purity but not a new completion proof.
     Indirect(T),
 }
@@ -182,5 +210,9 @@ impl<T: Copy, D: Copy> CallableExecutionContract<T, D> {
 /// Execution evidence expressed in interned semantic identities.
 pub type ResolvedCallableExecutionContract = CallableExecutionContract<
     crate::ConstantTermId,
-    CallableExecutionTarget<crate::CallableInstanceId, crate::TypeId>,
+    CallableExecutionTarget<
+        crate::CallableInstanceId,
+        crate::TypeId,
+        crate::ImplementationRequirementKey,
+    >,
 >;

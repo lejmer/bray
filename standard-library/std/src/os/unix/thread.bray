@@ -4,7 +4,7 @@ trusted internal module std.os.unix;
 struct PThreadAttribute;
 
 // pthread_create invokes this callback on a dedicated native-thread execution root.
-callable ThreadStartRoutine = @abi(c) trusted func(pos context: RawPointer<u8>) -> RawPointer<u8>
+callable ThreadStartRoutine = @abi(c) trusted func(pos context: DataPointer<u8>) -> DataPointer<u8>
     requires(blocking_execution(), compute_execution());
 
-callable ThreadStorageDestructor = @abi(c) func(pos value: RawPointer<u8>);
+callable ThreadStorageDestructor = @abi(c) func(pos value: DataPointer<u8>);

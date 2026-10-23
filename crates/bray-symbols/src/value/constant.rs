@@ -200,7 +200,7 @@ pub enum RealConstantBits {
     Binary128([u8; 16]),
 }
 
-/// The closed materializable payload of one typed constant value.
+/// The closed payload of one typed constant-evaluation value.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ConstantValueKind {
     /// The single canonical recovery value.
@@ -224,6 +224,8 @@ pub enum ConstantValueKind {
     String(Arc<str>),
     /// A shared address of one selected static instance in a static initializer.
     StaticAddress(crate::StaticReferenceSelection),
+    /// A shared immutable observation used during evaluation, never materialized as stored data.
+    Borrowed(ConstantValueId),
     /// The unit value.
     Unit,
     /// Nullable absence.
@@ -280,7 +282,7 @@ impl ConstantValueKind {
     }
 }
 
-/// One fully evaluated typed materializable constant value.
+/// One fully evaluated typed constant value, including nonmaterializable shared observations.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConstantValueData {
     ty: TypeId,

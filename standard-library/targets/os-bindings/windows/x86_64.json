@@ -349,7 +349,7 @@
           "parameters": [
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             }
           ],
@@ -368,7 +368,7 @@
           "parameters": [
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             }
           ],
@@ -387,7 +387,7 @@
           "parameters": [
             {
               "name": "value",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             }
           ],
@@ -411,7 +411,7 @@
           "parameters": [
             {
               "name": "security",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -421,12 +421,12 @@
             },
             {
               "name": "entry",
-              "type": "RawPointer<u8>",
+              "type": "FunctionPointer<BeginThreadRoutine>",
               "native_type": "_beginthreadex_proc_type"
             },
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "void *"
             },
             {
@@ -436,7 +436,7 @@
             },
             {
               "name": "thread_identifier",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "unsigned *"
             }
           ],
@@ -452,7 +452,7 @@
             "raw_memory"
           ],
           "requires": [
-            "trusted core.memory.callable_address_valid<BeginThreadRoutine>(pointer = trusted core.memory.reinterpret<BeginThreadRoutine, u8>(entry))"
+            "trusted core.memory.callable_address_valid<BeginThreadRoutine>(pointer = entry)"
           ]
         },
         {
@@ -462,12 +462,12 @@
           "parameters": [
             {
               "name": "algorithm",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "BCRYPT_ALG_HANDLE"
             },
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PUCHAR"
             },
             {
@@ -498,7 +498,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             }
           ],
@@ -519,7 +519,7 @@
           "parameters": [
             {
               "name": "attributes",
-              "type": "RawPointer<SecurityAttributes>",
+              "type": "DataPointer<SecurityAttributes>",
               "native_type": "LPSECURITY_ATTRIBUTES"
             },
             {
@@ -534,7 +534,7 @@
             },
             {
               "name": "context",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -544,11 +544,11 @@
             },
             {
               "name": "thread_identifier",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "LPDWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns null and records GetLastError state",
@@ -565,7 +565,7 @@
           "native": "_errno",
           "abi": "c",
           "parameters": [],
-          "result": "RawPointer<i32>",
+          "result": "DataPointer<i32>",
           "native_result": "int *",
           "link": "ucrt",
           "ownership": "the C runtime owns the current native thread storage",
@@ -588,7 +588,7 @@
           "parameters": [
             {
               "name": "library",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HMODULE"
             }
           ],
@@ -606,7 +606,7 @@
           "native": "GetCurrentThread",
           "abi": "system",
           "parameters": [],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns the current thread pseudo-handle",
@@ -634,12 +634,12 @@
           "parameters": [
             {
               "name": "thread",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "description",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "PCWSTR"
             }
           ],
@@ -674,16 +674,16 @@
           "parameters": [
             {
               "name": "library",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HMODULE"
             },
             {
               "name": "name",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPCSTR"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "FARPROC",
           "link": "Kernel32",
           "error_state": "returns null and records GetLastError state",
@@ -705,7 +705,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns INVALID_HANDLE_VALUE and records GetLastError state on failure",
@@ -721,7 +721,7 @@
           "parameters": [
             {
               "name": "time",
-              "type": "RawPointer<FileTime>",
+              "type": "DataPointer<FileTime>",
               "native_type": "LPFILETIME"
             }
           ],
@@ -741,12 +741,12 @@
           "parameters": [
             {
               "name": "path",
-              "type": "RawPointer<u16>",
+              "type": "DataPointer<u16>",
               "native_type": "LPCWSTR"
             },
             {
               "name": "file",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
@@ -755,7 +755,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "HMODULE",
           "link": "Kernel32",
           "error_state": "returns null and records GetLastError state",
@@ -774,7 +774,7 @@
           "parameters": [
             {
               "name": "ticks",
-              "type": "RawPointer<u64>",
+              "type": "DataPointer<u64>",
               "native_type": "PULONGLONG"
             }
           ],
@@ -794,12 +794,12 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "destination",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -809,12 +809,12 @@
             },
             {
               "name": "transferred",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "LPDWORD"
             },
             {
               "name": "overlapped",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPOVERLAPPED"
             }
           ],
@@ -854,7 +854,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -873,7 +873,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "RawPointer<u8>",
+          "result": "DataPointer<u8>",
           "native_result": "LPVOID",
           "link": "Kernel32",
           "error_state": "returns null and records GetLastError state",
@@ -891,7 +891,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPVOID"
             },
             {
@@ -923,12 +923,12 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "volatile VOID *"
             },
             {
               "name": "expected",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             },
             {
@@ -958,7 +958,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             }
           ],
@@ -977,7 +977,7 @@
           "parameters": [
             {
               "name": "address",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "PVOID"
             }
           ],
@@ -996,12 +996,12 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "HANDLE"
             },
             {
               "name": "source",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPCVOID"
             },
             {
@@ -1011,12 +1011,12 @@
             },
             {
               "name": "transferred",
-              "type": "RawPointer<u32>",
+              "type": "DataPointer<u32>",
               "native_type": "LPDWORD"
             },
             {
               "name": "overlapped",
-              "type": "RawPointer<u8>",
+              "type": "DataPointer<u8>",
               "native_type": "LPOVERLAPPED"
             }
           ],
@@ -1040,9 +1040,7 @@
           "type": "TickCountRoutine",
           "ownership": "the returned owner retains Kernel32",
           "dependencies": [
-            "blocking_execution",
-            "foreign_call",
-            "layout_reinterpret"
+            "blocking_execution"
           ]
         }
       ],

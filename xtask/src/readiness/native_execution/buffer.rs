@@ -147,6 +147,11 @@ pub(super) fn standard_library_compilation(
         STANDARD_ROOT_SOURCE,
         "standard-library/std/src/numeric/policy.bray",
         STANDARD_MEMORY_SOURCE,
+        "standard-library/std/src/memory/pointer.bray",
+        "standard-library/std/src/memory/storage.bray",
+        "standard-library/std/src/memory/allocation.bray",
+        "standard-library/std/src/memory/buffer.bray",
+        "standard-library/std/src/memory/function.bray",
     ] {
         if !fixtures.contains(&source) {
             source_paths.push(root.join(source));

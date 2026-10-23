@@ -13,20 +13,177 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
     pub(super) fn conditional(
         &mut self,
         block: MirBlockId,
+        owner: CheckedTemplateNodeId,
         condition: CheckedTemplateNodeId,
         when_true: CheckedTemplateNodeId,
         when_false: CheckedTemplateNodeId,
+        states: &[(Option<CheckedTemplateNodeId>, Option<CheckedTemplateNodeId>)],
         ty: TypeId,
     ) -> Result<(MirBlockId, MirOperand), C::Error> {
+        let condition_node = condition;
+
         let (block, condition) = self.node(block, condition)?;
 
-        self.branch_values(
+        if let MirOperand::Immediate {
+            value: MirImmediateValue::Boolean(selected),
+            ..
+        } = &condition
+        {
+            let mut outputs = Vec::with_capacity(states.len());
+
+            let result = self.conditional_value(
+                block,
+                if *selected { when_true } else { when_false },
+                condition_node,
+                *selected,
+                states,
+                &mut outputs,
+            )?;
+
+            self.outputs.insert(owner, outputs);
+
+            return Ok(result);
+        }
+
+        let excluded = |node: CheckedTemplateNodeId| {
+            matches!(
+                self.template.nodes()[usize::try_from(node.raw()).expect("checked node fits host")]
+                    .operation(),
+                bray_bound_tree::CheckedTemplateOperation::Unreachable
+            )
+        };
+
+        let (true_excluded, false_excluded) = (excluded(when_true), excluded(when_false));
+
+        if true_excluded || false_excluded {
+            assert!(
+                !(true_excluded && false_excluded),
+                "admitted predicate conditional retains a normal result path"
+            );
+
+            let (success, failure) = self.branch_blocks(block, condition)?;
+
+            let (excluded, continued, value) = if true_excluded {
+                (success, failure, when_false)
+            } else {
+                (failure, success, when_true)
+            };
+
+            self.terminate(excluded, MirTerminatorKind::Unreachable)?;
+
+            let mut outputs = Vec::with_capacity(states.len());
+
+            let result = self.conditional_value(
+                continued,
+                value,
+                condition_node,
+                !true_excluded,
+                states,
+                &mut outputs,
+            )?;
+
+            self.outputs.insert(owner, outputs);
+
+            return Ok(result);
+        }
+
+        let mut true_states = Vec::with_capacity(states.len());
+        let mut false_states = Vec::with_capacity(states.len());
+
+        let result = self.branch_values(
             block,
             condition,
             ty,
-            |lowerer, block| lowerer.node(block, when_true),
-            |lowerer, block| lowerer.node(block, when_false),
-        )
+            |lowerer, block| {
+                lowerer.conditional_value(
+                    block,
+                    when_true,
+                    condition_node,
+                    true,
+                    states,
+                    &mut true_states,
+                )
+            },
+            |lowerer, block| {
+                lowerer.conditional_value(
+                    block,
+                    when_false,
+                    condition_node,
+                    false,
+                    states,
+                    &mut false_states,
+                )
+            },
+        )?;
+
+        let outputs = true_states
+            .into_iter()
+            .zip(false_states)
+            .map(|(left, right)| match (left, right) {
+                (Some(left), Some(right)) => {
+                    assert_eq!(
+                        left, right,
+                        "conditional owner retains one private storage home"
+                    );
+
+                    Some(left)
+                }
+                (Some(value), None) | (None, Some(value)) => Some(value),
+                (None, None) => {
+                    unreachable!("checked state exists on at least one conditional path")
+                }
+            })
+            .collect();
+
+        self.outputs.insert(owner, outputs);
+
+        Ok(result)
+    }
+
+    fn conditional_value(
+        &mut self,
+        block: MirBlockId,
+        value: CheckedTemplateNodeId,
+        condition: CheckedTemplateNodeId,
+        selected: bool,
+        states: &[(Option<CheckedTemplateNodeId>, Option<CheckedTemplateNodeId>)],
+        outputs: &mut Vec<Option<MirOperand>>,
+    ) -> Result<(MirBlockId, MirOperand), C::Error> {
+        let known = self.boolean_value(selected);
+
+        let previous = self
+            .values
+            .insert(condition, known)
+            .expect("conditional evaluates its condition before entering an alternative");
+
+        let (mut block, value) = self.node(block, value)?;
+
+        for (left, right) in states {
+            let state = if selected { left } else { right };
+
+            outputs.push(if let Some(state) = state {
+                let (continued, state) = self.node(block, *state)?;
+
+                block = continued;
+
+                let MirOperand::Copy(place) = &state else {
+                    panic!("changed owner retains its private storage: {state:?}");
+                };
+
+                assert!(
+                    self.private_homes.contains(&place.storage()),
+                    "owner state uses invocation-private storage"
+                );
+
+                Some(state)
+            } else {
+                None
+            });
+        }
+
+        self.values.insert(condition, previous);
+
+        Ok((block, value))
     }
 
     pub(super) fn short_circuit(
@@ -69,29 +226,24 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         when_true: impl FnOnce(&mut Self, MirBlockId) -> Result<(MirBlockId, MirOperand), C::Error>,
         when_false: impl FnOnce(&mut Self, MirBlockId) -> Result<(MirBlockId, MirOperand), C::Error>,
     ) -> Result<(MirBlockId, MirOperand), C::Error> {
-        let success = self
-            .builder
-            .push_block(self.source.clone(), MirBlockKind::Ordinary)
-            .map_err(capacity)?;
+        if let MirOperand::Immediate {
+            value: MirImmediateValue::Boolean(selected),
+            ..
+        } = &condition
+        {
+            return if *selected {
+                when_true(self, block)
+            } else {
+                when_false(self, block)
+            };
+        }
 
-        let failure = self
-            .builder
-            .push_block(self.source.clone(), MirBlockKind::Ordinary)
-            .map_err(capacity)?;
+        let (success, failure) = self.branch_blocks(block, condition)?;
 
         let join = self
             .builder
             .push_block(self.source.clone(), MirBlockKind::Ordinary)
             .map_err(capacity)?;
-
-        self.terminate(
-            block,
-            MirTerminatorKind::Branch {
-                condition,
-                then_edge: MirEdge::new(success, []),
-                else_edge: MirEdge::new(failure, []),
-            },
-        )?;
 
         let retained = self.inserted.len();
 
@@ -121,12 +273,41 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         Ok((join, MirOperand::Value(value)))
     }
 
-    fn rewind_values(&mut self, retained: usize) {
+    pub(super) fn branch_blocks(
+        &mut self,
+        block: MirBlockId,
+        condition: MirOperand,
+    ) -> Result<(MirBlockId, MirBlockId), C::Error> {
+        let success = self
+            .builder
+            .push_block(self.source.clone(), MirBlockKind::Ordinary)
+            .map_err(capacity)?;
+
+        let failure = self
+            .builder
+            .push_block(self.source.clone(), MirBlockKind::Ordinary)
+            .map_err(capacity)?;
+
+        self.terminate(
+            block,
+            MirTerminatorKind::Branch {
+                condition,
+                then_edge: MirEdge::new(success, []),
+                else_edge: MirEdge::new(failure, []),
+            },
+        )?;
+
+        Ok((success, failure))
+    }
+
+    pub(super) fn rewind_values(&mut self, retained: usize) {
         while self.inserted.len() > retained {
             let id = self
                 .inserted
                 .pop()
                 .expect("branch cache contains its newly inserted value");
+
+            self.outputs.remove(&id);
 
             self.values
                 .remove(&id)

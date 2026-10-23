@@ -352,14 +352,14 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         Ok(DiagnosticResult::new(ty, diagnostics))
     }
 
-    fn result_dispatch_requirement(
+    fn dispatch_requirement(
         &self,
         dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> CheckerQueryResult<ImplementationRequirementKey> {
-        super::result_dependencies::result_dispatch_requirement(&self.binding_context, dispatch)
+        super::implementation::dispatch_requirement(&self.binding_context, dispatch)
     }
 
-    fn result_witness_callable(
+    fn witness_callable(
         &self,
         callable: bray_symbols::CallableInstanceId,
         requirement: ImplementationRequirementKey,
@@ -367,13 +367,10 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         Option<(
             bray_symbols::CallableInstanceData,
             bray_symbols::SelfTypeContext,
+            bray_symbols::ImplementationInstanceId,
         )>,
     > {
-        super::result_dependencies::result_witness_callable(
-            &self.binding_context,
-            callable,
-            requirement,
-        )
+        super::implementation::witness_callable(&self.binding_context, callable, requirement)
     }
 
     fn callable_predicate_contracts(
@@ -1772,7 +1769,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         let request = CompilationRequest::new(
             package.clone(),
             vec![source_input(
-                "module std.numeric; extern func truncate_to<Target, Source>(pos source: Source) -> Target;",
+                "module std.numeric; extern const func truncate_to<Target, Source>(pos source: Source) -> Target;",
                 0,
             )],
         ).with_standard_library_source_authority()

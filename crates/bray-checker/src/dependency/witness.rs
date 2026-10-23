@@ -12,7 +12,7 @@ pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     call: &SelectedCall,
     requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
-    let Some(instance) = super::returned::declaration_source(call) else {
+    let Some(instance) = call.resolution().declaration_source() else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in deferred_result"
         );
@@ -349,9 +349,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                 } => {
                     let key = match requirement {
                         Some(requirement) => {
-                            let Some((selected, context)) = request
+                            let Some((selected, context, _)) = request
                                 .context()
-                                .result_witness_callable(*callable, *requirement)?
+                                .witness_callable(*callable, *requirement)?
                             else {
                                 // The enclosing contract retains the unresolved selection.
                                 result.push(item.clone());

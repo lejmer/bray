@@ -17,7 +17,8 @@ pub struct TrustedContractInputs {
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     /// Checked ordinary predicate bodies in positional argument form.
-    pub predicates: BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+    pub predicates:
+        BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.
@@ -39,14 +40,18 @@ pub struct TrustedCallContract {
     pub transferred_inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
     /// Whether this operation establishes guarantees at its normal completion.
     pub completes: bool,
+    /// Whether ordinary value preconditions can fail before callee ownership transfer.
+    pub checks_preconditions: bool,
     /// Whether declared purity preserves inputs after the caller establishes its requirements.
     pub preserves_inputs: bool,
     /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
-    /// Ordinary entry conditions that guard the trusted guarantees.
-    pub preconditions: Vec<ExecutionCondition>,
+    /// Compiler-only compound execution conditions that require ordinary caller evidence.
+    pub execution_requirements: Vec<ExecutionCondition>,
+    /// Checked value and execution entry conditions that guard completion guarantees.
+    pub preconditions: Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>,
     /// Conditions established on normal completion.
     pub guarantees: Vec<ExecutionCondition>,
     /// Ordinary completion predicates used for path and equality reasoning.

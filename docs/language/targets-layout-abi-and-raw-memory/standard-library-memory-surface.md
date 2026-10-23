@@ -76,7 +76,7 @@ module std.memory;
 
 using core.memory;
 
-func address_of<T>(pos value: &T) -> RawPointer<T>
+func address_of<T>(pos value: &T) -> DataPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
         trusted core.memory.aligned_for<T>(pointer = result),
@@ -88,7 +88,7 @@ func address_of<T>(pos value: &T) -> RawPointer<T>
         trusted core.memory.finalization_pending<T>(pointer = result),
     );
 
-func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
         trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -101,26 +101,26 @@ func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
         trusted core.memory.finalization_pending<T>(pointer = result),
     );
 
-func null<T>() -> RawPointer<T>;
+func null<T>() -> DataPointer<T>;
 
-func is_null<T>(pos pointer: RawPointer<T>) -> bool;
+const func is_null<T>(pos pointer: DataPointer<T>) -> bool;
 
-func offset<T>(pos pointer: RawPointer<T>, elements: isize) -> RawPointer<T>;
+func offset<T>(pos pointer: DataPointer<T>, elements: isize) -> DataPointer<T>;
 
-func byte_offset<T>(pos pointer: RawPointer<T>, bytes: isize) -> RawPointer<T>;
+func byte_offset<T>(pos pointer: DataPointer<T>, bytes: isize) -> DataPointer<T>;
 
-trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> RawPointer<Target>
+trusted func reinterpret<Target, Source>(pos pointer: DataPointer<Source>) -> DataPointer<Target>
     uses(layout_reinterpret);
 
-trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+trusted func callable_from_pointer<F>(pos pointer: FunctionPointer<F>) -> F
     requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
     uses(layout_reinterpret);
 
-trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+trusted func function_address<F>(pos value: F) -> FunctionPointer<F>
     ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
     uses(layout_reinterpret);
 
-trusted func read<T>(pos pointer: RawPointer<T>) -> T
+trusted func read<T>(pos pointer: DataPointer<T>) -> T
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -128,7 +128,7 @@ trusted func read<T>(pos pointer: RawPointer<T>) -> T
     )
     uses(raw_memory);
 
-trusted func write<T>(pos pointer: RawPointer<T>, pos value: T) -> unit
+trusted func write<T>(pos pointer: DataPointer<T>, pos value: T) -> unit
     requires(
         trusted core.memory.valid_write(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -139,8 +139,8 @@ trusted func write<T>(pos pointer: RawPointer<T>, pos value: T) -> unit
     uses(raw_memory, unchecked_init);
 
 trusted func copy<T>(
-    pos source: RawPointer<T>,
-    pos destination: RawPointer<T>,
+    pos source: DataPointer<T>,
+    pos destination: DataPointer<T>,
     count: usize,
 ) -> unit
     requires(
@@ -160,8 +160,8 @@ trusted func copy<T>(
     uses(raw_memory, unchecked_init);
 
 trusted func copy_overlapping<T>(
-    pos source: RawPointer<T>,
-    pos destination: RawPointer<T>,
+    pos source: DataPointer<T>,
+    pos destination: DataPointer<T>,
     count: usize,
 ) -> unit
     requires(
@@ -232,6 +232,14 @@ They do not grant raw memory capabilities.
 They do not hide trusted caller obligations.
 
 They do not make raw pointers behave like references.
+
+`std.memory.byte_address<T>` accepts `DataPointer<T>` and preserves the exact address and existing dependencies without
+accessing storage or granting access authority. It has the same observational contract as `core.memory.byte_address`.
+
+The recognized `std.memory.function` declarations `from_data<F>`, `to_data<F>` and `reinterpret<Target, Source>` have
+the exact signatures, `layout_reinterpret` requirement, dependency preservation and target support of their
+[core counterparts](core-memory-declarations.md). They convert raw representations and grant no callable validity.
+Ordinary callable reconstruction still requires the exact callable contract and live provider.
 
 ## Navigation
 

@@ -34,45 +34,118 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
-        let mut arguments =
-            Vec::with_capacity(call.arguments().len() + usize::from(call.receiver().is_some()));
+        let offset = usize::from(call.receiver().is_some());
+        let mut supplied = vec![None; call.arguments().len() + offset];
 
         if let Some(receiver) = call.receiver() {
-            arguments.push((None, receiver.expression(), None, receiver.source_type()));
+            let mut term = self.evaluate(receiver.expression())?;
+
+            let ty = receiver
+                .input_type(self.request.semantic_values())
+                .expect("checked receiver input belongs to this store");
+
+            if receiver.mode() == bray_symbols::ReceiverMode::Shared {
+                let values = self.request.semantic_values();
+
+                if let Some(mut value) = self.term_value(term) {
+                    let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(ty)
+                    else {
+                        panic!("shared receiver input is a borrow");
+                    };
+
+                    loop {
+                        let data = values.constant_value_data(value);
+
+                        if data.ty() == ty {
+                            break;
+                        }
+
+                        if data.ty() == target {
+                            value = values
+                                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                                    ty,
+                                    bray_symbols::ConstantValueKind::Borrowed(value),
+                                ))
+                                .expect("checked shared receiver view retains its referent type");
+
+                            break;
+                        }
+
+                        let bray_symbols::ConstantValueKind::Borrowed(referent) = data.kind()
+                        else {
+                            panic!("checked receiver adjustment retains its observed target");
+                        };
+
+                        value = *referent;
+                    }
+
+                    term = self.intern_term(ConstantTermData::Value(value));
+                }
+            }
+
+            supplied[0] = Some((term, ty));
         }
 
         for argument in call.arguments() {
-            let SelectedArgument::Explicit {
+            if let SelectedArgument::Explicit {
                 expression,
                 ordinal,
                 conversion,
                 ..
             } = argument
+            {
+                let value = self.evaluate_selected_conversion(*expression, conversion)?;
+
+                supplied[usize::try_from(*ordinal).expect("selected argument ordinal fits host")
+                    + offset] = Some((value, conversion.target_type()));
+            }
+        }
+
+        for argument in call.arguments() {
+            let SelectedArgument::Default {
+                provider,
+                ordinal,
+                ty,
+                ..
+            } = argument
             else {
+                continue;
+            };
+
+            let Some(callable) = call.resolution().declaration_source() else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            arguments.push((
-                Some(*ordinal),
-                *expression,
-                Some(conversion.clone()),
-                conversion.target_type(),
-            ));
+            let earlier = supplied
+                .iter()
+                .take(usize::try_from(*ordinal).expect("default ordinal fits host") + offset)
+                .map(|argument| {
+                    let (term, _) = argument.expect("default observes supplied earlier arguments");
+
+                    self.closed_value(term, expression)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let value = self.evaluate_template_call_values(
+                expression,
+                crate::ConstantCallTarget::Default(
+                    bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+                    callable.substitution(),
+                ),
+                earlier,
+                *ty,
+            )?;
+
+            let term = self.intern_term(ConstantTermData::Value(value));
+
+            supplied[usize::try_from(*ordinal).expect("default ordinal fits host") + offset] =
+                Some((term, *ty));
         }
 
-        arguments.sort_unstable_by_key(|(ordinal, ..)| *ordinal);
-
-        let arguments = arguments
+        let arguments = supplied
             .into_iter()
-            .map(|(_, argument, conversion, ty)| {
-                let term = match conversion {
-                    Some(conversion) => self.evaluate_selected_conversion(argument, &conversion)?,
-                    None => self.evaluate(argument)?,
-                };
-
-                Ok((term, ty))
-            })
-            .collect::<Result<Vec<_>, EvaluationFailure>>()?;
+            .map(|argument| argument.expect("selected call supplies every parameter"))
+            .collect::<Vec<_>>();
 
         if let BoundCallableTarget::Predicate(predicate) = call.target() {
             let arguments = arguments
@@ -84,7 +157,23 @@ where
                 .intern_typed_term(ty, ConstantTermData::predicate_call(predicate, arguments));
         }
 
-        let BoundCallableTarget::Declaration(callable) = call.target() else {
+        if let Some((body, _)) = call.resolution().anonymous_body() {
+            let values = arguments
+                .iter()
+                .map(|(term, _)| self.closed_value(*term, expression))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let value = self.evaluate_template_call_values(
+                expression,
+                crate::ConstantCallTarget::Anonymous(body.clone(), None),
+                values,
+                ty,
+            )?;
+
+            return Ok(self.intern_term(ConstantTermData::Value(value)));
+        }
+
+        let Some(callable) = call.resolution().declaration_source() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -93,7 +182,9 @@ where
         let selected_implementation = match witnesses {
             [] => None,
             [witness] => Some(*witness),
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+            _ => {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
         };
 
         self.evaluate_call_terms(expression, callable, selected_implementation, arguments, ty)
@@ -273,35 +364,15 @@ where
         &mut self,
         expression: BoundExpressionId,
         diagnostics: &bray_diagnostics::DiagnosticBag,
-    ) -> Result<(), EvaluationFailure> {
-        if diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.primary_span().is_none())
-        {
-            let span = crate::diagnostic::expression_span(self.request, expression);
+    ) {
+        // Preserve the published diagnostics while attaching this caller's source context.
+        let mut anchored = diagnostics.clone();
 
-            let anchored = diagnostics
-                .iter()
-                .map(|diagnostic| {
-                    if diagnostic.primary_span().is_some() {
-                        diagnostic.clone()
-                    } else {
-                        diagnostic.clone().with_primary_span(span).with_label(
-                            bray_diagnostics::DiagnosticLabel::primary(
-                                bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
-                                span,
-                            ),
-                        )
-                    }
-                })
-                .collect();
+        super::super::diagnostic::anchor_diagnostics(&mut anchored, || {
+            Some(crate::diagnostic::expression_span(self.request, expression))
+        });
 
-            self.diagnostics = self.diagnostics.merged(&anchored);
-        } else {
-            self.diagnostics = self.diagnostics.merged(diagnostics);
-        }
-
-        Ok(())
+        self.diagnostics = self.diagnostics.merged(&anchored);
     }
 
     pub(super) fn evaluate_call_values(
@@ -322,18 +393,49 @@ where
         };
 
         let request = ConstantCallRequest::new(
-            callable,
+            crate::ConstantCallTarget::Declaration(callable),
             selected_implementation,
             arguments,
             result_type,
             limits,
         );
 
+        self.resolve_constant_request(expression, &request)
+    }
+
+    fn evaluate_template_call_values(
+        &mut self,
+        expression: BoundExpressionId,
+        target: crate::ConstantCallTarget,
+        arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
+        result_type: TypeId,
+    ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
+        let limits = self
+            .budget
+            .remaining_limits(self.input.limits())
+            .nested_call()
+            .ok_or_else(|| EvaluationFailure::Source {
+                expression,
+                diagnostic: ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
+            })?;
+
+        let request = ConstantCallRequest::new(target, None, arguments, result_type, limits);
+
+        self.resolve_constant_request(expression, &request)
+    }
+
+    fn resolve_constant_request(
+        &mut self,
+        expression: BoundExpressionId,
+        request: &ConstantCallRequest,
+    ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
+        let result_type = request.result_type();
+
         let Some(resolver) = self.input.call_resolver() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        match resolver.resolve(&request) {
+        match resolver.resolve(request) {
             Ok(ConstantCallResolution::Evaluated(result)) => {
                 self.budget
                     .charge_usage(expression, result.value().usage())?;
@@ -347,7 +449,7 @@ where
                     );
                 }
 
-                self.merge_call_diagnostics(expression, result.diagnostics())?;
+                self.merge_call_diagnostics(expression, result.diagnostics());
 
                 Ok(value)
             }
@@ -357,7 +459,7 @@ where
             }),
             Ok(ConstantCallResolution::Ineligible(diagnostics)) => {
                 if diagnostics.has_errors() {
-                    self.merge_call_diagnostics(expression, &diagnostics)?;
+                    self.merge_call_diagnostics(expression, &diagnostics);
 
                     return Ok(self.recovery_value(result_type));
                 }

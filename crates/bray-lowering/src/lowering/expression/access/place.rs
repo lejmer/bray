@@ -18,16 +18,14 @@ pub(in crate::lowering::expression) enum RootInitialization {
 }
 
 impl Lowerer<'_> {
-    pub(in crate::lowering::expression) fn lower_expression_place(
+    pub(in crate::lowering::expression) fn lower_assignment_place(
         &mut self,
+        assignment: BoundExpressionId,
         expression: BoundExpressionId,
-        purpose: StorageAccessPurpose,
         current: MirBlockId,
     ) -> Result<LoweredPlace, LoweringError> {
-        let decision = self.storage_decision(expression, |candidate| {
-            candidate == purpose
-                || purpose == StorageAccessPurpose::Assignment
-                    && candidate == StorageAccessPurpose::Write
+        let decision = self.storage_decision(assignment.into(), |purpose| {
+            purpose == StorageAccessPurpose::Write
         });
 
         let lowered = self.lower_access_place(expression, decision.access(), current)?;
@@ -45,12 +43,12 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn storage_decision(
         &self,
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
     ) -> bray_bound_tree::StorageOperationDecision {
-        self.find_storage_decision_matching(expression, |plan| accepts(plan.purpose()))
+        self.find_storage_decision_matching(occurrence, |plan| accepts(plan.purpose()))
             .unwrap_or_else(|| {
-                panic!("lowering contract violation: MissingStorageAccess {expression:?}")
+                panic!("lowering contract violation: MissingStorageAccess {occurrence:?}")
             })
     }
 
@@ -60,7 +58,7 @@ impl Lowerer<'_> {
         reached_type: TypeId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
     ) -> Option<bray_bound_tree::StorageOperationDecision> {
-        self.find_storage_decision_matching(expression, |plan| {
+        self.find_storage_decision_matching(expression.into(), |plan| {
             accepts(plan.purpose())
                 && self
                     .input
@@ -70,21 +68,21 @@ impl Lowerer<'_> {
         })
     }
 
-    fn find_storage_decision_matching(
+    pub(in crate::lowering) fn find_storage_decision_matching(
         &self,
-        expression: BoundExpressionId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         accepts: impl Fn(bray_bound_tree::StorageAccessPlan) -> bool,
     ) -> Option<bray_bound_tree::StorageOperationDecision> {
         let plan = self
             .input
             .storage_plan()
-            .expression_plans(expression)
+            .occurrence_plans(occurrence)
             .find(|plan| accepts(*plan))?;
 
         let decision = self.input.storage_operation(plan).unwrap_or_else(|| {
             panic!(
                 "lowering contract violation: MissingStorageAccess {value:?}",
-                value = expression
+                value = occurrence
             )
         });
 
@@ -95,8 +93,12 @@ impl Lowerer<'_> {
             StorageOperationStatus::Valid | StorageOperationStatus::Unreachable
         ) {
             panic!(
-                "lowering contract violation: storage decision {decision:?} for {expression:?}, node: {:?}",
-                self.input.unit().view().expression(expression)
+                "lowering contract violation: storage decision {decision:?} for {occurrence:?}, node: {:?}",
+                occurrence.expression().and_then(|expression| self
+                    .input
+                    .unit()
+                    .view()
+                    .expression(expression))
             );
         }
 

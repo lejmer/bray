@@ -456,7 +456,7 @@ mod tests {
         "catalog compiler_known revision 1;\n",
         "scope Memory at core.memory {\n",
         "  declaration Zed {\n",
-        "    representation RawPointer;\n",
+        "    representation DataPointer;\n",
         "    surface { struct Zed {} }\n",
         "  }\n",
         "  declaration Read {\n",
@@ -528,18 +528,18 @@ mod tests {
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
         };
 
-        assert_eq!(catalog.compiler_known_scopes().len(), 14);
-        assert_eq!(catalog.compiler_known_declarations().len(), 357);
+        assert_eq!(catalog.compiler_known_scopes().len(), 15);
+        assert_eq!(catalog.compiler_known_declarations().len(), 363);
         assert_eq!(catalog.compiler_known_values().len(), 4);
-        assert_eq!(catalog.recognized_standard_library_scopes().len(), 12);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 13);
 
         assert_eq!(
             catalog.recognized_standard_library_declarations().len(),
-            148
+            153
         );
 
-        let raw_pointer = declaration(&catalog, "RawPointer");
-        let element = declaration(&catalog, "RawPointerElement");
+        let raw_pointer = declaration(&catalog, "DataPointer");
+        let element = declaration(&catalog, "DataPointerElement");
         let storage = declaration(&catalog, "Storage");
         let storage_create = declaration(&catalog, "StorageCreate");
         let callable = declaration(&catalog, "UnaryCallable");

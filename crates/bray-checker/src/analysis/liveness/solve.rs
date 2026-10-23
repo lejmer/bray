@@ -229,37 +229,15 @@ fn collect_liveness(
             } else if let Some(effect) = effects.operation_effect(operation) {
                 is_recovered |= effects.recovered_nodes.contains(&operation.kind().node());
 
-                continuing_uses.extend(
-                    effect
-                        .uses()
-                        .chain(effect.definitions())
-                        .filter(|subject| state.contains(subject))
-                        .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
-                );
+                for subject in effect.retirement_subjects() {
+                    let last_use = LastUse::new(*subject, operation.kind().occurrence());
 
-                last_uses.extend(
-                    effect
-                        .uses()
-                        .filter(|subject| !effect.defines(subject) && !state.contains(subject))
-                        .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
-                );
-
-                last_uses.extend(
-                    effect
-                        .definitions()
-                        .filter(|subject| {
-                            matches!(
-                                subject,
-                                BoundDependencySubject::Storage(_)
-                                    | BoundDependencySubject::BorrowCapability(_)
-                            ) && !effect.uses().any(|used| used == *subject)
-                                && !state.contains(subject)
-                        })
-                        .copied()
-                        .map(|subject| LastUse::new(subject, operation.kind().occurrence())),
-                );
+                    if state.contains(subject) {
+                        continuing_uses.insert(last_use);
+                    } else {
+                        last_uses.push(last_use);
+                    }
+                }
             }
 
             transfer_operation(&mut state, operation, effects, universe);
@@ -353,26 +331,32 @@ fn collect_edge_lifetime_ends(
                         .expect("liveness block retains its final operation")
                 });
 
-            let bypassed_attempt = source_operation.filter(|operation| {
-                let AnalysisOperationKind::Call {
-                    invocation,
-                    phase: AnalysisCallPhase::Attempt,
-                } = operation.kind()
-                else {
-                    return false;
-                };
-
-                edge.refinement()
-                    == Some(
-                        crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation),
+            let bypassed_completion =
+                source_operation.filter(|operation| match (operation.kind(), edge.refinement()) {
+                    (
+                        AnalysisOperationKind::Call {
+                            invocation,
+                            phase: AnalysisCallPhase::Attempt,
+                        },
+                        Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(failed)),
                     )
-            });
+                    | (
+                        AnalysisOperationKind::Call {
+                            invocation,
+                            phase: AnalysisCallPhase::Input,
+                        },
+                        Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(
+                            failed,
+                        )),
+                    ) => invocation == failed,
+                    _ => false,
+                });
 
-            // Failed calls bypass the completion where storage flow applies input last uses.
-            let failed_call_uses = bypassed_attempt
+            // Admission and invocation failure bypass normal-completion retirement.
+            let failed_call_uses = bypassed_completion
                 .and_then(|operation| effects.operation_effect(operation))
                 .into_iter()
-                .flat_map(|effect| effect.uses());
+                .flat_map(|effect| effect.failed_invocation_subjects());
 
             let mut subjects = source_live_out
                 .iter()
@@ -756,6 +740,127 @@ mod tests {
     }
 
     #[test]
+    fn implicit_invocations_sharing_an_expression_establish_only_their_own_loans() {
+        let unit = BoundUnitId::new(35);
+
+        let (bound, expression, origin) = test_expression(unit);
+
+        let mut builder = StoragePlanBuilder::new(unit, bound.key().kind());
+
+        let identity = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                error_type(),
+                origin.source_anchor(),
+                false,
+            ))
+            .unwrap();
+
+        let sites = [
+            bray_bound_tree::BoundExecutionSite::Iterate(expression),
+            bray_bound_tree::BoundExecutionSite::Next(expression),
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            },
+            bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+        ];
+
+        let loans = sites.map(|site| {
+            builder
+                .push_borrow_capability(PlannedBorrowCapability::new(
+                    BorrowCapabilityOrigin::Operation(site),
+                    BorrowKind::Mutable,
+                    access,
+                    None,
+                    origin.source_anchor(),
+                    false,
+                ))
+                .unwrap()
+        });
+
+        let storage = builder.finish();
+
+        let effects =
+            OperationEffects::from_storage_plan(&bound, &storage, &empty_memory_operations(unit));
+
+        for (site, loan) in sites.into_iter().zip(loans) {
+            let operation = |phase| {
+                AnalysisOperation::new(
+                    AnalysisOperationId::from_slot(unit, 0),
+                    AnalysisOperationKind::Call {
+                        invocation: site,
+                        phase,
+                    },
+                    ProgramPointId::from_slot(unit, 0),
+                    ProgramPointId::from_slot(unit, 1),
+                )
+            };
+
+            let input = operation(crate::analysis::model::AnalysisCallPhase::Input);
+
+            let view = effects
+                .operation_effect(&input)
+                .expect("loan has its exact birth phase");
+
+            assert_eq!(
+                view.definitions().copied().collect::<BTreeSet<_>>(),
+                BTreeSet::from([BoundDependencySubject::BorrowCapability(loan)])
+            );
+
+            let completion = operation(crate::analysis::model::AnalysisCallPhase::Completion);
+            let completed = effects.operation_effect(&completion).unwrap();
+
+            assert!(completed.definitions().next().is_none());
+            assert!(view.retirement_subjects().next().is_none());
+
+            let attempt = operation(crate::analysis::model::AnalysisCallPhase::Attempt);
+
+            assert!(
+                effects
+                    .operation_effect(&attempt)
+                    .unwrap()
+                    .retirement_subjects()
+                    .next()
+                    .is_none()
+            );
+
+            assert!(
+                completed
+                    .retirement_subjects()
+                    .any(|subject| *subject == BoundDependencySubject::BorrowCapability(loan))
+            );
+
+            assert_eq!(
+                storage.borrow_capability(loan).unwrap().occurrence(),
+                Some(site)
+            );
+        }
+
+        let source = effects
+            .effect(expression.into())
+            .expect("source temporary has a storage birth");
+
+        assert!(
+            source
+                .definitions
+                .contains(&BoundDependencySubject::Storage(identity))
+        );
+
+        assert!(
+            source
+                .definitions
+                .iter()
+                .all(|subject| !matches!(subject, BoundDependencySubject::BorrowCapability(_)))
+        );
+    }
+
+    #[test]
     fn calls_retain_borrow_capabilities_created_by_their_inputs() {
         let unit = BoundUnitId::new(10);
 
@@ -813,7 +918,7 @@ mod tests {
 
         let capability = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Expression(*argument),
+                BorrowCapabilityOrigin::Operation((*argument).into()),
                 BorrowKind::Shared,
                 access,
                 None,
@@ -867,7 +972,9 @@ mod tests {
         let subject = BoundDependencySubject::Storage(identity);
 
         let cursor = builder
-            .push_identity(StorageIdentity::IterationCursor(expression))
+            .push_identity(StorageIdentity::InvocationResult(
+                bray_bound_tree::BoundExecutionSite::Iterate(expression),
+            ))
             .unwrap();
 
         let cursor = BoundDependencySubject::Storage(cursor);

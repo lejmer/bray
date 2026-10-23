@@ -35,6 +35,20 @@ where
             .clone();
 
         let access = match &expression {
+            _ if self
+                .selections
+                .expression(id)
+                .is_some_and(SemanticSelection::evaluates_defaults) =>
+            {
+                let selection = self
+                    .selections
+                    .expression(id)
+                    .expect("default evaluation retains its selection");
+
+                self.plan_default_inputs(id, selection)?;
+
+                self.temporary_access(id)?
+            }
             BoundExpression::Name(name) => self.reference_access(id, name.target())?,
             BoundExpression::PatternReference(reference) => {
                 let target = match self.selections.expression(id) {
@@ -139,19 +153,8 @@ where
                 self.plan_transferred_operand(id, expression.operand())?
             }
             BoundExpression::For(expression) => {
-                let source = self.plan_expression(expression.source(), None)?;
-
-                let mode = self
-                    .iterations
-                    .get(&id)
-                    .map(|selection| selection.mode())
-                    .unwrap_or_else(|| expression.source_mode());
-
-                self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
-
-                let element = self
-                    .plan_iteration_storage(id)?
-                    .map_or(source, |(_, element)| element);
+                let element =
+                    self.plan_iteration_source(id, expression.source(), expression.source_mode())?;
 
                 self.plan_pattern(expression.pattern(), id, element)?;
                 self.plan_block(expression.body())?;
@@ -163,19 +166,8 @@ where
                 self.temporary_access(id)?
             }
             BoundExpression::Generator(expression) => {
-                let source = self.plan_expression(expression.source(), None)?;
-
-                let mode = self
-                    .iterations
-                    .get(&id)
-                    .map(|selection| selection.mode())
-                    .unwrap_or_else(|| expression.source_mode());
-
-                self.record_purpose(expression.source(), Some(iteration_purpose(mode)), source)?;
-
-                let element = self
-                    .plan_iteration_storage(id)?
-                    .map_or(source, |(_, element)| element);
+                let element =
+                    self.plan_iteration_source(id, expression.source(), expression.source_mode())?;
 
                 self.plan_pattern(expression.pattern(), id, element)?;
                 self.plan_block(expression.body())?;
@@ -460,17 +452,11 @@ where
                     return self.recovery_access(id);
                 };
 
-                let access = self.plan_expression(source, None)?;
-
-                self.record_purpose(
+                self.plan_iteration_source(
+                    id,
                     source,
-                    Some(iteration_purpose(
-                        bray_bound_tree::IterationSourceMode::Shared,
-                    )),
-                    access,
+                    bray_bound_tree::IterationSourceMode::Shared,
                 )?;
-
-                self.plan_iteration_storage(id)?;
 
                 self.temporary_access(id)
             }
@@ -511,33 +497,81 @@ where
         }
     }
 
-    fn plan_iteration_storage(
+    fn plan_iteration_source(
         &mut self,
         expression: BoundExpressionId,
-    ) -> Result<Option<(StorageAccessId, StorageAccessId)>, PlanError<C::UpstreamError>> {
+        source: BoundExpressionId,
+        recovery_mode: bray_bound_tree::IterationSourceMode,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let source_access = self.plan_expression(source, None)?;
+
         let Some(selection) = self.iterations.get(&expression) else {
-            return Ok(None);
+            self.record_purpose(
+                source,
+                Some(iteration_purpose(recovery_mode)),
+                source_access,
+            )?;
+
+            return Ok(source_access);
         };
 
         let cursor_type = selection.cursor_type();
         let element_type = selection.element_type();
+        let mode = selection.mode();
+        let iterate = bray_bound_tree::BoundExecutionSite::Iterate(expression);
+        let next = bray_bound_tree::BoundExecutionSite::Next(expression);
+
+        self.plan_invocation_input(iterate, source, iteration_purpose(mode))?;
 
         let cursor = self.protocol_access(
             expression,
-            StorageIdentity::IterationCursor(expression),
+            StorageIdentity::InvocationResult(iterate),
             cursor_type,
         )?;
 
-        let element = self.protocol_access(
+        let next_type = self
+            .request
+            .semantic_values()
+            .intern_type(bray_symbols::TypeData::Nullable(element_type))
+            .expect("selected iterator returns its nullable element type");
+
+        let step = self.protocol_access(
             expression,
-            StorageIdentity::IterationElement(expression),
-            element_type,
+            StorageIdentity::InvocationResult(next),
+            next_type,
         )?;
 
-        self.record_purpose(expression, Some(StorageAccessPurpose::Initialize), cursor)?;
-        self.record_purpose(expression, Some(StorageAccessPurpose::Initialize), element)?;
+        let receiver = self.borrow_access(next, cursor, BorrowKind::Mutable, cursor_type)?;
 
-        Ok(Some((cursor, element)))
+        for (site, purpose, access) in [
+            (iterate, StorageAccessPurpose::Initialize, cursor),
+            (
+                next,
+                StorageAccessPurpose::Borrow(BorrowKind::Mutable),
+                receiver,
+            ),
+            (next, StorageAccessPurpose::Initialize, step),
+        ] {
+            self.builder_mut()
+                .plan_occurrence_access(site, expression, purpose, access)
+                .expect("protocol operation retains its exact invocation");
+        }
+
+        let root = self
+            .builder()
+            .access(step)
+            .expect("step result has its slot")
+            .root();
+
+        self.push_expression_access(
+            expression,
+            root,
+            [StorageProjection::NullableValue],
+            bray_bound_tree::ExpressionTypeResult::new(
+                element_type,
+                self.expression_type(expression).status(),
+            ),
+        )
     }
 
     fn plan_structured_projection(

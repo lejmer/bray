@@ -17,6 +17,7 @@ pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
         TypeData::Borrow { target, .. } => Some(*target),
         _ => [
             RepresentationRole::RawPointer,
+            RepresentationRole::FunctionPointer,
             RepresentationRole::DevicePointer,
         ]
         .into_iter()
@@ -39,12 +40,68 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         Some(bray_symbols::DependencyReferenceKind::Borrow)
     } else if matches!(
         type_representation(request, ty),
-        Some(RepresentationRole::RawPointer | RepresentationRole::DevicePointer)
+        Some(
+            RepresentationRole::RawPointer
+                | RepresentationRole::FunctionPointer
+                | RepresentationRole::DevicePointer
+        )
     ) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {
         None
     }
+}
+
+/// Field identities of one authoritatively recognized, substituted buffer representation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RawBufferFields {
+    pub(crate) element: TypeId,
+    pub(crate) pointer: bray_symbols::StructFieldSymbolId,
+    pub(crate) capacity: bray_symbols::StructFieldSymbolId,
+    pub(crate) initialized: bray_symbols::StructFieldSymbolId,
+}
+
+pub(crate) fn raw_buffer_fields<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<Option<RawBufferFields>, CheckerQueryError<C::UpstreamError>> {
+    let data = request.semantic_values().type_data(ty);
+
+    let TypeData::Named {
+        definition,
+        substitution,
+    } = *data
+    else {
+        return Ok(None);
+    };
+
+    let Some(element) = request
+        .context()
+        .raw_buffer_element(definition, substitution)?
+    else {
+        return Ok(None);
+    };
+
+    let NamedTypeSymbolId::Struct(structure) = definition else {
+        panic!("recognized raw buffer {ty:?} has a struct representation");
+    };
+
+    let field = |name| {
+        let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
+            request.lookup_member(structure.into(), name)?
+        else {
+            panic!("recognized buffer {structure:?} requires its {name} field");
+        };
+
+        Ok::<_, CheckerQueryError<C::UpstreamError>>(field)
+    };
+
+    Ok(Some(RawBufferFields {
+        element,
+        pointer: field("pointer")?,
+        capacity: field("capacity")?,
+        initialized: field("initialized")?,
+    }))
 }
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(
@@ -172,7 +229,8 @@ where
     )
 }
 
-pub(crate) fn type_representation_for_values(
+/// Returns the compiler-known representation of an already checked semantic type.
+pub fn type_representation_for_values(
     values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     ty: TypeId,
@@ -191,6 +249,22 @@ pub(crate) fn type_representation_for_values(
     representation
 }
 
+/// Returns both representations only for a conversion between built-in integer scalars.
+pub fn integer_conversion_representations(
+    values: &SemanticValueStore,
+    available: &AvailableCompilerKnownSymbols,
+    source: TypeId,
+    target: TypeId,
+) -> Option<(
+    bray_compiler_known::IntegerRepresentation,
+    bray_compiler_known::IntegerRepresentation,
+)> {
+    Some((
+        type_representation_for_values(values, available, source)?.integer_representation()?,
+        type_representation_for_values(values, available, target)?.integer_representation()?,
+    ))
+}
+
 pub(crate) fn representation_type<C>(
     request: CheckerUnitView<'_, C>,
     role: RepresentationRole,
@@ -201,7 +275,7 @@ where
     representation_type_for_context(request.context(), role)
 }
 
-pub(crate) fn representation_type_for_context<C>(request: &C, role: RepresentationRole) -> TypeId
+pub fn representation_type_for_context<C>(request: &C, role: RepresentationRole) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {

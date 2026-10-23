@@ -642,8 +642,8 @@ mod tests {
         );
 
         let relation = bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(0),
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
             )),
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             bray_symbols::DependencyReferenceKind::Borrow,
@@ -651,7 +651,7 @@ mod tests {
 
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
-        let retained = Some(std::collections::BTreeSet::from([expression]));
+        let retained = Some(std::collections::BTreeSet::from([expression.into()]));
         let phases = phases.with_references(references.clone(), retained.clone());
 
         let published = table()
@@ -674,7 +674,7 @@ mod tests {
                     expression.into(),
                     phases.clone().with_references(
                         references,
-                        Some(std::collections::BTreeSet::from([missing]))
+                        Some(std::collections::BTreeSet::from([missing.into()]))
                     )
                 )]
                 .into()

@@ -78,16 +78,16 @@ fn imported_callable_static_access_orders_local_cleanup() {
 }
 
 #[test]
-fn imported_static_initializer_preserves_helper_static_access() {
+fn imported_static_initializer_keeps_forwarded_static_borrows() {
     let provider = compilation(
         r#"
         module api;
         static ROOT: i32 = 1;
-        const func read_root() -> i32
+        const func forward(pos value: &i32) -> &i32
         {
-            return ROOT;
+            return value;
         }
-        static COPY: i32 = read_root();
+        static COPY: &i32 = forward(&ROOT);
     "#,
     );
 
@@ -852,7 +852,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             .flat_map(|template| template.nodes())
             .any(|node| matches!(
                 node.operation(),
-                InterfaceCheckedTemplateOperation::Product(_)
+                InterfaceCheckedTemplateOperation::Construct { .. }
             ))
     );
 
@@ -907,7 +907,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             lowered.diagnostics()
         );
 
-        let value = imported_static_initializer_value(&consumer, function);
+        let value = static_initializer_value(&consumer, function);
         let mut actual = Vec::new();
 
         collect_integer_constants(&consumer, value, &mut actual);
@@ -916,13 +916,16 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
     }
 }
 
-fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> ConstantValueId {
+fn static_initializer_evaluation(
+    consumer: &Compilation,
+    function: &str,
+) -> bray_diagnostics::DiagnosticResult<bray_checker::EvaluatedConstantCall> {
     let semantics = consumer
         .expression_semantics_with_cancellation(
             source_function_body_key(consumer, function),
             &consumer.state.cancellation,
         )
-        .unwrap_or_else(|error| panic!("imported static semantics must publish: {error:?}"));
+        .unwrap_or_else(|error| panic!("static semantics must publish: {error:?}"));
 
     let (expression, reference) = semantics
         .result()
@@ -936,7 +939,7 @@ fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> 
             }
             _ => None,
         })
-        .unwrap_or_else(|| panic!("{function} must select an imported static"));
+        .unwrap_or_else(|| panic!("{function} must select an static"));
 
     let instance = reference
         .closed_instance()
@@ -952,9 +955,9 @@ fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> 
 
     let template = consumer
         .static_instance_template(instance.template().declaration())
-        .unwrap_or_else(|error| panic!("imported static template must resolve: {error:?}"));
+        .unwrap_or_else(|error| panic!("static template must resolve: {error:?}"));
 
-    let evaluated = consumer
+    consumer
         .evaluate_static_initializer(
             instance,
             template.value().duration(),
@@ -962,7 +965,11 @@ fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> 
             ConstantEvaluationLimits::default(),
             &consumer.state.cancellation,
         )
-        .unwrap_or_else(|error| panic!("imported static initializer must evaluate: {error:?}"));
+        .unwrap_or_else(|error| panic!("static initializer must evaluate: {error:?}"))
+}
+
+fn static_initializer_value(consumer: &Compilation, function: &str) -> ConstantValueId {
+    let evaluated = static_initializer_evaluation(consumer, function);
 
     assert!(
         evaluated.diagnostics().is_empty(),
@@ -1741,7 +1748,9 @@ fn imported_scoped_calls_enforce_requirements_on_the_entered_capability() {
         let provider = compilation(&format!(
             r#"
             trusted module api;
-            struct Resource {{}}
+            struct Resource
+            {{
+            }}
             struct Lease {{ tag: bool; }}
             trusted predicate live(value: &Lease);
             impl Resource
@@ -1851,7 +1860,9 @@ fn imported_scoped_exit_retains_its_owned_error_quiescence() {
             module api;
             async func pending() {{}}
             struct Failure {{ child: Future<unit>; }}
-            struct Resource {{}}
+            struct Resource
+            {{
+            }}
             impl Resource
             {{
                 enter() -> bool {{ return true; }}
@@ -1949,4 +1960,506 @@ fn inactive_scoped_protocols_do_not_require_whole_value_cleanup() {
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
+}
+
+#[test]
+fn static_initializers_cannot_read_runtime_values_through_helpers() {
+    for (modifier, expected) in [
+        (
+            "const ",
+            bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        ),
+        (
+            "",
+            bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module api;
+
+            static ROOT: i32 = 1;
+
+            {modifier}func read() -> i32
+            {{
+                return ROOT;
+            }}
+
+            static COPY: i32 = read();
+        "#
+        );
+
+        let checked = compilation(&source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(checked.check_diagnostics(), expected);
+    }
+}
+
+#[test]
+fn source_and_imported_statics_evaluate_the_same_prepared_local_state() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct State
+        {
+            number: u32;
+        }
+
+        const func prepare() -> u32
+        {
+            let mut number: u32 = 2;
+            number += 3;
+
+            return number;
+        }
+
+        static Stored: State =
+        {
+            let number = prepare();
+
+            yield
+            {
+                number = number,
+            };
+        };
+
+        func observe() -> &State
+        {
+            return &Stored;
+        }
+    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func observe() -> &example.package.api.State
+        {
+            return &example.package.api.Stored;
+        }
+    "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    for checked in [&provider, &consumer] {
+        let value = static_initializer_value(checked, "observe");
+        let mut integers = Vec::new();
+
+        collect_integer_constants(checked, value, &mut integers);
+        assert_eq!(integers, [5]);
+    }
+}
+
+#[test]
+fn generic_static_preconditions_remain_deferred_until_the_demanded_instance() {
+    let source = r#"
+        module api;
+
+        const func positive(pos value: i32) -> i32
+            requires(value > 0)
+        {
+            return value;
+        }
+
+        static Stored<const N: i32>: i32 =
+        {
+            let number = positive(N);
+
+            yield number + 1;
+        };
+
+        func observe() -> &i32
+        {
+            return &Stored<4>;
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func observe() -> &i32
+        {
+            return &example.package.api.Stored<4>;
+        }
+    "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    for checked in [&provider, &consumer] {
+        let value = static_initializer_value(checked, "observe");
+        let mut integers = Vec::new();
+
+        collect_integer_constants(checked, value, &mut integers);
+        assert_eq!(integers, [5]);
+    }
+
+    let rejected_source = compilation(&source.replace("Stored<4>", "Stored<0>"));
+
+    let rejected_import_source = r#"
+        module app;
+
+        using example.package.api;
+
+        func observe() -> &i32
+        {
+            return &example.package.api.Stored<0>;
+        }
+    "#;
+
+    let spelling = "example.package.api.Stored<0>";
+
+    let reference = rejected_import_source
+        .find(spelling)
+        .expect("negative consumer selects its demanded static");
+
+    let reference = u32::try_from(reference).expect("fixture source fits its offset");
+
+    let span = bray_source::SourceSpan::new(
+        bray_source::SourceId::new(0),
+        bray_source::TextRange::new(
+            bray_source::TextSize::new(reference),
+            bray_source::TextSize::new(
+                reference + u32::try_from(spelling.len()).expect("fixture spelling fits"),
+            ),
+        ),
+    );
+
+    let dependency =
+        super::fixtures::implementation_dependency(export(&provider)).with_dependency_span(span);
+
+    let rejected_import =
+        crate::test_support::compilation_with_dependencies(rejected_import_source, [dependency]);
+
+    for checked in [&rejected_source, &rejected_import] {
+        let evaluated = static_initializer_evaluation(checked, "observe");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            evaluated.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingConstantCallRequirementNotProven,
+        );
+    }
+}
+
+#[test]
+fn static_local_aliases_preserve_addresses_without_observing_runtime_contents() {
+    for (ty, value, valid) in [
+        ("&State", "reference", true),
+        ("u32", "reference.number", false),
+        ("&State", "Reference", false),
+    ] {
+        let source = format!(
+            r#"
+            module api;
+
+            struct State
+            {{
+                number: u32;
+            }}
+
+            static Stored: State =
+            {{
+                number = 5,
+            }};
+
+            static Reference: &State = &Stored;
+
+            static Selected: {ty} =
+            {{
+                let reference = &Stored;
+
+                yield {value};
+            }};
+        "#
+        );
+
+        let checked = compilation(&source);
+
+        assert_eq!(
+            !checked.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            checked.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+            );
+        }
+    }
+}
+
+#[test]
+fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
+    for (ty, initializer, valid) in [
+        ("Resource", "Resource {}", true),
+        (
+            "Resource",
+            r#"
+            {
+                let prepared = Resource {};
+
+                yield prepared;
+            }
+        "#,
+            true,
+        ),
+        (
+            "u32",
+            r#"
+            {
+                let discarded = Resource {};
+
+                yield 0;
+            }
+        "#,
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module api;
+
+            struct Resource
+            {{
+            }}
+
+            impl Resource
+            {{
+                finalize()
+                {{
+                    panic("runtime cleanup");
+                }}
+            }}
+
+            static Stored: {ty} = {initializer};
+        "#
+        );
+
+        let checked = compilation(&source);
+
+        assert_eq!(
+            !checked.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:#?}",
+            checked.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_async_admission_retains_the_checked_trait_selection() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        trait Worker
+        {
+            async func run() -> u32;
+        }
+
+        async func run_generic<T>(pos value: &T) -> u32
+            with(T: Worker)
+        {
+            return await value.run();
+        }
+    "#,
+    );
+
+    let bundle = export(&provider);
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app;",
+        [super::fixtures::implementation_dependency(bundle)],
+    );
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+
+    let function = skeleton
+        .functions()
+        .iter()
+        .find(|function| {
+            skeleton
+                .member_name(function.id().into())
+                .is_some_and(|name| name.as_str() == "run_generic")
+        })
+        .unwrap();
+
+    let template = bundle
+        .executable_templates()
+        .iter()
+        .find(|template| {
+            function
+                .imported_semantic_key()
+                .is_some_and(|key| key.symbol() == template.owner())
+        })
+        .unwrap();
+
+    let address = crate::fact::ImportedExecutableTemplateAddress::new(
+        skeleton
+            .imported_semantic_address(function.id().into())
+            .unwrap(),
+        template.identity(),
+    );
+
+    let decoded = consumer
+        .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
+        .unwrap();
+
+    assert!(
+        !decoded.diagnostics().has_errors(),
+        "{:?}",
+        decoded.diagnostics()
+    );
+
+    let mir = decoded.value().as_deref().unwrap();
+
+    let selections = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) if call.trait_dispatch().is_some() => call.callable_selection(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(selections.len(), 1);
+
+    let owners = mir
+        .operations()
+        .iter()
+        .filter_map(|operation| match operation.kind() {
+            MirOperationKind::AdmitOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+                ..
+            }
+            | MirOperationKind::DischargeOutgoing {
+                owner: bray_ir::MirOutgoingOwner::Invocation { selection, .. },
+                ..
+            } => Some(selection),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(owners.len(), 2);
+    assert!(owners.iter().all(|selection| **selection == selections[0]));
+
+    let demands = bray_codegen::demanded_callable_instances_for_mir(mir);
+
+    assert_eq!(
+        demands
+            .iter()
+            .filter(|demand| demand.trait_dispatch().is_some())
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn imported_owners_keep_their_admitted_cleanup_storage_identity() {
+    let provider = compilation(
+        r#"
+                    module api;
+                    struct Owner
+                    {
+                        marker: u32;
+
+                        finalize() {}
+
+                        destruct() {}
+                    }
+
+                    func dispose(pos owner: Owner) {}
+                    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+            module app;
+            using example.package.api;
+            func unrelated() -> u32
+            {
+                return 9;
+            }
+
+            func dispose(pos owner: example.package.api.Owner) {}
+            "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    let requirements = |compilation: &crate::Compilation| {
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                compilation,
+                "dispose",
+            ))
+            .unwrap();
+
+        assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+        let ty = lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+            .unwrap()
+            .ty();
+
+        compilation
+            .owner_outgoing_requirements(ty, &crate::CancellationToken::new())
+            .unwrap()
+    };
+
+    let admitted = requirements(&provider);
+    let released = requirements(&consumer);
+
+    assert_eq!(admitted.len(), 2);
+
+    assert_eq!(
+        admitted
+            .iter()
+            .map(|requirement| requirement.identity())
+            .collect::<Vec<_>>(),
+        released
+            .iter()
+            .map(|requirement| requirement.identity())
+            .collect::<Vec<_>>()
+    );
+
+    assert_ne!(
+        admitted[0].callable(),
+        released[0].callable(),
+        "reservation identity must not depend on source versus imported MIR keys"
+    );
 }

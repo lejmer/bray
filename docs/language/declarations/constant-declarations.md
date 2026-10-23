@@ -139,10 +139,13 @@ address-only cycles follow the static lifecycle rules.
 Control-flow expressions are valid in constant-evaluation context only when their selected path can be evaluated without
 runtime storage, runtime effects, or runtime dispatch.
 
-Loop expressions are not valid in constant-evaluation context.
+A const callable can use loops and selected iteration when the compiler proves termination and every selected
+operation is valid in constant-evaluation context. Mutation must remain confined to the computation's own storage.
+A locally stored cursor does not establish that the storage it reaches is local.
 
-This includes `loop`, `while`, `for`, `each`, array generator expressions, general generator iteration expressions, and
-boolean fold expressions.
+A total iterator step does not by itself establish finite iteration. The traversal must also have a checked finite
+progress argument. These requirements apply to selected iterable operations used by loops, generators and Boolean
+folds.
 
 Finite aggregate construction is still valid when every element or field initializer is itself a valid compile-time
 constant expression.

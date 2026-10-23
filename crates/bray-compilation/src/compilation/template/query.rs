@@ -1,5 +1,5 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
+use bray_bound_tree::{BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
@@ -28,37 +28,12 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        for input in &mut inputs {
-            let Some(BoundReferenceTarget::Surface(owner)) = input.target else {
-                continue;
-            };
-
-            let term =
-                bray_bound_tree::DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(owner));
-
-            let evidence = declared.result().value().evidence();
-            let index = evidence.partition_point(|entry| entry.term() < term);
-
-            if let Some(entry) = evidence.get(index).filter(|entry| entry.term() == term) {
-                let constants = self.checked_constant_terms_for_templates_with_cancellation(
-                    [entry.template()],
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(constants.diagnostics().clone());
-
-                if constants.diagnostics().has_errors() {
-                    continue;
-                }
-
-                input.ty = bray_checker::resolve_type_expression_template(
-                    self.semantic_value_store()?,
-                    entry.template(),
-                    constants.value(),
-                )
-                .expect("checked source input type resolves from its established constant terms");
-            }
-        }
+        self.resolve_template_input_types(
+            &mut inputs,
+            declared.result().value().evidence(),
+            &mut diagnostics,
+            cancellation,
+        )?;
 
         let result_dependencies =
             crate::compilation::binder::expression_result_dependencies(&context, &key)
@@ -66,7 +41,8 @@ impl Compilation {
 
         let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
-        let body = self.body_behavior_with_cancellation(key, cancellation)?;
+        let body = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
+        let checked_body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
 
         for bag in [
             bound.result().diagnostics(),
@@ -75,6 +51,7 @@ impl Compilation {
             result_dependencies.diagnostics(),
             patterns.result().diagnostics(),
             body.result().diagnostics(),
+            checked_body.result().diagnostics(),
         ] {
             diagnostics.add_range(bag.clone());
         }
@@ -85,10 +62,17 @@ impl Compilation {
 
         assert!(
             !body.result().value().is_recovered(),
-            "complete checked source template retains its body behavior"
+            "complete checked source template retains its body behavior: {key:?}"
         );
 
         let behavior = body.result().value();
+
+        let dependency = crate::compilation::binder::extend_dependency_contract_with_statics(
+            &context,
+            dependency,
+            behavior.static_dependencies(),
+        )
+        .map_err(crate::compilation::binder::binding_query_error)?;
 
         let key_for = |symbol| -> Result<bray_symbols::SymbolKey, FactQueryError> {
             Ok(context
@@ -96,6 +80,50 @@ impl Compilation {
                 .map_err(crate::compilation::binder::binding_query_error)?
                 .expect("checked source template declaration has stable identity")
                 .clone())
+        };
+
+        let mut properties = Vec::new();
+        let mut constant_eligible = false;
+
+        if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+            constant_eligible = !self
+                .check_predicate_eligibility(&key, cancellation)?
+                .has_errors();
+
+            for property in [
+                bray_checker::ExecutionProperty::Pure,
+                bray_checker::ExecutionProperty::Total,
+            ] {
+                if constant_eligible
+                    || self
+                        .certify_execution_obligation(
+                            &key,
+                            bray_checker::ExecutionObligation::Property(property, None),
+                            &mut DiagnosticBag::new(),
+                            false,
+                            cancellation,
+                        )?
+                        .0
+                        .is_none()
+                {
+                    properties.push(property);
+                }
+            }
+        }
+
+        let total = properties.contains(&bray_checker::ExecutionProperty::Total);
+
+        let may_unwind = !total
+            && self
+                .unwind_behavior(key.clone(), cancellation)?
+                .result()
+                .value()
+                .may_unwind();
+
+        let cancellation_behavior = if total {
+            bray_symbols::CurrentRunCancellation::NotEntered
+        } else {
+            behavior.current_run_cancellation()
         };
 
         let native_behavior = bray_bound_tree::CheckedTemplateBehavior::new(
@@ -132,13 +160,68 @@ impl Compilation {
                             .map(bray_bound_tree::CheckedTemplateExecutionRequirement::new)
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-                behavior.current_run_cancellation(),
-            ),
+                cancellation_behavior,
+            )
+            .with_certification(properties, constant_eligible, may_unwind),
             behavior.lifecycle_obligations().iter().copied(),
             dependency,
             *result_dependencies.value(),
             [],
         );
+
+        let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+
+        diagnostics.add_range(storage.result().diagnostics().clone());
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(None, diagnostics));
+        }
+
+        if key.is_static_initializer() {
+            let certified =
+                self.certified_execution_with_cancellation(key.clone(), cancellation)?;
+
+            diagnostics.add_range(certified.result().diagnostics().iter().cloned());
+
+            if diagnostics.has_errors() {
+                return Ok(DiagnosticResult::new(None, diagnostics));
+            }
+        }
+
+        let execution_goal = if kind == CheckedTemplateKind::ConstantCallableBody
+            && !self.unit_requires_constant_evaluation(&key, cancellation)?
+        {
+            bray_checker::ExecutionObligation::Termination
+        } else {
+            bray_checker::ExecutionObligation::Property(
+                bray_checker::ExecutionProperty::Total,
+                None,
+            )
+        };
+
+        let execution = if matches!(
+            key.kind(),
+            bray_bound_tree::BoundUnitKind::RuntimeDefault
+                | bray_bound_tree::BoundUnitKind::PredicateDefinition
+                | bray_bound_tree::BoundUnitKind::ContractClause
+                | bray_bound_tree::BoundUnitKind::Constraint
+        ) || (matches!(
+            key.kind(),
+            bray_bound_tree::BoundUnitKind::CallableBody
+                | bray_bound_tree::BoundUnitKind::AnonymousCallable
+        )) {
+            Some(self.execution_candidates_with_cancellation(key.clone(), cancellation)?)
+        } else {
+            None
+        };
+
+        let execution = execution.as_ref().and_then(|execution| {
+            execution
+                .result()
+                .value()
+                .get(&execution_goal)
+                .map(std::sync::Arc::as_ref)
+        });
 
         let semantics = semantics.result().value();
 
@@ -151,8 +234,11 @@ impl Compilation {
                 types: semantics.types(),
                 selections: semantics.selections(),
                 literals: semantics.literals(),
+                storage: storage.result().value(),
+                flow: checked_body.result().value().storage_flow(),
                 expression,
                 inputs,
+                execution,
                 behavior: native_behavior,
             },
         )?;

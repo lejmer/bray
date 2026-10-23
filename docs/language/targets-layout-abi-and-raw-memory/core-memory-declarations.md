@@ -54,7 +54,7 @@ The compiler-known raw pointer creation declarations are under `core.memory`.
 ```bray
 using core.memory;
 
-func address_of<T>(pos value: &T) -> RawPointer<T>
+func address_of<T>(pos value: &T) -> DataPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
         trusted core.memory.aligned_for<T>(pointer = result),
@@ -66,7 +66,7 @@ func address_of<T>(pos value: &T) -> RawPointer<T>
         trusted core.memory.finalization_pending<T>(pointer = result),
     );
 
-func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
     ensures(
         trusted core.memory.valid_read<T>(pointer = result, count = 1),
         trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -79,19 +79,19 @@ func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
         trusted core.memory.finalization_pending<T>(pointer = result),
     );
 
-func null<T>() -> RawPointer<T>;
+func null<T>() -> DataPointer<T>;
 
-func is_null<T>(pos pointer: RawPointer<T>) -> bool;
+const func is_null<T>(pos pointer: DataPointer<T>) -> bool;
 
-func offset<T>(pos pointer: RawPointer<T>, elements: isize) -> RawPointer<T>;
+func offset<T>(pos pointer: DataPointer<T>, elements: isize) -> DataPointer<T>;
 
-func byte_offset<T>(pos pointer: RawPointer<T>, bytes: isize) -> RawPointer<T>;
+func byte_offset<T>(pos pointer: DataPointer<T>, bytes: isize) -> DataPointer<T>;
 
-trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+trusted func callable_from_pointer<F>(pos pointer: FunctionPointer<F>) -> F
     requires(trusted core.memory.callable_address_valid<F>(pointer = pointer))
     uses(layout_reinterpret);
 
-trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+trusted func function_address<F>(pos value: F) -> FunctionPointer<F>
     ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
     uses(layout_reinterpret);
 ```
@@ -122,13 +122,13 @@ or preserve conditions invalidated by mutation, movement, finalization, destruct
 
 `byte_offset` computes a raw pointer offset by a count of bytes.
 
-`byte_offset` accepts complete or incomplete data pointees. It is unavailable for callable pointees and for target
-address spaces that do not support byte-address calculation.
+`byte_offset` accepts complete or incomplete data pointees, including stored callable values. It is unavailable for
+function entry addresses and target address spaces that do not support byte-address calculation.
 
-`callable_from_pointer` and `pointer_from_callable` require `F` to be an ABI-qualified capture-free callable type and a
+`callable_from_pointer` and `function_address` require `F` to be an ABI-qualified capture-free callable type and a
 target that supports the corresponding code-address representation. `callable_from_pointer` creates a callable value
 only after its trusted precondition establishes that the pointer designates executable code with the exact contract `F`.
-`pointer_from_callable` preserves the callable's provider dependency on the resulting pointer.
+`function_address` preserves the callable's provider dependency on the resulting pointer.
 
 Offset operations do not read or write memory.
 
@@ -137,18 +137,54 @@ Offset operations do not prove that the resulting pointer is valid.
 Offset operations do not preserve trusted guarantees unless a trusted predicate or compiler-recognized rule explicitly
 states that the condition still holds for the resulting pointer.
 
+A byte-address projection observes the supplied data pointer with a byte element type.
+
+```bray
+const func byte_address<T>(pos pointer: DataPointer<T>) -> DataPointer<u8>;
+```
+
+The projection preserves the exact address, provenance and existing dependencies without accessing the reached storage.
+It creates no validity, alignment, initialization, ownership or aliasing conditions and does not extend a storage lifetime.
+It is defined for null and dangling pointer values. Incomplete data pointees are allowed because their layout is not
+inspected. Stored callable values are data and are allowed. Function pointers and conversions between address spaces
+are excluded by the parameter type.
+
+The projection is observational, pure and total, and requires no trusted capability. Its operand must still be valid
+in the constant or predicate context in which it appears. Contract reasoning preserves the pointer's symbolic identity
+without exposing a numerical address or reviving invalidated evidence.
+
 Raw pointer reinterpretation changes the pointer's element type without reading or writing memory.
 
 ```bray
-trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> RawPointer<Target>
+trusted func reinterpret<Target, Source>(pos pointer: DataPointer<Source>) -> DataPointer<Target>
     uses(layout_reinterpret);
 ```
 
 `reinterpret` creates no validity, alignment, initialization, ownership, or aliasing conditions.
 
-Reinterpretation between data and callable pointees is available only when the selected target defines a compatible
-raw-address representation. It never creates a callable value. Creating an ABI-qualified callable from a raw callable
-pointer uses `callable_from_pointer`.
+This declaration changes only the element type of a data pointer. A callable stored as a value remains data.
+Representation conversion for function entry addresses uses the distinct `core.memory.function` scope.
+
+```bray
+using core.memory.function;
+
+trusted func from_data<F>(pos pointer: DataPointer<u8>) -> FunctionPointer<F>
+    uses(layout_reinterpret);
+
+trusted func to_data<F>(pos pointer: FunctionPointer<F>) -> DataPointer<u8>
+    uses(layout_reinterpret);
+
+trusted func reinterpret<Target, Source>(
+    pos pointer: FunctionPointer<Source>
+) -> FunctionPointer<Target>
+    uses(layout_reinterpret);
+```
+
+These operations are available only when the target supports the corresponding address representations and conversion.
+They preserve the represented address and existing input dependencies. They do not access storage, grant memory or
+callable validity, extend provider lifetimes, or establish that a retyped function contract is valid. Null, dangling and
+other unusable native values remain raw values. Creating an ordinary callable uses `callable_from_pointer` with its
+existing exact-contract, ABI, target and provider-liveness requirements.
 
 Using the resulting pointer for memory access requires the ordinary trusted guarantees for the target type.
 

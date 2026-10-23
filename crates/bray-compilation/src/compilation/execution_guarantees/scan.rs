@@ -39,6 +39,21 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         for root in self.declared_unit_keys()? {
+            if root.is_static_initializer()
+                || matches!(
+                    root.kind(),
+                    bray_bound_tree::BoundUnitKind::PredicateDefinition
+                        | bray_bound_tree::BoundUnitKind::ContractClause
+                        | bray_bound_tree::BoundUnitKind::Constraint
+                )
+            {
+                let checked =
+                    self.certified_execution_with_cancellation(root.clone(), cancellation)?;
+
+                diagnostics.add_range(checked.result().diagnostics().iter().cloned());
+                continue;
+            }
+
             if !matches!(
                 root.kind(),
                 bray_bound_tree::BoundUnitKind::CallableBody
@@ -68,11 +83,28 @@ impl Compilation {
 
                 pending.extend(nested.into_iter().rev());
 
-                let declaration = self.execution_declaration(key.source().syntax())?;
+                if !matches!(
+                    key.kind(),
+                    bray_bound_tree::BoundUnitKind::CallableBody
+                        | bray_bound_tree::BoundUnitKind::AnonymousCallable
+                ) {
+                    continue;
+                }
+
+                let declaration = self.execution_unit_declaration(&key)?;
 
                 checked_clauses.extend(declaration.value().clauses().iter().copied());
 
-                if !declaration.value().clauses().is_empty() {
+                let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
+
+                if !declaration.value().clauses().is_empty()
+                    || declared_const
+                    || declaration
+                        .value()
+                        .domains()
+                        .iter()
+                        .any(|domain| !domain.postconditions.is_empty())
+                {
                     // Aggregate diagnostics and retain the immutable key beyond this bound-unit borrow.
                     diagnostics.add_range(self.execution_properties(key)?.diagnostics().clone());
                 }
@@ -319,18 +351,6 @@ mod tests {
     fn execution_guarantees_in_nested_and_bodyless_callables_are_rejected() {
         for declaration in [
             r#"
-                func outer(pos flag: bool)
-                {
-                    let action = lambda(flag: bool)
-                        when(flag)
-                        {
-                            executes(total)
-                        }
-                    {
-                    };
-                }
-            "#,
-            r#"
                 callable Action = func() requires(true)
                     executes(total);
             "#,
@@ -361,5 +381,31 @@ mod tests {
                 "{declaration}: {diagnostics:?}"
             );
         }
+    }
+
+    #[test]
+    fn anonymous_bodies_check_their_guarded_execution_guarantees() {
+        let checked = compilation(
+            r#"
+            module app;
+
+            func outer()
+            {
+                let action = lambda(flag: bool)
+                    when(flag)
+                    {
+                        executes(total)
+                    }
+                {
+                };
+            }
+        "#,
+        );
+
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:#?}",
+            checked.check_diagnostics()
+        );
     }
 }

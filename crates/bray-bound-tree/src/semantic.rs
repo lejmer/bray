@@ -3,6 +3,7 @@ use super::{
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedRefinements,
     CheckedSemanticSelections, Liveness, StorageFlow,
 };
+use crate::CheckedUnwind;
 
 /// Identifies one semantic result whose unit identity is validated for a snapshot.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -136,33 +137,6 @@ impl CheckedExpressionSemantics {
     /// Returns the complete source-literal value table.
     pub const fn literals(&self) -> &CheckedLiteralValues {
         &self.literals
-    }
-}
-
-/// Call occurrences and selected targets proven unable to propagate panic or cancellation.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct CheckedUnwind {
-    calls: std::collections::BTreeSet<crate::BoundExpressionId>,
-    targets: std::collections::BTreeSet<crate::BoundCallableTarget>,
-}
-
-impl CheckedUnwind {
-    /// Publishes the owning unwind analysis's occurrence and target results.
-    pub fn new(
-        calls: std::collections::BTreeSet<crate::BoundExpressionId>,
-        targets: std::collections::BTreeSet<crate::BoundCallableTarget>,
-    ) -> Self {
-        Self { calls, targets }
-    }
-
-    /// Whether this invocation and its implicit argument conversions cannot unwind.
-    pub fn call_cannot_unwind(&self, expression: crate::BoundExpressionId) -> bool {
-        self.calls.contains(&expression)
-    }
-
-    /// Whether this selected target cannot unwind under the checked entry conditions.
-    pub fn target_cannot_unwind(&self, target: crate::BoundCallableTarget) -> bool {
-        self.targets.contains(&target)
     }
 }
 

@@ -154,6 +154,17 @@ pub enum BoundExecutionSite {
     Node(AnyBoundNodeId),
     /// Ownership resolution at a scope exit or assignment, distinct from its initiating operation.
     Cleanup(AnyBoundNodeId),
+    /// Evaluation and staging of one receiver-first call input, before callee admission.
+    CallInput {
+        /// The call owning the input.
+        expression: BoundExpressionId,
+        /// The receiver-first input ordinal.
+        ordinal: bray_symbols::SymbolOrdinal,
+    },
+    /// The selected source-to-cursor invocation.
+    Iterate(BoundExpressionId),
+    /// The selected cursor-advance invocation returning a nullable element.
+    Next(BoundExpressionId),
     /// The implicit lifecycle entry selected by a with expression.
     ScopedEnter(BoundExpressionId),
     /// The implicit lifecycle exit paired with a successful scoped entry.
@@ -165,9 +176,11 @@ impl BoundExecutionSite {
     pub const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Node(node) | Self::Cleanup(node) => node,
-            Self::ScopedEnter(expression) | Self::ScopedExit(expression) => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            Self::CallInput { expression, .. }
+            | Self::Iterate(expression)
+            | Self::Next(expression)
+            | Self::ScopedEnter(expression)
+            | Self::ScopedExit(expression) => AnyBoundNodeId::Expression(expression),
         }
     }
 

@@ -373,14 +373,14 @@ mod tests {
 
     #[test]
     fn parser_preserves_a_variadic_parameter_tail() {
-        let sources = source_store(["(pos format: RawPointer<u8>, ...)"]);
+        let sources = source_store(["(pos format: DataPointer<u8>, ...)"]);
         let snapshot = source(&sources, 0);
         let mut parser = Parser::new(snapshot);
 
         let list = parser.parse_parameter_list();
         let diagnostics = parser.finish();
 
-        assert_eq!(list.full_text(), "(pos format: RawPointer<u8>, ...)");
+        assert_eq!(list.full_text(), "(pos format: DataPointer<u8>, ...)");
         assert_eq!(list.parameters().count(), 1);
 
         assert_eq!(

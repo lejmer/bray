@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    CallableContractSymbolId, GenericArgumentTemplate, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionShapeError, MemberLookupResult, NamedTypeSymbolId,
-    StructSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    CallableContractSymbolId, ConstantExpressionExpectedType, GenericArgumentTemplate,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericSubstitutionShapeError, MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, SourceSyntaxNode,
@@ -81,22 +82,22 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         };
 
         if is_bytes_type_path(&path) {
-            let mut values = arguments.generic_arguments();
-
-            let Some(argument) = values.next() else {
-                return self.error_type_template();
-            };
-
-            if values.next().is_some() {
+            if !self.validate_generic_argument_count(&path, Some(&arguments), 1)? {
                 return self.error_type_template();
             }
 
-            let Some(length) = argument.expressions().next() else {
-                return self.error_type_template();
-            };
+            let argument = arguments
+                .generic_arguments()
+                .next()
+                .expect("one byte extent follows its checked argument count");
 
             let element = self.bind_compiler_known_type(RepresentationRole::ScalarU8)?;
-            let length = self.bind_array_length(&length)?;
+            let expected = self.bind_compiler_known_type_id(RepresentationRole::ScalarUsize)?;
+
+            let length = self.bind_constant_argument(
+                &argument,
+                ConstantExpressionExpectedType::Resolved(expected),
+            )?;
 
             return Ok(TypeExpressionTemplate::Array {
                 element: Arc::new(element),
@@ -337,7 +338,10 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                     Ok(GenericArgumentTemplate::Type(ty))
                 }
                 GenericParameterSymbolId::Const(parameter) => self
-                    .bind_generic_constant_argument(argument, parameter)
+                    .bind_constant_argument(
+                        argument,
+                        ConstantExpressionExpectedType::GenericParameter(parameter),
+                    )
                     .map(GenericArgumentTemplate::Constant),
             })
             .collect()

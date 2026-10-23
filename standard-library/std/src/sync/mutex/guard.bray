@@ -4,6 +4,7 @@ using core.atomic;
 using core.memory;
 using std.memory;
 using internal std.sync.mutex;
+using internal std.sync.tickets;
 
 struct MutexGuard<T>
 {
@@ -18,7 +19,7 @@ struct MutexGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),
@@ -34,12 +35,12 @@ struct MutexGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, 65536);
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
 
         core.atomic.notify_all<u32>(&state.tickets);
     }
 
-    internal trusted func pointer() -> RawPointer<T>
+    internal trusted func pointer() -> DataPointer<T>
         requires(trusted std.sync.mutex.acquired(&self.acquisition))
         ensures(
             trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -56,7 +57,7 @@ struct MutexGuard<T>
     {
         let pointer = std.memory.uninit_pointer<std.sync.mutex.State<T>>(&self.mutex.storage);
 
-        let authorize = trusted lambda(pos pointer: RawPointer<std.sync.mutex.State<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.sync.mutex.State<T>>)
             ensures(
                 trusted core.memory.valid_read<std.sync.mutex.State<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.sync.mutex.State<T>>(pointer = pointer),

@@ -2,11 +2,13 @@ mod array;
 mod call;
 mod conversion;
 mod diagnostic;
+pub use diagnostic::constant_eligibility_diagnostic;
 mod equality;
 mod evaluation;
-mod floating;
+pub(crate) mod floating;
 mod input;
 mod integer;
+mod intrinsic;
 mod limits;
 mod literal;
 mod machine;
@@ -18,15 +20,18 @@ mod template_evaluation;
 
 pub use array::{ArrayLengthError, check_array_length};
 pub use call::{
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
-    EvaluatedConstantCall,
+    ConstantCallContract, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
+    ConstantCallTarget, ConstantTemplateResolver, EvaluatedConstantCall,
+    constant_invocation_targets,
 };
 pub(crate) use equality::constant_values_equal;
 pub use evaluation::EvaluatedConstant;
 pub(crate) use evaluation::check_constant_term;
 pub(crate) use evaluation::{evaluate_constant, evaluate_constant_with_references};
 pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
-pub(crate) use integer::{fits_integer_representation, integer_to_usize};
+pub(crate) use integer::{
+    fits_integer_representation, from_big_integer, integer_to_usize, to_big_integer,
+};
 pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub(crate) use literal::{
@@ -46,3 +51,5 @@ pub use template_evaluation::{
     evaluate_constant_callable_template, evaluate_constant_definition_template,
     evaluate_generic_constraint_template, evaluate_static_initializer_template,
 };
+
+pub use intrinsic::evaluate_constant_intrinsic;

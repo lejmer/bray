@@ -14,18 +14,19 @@ pub use condition::ExecutionCondition;
 pub(crate) use condition::ObservationSet;
 pub use declaration::declared_execution_properties;
 pub use implication::{
-    execution_condition_is_implied, map_execution_condition_substitutions,
-    remap_execution_condition_inputs,
+    execution_condition_is_implied, map_execution_condition_references,
+    remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub(crate) use model::ExecutionValueEvidence;
 pub use model::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency, ExecutionDomain,
-    ExecutionObligation,
+    ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,
 };
 pub(crate) use normalize::{
-    condition_literals, expression_condition, expression_place, pattern_conditions, pattern_value,
+    condition_literals, construction_condition, expression_condition, expression_place,
+    pattern_conditions, pattern_value, selected_call_condition,
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;

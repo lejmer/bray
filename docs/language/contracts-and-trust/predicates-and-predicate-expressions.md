@@ -78,6 +78,11 @@ Forbidden in predicate expressions:
 - reading mutable global state,
 - depending on time, randomness, address layout, scheduler state, or implementation scheduling.
 
+These restrictions apply to the predicate expression's source operations. A called const function or an implicit
+[boolean-fold protocol](../expressions/boolean-fold-expressions.md) can use confined local state when the whole
+computation satisfies the purity, termination and cleanup requirements. This grants no permission to mutate the
+predicate's observed inputs or storage reached through them.
+
 Because ordinary Bray blocks are expressions, block expressions are explicitly excluded from predicate expressions.
 
 ```bray

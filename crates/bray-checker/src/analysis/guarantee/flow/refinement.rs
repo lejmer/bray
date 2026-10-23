@@ -13,7 +13,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         refinements: impl Iterator<Item = &'a Refinement>,
-    ) {
+    ) -> bool {
         let mut changed = false;
 
         for refinement in refinements {
@@ -42,12 +42,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            ExecutionCondition::pattern(
+            let condition = ExecutionCondition::pattern(
                 self.storage_value(state, subject, access),
                 operator,
                 expected,
-            )
-            .assume(value, &mut state.assumptions);
+            );
+
+            if condition
+                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                .is_some_and(|known| known != value)
+            {
+                return false;
+            }
+
+            condition.assume(value, &mut state.assumptions);
 
             changed = true;
         }
@@ -55,6 +63,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if changed {
             state.refine_witnesses();
         }
+
+        true
     }
     pub(super) fn branch_condition(
         &self,
@@ -62,6 +72,39 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         edge: &AnalysisEdge,
     ) -> Option<(ExecutionCondition, bool)> {
         match edge.refinement()? {
+            AnalysisRefinement::InvocationPresence(invocation, present) => {
+                let access = self
+                    .storage
+                    .invocation_result(invocation)
+                    .expect("protocol presence has its actual result");
+
+                let ty = self
+                    .storage
+                    .access(access)
+                    .expect("protocol result retains its type")
+                    .reached_type();
+
+                let (_, absent) = crate::execution_guarantees::pattern_value(
+                    self.request.semantic_values(),
+                    ty,
+                    bray_bound_tree::PatternPredicate::NullableAbsent,
+                )
+                .expect("next result is nullable");
+
+                Some((
+                    ExecutionCondition::pattern(
+                        self.invocation_value(state, invocation),
+                        bray_bound_tree::BoundOperator::Equal,
+                        absent,
+                    ),
+                    !present,
+                ))
+            }
+            AnalysisRefinement::InvocationBoolean(invocation, value) => Some((
+                self.invocation_value(state, invocation)
+                    .component(bray_symbols::ConstantProjectionKind::NullableValue),
+                value,
+            )),
             AnalysisRefinement::PatternOutcome {
                 subject,
                 pattern,

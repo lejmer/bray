@@ -262,9 +262,18 @@ impl BodyAnalysisInputs {
         .with_unwind(&self.non_unwinding)
         .with_static_dependencies(&self.static_dependencies);
 
-        if let Some(templates) = templates {
-            unit = unit.with_result_dependencies(templates, recursive);
-        }
+        let settled;
+
+        let templates = if let Some(templates) = templates {
+            templates
+        } else {
+            settled = compilation
+                .execution_default_inputs(self.behavior.result().value(), cancellation)?;
+
+            &settled
+        };
+
+        unit = unit.with_result_dependencies(templates, recursive);
 
         let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
             unit,

@@ -1,6 +1,5 @@
 use bray_codegen::{
     CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenParameterMapping,
-    CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
 use bray_runtime_abi::NativeRunState;
@@ -50,16 +49,6 @@ pub(super) fn parameter_type(
             panic!(
                 "callable signature has no represented type for parameter {parameter}: {signature:?}"
             )
-        }
-    }
-}
-
-pub(super) fn result_type(signature: &CodegenCallableSignature) -> bray_symbols::TypeId {
-    match signature.result() {
-        CodegenResultMapping::Direct { ty, .. } => *ty,
-        CodegenResultMapping::Indirect { pointee, .. } => *pointee,
-        CodegenResultMapping::Void => {
-            panic!("void callable signature has no represented result type: {signature:?}")
         }
     }
 }
@@ -329,6 +318,7 @@ pub(super) const fn integer_predicate(operator: MirBinaryOperator, signed: bool)
         MirBinaryOperator::Add
         | MirBinaryOperator::Subtract
         | MirBinaryOperator::Multiply
+        | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder
         | MirBinaryOperator::BitwiseAnd
@@ -342,7 +332,7 @@ pub(super) const fn integer_predicate(operator: MirBinaryOperator, signed: bool)
 pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredicate {
     match operator {
         MirBinaryOperator::Equal => FloatPredicate::OEQ,
-        MirBinaryOperator::NotEqual => FloatPredicate::ONE,
+        MirBinaryOperator::NotEqual => FloatPredicate::UNE,
         MirBinaryOperator::LessThan => FloatPredicate::OLT,
         MirBinaryOperator::LessThanOrEqual => FloatPredicate::OLE,
         MirBinaryOperator::GreaterThan => FloatPredicate::OGT,
@@ -350,6 +340,7 @@ pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredica
         MirBinaryOperator::Add
         | MirBinaryOperator::Subtract
         | MirBinaryOperator::Multiply
+        | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder
         | MirBinaryOperator::BitwiseAnd

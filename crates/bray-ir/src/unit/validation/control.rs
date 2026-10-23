@@ -34,14 +34,7 @@ pub(super) fn validate_terminator(
             validate_local_edge(unit, block_id, matched)?;
             validate_local_edge(unit, block_id, unmatched)?;
         }
-        MirTerminatorKind::Iterate {
-            cursor,
-            element_type,
-            item,
-            exhausted,
-            ..
-        }
-        | MirTerminatorKind::RangeIterate {
+        MirTerminatorKind::RangeIterate {
             cursor,
             element_type,
             item,

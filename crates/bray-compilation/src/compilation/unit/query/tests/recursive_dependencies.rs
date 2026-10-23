@@ -621,6 +621,7 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
         let origins = dependencies
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -630,7 +631,7 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
             assert_eq!(origins.len(), 1, "{name}: {dependencies:#?}");
 
             assert_eq!(
-                origins[0].entry().subject_root(),
+                origins[0].entry().expect("input origin").subject_root(),
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
             );
         } else {
@@ -681,7 +682,7 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
         assert_eq!(origins.len(), 1, "{result:#?}");
 
         assert_eq!(
-            origins[0].entry().subject_root(),
+            origins[0].entry().expect("input origin").subject_root(),
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
         );
     }

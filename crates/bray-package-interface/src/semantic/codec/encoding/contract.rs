@@ -2,7 +2,8 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
+    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT, write_count, write_optional_u32,
+    write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -47,14 +48,32 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             write_count(encoder, contract.borrows.len());
 
             for relation in &*contract.borrows {
-                encode_dependency_subject(encoder, relation.entry());
+                let mut attributes = relation.kind().to_wire() << REFERENCE_KIND_SHIFT;
+
+                if relation.is_exact() {
+                    attributes |= REFERENCE_EXACT;
+                }
+
+                if relation.entry().is_none() {
+                    attributes |= REFERENCE_INPUT_ABSENT;
+                }
+
+                encoder.write_u32(attributes);
+
+                if let Some(entry) = relation.entry() {
+                    encode_dependency_subject(encoder, entry);
+                }
+
                 encode_dependency_subject(encoder, relation.exit());
-                encoder.write_u32(relation.kind().to_wire());
-                encoder.write_u32(relation.dereferences());
-                encode_dependency_projections(encoder, relation.target_projections());
+
+                if relation.entry().is_some() {
+                    encoder.write_u32(relation.dereferences());
+                    encode_dependency_projections(encoder, relation.target_projections());
+                }
             }
 
             write_optional_u32(encoder, contract.returned_input.map(|input| input.raw()));
+            write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
             write_count(encoder, contract.carriers.len());
 
             for carrier in &*contract.carriers {
@@ -69,6 +88,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
 
                 match effect {
                     DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                    DependencyStorageEffect::Ambient => encoder.write_u32(6),
                     DependencyStorageEffect::Escape => encoder.write_u32(5),
                     DependencyStorageEffect::Atomic => encoder.write_u32(4),
                     DependencyStorageEffect::Cleanup(ty) => {

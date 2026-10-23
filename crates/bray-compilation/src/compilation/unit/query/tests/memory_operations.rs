@@ -393,7 +393,7 @@ fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
             trusted module app;
 
             using core.memory;
-            func forward(pos other: RawPointer<u8>, pos pointer: RawPointer<u8>) -> RawPointer<u8>
+            func forward(pos other: DataPointer<u8>, pos pointer: DataPointer<u8>) -> DataPointer<u8>
             {{
                 return {result};
             }}

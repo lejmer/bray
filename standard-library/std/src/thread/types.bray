@@ -104,7 +104,7 @@ internal struct ThreadStart<State, T>
 {
     entry: Entry<State, T>;
     state: State;
-    storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
+    storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>>;
 }
 
 @copy
@@ -119,8 +119,8 @@ internal struct NativeThreadStart<State, T>
 {
     // The non-generic OS entry reads this prefix to reach the typed owner.
     dispatch: NativeThreadDispatch;
-    mut work: RawPointer<TransferredThreadValue<ThreadStart<State, T>>>;
-    storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
+    mut work: DataPointer<TransferredThreadValue<ThreadStart<State, T>>>;
+    storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>>;
 
     trusted destruct()
     {
@@ -133,8 +133,8 @@ internal struct NativeThreadStart<State, T>
 
 internal struct ThreadConstruction<State, T>
 {
-    mut storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
-    mut native: RawPointer<TransferredThreadValue<NativeThreadStart<State, T>>>;
+    mut storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>>;
+    mut native: DataPointer<TransferredThreadValue<NativeThreadStart<State, T>>>;
 
     trusted destruct()
     {
@@ -155,7 +155,7 @@ internal struct ThreadConstruction<State, T>
 struct Thread<T>
 {
     internal owner: u64;
-    internal storage: RawPointer<TransferredThreadValue<ThreadStorage<T>>>;
+    internal storage: DataPointer<TransferredThreadValue<ThreadStorage<T>>>;
     internal identity: Id;
     internal mut active: bool;
 

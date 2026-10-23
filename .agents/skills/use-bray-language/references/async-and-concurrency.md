@@ -378,9 +378,24 @@ See [atomic operation contracts](https://github.com/lejmer/bray/blob/develop/doc
 The concurrency library exposes ordinary declarations for synchronization owners, one-time initialization, bounded channels, task combinators, threads, child processes, and typed parallelism budgets.
 
 ```bray
-using std;
+using std.channel;
+using std.concurrent;
+using std.process;
+using std.run;
+using std.sync;
+using std.task;
+using std.thread;
 
-static CONFIGURATION: std.sync.Once<Configuration> = std.sync.Once<Configuration>.empty();
+static CONFIGURATION: std.sync.Once<Configuration> =
+{
+    let prepared = std.sync.Once<Configuration>.prepare();
+
+    yield
+    {
+        instance = prepared.0,
+        storage = prepared.1,
+    };
+};
 
 func configuration() -> &Configuration
     requires(blocking_execution())

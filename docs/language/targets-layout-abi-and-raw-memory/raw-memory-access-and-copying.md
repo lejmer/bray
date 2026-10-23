@@ -5,7 +5,7 @@ The compiler-known raw memory access declarations are under `core.memory`.
 ```bray
 using core.memory;
 
-trusted func read<T>(pos pointer: RawPointer<T>) -> T
+trusted func read<T>(pos pointer: DataPointer<T>) -> T
     requires(
         trusted core.memory.valid_read(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -13,7 +13,7 @@ trusted func read<T>(pos pointer: RawPointer<T>) -> T
     )
     uses(raw_memory);
 
-trusted func write<T>(pos pointer: RawPointer<T>, pos value: T) -> unit
+trusted func write<T>(pos pointer: DataPointer<T>, pos value: T) -> unit
     requires(
         trusted core.memory.valid_write(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -44,8 +44,8 @@ The compiler-known raw memory copy declarations are under `core.memory`.
 using core.memory;
 
 trusted func copy<T>(
-    pos source: RawPointer<T>,
-    pos destination: RawPointer<T>,
+    pos source: DataPointer<T>,
+    pos destination: DataPointer<T>,
     count: usize,
 ) -> unit
     requires(
@@ -65,8 +65,8 @@ trusted func copy<T>(
     uses(raw_memory, unchecked_init);
 
 trusted func copy_overlapping<T>(
-    pos source: RawPointer<T>,
-    pos destination: RawPointer<T>,
+    pos source: DataPointer<T>,
+    pos destination: DataPointer<T>,
     count: usize,
 ) -> unit
     requires(

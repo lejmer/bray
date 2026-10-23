@@ -177,7 +177,7 @@ fn push_fact_context(
         Fact::ConstantCall(key) => {
             push_constant_call_context(
                 fields,
-                key.callable(),
+                key.invocation(),
                 key.selected_implementation(),
                 key.arguments(),
                 key.result_type(),
@@ -191,7 +191,7 @@ fn push_fact_context(
         Fact::ConstantCallCycle(key) => {
             push_constant_call_context(
                 fields,
-                key.callable(),
+                key.invocation(),
                 key.selected_implementation(),
                 key.arguments(),
                 key.result_type(),
@@ -234,6 +234,11 @@ fn push_fact_context(
             push_bound_unit_key(fields, unit);
 
             "execution_candidates"
+        }
+        Fact::ConstantBodyTemplate(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "constant_body_template"
         }
         Fact::CleanupCompletion(unit) => {
             push_bound_unit_key(fields, unit);
@@ -573,14 +578,14 @@ fn push_implementation_requirement(
 
 fn push_constant_call_context(
     fields: &mut Vec<DiagnosticFailureField>,
-    callable: bray_symbols::CallableInstanceId,
+    invocation: &bray_checker::ConstantCallTarget,
     selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
     arguments: &[bray_symbols::ConstantValueId],
     result_type: bray_symbols::TypeId,
     target: &bray_target::TargetProfile,
 ) {
     fields.extend([
-        identity_field("constant_callable", &callable),
+        identity_field("constant_invocation", invocation),
         identity_list_field("constant_arguments", arguments),
         identity_field("constant_result_type", &result_type),
     ]);

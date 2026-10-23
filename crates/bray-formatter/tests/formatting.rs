@@ -577,7 +577,7 @@ fn callable_type_directives_stay_with_the_signature() {
     let source = concat!(
         "module app;",
         "internal callable PanicMessageCopy = @abi(c)\n",
-        "trusted func(pos address: usize, pos offset: usize, pos destination: RawPointer<u8>, pos length: usize,) -> u32;",
+        "trusted func(pos address: usize, pos offset: usize, pos destination: DataPointer<u8>, pos length: usize,) -> u32;",
         "internal callable PanicMessageRelease = @abi(c)\n",
         "trusted func(pos address: usize, pos length: usize);",
     );
@@ -591,7 +591,7 @@ fn callable_type_directives_stay_with_the_signature() {
             "internal callable PanicMessageCopy = @abi(c) trusted func(\n",
             "    pos address: usize,\n",
             "    pos offset: usize,\n",
-            "    pos destination: RawPointer<u8>,\n",
+            "    pos destination: DataPointer<u8>,\n",
             "    pos length: usize,\n",
             ") -> u32;\n\n",
             "internal callable PanicMessageRelease = @abi(c) trusted func(pos address: usize, pos length: usize);\n",
@@ -1052,7 +1052,7 @@ fn wraps_complete_callable_headers_and_binary_chains() {
     let source = concat!(
         "module app;",
         "extern trusted func transform<Target,Source>",
-        "(pos pointer:RawPointer<Source>,count:usize)->RawPointer<Target>",
+        "(pos pointer:DataPointer<Source>,count:usize)->DataPointer<Target>",
         "requires(ready)uses(raw_memory);",
         "func combine()->u64{return first+second+third+fourth+fifth+sixth;}"
     );
@@ -1065,9 +1065,9 @@ fn wraps_complete_callable_headers_and_binary_chains() {
             "module app;\n",
             "\n",
             "extern trusted func transform<Target, Source>(\n",
-            "    pos pointer: RawPointer<Source>,\n",
+            "    pos pointer: DataPointer<Source>,\n",
             "    count: usize\n",
-            ") -> RawPointer<Target>\n",
+            ") -> DataPointer<Target>\n",
             "    requires(ready)\n",
             "    uses(raw_memory);\n",
             "\n",
@@ -1090,7 +1090,7 @@ fn declaration_contract_clauses_use_continuation_lines() {
     let source = concat!(
         "module app;",
         "extern trusted func reinterpret<Target, Source>",
-        "(pos pointer: RawPointer<Source>) -> RawPointer<Target> uses(layout_reinterpret);",
+        "(pos pointer: DataPointer<Source>) -> DataPointer<Target> uses(layout_reinterpret);",
         "impl Buffer<T> with(T: Copyable){}",
     );
 
@@ -1101,7 +1101,7 @@ fn declaration_contract_clauses_use_continuation_lines() {
     assert!(
         output
             .text()
-            .contains(") -> RawPointer<Target>\n    uses(layout_reinterpret);")
+            .contains(") -> DataPointer<Target>\n    uses(layout_reinterpret);")
     );
 
     assert!(

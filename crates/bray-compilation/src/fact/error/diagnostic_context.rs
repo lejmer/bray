@@ -98,6 +98,7 @@ pub(crate) const fn constant_value_kind(kind: &bray_symbols::ConstantValueKind) 
         Kind::Complex { .. } => "complex",
         Kind::String(_) => "string",
         Kind::StaticAddress(_) => "static_address",
+        Kind::Borrowed(_) => "borrowed",
         Kind::Unit => "unit",
         Kind::NullableAbsent => "nullable_absent",
         Kind::NullablePresent(_) => "nullable_present",

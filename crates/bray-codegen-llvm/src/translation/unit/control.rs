@@ -1,11 +1,7 @@
 use super::core::UnitTranslator;
-use super::support::{
-    extract_value, int_value, integer_constant, llvm, pointer_value, result_type,
-};
-use bray_codegen::{
-    CodegenCallSite, CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
-};
-use bray_ir::{MirBlockId, MirEdge, MirOperand, MirPatternPredicate, MirPlace, MirTerminatorKind};
+use super::support::{extract_value, int_value, integer_constant, llvm, pointer_value};
+use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind};
+use bray_ir::{MirBlockId, MirOperand, MirPatternPredicate, MirTerminatorKind};
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue, StructValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -153,16 +149,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     matched_route,
                     unmatched_route,
                 ))?;
-            }
-            MirTerminatorKind::Iterate {
-                cursor,
-                next: _,
-                element_type,
-                item,
-                exhausted,
-                ..
-            } => {
-                self.translate_iteration(block, cursor, *element_type, *item, exhausted)?;
             }
             MirTerminatorKind::RangeIterate {
                 cursor,
@@ -361,74 +347,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "frame.progress.payload",
         ))?
         .into_struct_value())
-    }
-
-    pub(super) fn translate_iteration(
-        &mut self,
-        block: MirBlockId,
-        cursor: &MirPlace,
-        element_type: bray_symbols::TypeId,
-        item: MirBlockId,
-        exhausted: &MirEdge,
-    ) -> Result<(), CodegenFailure> {
-        let mapping = self
-            .request
-            .mappings()
-            .callable(self.instance.key(), CodegenCallSite::Terminator(block))
-            .expect("checked MIR control translation requires an established mapping or value");
-
-        let symbol =
-            self.request
-                .mappings()
-                .instance_symbol(mapping.instance().expect(
-                    "checked MIR control translation requires an established mapping or value",
-                ))
-                .expect("checked MIR control translation requires an established mapping or value");
-
-        let function = self
-            .module
-            .get_function(symbol.name().as_str())
-            .expect("checked MIR control translation requires an established mapping or value");
-
-        let cursor = self.place(cursor)?.into();
-
-        let result = self
-            .invoke_function(function, symbol.signature(), &[cursor], "iterate.next")?
-            .expect("checked MIR control translation requires an established mapping or value");
-
-        let result_type = result_type(symbol.signature());
-        let present = self.nullable_present(result, result_type)?;
-        let element = self.project_value(result, result_type, element_type)?;
-
-        let item_block = self
-            .unit
-            .block(item)
-            .expect("checked MIR control translation requires an established mapping or value");
-
-        let [parameter] = item_block.parameters() else {
-            panic!("checked MIR control translation violated an established compiler contract");
-        };
-
-        let phi = self
-            .phis
-            .get(parameter)
-            .copied()
-            .expect("checked MIR control translation requires an established mapping or value");
-
-        let (source, moved_reports) = self.take_control_source()?;
-
-        let item_route = self.route_target(item, "iterate.item", &moved_reports)?;
-        let exhausted_route = self.route_edge(exhausted, "iterate.exhausted", &moved_reports)?;
-
-        phi.add_incoming(&[(&element, item_route)]);
-        self.builder.position_at_end(source);
-
-        llvm(
-            self.builder
-                .build_conditional_branch(present, item_route, exhausted_route),
-        )?;
-
-        Ok(())
     }
 
     pub(super) fn runtime_function_pointer(

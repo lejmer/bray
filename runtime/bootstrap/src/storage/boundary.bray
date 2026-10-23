@@ -1,15 +1,16 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.storage;
 
+using std.numeric;
 using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap;
 
-trusted internal predicate lease_slot(pointer: RawPointer<Lease>);
+trusted internal predicate lease_slot(pointer: DataPointer<Lease>);
 
 @abi(c)
-trusted internal func admit(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>) -> u32
+trusted internal func admit(pos descriptor: DataPointer<Descriptor>, pos destination: DataPointer<Lease>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
@@ -54,7 +55,7 @@ trusted internal func admit(pos descriptor: RawPointer<Descriptor>, pos destinat
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }
 
-trusted internal func admit_value(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
+trusted internal func admit_value(pos descriptor: Descriptor, pos destination: DataPointer<Lease>) -> Lease
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),
@@ -113,7 +114,7 @@ trusted internal func admit_locked(
     {
         let values = trusted shapes(pool);
         let shape = &mut values[index - 1];
-        let limit: usize = ~0;
+        let limit: usize = std.numeric.USIZE_MAX;
 
         if shape.credits == limit
         {
@@ -140,7 +141,10 @@ trusted internal func admit_locked(
 }
 
 @abi(c)
-trusted internal func activate(pos pointer: RawPointer<Lease>, pos descriptor: RawPointer<Descriptor>) -> RawPointer<u8>
+trusted internal func activate(
+    pos pointer: DataPointer<Lease>,
+    pos descriptor: DataPointer<Descriptor>
+) -> DataPointer<u8>
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted lease_slot(pointer = pointer),
@@ -162,7 +166,7 @@ trusted internal func activate(pos pointer: RawPointer<Lease>, pos descriptor: R
 }
 
 @abi(c)
-trusted internal func retire(pos pointer: RawPointer<Lease>) -> u32
+trusted internal func retire(pos pointer: DataPointer<Lease>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted lease_slot(pointer = pointer),
@@ -185,7 +189,7 @@ trusted internal func retire(pos pointer: RawPointer<Lease>) -> u32
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }
 
-trusted internal func retire_value(pos lease: &Lease, pos pointer: RawPointer<Lease>) -> bool
+trusted internal func retire_value(pos lease: &Lease, pos pointer: DataPointer<Lease>) -> bool
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = pointer, count = 1),
@@ -202,7 +206,7 @@ trusted internal func retire_value(pos lease: &Lease, pos pointer: RawPointer<Le
 }
 
 @abi(c)
-trusted internal func claim(pos descriptor: RawPointer<Descriptor>, pos destination: RawPointer<Lease>)
+trusted internal func claim(pos descriptor: DataPointer<Descriptor>, pos destination: DataPointer<Lease>)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<Descriptor>(pointer = descriptor, count = 1),
@@ -225,7 +229,7 @@ trusted internal func claim(pos descriptor: RawPointer<Descriptor>, pos destinat
     trusted std.memory.write<Lease>(destination, lease);
 }
 
-trusted internal func claim_locked(pos descriptor: Descriptor, pos destination: RawPointer<Lease>) -> Lease
+trusted internal func claim_locked(pos descriptor: Descriptor, pos destination: DataPointer<Lease>) -> Lease
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<Lease>(pointer = destination, count = 1),

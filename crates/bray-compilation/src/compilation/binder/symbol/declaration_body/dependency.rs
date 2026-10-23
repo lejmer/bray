@@ -13,7 +13,7 @@ use bray_symbols::{
 
 use crate::compilation::binder::CompilationBindingContext;
 
-pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_statics(
+pub(in crate::compilation) fn extend_dependency_contract_with_statics(
     context: &CompilationBindingContext<'_>,
     contract: DependencyContractTemplateId,
     dependencies: &[StaticSymbolId],
@@ -276,11 +276,12 @@ fn portable_storage_identity(
         }
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Alternative { .. }
+        | StorageIdentity::ContractParameter(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
-        | StorageIdentity::IterationCursor(_)
-        | StorageIdentity::IterationElement(_)
+        | StorageIdentity::InvocationResult(_)
         | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)

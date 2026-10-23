@@ -28,7 +28,6 @@ use super::super::declaration_body::{
     checked_source_expression, extend_dependency_contract_with_statics,
 };
 use super::super::imported::imported_declaration_template;
-use super::super::initializer::validate_static_initializer_template;
 use crate::compilation::binder::{
     CompilationBindingContext, semantic_contract_binding_error as binding_contract,
     symbol_query_contract_binding_error as query_contract,
@@ -264,8 +263,6 @@ fn static_initializer_behavior(
             &checked.diagnostics,
             behavior.result().diagnostics(),
         ]);
-
-        diagnostics.add_range(validate_static_initializer_template(context, &key)?);
 
         let semantics = context
             .compilation()
@@ -952,11 +949,13 @@ mod tests {
 
         let template = compilation
             .static_instance_template(declaration)
-            .unwrap_or_else(|error| panic!("static template must recover: {error:?}"));
+            .unwrap_or_else(|error| panic!("static template must resolve: {error:?}"));
+
+        assert!(!template.diagnostics().has_errors());
 
         assert_eq!(
             diagnostics_of_kind(
-                template.diagnostics(),
+                compilation.check_diagnostics(),
                 DiagnosticKind::CheckingInvalidConstantExpression,
             )
             .len(),

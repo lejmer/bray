@@ -33,6 +33,16 @@ pub(crate) fn parameter_root<C: CheckerRequestContext + ?Sized>(
                     .ordinal(),
             ))
         }
+        BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(parameter))
+            if request.unit().key().callable_type_header().is_some() =>
+        {
+            request
+                .unit()
+                .local_symbols()
+                .binding(parameter)
+                .and_then(|binding| binding.key().ordinal())
+                .map(DependencySubjectRoot::Parameter)
+        }
         BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {
             Some(DependencySubjectRoot::Receiver)
         }
@@ -50,17 +60,8 @@ pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
         )
 }
 
-pub(super) fn declaration_source(
-    call: &SelectedCall,
-) -> Option<bray_symbols::CallableInstanceData> {
-    match call.target() {
-        BoundCallableTarget::Declaration(instance) => Some(instance),
-        _ => call.resolution().declaration_source(),
-    }
-}
-
-/// Applies the selected implementation, generic substitution and parameter defaults once.
-pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
+/// Resolves the selected callee independently of caller-owned input evaluation.
+pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
     declaration: impl FnOnce(
@@ -69,7 +70,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         DependencyContractTemplateId,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<super::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let store = request.semantic_values();
 
     let template = if let Some((source, authority)) = call
@@ -91,7 +92,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
             .empty_dependency_contract_template()
             .expect("predicate outputs have no retained ownership")
     } else if let Some(dispatch) = call.resolution().trait_dispatch() {
-        let requirement = request.context().result_dispatch_requirement(dispatch)?;
+        let requirement = request.context().dispatch_requirement(dispatch)?;
         let template = super::witness::deferred_result(request, call, Some(requirement))?;
 
         store
@@ -103,7 +104,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                 .expect("selected anonymous callable retains its body key")
                 .0,
         )?
-    } else if let Some(instance) = declaration_source(call) {
+    } else if let Some(instance) = call.resolution().declaration_source() {
         declaration(instance.definition().callable_symbol())?
     } else {
         // An opaque target can retain any input value contract, including its receiver.
@@ -131,13 +132,13 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
             .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
     };
 
-    let instance = declaration_source(call);
+    let instance = call.resolution().declaration_source();
 
     let mut template = resolved_result_template(request, instance, template)?;
 
     if call.invocation() == bray_symbols::CallableInvocation::Native {
         // The native entry consumes body incidents and contains abnormal completion.
-        // Omitted defaults still execute in the caller and are expanded below.
+        // Input providers execute separately in the caller.
         template = template.without_reports();
     }
 
@@ -157,13 +158,27 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.with_requirements(input_requirements(call));
     }
 
-    super::defaults::expand_result_defaults(
-        request,
-        call.arguments(),
-        call.receiver(),
-        declaration_source(call),
-        &template,
-    )
+    Ok(template)
+}
+
+/// Applies the selected implementation, generic substitution and parameter defaults once.
+pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    selection: &bray_bound_tree::SemanticSelection,
+    declaration: impl FnOnce(
+        CallableSymbolId,
+    ) -> Result<
+        DependencyContractTemplateId,
+        CheckerQueryError<C::UpstreamError>,
+    >,
+) -> Result<super::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
+    let bray_bound_tree::SemanticSelection::Call(call) = selection else {
+        panic!("call static expansion retains its selected callable");
+    };
+
+    let template = callee_result_template(request, call, declaration)?;
+
+    super::defaults::expand_result_defaults(request, selection, &template)
 }
 
 pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
@@ -226,8 +241,7 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         )?;
 
         if parts.value().is_empty() {
-            resolved.push(DependencyStorageEffect::Unknown);
-            resolved.push(DependencyStorageEffect::Escape);
+            resolved.extend(DependencyStorageEffect::opaque_call());
             continue;
         }
 
@@ -287,10 +301,7 @@ fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
             TypeData::Named { .. }
         )
     {
-        effects.extend([
-            DependencyStorageEffect::Unknown,
-            DependencyStorageEffect::Escape,
-        ]);
+        effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
 
         return Ok(());
     }
@@ -302,10 +313,7 @@ fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         let selected = request.context().lifecycle_callable(ty, slot)?;
 
         if selected.diagnostics().has_errors() {
-            effects.extend([
-                DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape,
-            ]);
+            effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
 
             return Ok(());
         }
@@ -400,22 +408,18 @@ pub(crate) fn result_argument(
 
 /// Retains the inputs that bound result authority through lifetime or reference relations.
 pub(crate) fn result_inputs(
+    expression: bray_bound_tree::BoundExpressionId,
     call: &SelectedCall,
     template: &bray_symbols::DependencyContractTemplateData,
-) -> std::collections::BTreeSet<bray_bound_tree::BoundExpressionId> {
+) -> std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite> {
     // An address does not keep an ordinary borrow active. Its access guarantees
     // still expire with the physical owner named by the checked reference relation.
     let mut inputs = template
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
-        .filter_map(|relation| {
-            result_argument(
-                call.arguments(),
-                call.receiver(),
-                relation.entry().subject_root(),
-            )
-        })
+        .filter_map(|relation| relation.entry())
+        .filter_map(|entry| call.input_site(expression, entry.subject_root()))
         .collect::<std::collections::BTreeSet<_>>();
 
     let mut pending = template.requirements().iter().collect::<Vec<_>>();
@@ -423,11 +427,7 @@ pub(crate) fn result_inputs(
     while let Some(requirement) = pending.pop() {
         match requirement {
             DependencyRequirement::Direct { subject, .. } => {
-                inputs.extend(result_argument(
-                    call.arguments(),
-                    call.receiver(),
-                    subject.subject_root(),
-                ));
+                inputs.extend(call.input_site(expression, subject.subject_root()));
             }
             DependencyRequirement::Guarded(guarded) => {
                 let subject = match guarded.guard() {
@@ -435,11 +435,7 @@ pub(crate) fn result_inputs(
                     | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
                 };
 
-                inputs.extend(result_argument(
-                    call.arguments(),
-                    call.receiver(),
-                    subject.subject_root(),
-                ));
+                inputs.extend(call.input_site(expression, subject.subject_root()));
 
                 pending.extend(guarded.requirements());
             }
@@ -513,7 +509,13 @@ impl super::ValueInputs {
                 continue;
             };
 
-            let template = call_result_template(request, call, &mut declaration)?;
+            let template = call_result_template(
+                request,
+                selections
+                    .expression(expression)
+                    .expect("selected call has its owning selection"),
+                &mut declaration,
+            )?;
 
             let sources = template
                 .template

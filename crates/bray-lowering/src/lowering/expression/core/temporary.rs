@@ -153,7 +153,7 @@ impl Lowerer<'_> {
             // Transparent expressions retain their operand's checked storage identity.
             self.input
                 .storage_plan()
-                .expression_plans(expression)
+                .node_plans((expression).into())
                 .filter(|plan| storage.is_root_access(plan.access()))
                 .filter_map(|plan| storage.root_identity(plan.access()))
                 .find(|identity| {

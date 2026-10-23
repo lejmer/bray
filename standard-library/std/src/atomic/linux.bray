@@ -13,7 +13,7 @@ trusted internal func platform_wait_word_for(
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let address: RawPointer<u32> = trusted internal word_pointer(storage);
+    let address: DataPointer<u32> = trusted internal word_pointer(storage);
 
     let timeout: std.os.linux.Timespec =
     {

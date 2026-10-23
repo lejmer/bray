@@ -43,6 +43,7 @@ impl Compilation {
 
                 let outgoing = self.operation_outgoing_requirements(
                     realization,
+                    operation,
                     data.kind(),
                     target,
                     cancellation,

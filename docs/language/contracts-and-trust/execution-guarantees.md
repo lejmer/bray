@@ -41,10 +41,22 @@ decision. Ordinary requirement checks follow the [precondition rules](preconditi
 
 ## Pure execution
 
-`pure` execution observes its permitted inputs and computes values without runtime effects. Mutation, including
-mutation of internal temporary storage, allocation, deallocation, I/O, synchronization, task operations, inactive
+`pure` execution observes its permitted inputs and computes values without runtime effects. Externally observable mutation,
+allocation, deallocation, I/O, synchronization, task operations, inactive
 async-frame creation, suspension, and cancellation observation make execution impure. So do observations of changing
 ambient information through clocks, entropy, mutable global state, addresses, or scheduler state.
+
+Mutation confined to storage belonging exclusively to the current computation can be pure. The proof follows the
+reached storage through references and selected calls. A local reference or cursor does not make its referent local.
+Selected operations must preserve observational behavior, including on cleanup and every completion path. Returning a
+computed value is permitted. Publishing local storage identity or changing storage observable outside the computation
+is not.
+
+A selected call can therefore participate in pure execution when its checked mutation summary is confined to the
+enclosing computation, even when that call is not unconditionally pure in isolation. Its other effects, observations,
+capabilities and termination obligations remain independent. Checked summaries retain selected generic dependencies.
+Compiled interfaces expose established summaries and proofs so consumers do not analyse implementation bodies again.
+Compiler-known operations supply their established semantics directly.
 
 Computing with a supplied timestamp or seed can be pure. Obtaining fresh entropy or advancing mutable generator
 state is impure.
@@ -84,8 +96,8 @@ Callable values can carry already-verified guarantees for ordinary indirect call
 ## Relationship to `const`
 
 [`const`](../callables/const-functions.md) makes a callable eligible for constant evaluation. Its body, operations,
-arguments, and result must satisfy the rules of the constant or predicate context in which it is used. Public use
-in those contexts requires an exposed `const` declaration.
+arguments, and result must satisfy the rules of the constant or predicate context in which it is used.
+Calls in those contexts require an explicit `const` contract on the selected callable.
 
 `pure` describes the effects of ordinary execution on the promised input domain. That execution can observe
 permitted runtime inputs and transfer owners under the ordinary ownership rules. A guarded `pure` promise can

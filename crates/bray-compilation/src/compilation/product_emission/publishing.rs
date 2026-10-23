@@ -29,7 +29,7 @@ pub(super) fn package_implementation_contribution(
     );
 
     let content = ArtifactContent::try_memory(artifact.shared_bytes().map_err(|error| {
-        ProductEmissionErrorKind::PackageImplementation(
+        package_implementation_error(
             bray_package_interface::PackageImplementationArtifactBuildError::InvalidArtifact(error),
         )
     })?)
@@ -41,6 +41,40 @@ pub(super) fn package_implementation_contribution(
         content,
         None,
     ))
+}
+
+pub(super) fn package_implementation_error(
+    error: bray_package_interface::PackageImplementationArtifactBuildError,
+) -> ProductEmissionErrorKind {
+    use bray_package_interface::{
+        InterfaceCompressionFailure, InterfaceValidationError,
+        PackageImplementationArtifactBuildError,
+    };
+
+    match &error {
+        PackageImplementationArtifactBuildError::InvalidBody(validation)
+        | PackageImplementationArtifactBuildError::InvalidArtifact(validation)
+            if matches!(
+                validation,
+                InterfaceValidationError::Read { .. }
+                    | InterfaceValidationError::AllocationUnavailable { .. }
+                    | InterfaceValidationError::ResourceLimitExceeded { .. }
+                    | InterfaceValidationError::Compression {
+                        cause: InterfaceCompressionFailure::EncoderInitialization
+                            | InterfaceCompressionFailure::Encoding
+                            | InterfaceCompressionFailure::DecoderInitialization
+                            | InterfaceCompressionFailure::Decoding
+                            | InterfaceCompressionFailure::WindowSizeExceeded { .. },
+                        ..
+                    }
+            ) =>
+        {
+            ProductEmissionErrorKind::PackageImplementation(error)
+        }
+        _ => panic!(
+            "compiler-produced package implementation violates its checked export contract: {error:?}"
+        ),
+    }
 }
 
 pub(super) fn test_catalog_contribution(
@@ -76,5 +110,53 @@ pub(super) fn publisher<'operation>(
     match validation {
         Some(validation) => publisher.with_publication_validation(validation),
         None => publisher,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_package_interface::{
+        InterfaceMalformedCause, InterfaceSectionTag, InterfaceValidationContext,
+        InterfaceValidationError, InterfaceValidationField,
+        PackageImplementationArtifactBuildError,
+    };
+
+    #[test]
+    fn implementation_publication_retains_operational_allocation_context() {
+        let error = InterfaceValidationError::AllocationUnavailable {
+            context: InterfaceValidationContext::Section(
+                InterfaceSectionTag::SemanticRecordDirectory,
+            ),
+            field: InterfaceValidationField::Template,
+            requested: 42,
+        };
+
+        let failure = PackageImplementationArtifactBuildError::InvalidBody(error.clone());
+
+        let super::ProductEmissionErrorKind::PackageImplementation(
+            PackageImplementationArtifactBuildError::InvalidBody(actual),
+        ) = super::package_implementation_error(failure)
+        else {
+            panic!("publication must retain its operational allocation failure");
+        };
+
+        assert_eq!(actual, error);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "compiler-produced package implementation violates its checked export contract"
+    )]
+    fn malformed_compiler_template_fails_at_publication() {
+        super::package_implementation_error(PackageImplementationArtifactBuildError::InvalidBody(
+            InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Section(
+                    InterfaceSectionTag::SemanticRecordDirectory,
+                ),
+                cause: InterfaceMalformedCause::InvalidValue {
+                    field: InterfaceValidationField::Template,
+                },
+            },
+        ));
     }
 }

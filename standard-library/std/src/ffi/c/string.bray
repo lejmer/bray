@@ -30,7 +30,7 @@ struct BorrowedNarrowString
         return self.units;
     }
 
-    func pointer() -> RawPointer<u8>
+    func pointer() -> DataPointer<u8>
     {
         return std.memory.address_of<u8>(&self.units[0]);
     }

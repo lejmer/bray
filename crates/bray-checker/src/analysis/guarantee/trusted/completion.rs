@@ -155,39 +155,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.current.extend(completed_inputs);
     }
 
-    pub(in crate::analysis) fn awaited_invocation(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> Option<bray_bound_tree::BoundExecutionSite> {
-        let bray_bound_tree::BoundExpression::Await(awaited) =
-            self.request.view().expression(expression)?
-        else {
-            return None;
-        };
-
-        let observed = self.value(state, awaited.operand());
-
-        let ExecutionCondition::Expression(source) = observed else {
-            return None;
-        };
-
-        let site = source.into();
-
-        self.dependencies
-            .calls()
-            .get(&site)?
-            .deferred_effects()
-            .map(|_| site)
-    }
-
     fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
+        origins: &BTreeMap<
+            bray_bound_tree::BoundExecutionSite,
+            BTreeSet<bray_bound_tree::StoragePath>,
+        >,
         retain_carriers: bool,
     ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
         let mut carriers = Vec::new();
@@ -207,36 +184,43 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for argument in call.arguments() {
-            let bray_bound_tree::SelectedArgument::Explicit {
-                expression: operand,
-                ordinal,
-                parameter,
-                conversion,
-                ..
-            } = argument
-            else {
-                continue;
+            let (parameter, ordinal, ty) = match argument {
+                bray_bound_tree::SelectedArgument::Explicit {
+                    parameter,
+                    ordinal,
+                    conversion,
+                    ..
+                } => (*parameter, *ordinal, conversion.target_type()),
+                bray_bound_tree::SelectedArgument::Default {
+                    parameter,
+                    ordinal,
+                    ty,
+                    ..
+                } => (Some(*parameter), *ordinal, *ty),
             };
 
-            let reference =
-                crate::representation::reference_kind(self.request, conversion.target_type());
+            let operand = call
+                .input_site(
+                    expression,
+                    bray_symbols::DependencySubjectRoot::Parameter(
+                        bray_symbols::SymbolOrdinal::new(ordinal),
+                    ),
+                )
+                .expect("selected argument has its evaluated input");
+
+            let reference = crate::representation::reference_kind(self.request, ty);
 
             if reference.is_none() {
                 continue;
             }
 
-            let Some(place) = crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                *operand,
-            ) else {
+            let Some(place) = self.input_place(operand) else {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
                 for access in self
                     .storage
-                    .expression_plans(*operand)
-                    .filter(|_| returned(*operand))
+                    .occurrence_plans(operand)
+                    .filter(|_| returned(operand))
                 {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
@@ -266,8 +250,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // A reassigned or exposed pointer slot cannot establish this identity.
                     if let Some(parameter) = parameter {
                         arguments.insert(
-                            bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into())
-                                .into(),
+                            bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
                             current.clone(),
                         );
                     }
@@ -278,12 +261,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let input = self.borrowed_value(state, *operand);
+            let input = self.current_input(state, operand);
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            if returned(*operand) {
-                self.retain_trusted_borrow_owners(&mut owners, *operand, &place, origins);
+            if returned(operand) {
+                self.retain_trusted_borrow_owners(&mut owners, operand, &place, origins);
             }
 
             let value = input;
@@ -294,7 +277,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if let Some(parameter) = parameter {
                 arguments.insert(
-                    bray_bound_tree::BoundReferenceTarget::Surface((*parameter).into()).into(),
+                    bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
                     value.clone(),
                 );
             }
@@ -314,28 +297,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 receiver.mode(),
                 bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
             )
-            && let Some(place) = crate::execution_guarantees::expression_place(
-                self.request.unit(),
-                self.semantics,
-                self.request.semantic_values(),
-                receiver.expression(),
-            )
+            && let Some(input) =
+                call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
+            && let Some(place) = self.input_place(input)
         {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            let input = self.borrowed_value(state, receiver.expression());
+            let value = self.current_input(state, input);
 
-            if returned(receiver.expression()) {
-                self.retain_trusted_borrow_owners(
-                    &mut owners,
-                    receiver.expression(),
-                    &place,
-                    origins,
-                );
+            if returned(input) {
+                self.retain_trusted_borrow_owners(&mut owners, input, &place, origins);
             }
-
-            let value = input;
 
             if retain_carriers {
                 carriers.push(value.clone());
@@ -355,9 +328,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn retain_trusted_borrow_owners(
         &self,
         owners: &mut BTreeSet<crate::ExecutionPlace>,
-        expression: BoundExpressionId,
+        expression: bray_bound_tree::BoundExecutionSite,
         place: &crate::ExecutionPlace,
-        origins: &BTreeMap<BoundExpressionId, BTreeSet<bray_bound_tree::StoragePath>>,
+        origins: &BTreeMap<
+            bray_bound_tree::BoundExecutionSite,
+            BTreeSet<bray_bound_tree::StoragePath>,
+        >,
     ) {
         if let Some(paths) = origins.get(&expression) {
             owners.extend(
@@ -377,7 +353,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
         observations: &BTreeMap<
-            bray_bound_tree::BoundExpressionId,
+            bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
@@ -394,30 +370,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|contracts| contracts.calls.get(&invocation))
             .unwrap_or(&ordinary);
 
-        let Some(mut entry) = state
-            .entries
-            .get(&invocation)
-            .filter(|entry| {
-                // Normal completion establishes ordinary requirements, including runtime
-                // checks. Trusted requirements still need authority at the call boundary.
-                entry.trusted_boundary
-                    || self.trusted_requirements_proven(entry, &contract.requirements)
-            })
-            .cloned()
-        else {
+        let Some(entry) = self.completed_entry(state, invocation, &result, contract) else {
             return;
         };
-
-        if entry.pending_execution
-            || !contract.completes
-                && matches!(result, ExecutionCondition::Expression(expression) if invocation == expression.into())
-        {
-            return;
-        }
-
-        if !assume_normal_entry(&mut entry, &contract.preconditions) {
-            return;
-        }
 
         let capture = |condition: &ExecutionCondition| {
             condition.capture_entry(
@@ -493,6 +448,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ),
             _ => None,
         };
+
+        // Publish the admitted entry snapshot independently of current mutable contents.
+        state
+            .entries
+            .get_mut(&invocation)
+            .expect("completed invocation retains its captured entry")
+            .assumptions = entry.assumptions;
 
         state.restore_returned_evidence(entry.returned);
 
@@ -605,7 +567,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(true, &mut state.assumptions);
         }
 
-        if let Some(expression) = result_expression {
+        if matches!(
+            invocation,
+            bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+        ) {
+            let place = self
+                .input_place(invocation)
+                .expect("completed input has its place");
+
+            state.assign(place, result);
+        } else if let Some(expression) = result_expression {
             state.expressions.insert(expression, result);
         }
     }
@@ -636,18 +609,63 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
     }
+    fn completed_entry(
+        &self,
+        state: &mut ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        result: &ExecutionCondition,
+        contract: &crate::TrustedCallContract,
+    ) -> Option<crate::ExecutionCallEvidence> {
+        let Some(mut entry) = state
+            .entries
+            .get(&invocation)
+            .filter(|entry| {
+                // Normal completion establishes ordinary requirements, including runtime
+                // checks. Trusted requirements still need authority at the call boundary.
+                entry.trusted_boundary
+                    || self.trusted_requirements_proven(entry, &contract.requirements)
+            })
+            .cloned()
+        else {
+            return None;
+        };
+
+        if entry.pending_execution
+            || !contract.completes
+                && matches!(result, ExecutionCondition::Expression(expression) if invocation == (*expression).into())
+        {
+            return None;
+        }
+
+        let Some(preconditions) = assume_normal_entry(&mut entry, &contract.preconditions) else {
+            return None;
+        };
+
+        for (condition, domain) in preconditions {
+            // A completed runtime check establishes its captured value, not a new
+            // capability or a claim about mutable borrowed storage after the call.
+            if domain == bray_symbols::PredicateDomain::Value
+                && condition != ExecutionCondition::Unknown
+                && !condition.observes_borrowed(None)
+            {
+                condition.assume(true, &mut state.assumptions);
+            }
+        }
+
+        Some(entry)
+    }
 }
 
 fn assume_normal_entry(
     entry: &mut crate::ExecutionCallEvidence,
-    preconditions: &[ExecutionCondition],
-) -> bool {
+    preconditions: &[(ExecutionCondition, bray_symbols::PredicateDomain)],
+) -> Option<Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>> {
     let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
 
     let preconditions = preconditions
         .iter()
-        .map(|condition| {
-            condition
+        .map(|(condition, domain)| {
+            let condition = condition
                 .substitute(
                     &|place| {
                         place
@@ -657,21 +675,27 @@ fn assume_normal_entry(
                     &ExecutionCondition::Unknown,
                     &mut { ExecutionCondition::WORK_LIMIT },
                 )
-                .with_equalities(&equalities)
+                .with_equalities(&equalities);
+
+            (condition, *domain)
         })
         .collect::<Vec<_>>();
 
     // A disproven entry cannot complete normally. Unknown ordinary requirements
     // can pass their runtime checks; capture that entry evidence for completion guards.
-    if preconditions.iter().any(|condition| {
+    if preconditions.iter().any(|(condition, _)| {
         condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
     }) {
-        return false;
+        return None;
     }
 
-    for condition in preconditions {
-        condition.assume(true, &mut entry.assumptions);
+    for (condition, domain) in &preconditions {
+        // Normal return proves runtime value checks in their immutable entry snapshot.
+        // Authority and execution requirements retain their separate checked premises.
+        if *domain == bray_symbols::PredicateDomain::Value {
+            condition.clone().assume(true, &mut entry.assumptions);
+        }
     }
 
-    true
+    Some(preconditions)
 }

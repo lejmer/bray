@@ -494,9 +494,6 @@ fn render_dynamic_symbol(source: &mut String, symbol: &DynamicSymbolDescription)
     writeln!(source, "    requires(blocking_execution())")
         .expect("writing to a string must succeed");
 
-    writeln!(source, "    uses(foreign_call, layout_reinterpret)")
-        .expect("writing to a string must succeed");
-
     writeln!(source, "{{").expect("writing to a string must succeed");
 
     writeln!(source, "    let name: bytes = b{:?};", symbol.symbol)

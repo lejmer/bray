@@ -3,8 +3,7 @@
 use bray_bound_tree::{
     BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
     BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, OperatorTarget,
-    SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageIdentity,
-    StorageIdentityId,
+    SelectedArgument, SelectedOperation, SemanticSelection, StorageIdentity, StorageIdentityId,
 };
 use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
@@ -721,11 +720,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let (current, destination) = match self.lower_expression_place(
-            *destination,
-            StorageAccessPurpose::Write,
-            current,
-        )? {
+        let (current, destination) = match self.lower_assignment_place(id, *destination, current)? {
             super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
             super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
         };
@@ -1027,7 +1022,18 @@ impl Lowerer<'_> {
                 );
             };
 
-            let value = self.materialize_owned_input(current, &source, operand, receiver_type)?;
+            let input = bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: id,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            };
+
+            let (continuation, operand) =
+                self.consume_staged_input(input, receiver.expression(), current, &source, operand)?;
+
+            current = continuation;
+
+            let value =
+                self.materialize_call_input(input, current, &source, operand, receiver_type)?;
 
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
@@ -1088,7 +1094,22 @@ impl Lowerer<'_> {
 
                     current = continued;
 
-                    let value = self.materialize_owned_input(current, &source, value, *ty)?;
+                    let input = selection
+                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                            bray_symbols::SymbolOrdinal::new(*ordinal),
+                        ))
+                        .expect("selected default has its input ordinal");
+
+                    let value = self.materialize_call_input(
+                        bray_bound_tree::BoundExecutionSite::CallInput {
+                            expression: id,
+                            ordinal: input,
+                        },
+                        current,
+                        &source,
+                        value,
+                        *ty,
+                    )?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: Some(*parameter),
@@ -1118,9 +1139,23 @@ impl Lowerer<'_> {
                         );
                     };
 
+                    let input = selection
+                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                            bray_symbols::SymbolOrdinal::new(*ordinal),
+                        ))
+                        .expect("selected argument has its input ordinal");
+
+                    let input = bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression: id,
+                        ordinal: input,
+                    };
+
+                    let (continuation, operand) =
+                        self.consume_staged_input(input, *expression, current, &source, operand)?;
+
                     let (continuation, value) = self.convert_operand(
                         id,
-                        current,
+                        continuation,
                         Self::retained_source(&source),
                         operand,
                         conversion,
@@ -1129,7 +1164,7 @@ impl Lowerer<'_> {
                     current = continuation;
 
                     let ty = self.builder.operand_type(&value);
-                    let value = self.materialize_owned_input(current, &source, value, ty)?;
+                    let value = self.materialize_call_input(input, current, &source, value, ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
@@ -1374,17 +1409,19 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn push_checked_call(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         current: MirBlockId,
         source: MirSourceAnchor,
         call: MirCall,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let occurrence = occurrence.into();
+
         let (current, call) =
-            self.lower_protocol_requirements(expression.into(), current, &source, call)?;
+            self.lower_protocol_requirements(occurrence, current, &source, call)?;
 
         self.push_checked_value_operation(
-            expression,
+            occurrence,
             current,
             source,
             MirOperationKind::Call(call),
@@ -1394,12 +1431,18 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn push_checked_value_operation(
         &mut self,
-        expression: BoundExpressionId,
+        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         current: MirBlockId,
         source: MirSourceAnchor,
         operation: MirOperationKind,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let occurrence = occurrence.into();
+
+        let expression = occurrence
+            .expression()
+            .expect("checked value operation has its source owner");
+
         let may_propagate_panic = matches!(
             &operation,
             MirOperationKind::Call(call) if call.may_propagate_panic()
@@ -1415,7 +1458,7 @@ impl Lowerer<'_> {
 
         if may_propagate_panic {
             self.finish_typed_call_panic_check(
-                expression,
+                occurrence,
                 current,
                 &source,
                 &value,
@@ -1427,7 +1470,7 @@ impl Lowerer<'_> {
             let mut value = Some(value);
 
             let completed =
-                self.take_completion_report(expression.into(), current, &source, &mut value)?;
+                self.take_completion_report(occurrence, current, &source, &mut value)?;
 
             Ok((completed, value.expect("normal call retains its result")))
         }
@@ -1527,7 +1570,7 @@ impl Lowerer<'_> {
 
                 let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
 
-                if (identity.is_borrowed_provider_input(self.input.unit().key().kind())
+                if (identity.borrows_input_storage(self.input.unit().key().kind())
                     || self
                         .receiver_cleanup
                         .as_ref()
@@ -1564,12 +1607,12 @@ fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
         BoundOperator::Add => Some(MirBinaryOperator::Add),
         BoundOperator::Subtract => Some(MirBinaryOperator::Subtract),
         BoundOperator::Multiply => Some(MirBinaryOperator::Multiply),
+        BoundOperator::Exponentiate => Some(MirBinaryOperator::Exponentiate),
         BoundOperator::Divide => Some(MirBinaryOperator::Divide),
         BoundOperator::Remainder => Some(MirBinaryOperator::Remainder),
         BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::MatrixMultiply
-        | BoundOperator::Exponentiate
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
     }
@@ -1589,7 +1632,8 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_) => {
+        | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::ContractParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
         }
         StorageIdentity::Static(symbol) => {
@@ -1602,10 +1646,10 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         }
         StorageIdentity::Result(_) => MirStorageKind::Return,
         StorageIdentity::Temporary(_)
+        | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::PostconditionResult(_)
-        | StorageIdentity::IterationCursor(_)
-        | StorageIdentity::IterationElement(_)
+        | StorageIdentity::InvocationResult(_)
         | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)

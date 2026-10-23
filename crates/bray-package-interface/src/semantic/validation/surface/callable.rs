@@ -106,6 +106,15 @@ impl InterfaceSemantics {
             .to_index()
             .expect("validated dependency index")];
 
+        if let Some(term) = result_dependencies.observed_result {
+            self.validate_execution_term(
+                term,
+                signature.parameters.len() + usize::from(signature.receiver.is_some()),
+                false,
+                surface,
+            )?;
+        }
+
         if let Some(input) = result_dependencies.returned_input {
             self.validate_returned_input(
                 input,
@@ -308,58 +317,122 @@ impl InterfaceSemantics {
             validate_index(term.to_index(), self.constant_terms.len())?;
         }
 
-        if predicate.domain == bray_symbols::PredicateDomain::Trusted {
-            return Ok(());
+        let execution = self.predicate_uses_execution(predicate.condition)?;
+
+        if execution == (predicate.domain == bray_symbols::PredicateDomain::Execution) {
+            Ok(())
+        } else {
+            Err(invalid())
         }
+    }
 
-        let mut condition = predicate.condition;
+    fn predicate_uses_execution(
+        &self,
+        condition: Option<crate::InterfaceConstantTermId>,
+    ) -> Result<bool, InterfaceValidationError> {
+        use crate::InterfaceConstantTerm as Term;
 
-        // Type records can refer to terms before the rest of the value graph is checked.
-        // A bounded root walk rejects malformed wrapper cycles at this input boundary.
-        for _ in 0..=self.constant_terms.len() {
-            let execution = match condition {
-                None => false,
-                Some(id) => match self
-                    .constant_terms
-                    .get(id.to_index().ok_or_else(invalid)?)
-                    .ok_or_else(invalid)?
-                {
-                    crate::InterfaceConstantTerm::Typed { term, .. } => {
-                        condition = Some(*term);
-                        continue;
-                    }
-                    crate::InterfaceConstantTerm::PredicateCall {
-                        predicate: crate::InterfaceSymbolReference::CompilerKnown(reference),
-                        arguments,
-                        ..
-                    } => {
-                        let execution = match reference.key().data() {
-                            bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. } => bray_compiler_known::COMPILER_KNOWN_CATALOG.compiler_known_declaration_by_key(key)
-                                .and_then(|declaration| declaration.implementation_hook())
-                                .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement),
+        let invalid =
+            || crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference);
+
+        let mut pending = condition
+            .into_iter()
+            .map(|term| (term, false))
+            .collect::<Vec<_>>();
+
+        let mut active = BTreeSet::new();
+        let mut complete = BTreeSet::new();
+        let mut execution = false;
+
+        // This boundary can run before the value graph is validated. Traverse each
+        // reachable term once, retaining the active path to reject malformed cycles.
+        while let Some((id, exit)) = pending.pop() {
+            if exit {
+                active.remove(&id);
+                complete.insert(id);
+                continue;
+            }
+
+            if complete.contains(&id) {
+                continue;
+            }
+
+            if !active.insert(id) {
+                return Err(invalid());
+            }
+
+            let term = self
+                .constant_terms
+                .get(id.to_index().ok_or_else(invalid)?)
+                .ok_or_else(invalid)?;
+
+            pending.push((id, true));
+
+            let mut child = |id| pending.push((id, false));
+
+            match term {
+                Term::Typed { term, .. } => child(*term),
+                Term::Unary { operand, .. } | Term::Conversion { operand, .. } => child(*operand),
+                Term::NullablePresent(value) => child(*value),
+                Term::Binary { left, right, .. } => {
+                    child(*left);
+                    child(*right);
+                }
+                Term::VariantTest { subject, .. } => child(*subject),
+                Term::Tuple(values) | Term::Array(values) => values.iter().copied().for_each(child),
+                Term::Product(fields) | Term::Union { fields, .. } => {
+                    fields.iter().map(|field| *field.value()).for_each(child);
+                }
+                Term::Call { arguments, .. } => arguments.iter().copied().for_each(child),
+                Term::PredicateCall {
+                    predicate,
+                    arguments,
+                    ..
+                } => {
+                    let known = match predicate {
+                        crate::InterfaceSymbolReference::CompilerKnown(reference) => match reference.key().data() {
+                            bray_symbols::SymbolKeyData::CompilerKnownDeclaration { key, .. } =>
+                                bray_compiler_known::COMPILER_KNOWN_CATALOG.compiler_known_declaration_by_key(key)
+                                    .and_then(|declaration| declaration.implementation_hook())
+                                    .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement),
                             _ => false,
-                        };
+                        },
+                        _ => false,
+                    };
 
-                        if execution
-                            && (!arguments.is_empty() || reference.kind() != SymbolKind::Predicate)
+                    if known {
+                        if !arguments.is_empty()
+                            || !matches!(predicate, crate::InterfaceSymbolReference::CompilerKnown(reference) if reference.kind() == SymbolKind::Predicate)
                         {
                             return Err(invalid());
                         }
 
-                        execution
+                        execution = true;
+                    } else if let Some(definition) = self
+                        .predicate_definitions
+                        .iter()
+                        .find(|definition| &definition.owner == predicate)
+                        && let Some(condition) = definition.condition
+                    {
+                        child(condition);
                     }
-                    _ => false,
-                },
-            };
 
-            return if execution == (predicate.domain == bray_symbols::PredicateDomain::Execution) {
-                Ok(())
-            } else {
-                Err(invalid())
-            };
+                    arguments.iter().copied().for_each(child);
+                }
+                Term::Projection { subject, kind } => {
+                    child(*subject);
+                    kind.term_references().for_each(child);
+                }
+                Term::Value(_)
+                | Term::IntegerLiteral { .. }
+                | Term::CallableArgument(_)
+                | Term::Parameter(_)
+                | Term::TargetProperty(_)
+                | Term::DefinitionApplication { .. } => {}
+            }
         }
 
-        Err(invalid())
+        Ok(execution)
     }
 
     fn validate_callable_clauses(
@@ -543,6 +616,20 @@ mod tests {
                     substitution: crate::InterfaceGenericSubstitutionId::new(0),
                     arguments: [InterfaceConstantTermId::new(0)].into(),
                 },
+                InterfaceConstantTerm::Binary {
+                    operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
+                    left: InterfaceConstantTermId::new(0),
+                    right: InterfaceConstantTermId::new(2),
+                },
+                InterfaceConstantTerm::Binary {
+                    operation: bray_symbols::ConstantBinaryOperation::LogicalAnd,
+                    left: InterfaceConstantTermId::new(2),
+                    right: InterfaceConstantTermId::new(2),
+                },
+                InterfaceConstantTerm::Unary {
+                    operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+                    operand: InterfaceConstantTermId::new(4),
+                },
             ],
         );
 
@@ -553,9 +640,15 @@ mod tests {
             (Some(0), PredicateDomain::Execution, false),
             (Some(1), PredicateDomain::Execution, true),
             (Some(1), PredicateDomain::Value, false),
+            (Some(1), PredicateDomain::Trusted, false),
+            (Some(0), PredicateDomain::Trusted, true),
             (Some(2), PredicateDomain::Execution, true),
             (Some(3), PredicateDomain::Execution, false),
             (Some(4), PredicateDomain::Execution, false),
+            (Some(5), PredicateDomain::Execution, true),
+            (Some(5), PredicateDomain::Value, false),
+            (Some(6), PredicateDomain::Execution, true),
+            (Some(7), PredicateDomain::Execution, false),
         ] {
             let summary = InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0))
                 .with_condition(term.map(InterfaceConstantTermId::new), domain);

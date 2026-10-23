@@ -263,7 +263,7 @@ where
                     ));
                 }
             }
-            ConstantValueKind::NullablePresent(value) => {
+            ConstantValueKind::Borrowed(value) | ConstantValueKind::NullablePresent(value) => {
                 self.validate_closed_value(*value, expression)?;
             }
             ConstantValueKind::Tuple(values) | ConstantValueKind::Array(values) => {

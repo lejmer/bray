@@ -50,13 +50,19 @@ where
 pub(crate) fn value_transfer_bindings<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> BTreeMap<BoundExpressionId, Vec<StorageBinding>>
+) -> BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageBinding>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut result = BTreeMap::new();
 
     for (pattern, source) in request.unit().tree().binding_subjects() {
+        let source = request
+            .view()
+            .expression(source)
+            .expect("pattern subject retains its source expression")
+            .pattern_subject_site(source);
+
         extend_pattern_bindings(
             request.view(),
             storage,

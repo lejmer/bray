@@ -462,25 +462,15 @@ where
             }
 
             for (ordinal, (name, ty, anchor)) in parameters.iter().enumerate() {
-                let ordinal = bray_symbols::SymbolOrdinal::new(
-                    u32::try_from(ordinal).expect("parameter ordinal fits compiler identity"),
-                );
-
-                let local = binder
-                    .unit_mut()
-                    .push_binding(
-                        root,
-                        bray_symbols::SymbolName::try_new(name.as_str())
-                            .expect("checked callable parameter has a nonempty name"),
-                        [*anchor],
-                        Some(ordinal),
-                        anchor.is_recovered(),
-                    )
-                    .map_err(BoundUnitBindingError::Construction)?;
-
-                binder.unit_mut().activate_local(root, local);
-
-                let reference = bray_bound_tree::BoundReferenceTarget::Local(local.into());
+                let reference = super::support::push_contract_parameter(
+                    binder,
+                    root,
+                    ordinal,
+                    bray_symbols::SymbolName::try_new(name.as_str())
+                        .expect("checked callable parameter has a nonempty name"),
+                    *anchor,
+                )
+                .map_err(map_binding_error)?;
 
                 binder.record_value_type(reference, *ty);
                 references.push(reference);

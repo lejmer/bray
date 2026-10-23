@@ -1136,7 +1136,10 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
             );
 
             assert!(
-                !replaced.borrows().is_empty(),
+                replaced
+                    .borrows()
+                    .iter()
+                    .any(|relation| relation.is_exact()),
                 "replacement must publish its changed field: {replaced:#?}"
             );
         }
@@ -1149,6 +1152,7 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
         let returns = template
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -1162,7 +1166,7 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
 
         for relation in returns {
             assert_eq!(
-                relation.entry().subject_root(),
+                relation.entry().expect("input origin").subject_root(),
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                     expected.expect("an exact returned reference has an input")
                 ))
@@ -1220,9 +1224,10 @@ fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
             template
                 .borrows()
                 .iter()
-                .any(|relation| relation.entry() == relation.exit()
+                .any(|relation| relation.entry() == Some(relation.exit())
                     && relation
                         .entry()
+                        .expect("input origin")
                         .projections()
                         .first()
                         .is_some_and(|projection| {
@@ -1303,6 +1308,7 @@ fn nullable_borrow_origins_preserve_payload_paths() {
         let returned = template
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -1312,7 +1318,7 @@ fn nullable_borrow_origins_preserve_payload_paths() {
 
         for relation in returned {
             assert_eq!(
-                relation.entry().subject_root(),
+                relation.entry().expect("input origin").subject_root(),
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
             );
 
@@ -1397,7 +1403,10 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .dependency_contract_template_data(*dependencies.value());
 
         assert_eq!(
-            !template.borrows().is_empty(),
+            template
+                .borrows()
+                .iter()
+                .any(|relation| relation.is_exact()),
             exact,
             "{source}\n{template:#?}"
         );
@@ -1407,7 +1416,12 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .unwrap();
 
         assert_eq!(
-            !producer.value().dependencies().borrows().is_empty(),
+            producer
+                .value()
+                .dependencies()
+                .borrows()
+                .iter()
+                .any(|relation| relation.is_exact()),
             exact,
             "{source}\nnormal-exit references: {:?}",
             producer.value().dependencies().borrows()
@@ -1637,7 +1651,7 @@ fn normal_exit_references_follow_constructed_fields_and_nullable_conversion() {
         assert_eq!(references.len(), 1, "{source}\n{references:?}");
 
         assert_eq!(
-            references[0].entry(),
+            references[0].entry().expect("input origin"),
             &bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
                 bray_symbols::SymbolOrdinal::new(0)
             ))
@@ -1695,7 +1709,7 @@ fn normal_exit_references_keep_original_stored_inputs() {
         assert_eq!(references.len(), 1, "{source}\n{references:?}");
 
         assert_eq!(
-            references[0].entry().subject_root(),
+            references[0].entry().expect("input origin").subject_root(),
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                 expected_parameter
             )),
@@ -1725,8 +1739,8 @@ fn absent_return_payload_does_not_invent_a_conflicting_reference() {
     assert_eq!(
         flow.value().dependencies().borrows(),
         &[bray_symbols::DependencyBorrowRelation::new(
-            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(0)
+            Some(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
             )),
             bray_symbols::DependencySubject::new(
                 bray_symbols::DependencySubjectRoot::Result,
@@ -1776,7 +1790,11 @@ fn returned_field_addresses_differ_from_stored_reference_values() {
         assert_eq!(references.len(), 1, "{name}: {dependencies:?}");
 
         assert_eq!(
-            references[0].entry().projections().len(),
+            references[0]
+                .entry()
+                .expect("input origin")
+                .projections()
+                .len(),
             usize::from(!projected),
             "{name}: {references:?}"
         );
@@ -1875,10 +1893,10 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
 
         struct Cell<T> {
             storage: Uninit<T>;
-            func pointer() -> RawPointer<T> executes(pure, total) {
+            func pointer() -> DataPointer<T> executes(pure, total) {
                 return core.memory.uninit_pointer<T>(&self.storage);
             }
-            func forwarded() -> RawPointer<T> executes(pure, total) {
+            func forwarded() -> DataPointer<T> executes(pure, total) {
                 return self.pointer();
             }
         }
@@ -1888,28 +1906,28 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
             func storage() -> &Uninit<T> executes(pure, total) {
                 return &self.cell.storage;
             }
-            func pointer() -> RawPointer<T> executes(pure, total) {
+            func pointer() -> DataPointer<T> executes(pure, total) {
                 return direct<T>(self.storage());
             }
         }
 
-        func holder_method<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+        func holder_method<T>(pos holder: &Holder<T>) -> DataPointer<T> {
             return holder.pointer();
         }
 
-        func direct<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func direct<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
 
-        func method<T>(pos cell: &Cell<T>) -> RawPointer<T> {
+        func method<T>(pos cell: &Cell<T>) -> DataPointer<T> {
             return cell.forwarded();
         }
 
-        func forwarded<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func forwarded<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return direct<T>(storage);
         }
 
-        func field<T>(pos holder: &Holder<T>) -> RawPointer<T> {
+        func field<T>(pos holder: &Holder<T>) -> DataPointer<T> {
             return forwarded<T>(&holder.cell.storage);
         }
     "#,
@@ -1945,7 +1963,7 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
         );
 
         assert_eq!(
-            relation.entry().projections().len(),
+            relation.entry().expect("input origin").projections().len(),
             entry_length,
             "{name}: {relation:#?}"
         );
@@ -1995,7 +2013,7 @@ fn protected_payload_values_preserve_reference_origins_and_reject_local_escape()
 
     assert!(
         dependencies.borrows().iter().any(|relation| {
-            relation.entry().subject_root()
+            relation.entry().expect("input origin").subject_root()
                 == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                     0,
                 ))
@@ -2054,6 +2072,7 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
         let origins = dependencies
             .borrows()
             .iter()
+            .filter(|relation| relation.is_exact())
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
             })
@@ -2067,7 +2086,7 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
 
         if let Some(origin) = origins.first() {
             assert_eq!(
-                origin.entry().subject_root(),
+                origin.entry().expect("input origin").subject_root(),
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))
             );
         }
@@ -2128,7 +2147,14 @@ fn different_reference_layers_do_not_supply_a_common_exact_origin() {
         "choose",
     );
 
-    assert!(dependencies.borrows().is_empty(), "{dependencies:#?}");
+    assert!(
+        dependencies
+            .borrows()
+            .iter()
+            .all(|relation| !relation.is_exact()),
+        "{dependencies:#?}"
+    );
+
     assert!(!dependencies.requirements().is_empty(), "{dependencies:#?}");
 }
 
@@ -2249,7 +2275,11 @@ fn scoped_entry_demands_nested_references_not_otherwise_read_by_the_caller() {
                 .iter()
                 .any(|relation| relation.exit().subject_root()
                     == bray_symbols::DependencySubjectRoot::Result
-                    && !relation.entry().projections().is_empty()),
+                    && !relation
+                        .entry()
+                        .expect("input origin")
+                        .projections()
+                        .is_empty()),
             "{result:#?}"
         );
     }
@@ -2460,7 +2490,7 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
         assert_eq!(references.len(), 1, "{source}\n{references:?}");
 
         assert_eq!(
-            references[0].entry().subject_root(),
+            references[0].entry().expect("input origin").subject_root(),
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
         );
 
@@ -2470,4 +2500,179 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
             "{source}\n{references:?}"
         );
     }
+}
+
+#[test]
+fn conditional_null_pointer_returns_export_only_a_bounded_origin() {
+    let application = compilation(
+        r#"
+        module app;
+        using core.memory;
+
+        func selected(pos value: &u32, pos present: bool) -> DataPointer<u32>
+        {
+            if present { return core.memory.address_of<u32>(value); }
+            return core.memory.null<u32>();
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "selected",
+    );
+
+    assert_eq!(summary.borrows().len(), 1, "{summary:#?}");
+    assert!(!summary.borrows()[0].is_exact(), "{summary:#?}");
+}
+
+#[test]
+fn independent_return_alternative_preserves_the_complete_input_bound() {
+    let application = compilation(
+        r#"
+        module app;
+        using core.memory;
+        extern func opaque() -> DataPointer<u32>;
+
+        func selected(pos value: &u32, pos present: bool) -> DataPointer<u32>
+        {
+            if present { return core.memory.address_of<u32>(value); }
+            return opaque();
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "selected",
+    );
+
+    assert_eq!(summary.borrows().len(), 2, "{summary:#?}");
+
+    assert!(
+        summary
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()),
+        "{summary:#?}"
+    );
+
+    assert!(
+        summary
+            .borrows()
+            .iter()
+            .any(
+                |relation| relation.entry().is_some_and(|entry| entry.subject_root()
+                    == bray_symbols::DependencySubjectRoot::Parameter(
+                        bray_symbols::SymbolOrdinal::new(0)
+                    ))
+            ),
+        "{summary:#?}"
+    );
+
+    assert!(
+        summary
+            .borrows()
+            .iter()
+            .all(|relation| !relation.is_exact()),
+        "{summary:#?}"
+    );
+}
+
+#[test]
+fn optional_reference_origins_compose_with_fallible_wrappers_and_moves() {
+    let application = compilation(
+        r#"
+        module app;
+
+        using core.memory;
+
+        struct Holder { pointer: DataPointer<u8>; }
+        extern func external() -> DataPointer<u8>;
+        func independent() -> Holder
+        {
+            return { pointer = external() };
+        }
+        func optional(pos present: bool) -> Holder?
+        {
+            if !present
+            {
+                let absent: Holder? = none;
+                return absent;
+            }
+            let mut result: Holder? = none;
+            result = independent();
+            return result;
+        }
+        func wrapped(pos present: bool, pos failed: bool) -> Result<Holder?, unit>
+        {
+            if failed { return Error(unit); }
+            if !present
+            {
+                let absent: Holder? = none;
+                return Ok(absent);
+            }
+            let entry: Holder = independent();
+            let mut result: Holder? = none;
+            result = entry;
+            return Ok(result);
+        }
+        func input(pos value: &u8, pos present: bool, pos failed: bool) -> Result<Holder?, unit>
+        {
+            if failed { return Error(unit); }
+            let mut result: Holder? = none;
+            if present { result = Holder { pointer = core.memory.address_of<u8>(value) }; }
+            return Ok(result);
+        }
+        func moved(pos present: bool, pos failed: bool) -> Result<Holder?, unit>
+        {
+            let result = wrapped(present, failed);
+            return result;
+        }
+        "#,
+    );
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for name in ["optional", "wrapped", "moved"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            name,
+        );
+
+        assert_eq!(summary.borrows().len(), 1, "{name}: {summary:#?}");
+
+        assert!(
+            summary.borrows()[0].entry().is_none(),
+            "{name}: {summary:#?}"
+        );
+
+        assert!(!summary.borrows()[0].is_exact(), "{name}: {summary:#?}");
+    }
+
+    let input = crate::compilation::result_dependencies::source_function_dependencies(
+        &application,
+        "input",
+    );
+
+    assert_eq!(input.borrows().len(), 1, "{input:#?}");
+
+    assert_eq!(
+        input.borrows()[0]
+            .entry()
+            .expect("present alternative retains the input")
+            .subject_root(),
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+        "{input:#?}"
+    );
 }

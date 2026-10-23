@@ -46,6 +46,15 @@ pub(super) fn encode_execution_contract(
                     encoder.write_u32(0);
                     encoder.write_u32(callable.raw());
                 }
+                CallableExecutionTarget::Requirement {
+                    callable,
+                    requirement: (subject, application),
+                } => {
+                    encoder.write_u32(2);
+                    encoder.write_u32(callable.raw());
+                    encoder.write_u32(subject.raw());
+                    encoder.write_u32(application.raw());
+                }
                 CallableExecutionTarget::Indirect(ty) => {
                     encoder.write_u32(1);
                     encoder.write_u32(ty.raw());
@@ -62,6 +71,9 @@ fn encode_obligation(
     obligation: CallableExecutionObligation<SymbolOrdinal>,
 ) {
     match obligation {
+        CallableExecutionObligation::Observation => encoder.write_u32(2),
+        CallableExecutionObligation::Termination => encoder.write_u32(3),
+        CallableExecutionObligation::FiniteIteration => encoder.write_u32(4),
         CallableExecutionObligation::Property(property, guard) => {
             encoder.write_u32(0);
             encoder.write_u32(property.to_wire());

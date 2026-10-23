@@ -1,9 +1,9 @@
 //! Typed storage-plan inspection records.
 
 use bray_bound_tree::{
-    BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccess, StorageAccessPlan,
-    StorageAccessRoot, StorageAlternative, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StoragePlan, StorageProjection,
+    BorrowCapabilityOrigin, BoundExecutionSite, PlannedBorrowCapability, StorageAccess,
+    StorageAccessPlan, StorageAccessRoot, StorageAlternative, StorageBinding, StorageBindingTarget,
+    StorageIdentity, StoragePlan, StorageProjection,
 };
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
@@ -190,6 +190,13 @@ enum InspectionStorageProvenance {
     Expression {
         expression: u32,
     },
+    InvocationInput {
+        expression: u32,
+        ordinal: u32,
+    },
+    InvocationResult {
+        occurrence: InspectionExecutionSite,
+    },
     SurfaceSymbol {
         symbol: InspectionSymbolIdentity,
     },
@@ -224,11 +231,19 @@ impl InspectionStorageProvenance {
             }),
             StorageIdentity::Temporary(expression)
             | StorageIdentity::CustomIndexBorrow(expression)
-            | StorageIdentity::IterationCursor(expression)
-            | StorageIdentity::IterationElement(expression)
             | StorageIdentity::ScopedCapability { expression, .. }
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
                 expression: expression.ordinal(),
+            }),
+            StorageIdentity::InvocationResult(occurrence) => Ok(Self::InvocationResult {
+                occurrence: occurrence.into(),
+            }),
+            StorageIdentity::InvocationInput {
+                expression,
+                ordinal,
+            } => Ok(Self::InvocationInput {
+                expression: expression.ordinal(),
+                ordinal: ordinal.raw(),
             }),
             StorageIdentity::Parameter(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
@@ -241,6 +256,10 @@ impl InspectionStorageProvenance {
             }),
             StorageIdentity::PredicateParameter(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
+            }),
+            StorageIdentity::ContractParameter(symbol) => Ok(Self::LocalSymbol {
+                symbol_kind: "local_binding",
+                id: symbol.ordinal(),
             }),
             StorageIdentity::AnonymousParameter(symbol) => Ok(Self::LocalSymbol {
                 symbol_kind: "anonymous_callable_parameter",
@@ -561,8 +580,8 @@ impl InspectionBorrowCapability {
 #[derive(Serialize)]
 #[serde(tag = "origin_kind", rename_all = "snake_case")]
 enum InspectionBorrowCapabilityOrigin {
-    Expression {
-        expression: u32,
+    Operation {
+        occurrence: InspectionExecutionSite,
     },
     Entry {
         target: InspectionStorageBindingTarget,
@@ -572,8 +591,8 @@ enum InspectionBorrowCapabilityOrigin {
 impl From<BorrowCapabilityOrigin> for InspectionBorrowCapabilityOrigin {
     fn from(origin: BorrowCapabilityOrigin) -> Self {
         match origin {
-            BorrowCapabilityOrigin::Expression(expression) => Self::Expression {
-                expression: expression.ordinal(),
+            BorrowCapabilityOrigin::Operation(occurrence) => Self::Operation {
+                occurrence: occurrence.into(),
             },
             BorrowCapabilityOrigin::Entry(target) => Self::Entry {
                 target: target.into(),
@@ -602,6 +621,8 @@ impl From<(StorageBindingTarget, StorageBinding)> for InspectionStorageBindingEn
 enum InspectionStorageBindingTarget {
     SurfaceSymbol { symbol_kind: &'static str, id: u32 },
     LocalSymbol { symbol_kind: &'static str, id: u32 },
+    InvocationInput { expression: u32, ordinal: u32 },
+    InvocationResult { occurrence: InspectionExecutionSite },
     Result,
 }
 
@@ -644,6 +665,16 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
                 symbol_kind: "postcondition_result",
                 id: symbol.ordinal(),
             },
+            StorageBindingTarget::InvocationResult(occurrence) => Self::InvocationResult {
+                occurrence: occurrence.into(),
+            },
+            StorageBindingTarget::InvocationInput {
+                expression,
+                ordinal,
+            } => Self::InvocationInput {
+                expression: expression.ordinal(),
+                ordinal: ordinal.raw(),
+            },
             StorageBindingTarget::Result => Self::Result,
         }
     }
@@ -670,21 +701,79 @@ impl From<StorageBinding> for InspectionStorageBinding {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(tag = "site_kind", rename_all = "snake_case")]
+enum InspectionExecutionSite {
+    Node { node_kind: &'static str, node: u32 },
+    Cleanup { node_kind: &'static str, node: u32 },
+    CallInput { expression: u32, ordinal: u32 },
+    Iterate { expression: u32 },
+    Next { expression: u32 },
+    ScopedEnter { expression: u32 },
+    ScopedExit { expression: u32 },
+}
+
+impl From<BoundExecutionSite> for InspectionExecutionSite {
+    fn from(site: BoundExecutionSite) -> Self {
+        match site {
+            BoundExecutionSite::Node(node) => Self::Node {
+                node_kind: node.kind().as_str(),
+                node: node.ordinal(),
+            },
+            BoundExecutionSite::Cleanup(node) => Self::Cleanup {
+                node_kind: node.kind().as_str(),
+                node: node.ordinal(),
+            },
+            BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            } => Self::CallInput {
+                expression: expression.ordinal(),
+                ordinal: ordinal.raw(),
+            },
+            BoundExecutionSite::Iterate(expression) => Self::Iterate {
+                expression: expression.ordinal(),
+            },
+            BoundExecutionSite::Next(expression) => Self::Next {
+                expression: expression.ordinal(),
+            },
+            BoundExecutionSite::ScopedEnter(expression) => Self::ScopedEnter {
+                expression: expression.ordinal(),
+            },
+            BoundExecutionSite::ScopedExit(expression) => Self::ScopedExit {
+                expression: expression.ordinal(),
+            },
+        }
+    }
+}
+
+impl InspectionExecutionSite {
+    fn node(&self) -> (&'static str, u32) {
+        match *self {
+            Self::Node { node_kind, node } | Self::Cleanup { node_kind, node } => (node_kind, node),
+            Self::CallInput { expression, .. }
+            | Self::Iterate { expression }
+            | Self::Next { expression }
+            | Self::ScopedEnter { expression }
+            | Self::ScopedExit { expression } => ("expression", expression),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
 pub(super) struct InspectionStoragePlan {
-    node_kind: &'static str,
-    node: u32,
+    occurrence: InspectionExecutionSite,
     expression: u32,
     purpose: &'static str,
     access: u32,
 }
 
 impl InspectionStoragePlan {
-    pub(super) const fn node_kind(&self) -> &'static str {
-        self.node_kind
+    pub(super) fn node_kind(&self) -> &'static str {
+        self.occurrence.node().0
     }
 
-    pub(super) const fn node(&self) -> u32 {
-        self.node
+    pub(super) fn node(&self) -> u32 {
+        self.occurrence.node().1
     }
 
     pub(super) const fn expression(&self) -> u32 {
@@ -703,8 +792,7 @@ impl InspectionStoragePlan {
 impl From<StorageAccessPlan> for InspectionStoragePlan {
     fn from(plan: StorageAccessPlan) -> Self {
         Self {
-            node_kind: plan.node().kind().as_str(),
-            node: plan.node().ordinal(),
+            occurrence: plan.occurrence().into(),
             expression: plan.expression().ordinal(),
             purpose: plan.purpose().as_str(),
             access: plan.access().ordinal(),

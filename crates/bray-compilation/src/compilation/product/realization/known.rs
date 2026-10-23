@@ -37,7 +37,9 @@ impl Compilation {
 
         if matches!(
             role,
-            RepresentationRole::RawPointer | RepresentationRole::DevicePointer
+            RepresentationRole::RawPointer
+                | RepresentationRole::FunctionPointer
+                | RepresentationRole::DevicePointer
         ) {
             return self.codegen_indirect_pointer_type(ty, role, substitution, target);
         }
@@ -222,6 +224,7 @@ impl Compilation {
             | RepresentationRole::Never
             | RepresentationRole::Atomic
             | RepresentationRole::RawPointer
+            | RepresentationRole::FunctionPointer
             | RepresentationRole::DevicePointer
             | RepresentationRole::ScalarBool
             | RepresentationRole::ScalarChar
@@ -269,6 +272,7 @@ impl Compilation {
 
         let address_space = match role {
             RepresentationRole::RawPointer => TargetAddressSpaceKind::Default,
+            RepresentationRole::FunctionPointer => TargetAddressSpaceKind::Function,
             RepresentationRole::DevicePointer => TargetAddressSpaceKind::Device,
             _ => return Err(CodegenPreparationError::UnresolvedType(ty)),
         };

@@ -19,10 +19,15 @@ mod memory_diagnostics;
 mod outcome;
 mod pattern;
 mod representation;
+pub use representation::{
+    integer_conversion_representations, representation_type_for_context,
+    type_representation_for_values,
+};
 mod selection;
 mod semantic_context;
 mod service;
 mod storage;
+pub use storage::projected_storage_type;
 mod target;
 mod target_control;
 mod target_control_contract;
@@ -40,20 +45,24 @@ mod test_support;
 
 pub use analysis::implementation_hook_may_propagate_synchronous_panic;
 pub use analysis::{PreparedBodyAnalysis, prepare_body_analysis};
-pub use analysis::{UnwindCandidate, check_execution_candidate, check_unwind_candidate};
+pub use analysis::{
+    UnwindCall, UnwindCandidate, check_execution_candidate, check_unwind_candidate,
+};
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{
-    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
-    ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
-    ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
-    ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
+    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallContract,
+    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantCallTarget,
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
+    ConstantLiteralError, ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
+    constant_eligibility_diagnostic, constant_invocation_targets,
     evaluate_constant_callable_template, evaluate_constant_definition_template,
-    evaluate_generic_constraint_template, evaluate_static_initializer_template,
-    fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
-    normalize_integer_literal, resolve_callable_signature_template,
-    resolve_trait_application_template, resolve_type_expression_template,
+    evaluate_constant_intrinsic, evaluate_generic_constraint_template,
+    evaluate_static_initializer_template, fold_machine_integer_binary,
+    fold_machine_integer_truncate, fold_machine_integer_unary, normalize_integer_literal,
+    resolve_callable_signature_template, resolve_trait_application_template,
+    resolve_type_expression_template,
 };
 pub use context::{
     CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
@@ -64,11 +73,12 @@ pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
-    check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
-    execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
-    execution_conditions, map_execution_condition_substitutions, predicate_conditions,
-    predicate_conditions_with_inputs, remap_execution_condition_inputs,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionPlace,
+    ExecutionProperty, check_execution_guarantees, declared_execution_properties,
+    execution_condition_from_term, execution_condition_from_type_term,
+    execution_condition_is_implied, execution_condition_term, execution_conditions,
+    map_execution_condition_references, predicate_conditions, predicate_conditions_with_inputs,
+    remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{

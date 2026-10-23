@@ -61,6 +61,20 @@ pub enum CallableConstness {
     Constant,
 }
 
+impl CallableConstness {
+    /// Declared execution obligations implied by this constant-evaluation contract.
+    /// These promises still require implementation certification at their owning boundary.
+    pub const fn execution_properties(self) -> &'static [crate::ExecutionProperty] {
+        match self {
+            Self::Runtime => &[],
+            Self::Constant => &[
+                crate::ExecutionProperty::Pure,
+                crate::ExecutionProperty::Total,
+            ],
+        }
+    }
+}
+
 /// A callable's execution mode.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableExecution {

@@ -143,6 +143,17 @@ where
         if self.scoped_uses.contains_key(body) {
             let completed = self.push_block();
 
+            current = self.begin_invocation(
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                current,
+                self.request().trusted_contracts().is_some_and(|contracts| {
+                    contracts
+                        .calls
+                        .get(&bray_bound_tree::BoundExecutionSite::ScopedEnter(id))
+                        .is_some_and(|contract| contract.checks_preconditions)
+                }),
+            );
+
             self.push_call(
                 current,
                 bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
@@ -405,22 +416,94 @@ where
     ) -> Option<Option<AnalysisBlockId>> {
         let current = self.build_operands(operands, current)?;
 
-        let current = self.push_source_operation(id, current);
+        let (header, item, exhausted) = self.build_iteration_entry(id, current);
 
-        let iteration = self.push_block();
         let completion = self.push_block();
 
-        self.push_edge(current, iteration, AnalysisEdgeKind::LoopEntry, None);
-        self.push_edge(iteration, iteration, AnalysisEdgeKind::LoopBack, None);
+        let all = matches!(self.view().expression(id),
+            Some(bray_bound_tree::BoundExpression::Structured(operation))
+                if operation.kind() == BoundStructuredExpressionKind::BooleanAllFold);
+
+        let selected = self.selections().is_some_and(|selections| {
+            matches!(
+                selections.expression(id),
+                Some(bray_bound_tree::SemanticSelection::Iteration(_))
+            )
+        });
+
+        let next = bray_bound_tree::BoundExecutionSite::Next(id);
 
         self.push_edge(
-            iteration,
-            completion,
-            AnalysisEdgeKind::ConditionalFalse,
-            None,
+            item,
+            header,
+            AnalysisEdgeKind::LoopBack,
+            selected.then_some(AnalysisRefinement::InvocationBoolean(next, all)),
         );
 
+        self.push_edge(
+            item,
+            completion,
+            AnalysisEdgeKind::ConditionalFalse,
+            selected.then_some(AnalysisRefinement::InvocationBoolean(next, !all)),
+        );
+
+        self.push_edge(exhausted, completion, AnalysisEdgeKind::Sequential, None);
+
         Some(Some(completion))
+    }
+
+    fn build_iteration_entry(
+        &mut self,
+        id: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> (AnalysisBlockId, AnalysisBlockId, AnalysisBlockId) {
+        let selected = self.selections().is_some_and(|selections| {
+            matches!(
+                selections.expression(id),
+                Some(bray_bound_tree::SemanticSelection::Iteration(_))
+            )
+        });
+
+        let current = if selected {
+            self.push_protocol_invocation(bray_bound_tree::BoundExecutionSite::Iterate(id), current)
+        } else {
+            // Untyped control flow owns loop topology without selected protocol calls.
+            if self.selections().is_some() {
+                self.push_recovery(current, id.into());
+            }
+
+            current
+        };
+
+        let header = self.push_block();
+        let item = self.push_block();
+        let exhausted = self.push_block();
+
+        self.push_edge(current, header, AnalysisEdgeKind::LoopEntry, None);
+
+        let next = bray_bound_tree::BoundExecutionSite::Next(id);
+
+        let advanced = if selected {
+            self.push_protocol_invocation(next, header)
+        } else {
+            header
+        };
+
+        self.push_edge(
+            advanced,
+            item,
+            AnalysisEdgeKind::ConditionalTrue,
+            selected.then_some(AnalysisRefinement::InvocationPresence(next, true)),
+        );
+
+        self.push_edge(
+            advanced,
+            exhausted,
+            AnalysisEdgeKind::ConditionalFalse,
+            selected.then_some(AnalysisRefinement::InvocationPresence(next, false)),
+        );
+
+        (header, item, exhausted)
     }
 
     fn build_catch(
@@ -465,9 +548,9 @@ where
     ) -> Option<Option<AnalysisBlockId>> {
         let current = self.build_expression(expression.source(), current)?;
         let current = current.unwrap_or_else(|| self.push_block());
-        let current = self.push_source_operation(id, current);
 
         self.build_iteration(
+            id,
             expression.pattern(),
             expression.body(),
             expression.else_body(),
@@ -664,20 +747,16 @@ where
 
     pub(super) fn build_iteration(
         &mut self,
+        id: BoundExpressionId,
         pattern: BoundPatternId,
         body: BoundBlockId,
         else_body: Option<BoundBlockId>,
         target: SyntaxAnchor,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let header = self.push_block();
-        let item = self.push_block();
-        let exhausted = self.push_block();
-        let join = self.push_block();
+        let (header, item, exhausted) = self.build_iteration_entry(id, current);
 
-        self.push_edge(current, header, AnalysisEdgeKind::Sequential, None);
-        self.push_edge(header, item, AnalysisEdgeKind::LoopEntry, None);
-        self.push_edge(header, exhausted, AnalysisEdgeKind::ConditionalFalse, None);
+        let join = self.push_block();
 
         self.loops.push(LoopContext {
             target,

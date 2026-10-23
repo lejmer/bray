@@ -113,7 +113,7 @@ async func fetch(pos request: Request) -> Result<Response, FetchError>
     return await send(request);
 }
 
-trusted func read_byte(pos pointer: RawPointer<u8>) -> u8
+trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
     uses(raw_memory)
 {
     return trusted core.memory.read<u8>(pointer);
@@ -143,7 +143,7 @@ extern trusted func native_clock() -> u64
 
 @symbol(name = "native_printf")
 @abi(c)
-extern trusted func printf(pos format: RawPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
+extern trusted func printf(pos format: DataPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
     uses(foreign_call);
 
 internal func normalize(pos value: i32) -> i32
@@ -151,7 +151,7 @@ internal func normalize(pos value: i32) -> i32
     return value;
 }
 
-async func execution_forms(pos request: Request, pos pointer: RawPointer<u8>) -> Result<unit, FetchError>
+async func execution_forms(pos request: Request, pos pointer: DataPointer<u8>) -> Result<unit, FetchError>
 {
     let pending: Future<Result<Response, FetchError>> = fetch(request);
     let response: Response = try await pending;
@@ -226,13 +226,13 @@ func apply<T, U>(pos value: T, operation: Mapper<T, U>) -> U
     return operation(value);
 }
 
-func callable_values(pos request: Request, pos pointer: RawPointer<u8>)
+func callable_values(pos request: Request, pos pointer: DataPointer<u8>)
 {
     let ordinary: func(pos value: i32) -> i32 = double;
     let constant: const func(pos value: i32) -> i32 = constant_double;
     let asynchronous: async func(pos request: Request) -> Result<Response, FetchError> = fetch;
 
-    let trusted_reader: trusted func(pos pointer: RawPointer<u8>) -> u8
+    let trusted_reader: trusted func(pos pointer: DataPointer<u8>) -> u8
         uses(raw_memory) = read_byte;
 
     let callback: @abi(c) func(pos left: i32, pos right: i32) -> i32 = compare;
@@ -292,7 +292,7 @@ impl Counter
         return await persist_value(self.value);
     }
 
-    trusted mut func overwrite(pos pointer: RawPointer<i32>)
+    trusted mut func overwrite(pos pointer: DataPointer<i32>)
         uses(raw_memory)
     {
         trusted core.memory.write<i32>(pointer, self.value);
@@ -343,7 +343,7 @@ func local_callables() -> i32
         return await send(request);
     };
 
-    let raw = trusted lambda(pos pointer: RawPointer<u8>) -> u8
+    let raw = trusted lambda(pos pointer: DataPointer<u8>) -> u8
         uses(raw_memory)
     {
         return core.memory.read<u8>(pointer);

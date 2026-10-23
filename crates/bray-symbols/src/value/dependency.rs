@@ -306,23 +306,34 @@ pub enum DependencyReferenceKind {
     Address,
 }
 
-/// Proven identity of borrowed storage across one callable's normal completion.
-/// The exit subject, when initialized, refers to the entry subject's original storage.
+/// Checked origin information across one callable's normal completion.
+/// Exact relations identify the entry subject's original address. Other relations
+/// jointly bound its possible regions without establishing address equality.
+/// An absent entry represents the alternative outside those input regions.
 /// This relation grants no storage, initialization, or acquisition authority.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = DependencyProjection>
 {
-    entry: Subject,
+    entry: Option<Subject>,
     exit: Subject,
     kind: DependencyReferenceKind,
     target_projections: Arc<[Projection]>,
     dereferences: u32,
+    exact: bool,
 }
 
 impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
-    /// Connects a normal-exit borrow to its proven entry storage.
-    pub fn new(entry: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
+    /// Records a complete normal-exit origin bound.
+    /// An absent input records a raw address's independence from invocation inputs,
+    /// without establishing freshness, initialization, lifetime or trusted authority.
+    pub fn new(entry: Option<Subject>, exit: Subject, kind: DependencyReferenceKind) -> Self {
+        assert!(
+            entry.is_some() || kind == DependencyReferenceKind::Address,
+            "an independent raw-address bound cannot replace a borrow's input origin"
+        );
+
         Self {
+            exact: entry.is_some(),
             entry,
             exit,
             kind,
@@ -331,8 +342,30 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
         }
     }
 
+    /// Retains a complete origin bound without claiming one exact address.
+    pub const fn with_exactness(mut self, exact: bool) -> Self {
+        assert!(
+            !exact || self.entry.is_some(),
+            "independent reference origin cannot identify an input address"
+        );
+
+        self.exact = exact;
+
+        self
+    }
+
+    /// Whether the relation identifies one address on every completing path.
+    pub const fn is_exact(&self) -> bool {
+        self.exact
+    }
+
     /// Selects additional nested borrow layers before reading the entry reference.
     pub fn with_dereferences(mut self, count: u32) -> Self {
+        assert!(
+            count == 0 || self.entry.is_some(),
+            "independent reference origin has no input to dereference"
+        );
+
         self.dereferences = count;
 
         self
@@ -350,6 +383,11 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     ) -> Self {
         self.target_projections = shared_slice(projections);
 
+        assert!(
+            self.entry.is_some() || self.target_projections.is_empty(),
+            "independent reference origin has no input target to project"
+        );
+
         self
     }
 
@@ -363,9 +401,9 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
         self.kind
     }
 
-    /// Returns the storage observed at invocation entry.
-    pub const fn entry(&self) -> &Subject {
-        &self.entry
+    /// Returns the input origin, or None for a complete independent-input bound.
+    pub const fn entry(&self) -> Option<&Subject> {
+        self.entry.as_ref()
     }
 
     /// Returns the borrow observed after normal completion.
@@ -409,6 +447,7 @@ pub struct DependencyContractTemplateData {
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
     returned_input: Option<ConstantTermId>,
+    observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
     normal_completion: bool,
@@ -416,6 +455,19 @@ pub struct DependencyContractTemplateData {
 }
 
 impl DependencyContractTemplateData {
+    /// Records a value observation shared by every mutation-free normal completion.
+    /// This carries no ownership, storage identity or trusted authority.
+    pub fn with_observed_result(mut self, result: Option<ConstantTermId>) -> Self {
+        self.observed_result = result;
+
+        self
+    }
+
+    /// Returns the checked value observation in receiver-first formal argument order.
+    pub const fn observed_result(&self) -> Option<ConstantTermId> {
+        self.observed_result
+    }
+
     /// Records an unchanged owned input returned as the complete result on every normal exit.
     /// Normal completion must have no observable storage mutation or cleanup effects.
     /// The term contains only a formal input and owned projections, never an equality or dereference.
@@ -509,9 +561,15 @@ impl DependencyContractTemplateData {
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
         self.borrows()
             .iter()
-            .flat_map(|relation| [relation.entry(), relation.exit()])
+            .flat_map(|relation| {
+                relation
+                    .entry()
+                    .into_iter()
+                    .chain(std::iter::once(relation.exit()))
+            })
             .chain(self.effects().iter().filter_map(|effect| match effect {
                 DependencyStorageEffect::Atomic
+                | DependencyStorageEffect::Ambient
                 | DependencyStorageEffect::Unknown
                 | DependencyStorageEffect::Escape
                 | DependencyStorageEffect::Cleanup(_) => None,
@@ -538,11 +596,9 @@ impl DependencyContractTemplateData {
             abnormal_reports: None,
             borrows: Arc::new([]),
             returned_input: None,
+            observed_result: None,
             carriers: Arc::new([]),
-            effects: Arc::new([
-                super::DependencyStorageEffect::Unknown,
-                super::DependencyStorageEffect::Escape,
-            ]),
+            effects: Arc::new(super::DependencyStorageEffect::opaque_call()),
             normal_completion: true,
             normal_storage_preserved: false,
         }
@@ -561,6 +617,7 @@ impl DependencyContractTemplateData {
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
             returned_input: self.returned_input,
+            observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
             normal_completion: self.normal_completion,
@@ -608,17 +665,35 @@ impl DependencyContractTemplateData {
         self.normal_storage_preserved || self.effects.is_empty()
     }
 
-    /// Attaches checked entry-to-exit borrow identities in deterministic order.
+    /// Attaches complete entry-to-exit origin bounds and exact identities in deterministic order.
     pub fn with_borrows(
         mut self,
         borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
     ) -> Self {
-        self.borrows = sorted_unique_shared_slice(borrows);
+        let borrows = sorted_unique_shared_slice(borrows);
+
+        if borrows.len() < 2 {
+            self.borrows = borrows;
+
+            return self;
+        }
+
+        let mut alternatives = std::collections::BTreeMap::new();
+
+        for relation in borrows.iter() {
+            *alternatives.entry(relation.exit()).or_insert(0usize) += 1;
+        }
+
+        self.borrows = sorted_unique_shared_slice(borrows.iter().cloned().map(|relation| {
+            let exact = relation.is_exact() && alternatives[relation.exit()] == 1;
+
+            relation.with_exactness(exact)
+        }));
 
         self
     }
 
-    /// Returns proven borrow identities, distinct from required lifetime conditions.
+    /// Returns checked origin bounds and exact identities, independently of lifetime requirements.
     pub fn borrows(&self) -> &[DependencyBorrowRelation] {
         &self.borrows
     }
@@ -705,7 +780,7 @@ mod tests {
         let subject = DependencySubject::root(DependencySubjectRoot::Receiver);
 
         let relation = crate::DependencyBorrowRelation::new(
-            subject.clone(),
+            Some(subject.clone()),
             DependencySubject::root(DependencySubjectRoot::Result),
             crate::DependencyReferenceKind::Borrow,
         );

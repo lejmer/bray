@@ -303,10 +303,6 @@ pub(crate) enum SemanticQueryViolation {
     MissingBoundNode(AnyBoundNodeId),
     MissingCheckedTemplateNode(bray_bound_tree::CheckedTemplateNodeId),
     UnexpectedWalkOutcome(BoundWalkOutcome),
-    TypeMismatch {
-        expected: TypeId,
-        actual: TypeId,
-    },
     CountMismatch {
         data: SemanticDataKind,
         expected: usize,

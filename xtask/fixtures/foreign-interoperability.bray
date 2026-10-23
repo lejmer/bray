@@ -2,6 +2,7 @@
 module interoperability;
 
 using core.atomic;
+using std.numeric;
 using std.dynamic;
 using std.ffi;
 using std.ffi.c;
@@ -36,7 +37,7 @@ extern trusted func native_read_exported_value() -> i32
 
 @symbol(name = "bray_foreign_read_counter")
 @abi(c)
-extern trusted func native_read_counter(pos value: RawPointer<i32>) -> i32
+extern trusted func native_read_counter(pos value: DataPointer<i32>) -> i32
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_sum_variadic")
@@ -66,12 +67,12 @@ extern trusted func native_record_alignment() -> u64
 
 @symbol(name = "bray_foreign_narrow_length")
 @abi(c)
-extern trusted func native_narrow_length(pos value: RawPointer<u8>) -> u64
+extern trusted func native_narrow_length(pos value: DataPointer<u8>) -> u64
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_wide_length")
 @abi(c)
-extern trusted func native_wide_length(pos value: RawPointer<std.ffi.c.WideChar>) -> u64
+extern trusted func native_wide_length(pos value: DataPointer<std.ffi.c.WideChar>) -> u64
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_resource_acquire")
@@ -240,9 +241,9 @@ extern trusted func native_invoke_plain(
 @abi(c)
 extern trusted func native_invoke(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
@@ -251,9 +252,9 @@ extern trusted func native_invoke(
 @abi(c)
 extern trusted func native_invoke_on_thread(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
@@ -262,9 +263,9 @@ extern trusted func native_invoke_on_thread(
 @abi(c)
 extern trusted func native_invoke_concurrently(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos first_value: i32,
     pos second_value: i32,
 ) -> i32
@@ -279,7 +280,7 @@ trusted func plain_callback(pos value: i32) -> i32
 
 @symbol(name = "bray_foreign_stateful_callback")
 @abi(c)
-trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+trusted func stateful_callback(pos context: DataPointer<i32>, pos value: i32) -> i32
     uses(raw_memory)
 {
     let state: &i32 = trusted std.ffi.callback_state<i32>(context);
@@ -296,16 +297,16 @@ trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> 
 @abi(c)
 extern trusted func native_invoke_reentrant(
     pos callback: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call),
-    pos context: RawPointer<i32>,
+    pos context: DataPointer<i32>,
     pos value: i32,
 ) -> i32
     uses(foreign_call);
 
 @symbol(name = "bray_foreign_reentrant_callback")
 @abi(c)
-trusted func reentrant_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+trusted func reentrant_callback(pos context: DataPointer<i32>, pos value: i32) -> i32
     uses(foreign_call)
 {
     if value == 0
@@ -314,7 +315,7 @@ trusted func reentrant_callback(pos context: RawPointer<i32>, pos value: i32) ->
     }
 
     let entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call) = reentrant_callback;
 
     return trusted native_invoke_reentrant(entry, context, value = 0);
@@ -436,7 +437,7 @@ trusted func audit_callbacks()
     >(trusted std.ffi.CallbackContext<i32>(40));
 
     let entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(raw_memory) = stateful_callback;
 
     let callback = trusted std.ffi.borrow_callback(&context, entry);
@@ -446,7 +447,7 @@ trusted func audit_callbacks()
     assert(trusted native_invoke_concurrently(callback.entry(), callback.context(), 1, 2) == 83);
 
     let reentrant_entry: @abi(c)
-    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+    trusted func(pos context: DataPointer<i32>, pos value: i32) -> i32
         uses(foreign_call) = reentrant_callback;
 
     let reentrant = trusted std.ffi.borrow_callback(&context, reentrant_entry);
@@ -465,7 +466,7 @@ trusted func audit_dynamic_library()
         std.dynamic.DynamicLibrary,
         std.ffi.ForeignError
     >(
-        std.dynamic.DynamicLibrary.open_path(&path, policy = std.dynamic.LoadPolicy.PlatformDefault),
+        std.dynamic.DynamicLibrary.open(&path, policy = std.dynamic.LoadPolicy.PlatformDefault),
     );
 
     {
@@ -521,6 +522,7 @@ trusted func main() -> i32
     trusted audit_requirements();
     trusted audit_requirement_scopes();
     audit_operator_requirements();
+    trusted audit_predicate_computation();
     trusted audit_callbacks();
     trusted audit_dynamic_library();
     trusted audit_native_data();
@@ -634,11 +636,11 @@ trusted func audit_requirements()
     let _: PanicReport = std.testing.assert_error<unit, PanicReport>(reversed);
 
     require_quotient(
-        runtime_unsigned(18446744073709551615),
+        runtime_unsigned(std.numeric.U64_MAX),
         runtime_unsigned(2),
-        runtime_unsigned(9223372036854775807),
+        runtime_unsigned((std.numeric.U64_MAX >> 1)),
     );
-    require_sum(runtime_unsigned(18446744073709551615), runtime_unsigned(18446744073709551615));
+    require_sum(runtime_unsigned(std.numeric.U64_MAX), runtime_unsigned(std.numeric.U64_MAX));
 
     require_wide_quotient(
         runtime_wide_unsigned(340282366920938463463374607431768211455),
@@ -775,10 +777,10 @@ trusted func audit_requirement_scopes()
 }
 
 internal callable IncrementAction = func(pos value: i32)
-    requires(value < 2147483647 && ordered(first = value + 1, second = 1));
+    requires(value < std.numeric.I32_MAX && ordered(first = value + 1, second = 1));
 
 func require_increment(pos value: i32)
-    requires(value < 2147483647 && ordered(first = value + 1, second = 1))
+    requires(value < std.numeric.I32_MAX && ordered(first = value + 1, second = 1))
 {
 }
 
@@ -839,6 +841,106 @@ func audit_operator_requirements()
     let rejected: Result<unit, PanicReport> = catch
     {
         require_text(runtime_text("bad"));
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(rejected);
+}
+
+
+const func bounded_count(pos limit: u32) -> u32
+{
+    let mut index: u32 = 0;
+
+    while index < limit
+    {
+        index += 1;
+
+        if index == 3
+        {
+            return index;
+        }
+    }
+
+    return index;
+}
+
+const func wrapped_power(pos value: i32, pos exponent: i32) -> i32
+    requires(exponent >= 0)
+{
+    return value ** exponent;
+}
+
+func require_count(pos limit: u32, pos expected: u32)
+    requires(bounded_count(limit) == expected)
+{
+}
+
+struct Flags
+{
+    count: u32;
+    value: bool;
+}
+
+struct FlagCursor
+{
+    mut remaining: u32;
+    value: bool;
+}
+
+impl FlagsIterable = &Flags(Iterable)
+{
+    type Element = bool;
+    type Cursor = interoperability.FlagCursor;
+
+    consume func iterate() -> interoperability.FlagCursor
+    {
+        return interoperability.FlagCursor { remaining = self.count, value = self.value };
+    }
+}
+
+impl FlagCursorIterator = FlagCursor(Iterator)
+{
+    type Element = bool;
+
+    mut func next() -> bool?
+    {
+        if self.remaining == 0
+        {
+            return none;
+        }
+
+        self.remaining -= 1;
+
+        return self.value;
+    }
+}
+
+func require_flags(pos value: Flags)
+    requires(all(value))
+{
+}
+
+trusted func audit_predicate_computation()
+    uses(foreign_call)
+{
+    require_count(0, 0);
+    require_count(2, 2);
+    require_count(7, 3);
+
+    let value: i32 = trusted native_read_exported_value();
+
+    assert(wrapped_power(value, 0) == 1);
+    assert(wrapped_power(value, 1) == value);
+    assert(wrapped_power(runtime_integer(2), 32) == 0);
+
+    require_flags(Flags { count = 0, value = false });
+    require_flags(Flags { count = 7, value = true });
+
+    let rejected: Result<unit, PanicReport> = catch
+    {
+        require_flags(Flags { count = 7, value = false });
 
         yield unit;
     };

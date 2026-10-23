@@ -26,7 +26,7 @@ pub(crate) enum ConstantDestination {
 }
 
 /// The caller-resolved result of one constant reference dependency.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ConstantReferenceResolution {
     /// The referenced constant instance evaluated successfully.
     Value(ConstantValueId),
@@ -152,12 +152,18 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         references: impl IntoIterator<Item = (BoundExpressionId, ConstantReferenceResolution)>,
     ) -> Self {
         for (expression, resolution) in references {
-            let previous = self.references.insert(expression, resolution);
-
-            assert!(
-                previous.is_none_or(|previous| previous == resolution),
-                "constant reference {expression:?} must have one resolution"
-            );
+            match self.references.entry(expression) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(resolution);
+                }
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    assert_eq!(
+                        entry.get(),
+                        &resolution,
+                        "constant reference {expression:?} must have one resolution"
+                    );
+                }
+            }
         }
 
         self
@@ -212,7 +218,7 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
 
     /// Returns the caller-resolved dependency for one constant reference occurrence.
     pub fn reference(&self, expression: BoundExpressionId) -> Option<ConstantReferenceResolution> {
-        self.references.get(&expression).copied()
+        self.references.get(&expression).cloned()
     }
 
     pub(crate) fn local_term(&self, local: AnyLocalSymbolId) -> Option<ConstantTermId> {

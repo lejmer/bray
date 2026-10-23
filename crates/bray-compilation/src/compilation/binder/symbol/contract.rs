@@ -477,7 +477,8 @@ fn bind_callable_contracts(
         }
     }
 
-    let capabilities = bind_trusted_capability_clauses(context, owner, uses_clauses)?;
+    let capabilities =
+        bind_trusted_capability_clauses(context, owner.into_any(), uses_clauses, None)?;
 
     diagnostics = diagnostics.merged(capabilities.diagnostics());
 
@@ -581,6 +582,7 @@ fn bind_callable_contracts(
 
     let (mut invocation_behavior, mut deferred_execution_behavior) = callable_phase_behaviors(
         execution,
+        abi,
         &properties,
         capabilities
             .value()
@@ -618,7 +620,7 @@ fn bind_callable_contracts(
             .unwind_behavior(key, context.cancellation())
             .map_err(super::binding::binder_error)?;
 
-        *unwind.result().value()
+        unwind.result().value().may_unwind()
     } else {
         // A foreign ABI cannot propagate Bray panic or cancellation across its boundary.
         abi == bray_symbols::CallableAbi::Bray
@@ -631,7 +633,7 @@ fn bind_callable_contracts(
 
     validate_trusted_capabilities(
         context,
-        owner,
+        owner.into_any(),
         trust,
         capabilities.value(),
         used_capabilities,
@@ -685,26 +687,28 @@ pub(in crate::compilation) fn bind_declared_trusted_capabilities(
 
     bind_trusted_capability_clauses(
         context,
-        owner,
+        owner.into_any(),
         clauses.into_iter().filter_map(|clause| match clause {
             ContractClauseSyntax::Uses(clause) => Some(clause),
             ContractClauseSyntax::Requires(_)
             | ContractClauseSyntax::Ensures(_)
             | ContractClauseSyntax::With(_) => None,
         }),
+        None,
     )
 }
 
-fn bind_trusted_capability_clauses(
+pub(in crate::compilation) fn bind_trusted_capability_clauses(
     context: &CompilationBindingContext<'_>,
-    owner: CallableSymbolId,
+    owner: AnySymbolId,
     clauses: impl IntoIterator<Item = UsesClauseSyntax>,
+    parameters: Option<&bray_syntax::ParameterListSyntax>,
 ) -> BindingQueryResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let mut capabilities = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
     for clause in clauses {
-        let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
+        let result = bind_trusted_capability_clause(context, owner, &clause, parameters)?;
 
         let (symbols, clause_diagnostics) = result.into_parts();
 
@@ -755,6 +759,7 @@ impl DeclaredTrustedCapability {
 
 fn callable_phase_behaviors(
     execution: CallableExecution,
+    abi: bray_symbols::CallableAbi,
     properties: &[bray_symbols::ExecutionProperty],
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
@@ -783,8 +788,16 @@ fn callable_phase_behaviors(
         .flat_map(bray_bound_tree::CheckedBodyBehavior::lifecycle_obligations)
         .copied();
 
-    let current_run_cancellation = body.map_or(
-        CurrentRunCancellation::NotEntered,
+    let current_run_cancellation = body.map_or_else(
+        || {
+            if abi == bray_symbols::CallableAbi::Bray
+                && !properties.contains(&bray_symbols::ExecutionProperty::Total)
+            {
+                CurrentRunCancellation::MayEnter
+            } else {
+                CurrentRunCancellation::NotEntered
+            }
+        },
         bray_bound_tree::CheckedBodyBehavior::current_run_cancellation,
     );
 
@@ -808,9 +821,9 @@ fn callable_phase_behaviors(
     }
 }
 
-fn validate_trusted_capabilities(
+pub(in crate::compilation) fn validate_trusted_capabilities(
     context: &CompilationBindingContext<'_>,
-    owner: CallableSymbolId,
+    owner: AnySymbolId,
     trust: CallableTrust,
     declared: &[DeclaredTrustedCapability],
     used: Option<&[bray_bound_tree::TrustedCapabilityUse]>,
@@ -847,10 +860,10 @@ fn validate_trusted_capabilities(
     if trust != CallableTrust::Trusted {
         let anchor = context
             .symbols
-            .declaration_syntax_anchor(owner.into_any())
+            .declaration_syntax_anchor(owner)
             .ok_or_else(|| {
                 query_contract(
-                    owner.into_any(),
+                    owner,
                     CallableContractsQuery::KIND,
                     SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
                 )
@@ -879,10 +892,10 @@ fn validate_trusted_capabilities(
 
     let anchor = context
         .symbols
-        .declaration_syntax_anchor(owner.into_any())
+        .declaration_syntax_anchor(owner)
         .ok_or_else(|| {
             query_contract(
-                owner.into_any(),
+                owner,
                 CallableContractsQuery::KIND,
                 SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
             )
@@ -975,7 +988,7 @@ fn trusted_capability_origins<'a>(
         )
 }
 
-enum ContractClauseSyntax {
+pub(in crate::compilation) enum ContractClauseSyntax {
     Requires(RequiresClauseSyntax),
     Ensures(EnsuresClauseSyntax),
     With(WithClauseSyntax),
@@ -1270,7 +1283,9 @@ fn bind_callable_static_constraints(
     Ok(())
 }
 
-fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax> {
+pub(in crate::compilation) fn direct_contract_clauses(
+    root: SyntaxNodeView<'_>,
+) -> Vec<ContractClauseSyntax> {
     let mut clauses = Vec::new();
 
     walk_direct_child_nodes(&root, |node| {
@@ -1431,6 +1446,45 @@ mod tests {
             contracts.diagnostics(),
             DiagnosticKind::CheckingUndeclaredTrustedCapability,
         );
+    }
+
+    #[test]
+    fn callable_value_invocations_preserve_implementation_and_boundary_authority() {
+        for (abi, declaration, expected) in [
+            ("", "", None),
+            (
+                "",
+                "uses(raw_memory)",
+                Some(DiagnosticKind::CheckingUnusedTrustedCapability),
+            ),
+            ("@abi(c)", "uses(foreign_call)", None),
+            (
+                "@abi(c)",
+                "",
+                Some(DiagnosticKind::CheckingUndeclaredTrustedCapability),
+            ),
+        ] {
+            let compilation = compilation(&format!(
+                r#"
+                trusted module app;
+
+                trusted func outer(
+                    pos entry: {abi} trusted func() -> u32 uses(raw_memory),
+                )
+                    {declaration}
+                {{
+                    let _: u32 = trusted entry();
+                }}
+                "#
+            ));
+
+            let contracts = callable_contracts(&compilation, "outer");
+
+            assert_eq!(
+                diagnostic_kinds(contracts.diagnostics()),
+                expected.into_iter().collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
@@ -1820,5 +1874,51 @@ mod tests {
                 CallableSymbolId::from(function),
             ))
             .unwrap_or_else(|error| panic!("callable contracts must publish: {error:?}"))
+    }
+
+    #[test]
+    fn callable_type_capabilities_use_their_formal_and_lexical_name_scopes() {
+        for (source, valid) in [
+            (
+                r#"
+                module app;
+                callable Action = trusted func(pos value: u32) uses(raw_memory);
+            "#,
+                true,
+            ),
+            (
+                r#"
+                module app;
+                callable Action = trusted func(pos raw_memory: u32) uses(raw_memory);
+            "#,
+                false,
+            ),
+            (
+                r#"
+                module app;
+                func outer(pos action: trusted func(pos raw_memory: u32) uses(raw_memory)) {}
+            "#,
+                false,
+            ),
+            (
+                r#"
+                module app;
+                func outer(pos raw_memory: u32, pos action: trusted func() uses(raw_memory)) {}
+            "#,
+                false,
+            ),
+        ] {
+            let application = crate::test_support::compilation(source);
+            let diagnostics = application.check_diagnostics();
+
+            if valid {
+                assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+            } else {
+                assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::BindingWrongNameKind,
+                );
+            }
+        }
     }
 }

@@ -159,6 +159,10 @@ pub enum DiagnosticNoteKind {
     ResolveFinalization,
     /// Supply or expose a trusted condition at its callable boundary.
     TrustedObligationEvidenceRequired,
+    /// Prove the compound execution condition from entry authority or a value branch.
+    ExecutionRequirementEvidenceRequired,
+    /// Supply constant values that establish the selected callable requirements.
+    ConstantCallArgumentsMustSatisfyRequirements,
     /// Preserve the owner and dependencies when transferring a witness.
     TrustedWitnessTransferRequired,
 }
@@ -242,6 +246,10 @@ impl DiagnosticNoteKind {
             Self::ReturnRequiredResult => "return_required_result",
             Self::ResolveFinalization => "resolve_finalization",
             Self::TrustedObligationEvidenceRequired => "trusted_obligation_evidence_required",
+            Self::ExecutionRequirementEvidenceRequired => "execution_requirement_evidence_required",
+            Self::ConstantCallArgumentsMustSatisfyRequirements => {
+                "constant_call_arguments_must_satisfy_requirements"
+            }
             Self::TrustedWitnessTransferRequired => "trusted_witness_transfer_required",
         }
     }

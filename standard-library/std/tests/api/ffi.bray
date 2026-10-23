@@ -19,7 +19,7 @@ func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
 
 @symbol(name = "bray_test_stateful_callback")
 @abi(c)
-trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> bool
+trusted func stateful_callback(pos context: DataPointer<i32>, pos value: i32) -> bool
     uses(raw_memory)
 {
     let state = trusted std.ffi.callback_state<i32>(context);
@@ -51,11 +51,10 @@ func c_scalar_wrappers_preserve_values_and_layouts()
 
 @test
 trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.memory.MemoryLayoutError>
-    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
 
-    let entry: @abi(c) trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+    let entry: @abi(c) trusted func(pos context: DataPointer<i32>, pos value: i32) -> bool
         uses(raw_memory) = stateful_callback;
 
     let callback = trusted std.ffi.borrow_callback(&context, entry);
@@ -67,28 +66,27 @@ trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.me
 
 @test
 trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryLayoutError>
-    uses(manual_alloc, raw_memory, unchecked_init)
+    uses(foreign_call)
 {
     let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
 
-    let exported: @abi(c) trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+    let exported: @abi(c) trusted func(pos context: DataPointer<i32>, pos value: i32) -> bool
         uses(raw_memory) = stateful_callback;
 
     let callback = trusted std.ffi.borrow_callback(&context, exported);
 
-    let entry: @abi(c) trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+    let entry: @abi(c) trusted func(pos context: DataPointer<i32>, pos value: i32) -> bool
         uses(raw_memory) = callback.entry();
 
     assert(trusted entry(callback.context(), 41));
 
-    let _: &std.ffi.CallbackContext<i32> = callback.owner;
+    let _: &std.ffi.CallbackContext<i32> = internal callback.owner;
 
     return Ok(unit);
 }
 
 @test
 trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.StringError>
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let input: bytes = b"ABC";
     let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);

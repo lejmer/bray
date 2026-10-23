@@ -164,6 +164,7 @@ const fn platform_abi_type_key(ty: bray_diagnostics::DiagnosticPlatformAbiType) 
         Type::U32 => "u32",
         Type::U64 => "u64",
         Type::I64 => "i64",
+        Type::FunctionPointer => "function_pointer",
         Type::PointerU8 => "pointer_u8",
         Type::PointerU32 => "pointer_u32",
         Type::PointerU64 => "pointer_u64",

@@ -29,7 +29,12 @@ pub(crate) trait FixedPointDomain {
 
     fn boundary(&self) -> Self::State;
 
-    fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool;
+    fn merge(
+        &self,
+        block: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        boundary: &Self::State,
+    ) -> bool;
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State;
 
@@ -39,15 +44,6 @@ pub(crate) trait FixedPointDomain {
         edge: &AnalysisEdge,
         target: &mut Self::State,
     ) -> bool;
-
-    fn propagate_self(
-        &self,
-        source: &Self::State,
-        state: &mut Self::State,
-        edge: &AnalysisEdge,
-    ) -> bool {
-        self.propagate(source, edge, state)
-    }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize;
 }
@@ -86,25 +82,15 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         .map(|block| domain.initial(block))
         .collect::<Vec<_>>();
 
+    let mut outputs = std::iter::repeat_with(|| None)
+        .take(graph.blocks().len())
+        .collect::<Vec<_>>();
+
+    let boundaries = boundary_blocks(graph, domain.direction()).collect::<BTreeSet<_>>();
     let mut worklist = BTreeSet::new();
 
-    for boundary in boundary_blocks(graph, domain.direction()) {
-        let Some(index) = boundary.to_index() else {
-            continue;
-        };
-
-        let Some(state) = states.get_mut(index) else {
-            continue;
-        };
-
-        domain.merge_boundary(state, &domain.boundary());
-        enqueue(boundary, &mut worklist, graph, domain.direction());
-    }
-
-    // Component order settles all acyclic predecessors before a block runs.
-    // Within a cycle, changed inputs requeue only the affected members.
     for block in graph.blocks() {
-        if domain.should_seed(block) {
+        if boundaries.contains(&block.id()) || domain.should_seed(block) {
             enqueue(block.id(), &mut worklist, graph, domain.direction());
         }
     }
@@ -117,66 +103,56 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
             return FixedPointOutcome::Cancelled;
         }
 
-        let Some(block_index) = block_id.to_index() else {
-            continue;
+        let block_index = block_id.to_index().expect("scheduled block has an index");
+
+        let block = graph
+            .block(block_id)
+            .expect("scheduled block belongs to its graph");
+
+        let Some(incoming) = incoming_state(
+            graph,
+            domain,
+            block,
+            &outputs,
+            &states[block_index],
+            boundaries.contains(&block_id),
+            cancellation,
+        ) else {
+            return FixedPointOutcome::Cancelled;
         };
 
-        let Some(block) = graph.block(block_id) else {
-            continue;
-        };
+        let changed = states[block_index] != incoming;
 
-        let Some(source) = states.get(block_index) else {
+        if !changed && outputs[block_index].is_some() {
             continue;
-        };
+        }
 
-        let output = domain.transfer(block, source);
+        states[block_index] = incoming;
+
+        let output = domain.transfer(block, &states[block_index]);
+
+        if outputs[block_index].as_ref() == Some(&output) {
+            continue;
+        }
+
+        outputs[block_index] = Some(output);
+        updates = updates.saturating_add(usize::from(changed));
+
+        if updates > convergence_bound {
+            return FixedPointOutcome::ConvergenceInvariantViolated;
+        }
 
         for edge_id in traversal_edges(block, domain.direction()) {
-            if cancellation.is_cancelled() {
-                return FixedPointOutcome::Cancelled;
-            }
+            let edge = graph
+                .edge(*edge_id)
+                .expect("scheduled successor edge belongs to its graph");
 
-            let Some(edge) = graph.edge(*edge_id) else {
-                continue;
-            };
-
-            let target = traversal_target(edge, domain.direction());
-
-            let Some(target_index) = target.to_index() else {
-                continue;
-            };
-
-            if block_index == target_index {
-                let Some(state) = states.get_mut(block_index) else {
-                    continue;
-                };
-
-                if domain.propagate_self(&output, state, edge) {
-                    updates = updates.saturating_add(1);
-
-                    if updates > convergence_bound {
-                        return FixedPointOutcome::ConvergenceInvariantViolated;
-                    }
-
-                    enqueue(target, &mut worklist, graph, domain.direction());
-                }
-
-                continue;
-            }
-
-            let Some(target_state) = states.get_mut(target_index) else {
-                continue;
-            };
-
-            if domain.propagate(&output, edge, target_state) {
-                updates = updates.saturating_add(1);
-
-                if updates > convergence_bound {
-                    return FixedPointOutcome::ConvergenceInvariantViolated;
-                }
-
-                enqueue(target, &mut worklist, graph, domain.direction());
-            }
+            enqueue(
+                traversal_target(edge, domain.direction()),
+                &mut worklist,
+                graph,
+                domain.direction(),
+            );
         }
     }
 
@@ -184,6 +160,62 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
         unit: graph.unit(),
         states: states.into_boxed_slice(),
     })
+}
+
+fn incoming_state<D: FixedPointDomain>(
+    graph: &ControlFlowGraph,
+    domain: &D,
+    block: &AnalysisBlock,
+    outputs: &[Option<D::State>],
+    previous: &D::State,
+    boundary: bool,
+    cancellation: &dyn Cancellation,
+) -> Option<D::State> {
+    let mut incoming = domain.initial(block);
+
+    if boundary {
+        domain.merge(None, &mut incoming, &domain.boundary());
+    }
+
+    let reverse = match domain.direction() {
+        FlowDirection::Forward => FlowDirection::Backward,
+        FlowDirection::Backward => FlowDirection::Forward,
+    };
+
+    // Join only the latest predecessor outputs. Accumulating old contributions
+    // invents values at unchanged branches inside cycles and loses their relations.
+    // Each output is transferred once and retained here without cloning it.
+    let mut cyclic = false;
+
+    for edge_id in traversal_edges(block, reverse) {
+        if cancellation.is_cancelled() {
+            return None;
+        }
+
+        let edge = graph
+            .edge(*edge_id)
+            .expect("incoming edge belongs to its graph");
+
+        cyclic |= matches!(
+            edge.kind(),
+            super::model::AnalysisEdgeKind::LoopBack | super::model::AnalysisEdgeKind::LoopContinue
+        );
+
+        let source = traversal_target(edge, reverse);
+        let index = source.to_index().expect("incoming source has an index");
+
+        if let Some(output) = &outputs[index] {
+            domain.propagate(output, edge, &mut incoming);
+        }
+    }
+
+    if cyclic {
+        // Loop headers retain their accumulated approximation. Otherwise a newly
+        // excluded back edge can restore the entry literal and oscillate forever.
+        domain.merge(Some(block.id()), &mut incoming, previous);
+    }
+
+    Some(incoming)
 }
 
 fn boundary_blocks(
@@ -328,8 +360,17 @@ mod tests {
             fn should_seed(&self, _: &AnalysisBlock) -> bool {
                 true
             }
-            fn merge_boundary(&self, _: &mut Self::State, _: &Self::State) -> bool {
-                false
+            fn merge(
+                &self,
+                _: Option<AnalysisBlockId>,
+                target: &mut Self::State,
+                source: &Self::State,
+            ) -> bool {
+                let before = target.len();
+
+                target.extend(source.iter().copied());
+
+                target.len() != before
             }
             fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
                 self.transfers.set(self.transfers.get() + 1);
@@ -339,14 +380,10 @@ mod tests {
             fn propagate(
                 &self,
                 source: &Self::State,
-                _: &AnalysisEdge,
+                edge: &AnalysisEdge,
                 target: &mut Self::State,
             ) -> bool {
-                let before = target.len();
-
-                target.extend(source.iter().copied());
-
-                target.len() != before
+                self.merge(Some(edge.target()), target, source)
             }
             fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
                 graph.blocks().len() * graph.blocks().len()
@@ -446,7 +483,12 @@ mod tests {
             1
         }
 
-        fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
+        fn merge(
+            &self,
+            _: Option<AnalysisBlockId>,
+            target: &mut Self::State,
+            boundary: &Self::State,
+        ) -> bool {
             let changed = *target < *boundary;
 
             *target = (*target).max(*boundary);
@@ -461,25 +503,16 @@ mod tests {
         fn propagate(
             &self,
             source: &Self::State,
-            _: &AnalysisEdge,
+            edge: &AnalysisEdge,
             target: &mut Self::State,
         ) -> bool {
-            self.merge_boundary(target, source)
-        }
+            let incoming = if edge.source() == edge.target() {
+                source.saturating_add(1).min(3)
+            } else {
+                *source
+            };
 
-        fn propagate_self(
-            &self,
-            _: &Self::State,
-            state: &mut Self::State,
-            _: &AnalysisEdge,
-        ) -> bool {
-            if *state >= 3 {
-                return false;
-            }
-
-            *state += 1;
-
-            true
+            self.merge(Some(edge.target()), target, &incoming)
         }
 
         fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {

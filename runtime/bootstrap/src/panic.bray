@@ -1,11 +1,13 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
+using std.numeric;
 using core.target;
 using internal bray.runtime.bootstrap.heap;
 using core.atomic;
 using core.memory;
 using std.memory;
+using std.memory.function;
 using internal bray.runtime.bootstrap.pool.growth;
 using internal bray.runtime.bootstrap.pool;
 using internal std.memory;
@@ -15,7 +17,7 @@ using internal std.sync.spin_lock;
 internal callable PanicMessageCopy = @abi(c) trusted func(
     pos address: usize,
     pos offset: usize,
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: usize,
 ) -> u32
     requires(
@@ -26,7 +28,7 @@ internal callable PanicMessageCopy = @abi(c) trusted func(
 internal callable PanicMessageRelease = @abi(c) trusted func(
     pos address: usize,
     pos length: usize,
-    pos outcome: RawPointer<u8>,
+    pos outcome: DataPointer<u8>,
 )
     requires(trusted bray.runtime.bootstrap.pool.protocol_access());
 
@@ -88,7 +90,7 @@ trusted internal func panic_report_construction(
     pos source_namespace_word_1: u64,
     pos source_namespace_word_2: u64,
     pos source_namespace_word_3: u64,
-    pos message: RawPointer<u8>,
+    pos message: DataPointer<u8>,
     pos message_length: usize,
 ) -> PanicReportData
     ensures(trusted native_report_callbacks(report = &result))
@@ -138,12 +140,16 @@ trusted internal func panic_report_construction(
     let copy: PanicMessageCopy = panic_message_copy;
     let release: PanicMessageRelease = panic_message_release;
 
-    report.copy_message = trusted core.target.expose_address<PanicMessageCopy>(
-        trusted std.memory.pointer_from_callable(copy)
+    report.copy_message = trusted core.target.expose_address<u8>(
+        trusted std.memory.function.to_data<PanicMessageCopy>(
+            trusted std.memory.function_address<PanicMessageCopy>(copy)
+        )
     );
 
-    report.release_message = trusted core.target.expose_address<PanicMessageRelease>(
-        trusted std.memory.pointer_from_callable(release)
+    report.release_message = trusted core.target.expose_address<u8>(
+        trusted std.memory.function.to_data<PanicMessageRelease>(
+            trusted std.memory.function_address<PanicMessageRelease>(release)
+        )
     );
 
     report.consumer = trusted consume_address();
@@ -153,7 +159,7 @@ trusted internal func panic_report_construction(
     return report;
 }
 
-trusted internal func retain_panic_message(pos source: RawPointer<u8>, pos count: usize) -> usize
+trusted internal func retain_panic_message(pos source: DataPointer<u8>, pos count: usize) -> usize
     uses(unchecked_init)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -189,7 +195,7 @@ trusted internal func retain_panic_message(pos source: RawPointer<u8>, pos count
 
 // Fresh allocation does not access the native caller's immutable message range.
 trusted internal func allocate_message_storage(
-    pos source: RawPointer<u8>,
+    pos source: DataPointer<u8>,
     pos count: usize
 ) -> std.memory.RawBuffer<u8>?
     requires(
@@ -215,7 +221,7 @@ trusted internal func retain_message_storage(pos storage: std.memory.RawBuffer<u
         {
             let mut guard = trusted bray.runtime.bootstrap.pool.lock();
             let pool = guard.get();
-            let maximum: usize = ~0;
+            let maximum: usize = std.numeric.USIZE_MAX;
 
             if pool.credits == maximum
             {
@@ -251,7 +257,7 @@ trusted internal func retain_message_storage(pos storage: std.memory.RawBuffer<u
 }
 
 trusted internal func message_copy_lock(
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos count: usize
 ) -> std.sync.SpinLockGuard<ReportPool>
     requires(
@@ -269,7 +275,7 @@ trusted internal func message_copy_lock(
 trusted internal func message_storage(
     pos pool: &mut ReportPool,
     pos handle: usize,
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos count: usize,
 ) -> &std.memory.RawBuffer<u8>
     requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
@@ -290,7 +296,7 @@ trusted internal func message_storage(
 trusted internal func panic_message_copy(
     pos address: usize,
     pos offset: usize,
-    pos destination: RawPointer<u8>,
+    pos destination: DataPointer<u8>,
     pos length: usize
 ) -> u32
     requires(
@@ -319,7 +325,7 @@ trusted internal func panic_message_copy(
         return 3;
     }
 
-    let source: RawPointer<u8> = trusted internal std.memory.slice_pointer<u8>(selected, count = count);
+    let source: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(selected, count = count);
 
     let _: unit = trusted core.memory.copy_overlapping<u8>(source = source, destination = destination, count = count);
 
@@ -359,7 +365,7 @@ trusted internal func take_message_storage(pos handle: usize) -> std.memory.RawB
 }
 
 @abi(c)
-trusted internal func panic_message_release(pos address: usize, pos length: usize, pos outcome: RawPointer<u8>)
+trusted internal func panic_message_release(pos address: usize, pos length: usize, pos outcome: DataPointer<u8>)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let _ = outcome;

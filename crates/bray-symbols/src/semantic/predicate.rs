@@ -71,42 +71,6 @@ pub enum PredicateDomain {
     Execution,
 }
 
-impl PredicateDomain {
-    /// Classifies checked predicate meaning once at its source boundary.
-    pub fn checked_condition(
-        condition: Option<crate::ConstantTermId>,
-        trusted: bool,
-        values: &crate::SemanticValueStore,
-        symbols: &crate::AvailableCompilerKnownSymbols,
-    ) -> Self {
-        if trusted {
-            return Self::Trusted;
-        }
-
-        let Some(mut term) = condition else {
-            return Self::Value;
-        };
-
-        loop {
-            let data = values.constant_term_data(term);
-
-            match data.as_ref() {
-                crate::ConstantTermData::Typed { term: inner, .. } => term = *inner,
-                crate::ConstantTermData::PredicateCall { predicate, .. }
-                    if symbols
-                        .symbol_implementation(predicate.definition().into_any())
-                        .is_some_and(
-                            bray_compiler_known::ImplementationHook::is_execution_requirement,
-                        ) =>
-                {
-                    return Self::Execution;
-                }
-                _ => return Self::Value,
-            }
-        }
-    }
-}
-
 /// A checked source-independent semantic predicate summary.
 ///
 /// The full source-shaped checked expression remains owned by `bray-bound-tree`.
@@ -137,6 +101,35 @@ impl PredicateSemanticSummary {
         self.domain = domain;
 
         self
+    }
+
+    /// Returns a direct execution-lane requirement that ordinary body-effect inference can propagate.
+    pub fn execution_requirement(
+        self,
+        values: &crate::SemanticValueStore,
+        symbols: &crate::AvailableCompilerKnownSymbols,
+    ) -> Option<crate::CallableExecutionRequirement> {
+        let mut term = self.condition?;
+
+        loop {
+            let data = values.constant_term_data(term);
+
+            match data.as_ref() {
+                crate::ConstantTermData::Typed { term: inner, .. } => term = *inner,
+                crate::ConstantTermData::PredicateCall { predicate, .. }
+                    if symbols
+                        .symbol_implementation(predicate.definition().into_any())
+                        .is_some_and(
+                            bray_compiler_known::ImplementationHook::is_execution_requirement,
+                        ) =>
+                {
+                    return Some(crate::CallableExecutionRequirement::new(
+                        predicate.definition().into_any(),
+                    ));
+                }
+                _ => return None,
+            }
+        }
     }
 
     /// Returns bounded predicate meaning in receiver-first callable argument order.

@@ -44,13 +44,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,
     ) -> bool {
-        if occurrence.expression().is_some_and(|expression| {
-            self.memory.operation(expression).is_some()
-                || matches!(
-                    self.request.view().expression(expression),
-                    Some(bray_bound_tree::BoundExpression::Assignment(_))
-                )
-        }) {
+        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+            && occurrence.expression().is_some_and(|expression| {
+                self.memory.operation(expression).is_some()
+                    || matches!(
+                        self.request.view().expression(expression),
+                        Some(bray_bound_tree::BoundExpression::Assignment(_))
+                    )
+            })
+        {
             return false;
         }
 
@@ -87,12 +89,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: Option<&StorageInvalidation>,
     ) {
         // Resolving a destination does not turn an ownership transfer into a write.
-        let changes_contents = occurrence.expression().is_some_and(|expression| {
-            matches!(
-                self.semantics.selections().expression(expression),
-                Some(bray_bound_tree::SemanticSelection::Call(_))
-            )
-        });
+        let changes_contents = self.dependencies.calls().contains_key(&occurrence);
 
         let Some(invalidation) = invalidation.or_else(|| self.refinements.get(&occurrence)) else {
             return;
@@ -110,9 +107,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .and_then(|contracts| contracts.calls.get(&occurrence))
                 && contract.preserves_inputs
                 && state.entries.get(&occurrence).is_some_and(|entry| {
-                    entry.proves(&contract.preconditions)
-                        && (entry.trusted_boundary
-                            || self.trusted_requirements_proven(entry, &contract.requirements))
+                    entry.proves(
+                        contract
+                            .preconditions
+                            .iter()
+                            .map(|(condition, _)| condition),
+                    ) && (entry.trusted_boundary
+                        || self.trusted_requirements_proven(entry, &contract.requirements))
                 })
             {
                 return;
@@ -127,9 +128,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
             });
 
-        let content_only = occurrence
-            .expression()
-            .and_then(|expression| self.memory.operation(expression))
+        let content_only = matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+            .then(|| {
+                occurrence
+                    .expression()
+                    .and_then(|expression| self.memory.operation(expression))
+            })
+            .flatten()
             .is_some_and(|operation| {
                 crate::memory::execution::storage_effect(operation.kind())
                     == crate::memory::execution::StorageEffect::Contents
@@ -171,7 +176,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let owners = stable_values
+        let owners: BTreeSet<_> = stable_values
             .iter()
             .flat_map(|path| {
                 self.storage_places(state, bray_bound_tree::StoragePath::root(path.root))

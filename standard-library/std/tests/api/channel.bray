@@ -387,3 +387,29 @@ func concurrency_model_channel_capacity_overflow_is_recoverable()
         ) matches CapacityOverflow
     );
 }
+
+@test
+async func discarded_unstarted_sends_retain_the_endpoint_owners()
+{
+    let (sender, receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 1));
+
+    {
+        let pending = sender.send(11);
+    }
+
+    sender.send(29);
+
+    std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(37));
+
+    if let Received(value) = await receiver.receive()
+    {
+        assert(value == 37);
+    }
+    else
+    {
+        assert(false);
+    }
+}

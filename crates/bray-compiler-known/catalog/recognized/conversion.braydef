@@ -59,7 +59,7 @@ scope StandardNumeric at std.numeric {
         implementation NumericTruncate;
 
         surface {
-            extern func truncate_to<Target, Source>(pos source: Source) -> Target;
+            extern const func truncate_to<Target, Source>(pos source: Source) -> Target;
         }
     }
 
@@ -77,5 +77,10 @@ scope StandardNumeric at std.numeric {
         surface {
             func wrap_to<Target, Source>(pos source: Source) -> Target;
         }
+    }
+    declaration StandardNumericUsizeMaximum {
+        identity name USIZE_MAX;
+
+        surface { const USIZE_MAX: usize = ~0; }
     }
 }

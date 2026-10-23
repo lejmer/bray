@@ -23,7 +23,9 @@ fn indexed_constant_templates_evaluate_after_import() {
     ] {
         let declaration = format!(
             r#"
-            const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32 {{
+            const func selected(pos values: [i32; 2], pos start: usize, pos end: usize) -> i32
+                requires(start < end, end <= 2)
+            {{
                 return {expression};
             }}
         "#
@@ -66,7 +68,7 @@ fn indexed_constant_templates_evaluate_after_import() {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     &diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+                    bray_diagnostics::DiagnosticKind::CheckingConstantCallRequirementNotProven,
                 );
 
                 continue;
@@ -74,30 +76,7 @@ fn indexed_constant_templates_evaluate_after_import() {
 
             assert!(!diagnostics.has_errors(), "{expression}: {diagnostics:?}");
 
-            let graph = consumer.symbol_graph().unwrap();
-
-            let definition = graph
-                .constants()
-                .iter()
-                .find(|constant| constant.origin() == bray_symbols::SymbolOrigin::Source)
-                .unwrap();
-
-            let definition = bray_symbols::AnyConstantDefinitionId::Constant(definition.id());
-            let values = consumer.semantic_value_store().unwrap();
-
-            let substitution =
-                crate::compilation::substitution::empty_substitution(values, definition.into_any())
-                    .unwrap();
-
-            let result = consumer
-                .constant_instance(bray_symbols::ConstantInstanceKey::new(
-                    definition,
-                    substitution,
-                    None,
-                ))
-                .unwrap();
-
-            let result = values.constant_value_data(result.value().value());
+            let result = super::fixtures::source_constant_value(consumer, "result");
 
             assert_eq!(
                 result.kind(),
@@ -300,7 +279,7 @@ fn constrained_index_defaults_preserve_abstract_dispatch() {
 }
 
 #[test]
-fn custom_indexing_is_rejected_during_constant_evaluation() {
+fn custom_indexing_does_not_supply_a_const_contract() {
     let source = compilation(
         r#"
         module api;
@@ -316,6 +295,6 @@ fn custom_indexing_is_rejected_during_constant_evaluation() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         &source.check_diagnostics(),
-        bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
     );
 }

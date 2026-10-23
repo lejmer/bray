@@ -23,6 +23,7 @@ using std.bytes;
 using std.io;
 using std.io.WriterFormattingSink;
 using std.memory;
+using std.numeric;
 using std.string;
 using std.testing;
 
@@ -373,12 +374,12 @@ trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow(
 @test
 trusted func integer_width_boundaries_preserve_values() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let u8_maximum: u8 = 255;
-    let u16_maximum: u16 = 65535;
-    let u32_maximum: u32 = 4294967295;
-    let u64_maximum: u64 = 18446744073709551615;
-    let u128_maximum: u128 = 340282366920938463463374607431768211455;
-    let usize_maximum: usize = ~0;
+    let u8_maximum: u8 = std.numeric.U8_MAX;
+    let u16_maximum: u16 = std.numeric.U16_MAX;
+    let u32_maximum: u32 = std.numeric.U32_MAX;
+    let u64_maximum: u64 = std.numeric.U64_MAX;
+    let u128_maximum: u128 = std.numeric.U128_MAX;
+    let usize_maximum: usize = std.numeric.USIZE_MAX;
 
     try assert_default_integer_format<u8>(&u8_maximum, "255");
     try assert_default_integer_format<u16>(&u16_maximum, "65535");
@@ -387,18 +388,18 @@ trusted func integer_width_boundaries_preserve_values() -> Result<unit, std.memo
     try assert_default_integer_format<u128>(&u128_maximum, "340282366920938463463374607431768211455");
     try assert_default_integer_format<usize>(&usize_maximum, "18446744073709551615");
 
-    let i8_minimum: i8 = -127 - 1;
-    let i8_maximum: i8 = 127;
-    let i16_minimum: i16 = -32767 - 1;
-    let i16_maximum: i16 = 32767;
-    let i32_minimum: i32 = -2147483647 - 1;
-    let i32_maximum: i32 = 2147483647;
-    let i64_minimum: i64 = -9223372036854775807 - 1;
-    let i64_maximum: i64 = 9223372036854775807;
-    let i128_minimum: i128 = -170141183460469231731687303715884105727 - 1;
-    let i128_maximum: i128 = 170141183460469231731687303715884105727;
-    let isize_minimum: isize = -9223372036854775807 - 1;
-    let isize_maximum: isize = 9223372036854775807;
+    let i8_minimum: i8 = std.numeric.I8_MIN;
+    let i8_maximum: i8 = std.numeric.I8_MAX;
+    let i16_minimum: i16 = std.numeric.I16_MIN;
+    let i16_maximum: i16 = std.numeric.I16_MAX;
+    let i32_minimum: i32 = std.numeric.I32_MIN;
+    let i32_maximum: i32 = std.numeric.I32_MAX;
+    let i64_minimum: i64 = std.numeric.I64_MIN;
+    let i64_maximum: i64 = std.numeric.I64_MAX;
+    let i128_minimum: i128 = std.numeric.I128_MIN;
+    let i128_maximum: i128 = std.numeric.I128_MAX;
+    let isize_minimum: isize = std.numeric.ISIZE_MIN;
+    let isize_maximum: isize = std.numeric.ISIZE_MAX;
 
     try assert_default_integer_format<i8>(&i8_minimum, "-128");
     try assert_default_integer_format<i8>(&i8_maximum, "127");

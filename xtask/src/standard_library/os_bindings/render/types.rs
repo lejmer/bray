@@ -130,10 +130,26 @@ fn render_abi_type_contract(
     bray: &str,
     native: &str,
 ) {
-    if bray.starts_with("RawPointer<") {
+    if bray.starts_with("DataPointer<") {
         writeln!(
             source,
             "_Static_assert(sizeof({native}) == sizeof(void *), \"{context} Bray pointer representation\");"
+        )
+        .expect("writing to a string must succeed");
+
+        return;
+    }
+
+    if let Some(contract) = bray
+        .strip_prefix("FunctionPointer<")
+        .and_then(|contract| contract.strip_suffix('>'))
+    {
+        let canonical = declared_native_type(target, contract)
+            .expect("validated function pointer contract has a native callback declaration");
+
+        writeln!(
+            source,
+            "_Static_assert(__builtin_types_compatible_p({native}, {canonical}), \"{context} Bray function pointer representation\");"
         )
         .expect("writing to a string must succeed");
 

@@ -5,14 +5,14 @@ The compiler-known manual allocation declarations are under `core.memory`.
 ```bray
 using core.memory;
 
-trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
+trusted func allocate(bytes: usize, align: usize) -> DataPointer<u8>
     ensures(
         trusted core.memory.owned_allocation(pointer = result, bytes = bytes, align = align),
         trusted core.memory.valid_write(pointer = result, count = bytes),
     )
     uses(manual_alloc);
 
-trusted func deallocate(pos pointer: RawPointer<u8>, bytes: usize, align: usize) -> unit
+trusted func deallocate(pos pointer: DataPointer<u8>, bytes: usize, align: usize) -> unit
     requires(
         trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align),
     )

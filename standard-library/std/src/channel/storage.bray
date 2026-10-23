@@ -104,7 +104,7 @@ internal struct ChannelState<T>
 
         // RawBuffer's pointer/count representation is identical, and Uninit<T> has T's layout.
         // The live prefix and its allocation move together. The old wrapper has no cleanup.
-        let authorize = trusted lambda(pos pointer: RawPointer<std.memory.RawBuffer<T>>)
+        let authorize = trusted lambda(pos pointer: DataPointer<std.memory.RawBuffer<T>>)
             ensures(
                 trusted core.memory.valid_read<std.memory.RawBuffer<T>>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<std.memory.RawBuffer<T>>(pointer = pointer),

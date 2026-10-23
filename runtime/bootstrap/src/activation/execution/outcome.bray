@@ -22,6 +22,7 @@ internal func suspended(pos kind: u32) -> bool
 
 internal func cleanup_exit(pos kind: u32) -> usize
     requires(kind >= 1 && kind <= 4)
+    ensures(result < 4)
     executes(pure, total)
 {
     return (kind - 1) as usize;

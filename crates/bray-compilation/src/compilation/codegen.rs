@@ -517,6 +517,12 @@ pub enum CodegenPreparationError {
     Query(FactQueryError),
 }
 
+impl From<bray_symbols::SemanticValueStoreError> for CodegenPreparationError {
+    fn from(error: bray_symbols::SemanticValueStoreError) -> Self {
+        FactQueryError::from(error).into()
+    }
+}
+
 impl From<FactQueryError> for CodegenPreparationError {
     fn from(error: FactQueryError) -> Self {
         Self::Query(error)

@@ -364,6 +364,7 @@ const fn diagnostic_platform_abi_type(
         PlatformAbiType::U32 => Diagnostic::U32,
         PlatformAbiType::U64 => Diagnostic::U64,
         PlatformAbiType::I64 => Diagnostic::I64,
+        PlatformAbiType::FunctionPointer => Diagnostic::FunctionPointer,
         PlatformAbiType::PointerU8 => Diagnostic::PointerU8,
         PlatformAbiType::PointerU32 => Diagnostic::PointerU32,
         PlatformAbiType::PointerU64 => Diagnostic::PointerU64,
@@ -407,6 +408,9 @@ fn platform_abi_type_matches(
         }
         bray_runtime_interface::PlatformAbiType::I64 => {
             type_has_representation(compilation, ty, RepresentationRole::ScalarI64)
+        }
+        bray_runtime_interface::PlatformAbiType::FunctionPointer => {
+            type_has_representation(compilation, ty, RepresentationRole::FunctionPointer)
         }
         bray_runtime_interface::PlatformAbiType::PointerU8 => {
             raw_pointer_targets(compilation, ty, RepresentationRole::ScalarU8)
@@ -582,7 +586,7 @@ fn raw_pointer_target(
 
 #[derive(Clone, Copy)]
 pub(in crate::compilation) enum AbiField {
-    RawPointer,
+    NativePointer,
     Scalar(RepresentationRole),
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
@@ -716,7 +720,8 @@ pub(in crate::compilation) fn abi_type_matches(
     cancellation: &CancellationToken,
 ) -> Result<bool, FactQueryError> {
     match expected {
-        AbiField::RawPointer => Ok(raw_pointer_target(compilation, ty)?.is_some()),
+        AbiField::NativePointer => Ok(raw_pointer_target(compilation, ty)?.is_some()
+            || type_has_representation(compilation, ty, RepresentationRole::FunctionPointer)?),
         AbiField::Scalar(role) => type_has_representation(compilation, ty, *role),
         AbiField::Pointer(role) => raw_pointer_targets(compilation, ty, *role),
         AbiField::Struct(fields) => c_struct_matches(compilation, ty, fields, cancellation),
@@ -1032,6 +1037,7 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
             | RepresentationRole::ScalarC128
             | RepresentationRole::ScalarC256
             | RepresentationRole::RawPointer
+            | RepresentationRole::FunctionPointer
     )
 }
 

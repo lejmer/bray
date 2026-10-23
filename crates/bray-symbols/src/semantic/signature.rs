@@ -371,6 +371,22 @@ impl CallableSignatureTemplate {
 }
 
 impl CallableSignature {
+    /// Returns receiver-first passed types, preserving the receiver's declared access mode.
+    pub fn input_types(
+        &self,
+        values: &crate::SemanticValueStore,
+    ) -> Result<Vec<TypeId>, crate::SemanticValueStoreError> {
+        let receiver = self
+            .receiver
+            .map(|receiver| receiver.mode().input_type(values, receiver.ty()))
+            .transpose()?;
+
+        Ok(receiver
+            .into_iter()
+            .chain(self.parameters.iter().map(|parameter| parameter.ty()))
+            .collect())
+    }
+
     /// Retains the declaration's selected body or native invocation mechanism.
     pub const fn with_invocation(mut self, invocation: CallableInvocation) -> Self {
         self.invocation = invocation;

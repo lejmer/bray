@@ -1,0 +1,38 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry.bridge.address;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.entry.bridge;
+
+trusted internal func context(pos callback: bray.runtime.bootstrap.entry.bridge.Callback?) -> usize
+    executes(total)
+    uses(layout_reinterpret, intrinsic)
+{
+    if let ?selected = callback
+    {
+        return trusted core.target.expose_address<u8>(
+            trusted std.memory.function.to_data<bray.runtime.bootstrap.entry.bridge.Callback>(
+                trusted std.memory.function_address<bray.runtime.bootstrap.entry.bridge.Callback>(selected)
+            )
+        );
+    }
+
+    return 0;
+}
+
+trusted internal func report(pos callback: bray.runtime.bootstrap.entry.bridge.Observer?) -> usize
+    executes(total)
+    uses(layout_reinterpret, intrinsic)
+{
+    if let ?selected = callback
+    {
+        return trusted core.target.expose_address<u8>(
+            trusted std.memory.function.to_data<bray.runtime.bootstrap.entry.bridge.Observer>(
+                trusted std.memory.function_address<bray.runtime.bootstrap.entry.bridge.Observer>(selected)
+            )
+        );
+    }
+
+    return 0;
+}

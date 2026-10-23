@@ -98,13 +98,22 @@ fn compiler_known_pointers_retain_their_semantic_pointee_and_address_space() {
 
     let raw = pointer(RepresentationRole::RawPointer);
     let device = pointer(RepresentationRole::DevicePointer);
-    let mappings = realized_types(&compilation, &target, [raw, device]);
+    let function = pointer(RepresentationRole::FunctionPointer);
+    let mappings = realized_types(&compilation, &target, [raw, device, function]);
 
     assert!(matches!(
         mappings[&raw].kind(),
         CodegenTypeKind::Pointer {
             target,
             address_space: TargetAddressSpaceKind::Default,
+        } if *target == element
+    ));
+
+    assert!(matches!(
+        mappings[&function].kind(),
+        CodegenTypeKind::Pointer {
+            target,
+            address_space: TargetAddressSpaceKind::Function,
         } if *target == element
     ));
 

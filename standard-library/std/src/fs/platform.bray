@@ -10,7 +10,7 @@ using std.memory;
 @layout(c)
 internal struct PlatformPath
 {
-    address: RawPointer<u8>;
+    address: DataPointer<u8>;
     length: u64;
 }
 
@@ -80,7 +80,7 @@ internal func checked_platform_status(pos value: std.platform.PlatformStatus) ->
 }
 
 trusted internal func directory_entry_path(
-    pos source: RawPointer<u8>,
+    pos source: DataPointer<u8>,
     bytes: usize,
 ) -> Result<std.path.Path, std.io.IoError>
     requires(
@@ -123,7 +123,7 @@ trusted internal func platform_file_seek(
     pos handle: u64,
     pos offset_bits: u64,
     pos origin: u32,
-    pos position: RawPointer<u64>,
+    pos position: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_write<u64>(pointer = position, count = 1),
@@ -154,7 +154,7 @@ trusted internal func platform_file_seek(
 trusted internal func platform_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),

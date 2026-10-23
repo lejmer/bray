@@ -170,6 +170,7 @@ where
         StorageIdentity::Error(source) => Some(source),
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Parameter(_)
+        | StorageIdentity::ContractParameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::Static(_)
         | StorageIdentity::AnonymousParameter(_)
@@ -177,9 +178,9 @@ where
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::Result(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
-        | StorageIdentity::IterationCursor(_)
-        | StorageIdentity::IterationElement(_)
+        | StorageIdentity::InvocationResult(_)
         | StorageIdentity::ScopedCapability { .. }
         | StorageIdentity::Allocation(_)
         | StorageIdentity::Alternative { .. } => None,

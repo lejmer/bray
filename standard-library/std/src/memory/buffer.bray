@@ -1,0 +1,339 @@
+module std.memory;
+
+using core.memory;
+using std.numeric;
+
+struct RawBuffer<T>
+{
+    pointer: DataPointer<T>;
+    capacity: usize;
+    initialized: usize;
+
+    trusted construct(capacity: usize) -> Result<Self, MemoryLayoutError>
+        uses(manual_alloc)
+    {
+        if capacity == 0
+        {
+            return Ok(trusted internal allocate_buffer<T>(capacity = 0, bytes = 0, align = align_of<T>()));
+        }
+
+        if size_of<T>() == 1 && align_of<T>() == 1
+        {
+            let buffer: RawBuffer<T> = trusted internal allocate_buffer<T>(
+                capacity = capacity,
+                bytes = capacity,
+                align = 1,
+            );
+
+            return Ok(buffer);
+        }
+
+        let layout: MemoryLayout = try layout_of<T>(count = capacity);
+
+        let buffer: RawBuffer<T> = trusted internal allocate_buffer<T>(
+            capacity = capacity,
+            bytes = layout.bytes,
+            align = layout.align,
+        );
+
+        return Ok(buffer);
+    }
+}
+
+// Detach the allocation and initialized prefix without running element cleanup.
+trusted internal func take_buffer<T>(pos buffer: &mut RawBuffer<T>) -> RawBuffer<T>
+    uses(manual_alloc)
+{
+    let empty = trusted internal allocate_buffer<T>(capacity = 0, bytes = 0, align = align_of<T>());
+
+    return replace_value(buffer, empty);
+}
+
+trusted internal func uninit_buffer<T>(capacity: usize) -> Result<RawBuffer<Uninit<T>>, MemoryLayoutError>
+{
+    let mut storage: RawBuffer<Uninit<T>> = try trusted RawBuffer<Uninit<T>>(capacity = capacity);
+
+    while storage.initialized < storage.capacity
+    {
+        trusted internal initialize_spare<Uninit<T>>(&mut storage, uninit<T>());
+    }
+
+    return Ok(storage);
+}
+
+trusted internal func nullable_buffer<T>(capacity: usize) -> Result<RawBuffer<(T?)>, MemoryLayoutError>
+{
+    let mut storage: RawBuffer<(T?)> = try trusted RawBuffer<(T?)>(capacity = capacity);
+
+    while storage.initialized < storage.capacity
+    {
+        let empty: T? = none;
+
+        trusted internal initialize_spare(&mut storage, empty);
+    }
+
+    return Ok(storage);
+}
+
+trusted internal func initialize_spare<T>(pos buffer: &mut RawBuffer<T>, pos value: T) -> unit
+    uses(raw_memory, unchecked_init)
+{
+    if buffer.initialized >= buffer.capacity
+    {
+        panic("raw buffer has no spare uninitialized slot");
+    }
+
+    trusted internal raw_buffer_push<T>(buffer, value);
+}
+
+trusted internal func take_last<T>(pos buffer: &mut RawBuffer<T>) -> T
+    uses(raw_memory, unchecked_init)
+{
+    if buffer.initialized == 0
+    {
+        panic("raw buffer has no initialized value");
+    }
+
+    return trusted internal raw_buffer_pop<T>(buffer);
+}
+
+extern trusted internal func raw_buffer_push<T>(pos buffer: &mut RawBuffer<T>, pos value: T) -> unit
+    requires(buffer.initialized < buffer.capacity)
+    executes(total)
+    uses(raw_memory, unchecked_init);
+
+extern trusted internal func raw_buffer_pop<T>(pos buffer: &mut RawBuffer<T>) -> T
+    requires(buffer.initialized > 0)
+    uses(raw_memory, unchecked_init);
+
+extern trusted internal func allocate_buffer<T>(capacity: usize, bytes: usize, align: usize) -> RawBuffer<T>
+    requires(bytes == stride_of<T>() * capacity, align == align_of<T>())
+    ensures(result.capacity == capacity, result.initialized == 0)
+    uses(manual_alloc);
+
+extern func capacity<T>(pos buffer: &RawBuffer<T>) -> usize
+    ensures(result == buffer.capacity);
+
+extern func initialized_count<T>(pos buffer: &RawBuffer<T>) -> usize
+    ensures(
+        result == buffer.initialized,
+        result <= buffer.capacity,
+        trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = result),
+    );
+
+extern func pointer<T>(pos buffer: &RawBuffer<T>) -> DataPointer<T>;
+
+extern trusted func initialized_slice<T>(pos buffer: &RawBuffer<T>) -> &[T]
+    executes(pure, total)
+    uses(raw_memory);
+
+extern trusted func initialized_slice_mut<T>(pos buffer: &mut RawBuffer<T>) -> &mut [T]
+    executes(pure, total)
+    uses(raw_memory);
+
+extern trusted func spare_pointer<T>(pos buffer: &mut RawBuffer<T>) -> DataPointer<T>
+    ensures(
+        trusted core.memory.valid_write<T>(pointer = result, count = buffer.capacity - buffer.initialized),
+        trusted core.memory.aligned_for<T>(pointer = result),
+    )
+    uses(raw_memory);
+
+extern trusted func set_initialized_count<T>(pos buffer: &mut RawBuffer<T>, count: usize) -> unit
+    requires(
+        count <= buffer.capacity,
+        trusted core.memory.initialized_range_as<T>(pointer = buffer.pointer, count = count),
+    )
+    ensures(buffer.initialized == count)
+    uses(unchecked_init);
+
+extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit
+    uses(manual_alloc);
+
+extern trusted internal func raw_buffer_replace<T>(
+    pos destination: &mut RawBuffer<T>,
+    pos source: &mut RawBuffer<T>,
+) -> unit
+    uses(manual_alloc);
+
+extern trusted internal func raw_buffer_relocate<T>(
+    pos source: &mut RawBuffer<T>,
+    pos destination: &mut RawBuffer<T>,
+) -> unit
+    requires(
+        destination.initialized == 0,
+        source.initialized <= destination.capacity,
+        trusted core.memory.non_overlapping<T>(
+            left = source.pointer,
+            left_count = source.initialized,
+            right = destination.pointer,
+            right_count = source.initialized,
+        ),
+    )
+    executes(total)
+    uses(raw_memory, unchecked_init);
+
+trusted internal func reserve_raw_buffer<T>(
+    pos buffer: &mut RawBuffer<T>,
+    additional: usize,
+    growth: CapacityGrowth,
+) -> Result<unit, MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let current_length: usize = buffer.initialized;
+
+    if additional <= buffer.capacity - current_length
+    {
+        return Ok(unit);
+    }
+
+    let replacement_capacity: usize = try growth_capacity(
+        current_length = current_length,
+        current_capacity = buffer.capacity,
+        additional = additional,
+        growth = growth,
+    );
+
+    let mut replacement_bytes: usize = replacement_capacity;
+    let mut replacement_align: usize = 1;
+
+    if size_of<T>() != 1 || align_of<T>() != 1
+    {
+        let layout: MemoryLayout = try layout_of<T>(count = replacement_capacity);
+
+        replacement_bytes = layout.bytes;
+        replacement_align = layout.align;
+    }
+
+    let mut replacement: RawBuffer<T> = trusted internal allocate_buffer<T>(
+        capacity = replacement_capacity,
+        bytes = replacement_bytes,
+        align = replacement_align,
+    );
+
+    trusted raw_buffer_relocate<T>(source = &mut buffer, destination = &mut replacement);
+    trusted raw_buffer_replace<T>(destination = &mut buffer, source = &mut replacement);
+
+    return Ok(unit);
+}
+
+trusted internal func grow_byte_buffer(pos buffer: &mut RawBuffer<u8>) -> Result<unit, MemoryLayoutError>
+{
+    return trusted internal reserve_raw_buffer<u8>(buffer = buffer, additional = 1, growth = CapacityGrowth.Amortized);
+}
+
+trusted internal func copy_bytes(pos destination: &mut [u8], pos source: &[u8])
+{
+    let count: usize = source.length();
+    let source_pointer: DataPointer<u8> = internal slice_pointer<u8>(source, count = count);
+
+    trusted internal copy_bytes_from_pointer(destination, source = source_pointer, count = count);
+}
+
+trusted internal func copy_bytes_from_pointer(pos destination: &mut [u8], source: DataPointer<u8>, count: usize)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    if !(count <= destination.length())
+    {
+        panic("byte copy exceeds its destination storage");
+    }
+
+    let destination_pointer: DataPointer<u8> = internal slice_pointer_mut<u8>(destination, count = count);
+
+    trusted copy_overlapping<u8>(source, destination_pointer, count = count);
+}
+
+trusted internal func fill_bytes(pos destination: &mut [u8], value: u8)
+    uses(raw_memory, unchecked_init)
+{
+    let count: usize = destination.length();
+    let destination_pointer: DataPointer<u8> = internal slice_pointer_mut<u8>(destination, count = count);
+
+    trusted internal byte_buffer_fill(destination = destination_pointer, value = value, count = count);
+}
+
+trusted internal func fill_spare_bytes(pos buffer: &mut RawBuffer<u8>, value: u8, count: usize) -> usize
+    ensures(
+        result <= buffer.capacity,
+        trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let initialized: usize = buffer.initialized;
+
+    let destination: DataPointer<u8> = trusted spare_pointer<u8>(buffer);
+
+    if count > buffer.capacity - buffer.initialized
+    {
+        panic("byte fill exceeds spare buffer storage");
+    }
+
+    trusted internal byte_buffer_fill(destination = destination, value = value, count = count);
+
+    return initialized + count;
+}
+
+trusted internal func copy_spare_bytes(pos buffer: &mut RawBuffer<u8>, pos bytes: &[u8], count: usize) -> usize
+    ensures(
+        result <= buffer.capacity,
+        trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
+    )
+{
+    if !(count <= bytes.length())
+    {
+        panic("byte copy exceeds its source storage");
+    }
+
+    let source: DataPointer<u8> = internal slice_pointer<u8>(bytes, count = count);
+
+    return trusted internal copy_spare_raw_bytes(buffer, source = source, count = count);
+}
+
+trusted internal func copy_spare_raw_bytes(
+    pos buffer: &mut RawBuffer<u8>,
+    source: DataPointer<u8>,
+    count: usize
+) -> usize
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+    )
+    ensures(
+        result <= buffer.capacity,
+        trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
+    )
+    uses(raw_memory, unchecked_init)
+    when(count <= buffer.capacity - buffer.initialized)
+    {
+        executes(total)
+    }
+{
+    let available: usize = buffer.capacity - buffer.initialized;
+
+    if count > available
+    {
+        panic("byte copy exceeds spare buffer storage");
+    }
+
+    let initialized: usize = initialized_count<u8>(&buffer);
+    let destination: DataPointer<u8> = trusted spare_pointer<u8>(buffer);
+
+    trusted copy_overlapping<u8>(source = source, destination = destination, count = count);
+
+    return initialized + count;
+}
+
+extern trusted internal func byte_buffer_fill(pos destination: DataPointer<u8>, value: u8, count: usize) -> unit
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = count))
+    ensures(trusted core.memory.initialized_range_as<u8>(pointer = destination, count = count))
+    uses(raw_memory, unchecked_init);
+
+extern trusted internal func byte_buffer_read(pos pointer: DataPointer<u8>, index: usize) -> u8
+    requires(
+        index != std.numeric.USIZE_MAX && (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) &&
+            (trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1)),
+    )
+    uses(raw_memory);

@@ -46,6 +46,31 @@ pub(in crate::compilation) fn callable_template_inputs(
     Ok(inputs)
 }
 
+pub(in crate::compilation) fn predicate_template_inputs(
+    compilation: &Compilation,
+    signature: &bray_symbols::PredicateSignatureTemplate,
+    parameters: Vec<GenericParameterSymbolId>,
+) -> Result<Vec<SourceTemplateInput>, FactQueryError> {
+    let mut inputs = signature
+        .parameters()
+        .iter()
+        .enumerate()
+        .map(|(ordinal, parameter)| {
+            Ok(SourceTemplateInput::new(
+                CheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
+                    u32::try_from(ordinal).expect("predicate parameter ordinal fits its signature"),
+                )),
+                Some(BoundReferenceTarget::Surface(parameter.parameter().into())),
+                resolved_input_type(compilation, parameter.ty())?,
+            ))
+        })
+        .collect::<Result<Vec<_>, FactQueryError>>()?;
+
+    inputs.extend(generic_template_inputs(compilation, parameters)?);
+
+    Ok(inputs)
+}
+
 pub(in crate::compilation) fn generic_template_inputs(
     compilation: &Compilation,
     parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
@@ -111,4 +136,126 @@ pub(in crate::compilation) fn resolved_input_type(
         constants.value(),
     )
     .expect("checked template input type resolves from its constant terms"))
+}
+
+impl Compilation {
+    pub(in crate::compilation) fn default_template_inputs(
+        &self,
+        key: &bray_bound_tree::BoundUnitKey,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<Vec<SourceTemplateInput>, FactQueryError> {
+        use bray_binder::SymbolQueryProvider;
+
+        let symbols = self.symbol_graph()?;
+
+        let provider = symbols
+            .symbol_for_key(key.declared_owner())
+            .expect("default unit retains its provider");
+
+        let subject = symbols
+            .runtime_default_subject(provider)
+            .expect("default provider retains its declaration input");
+
+        let parameters = crate::compilation::binder::visible_generic_parameters(symbols, subject);
+
+        let bray_symbols::AnySymbolId::CallableParameter(parameter) = subject else {
+            return generic_template_inputs(self, parameters);
+        };
+
+        let parameter = symbols
+            .callable_parameter(parameter)
+            .expect("source default retains its parameter");
+
+        let context = self.binding_context(cancellation)?;
+
+        let signature = context
+            .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                bray_symbols::CallableSignatureQuery,
+            >::new(parameter.owner()))
+            .map_err(crate::compilation::binder::binding_query_error)?;
+
+        let mut inputs = callable_template_inputs(self, signature.value(), parameters)?;
+
+        inputs.retain(|input| {
+            !matches!(input.kind, CheckedTemplateInputKind::Parameter(ordinal)
+            if ordinal.raw() >= parameter.ordinal())
+        });
+
+        Ok(inputs)
+    }
+
+    pub(in crate::compilation) fn checked_default_template(
+        &self,
+        provider: bray_bound_tree::DefaultValueProvider,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>,
+        FactQueryError,
+    > {
+        if let Some(key) = self.declared_unit_key(
+            provider.symbol(),
+            bray_bound_tree::BoundUnitKind::RuntimeDefault,
+        )? {
+            let result = self.constant_body_template(key, cancellation)?;
+
+            // Both publications retain the same immutable, Arc-backed operation graph.
+            return Ok(result.result().as_ref().clone());
+        }
+
+        let context = self.binding_context(cancellation)?;
+
+        let address = context
+            .imported_semantic_address(provider.symbol())
+            .map_err(crate::compilation::binder::binding_query_error)?
+            .expect("selected imported default retains its semantic address");
+
+        let imported = crate::compilation::binder::imported_declaration_template(
+            &context,
+            address,
+            bray_bound_tree::CheckedTemplateKind::RuntimeDefault,
+        )
+        .map_err(crate::compilation::binder::binding_query_error)?;
+
+        Ok(imported.map(|template| template.map(|template| template.template().clone())))
+    }
+    pub(super) fn resolve_template_input_types(
+        &self,
+        inputs: &mut [SourceTemplateInput],
+        evidence: &[bray_bound_tree::DeclaredValueTypeEvidence],
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<(), FactQueryError> {
+        for input in inputs {
+            let Some(BoundReferenceTarget::Surface(owner)) = input.target else {
+                continue;
+            };
+
+            let term =
+                bray_bound_tree::DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(owner));
+
+            let index = evidence.partition_point(|entry| entry.term() < term);
+
+            if let Some(entry) = evidence.get(index).filter(|entry| entry.term() == term) {
+                let constants = self.checked_constant_terms_for_templates_with_cancellation(
+                    [entry.template()],
+                    cancellation,
+                )?;
+
+                diagnostics.add_range(constants.diagnostics().clone());
+
+                if constants.diagnostics().has_errors() {
+                    continue;
+                }
+
+                input.ty = bray_checker::resolve_type_expression_template(
+                    self.semantic_value_store()?,
+                    entry.template(),
+                    constants.value(),
+                )
+                .expect("checked source input type resolves from its established constant terms");
+            }
+        }
+
+        Ok(())
+    }
 }

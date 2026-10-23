@@ -20,7 +20,7 @@ An ordinary predicate declaration has an `=` tail with a single predicate expres
 A trusted predicate declaration uses the `trusted` modifier and has no ordinary body.
 
 ```bray
-trusted predicate valid_raw_slice<T>(pointer: RawPointer<T>, length: usize);
+trusted predicate valid_raw_slice<T>(pointer: DataPointer<T>, length: usize);
 ```
 
 A trusted predicate declaration is an opaque trusted relation.

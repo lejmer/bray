@@ -32,6 +32,8 @@ pub enum DependencyStorageEffect<
     Cleanup(Type),
     /// Protected atomic payloads may change through unresolved aliases.
     Atomic,
+    /// Mutate externally reachable storage without exposing invocation-local inputs.
+    Ambient,
     /// No finite target set has been established.
     Unknown,
     /// Addresses reachable through any invocation input may be retained externally.
@@ -55,6 +57,16 @@ pub enum DependencyStorageEffect<
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Conservative effects when the callable can have an unknown captured environment.
+    pub const fn opaque_call() -> [Self; 2] {
+        [Self::Unknown, Self::Escape]
+    }
+
+    /// Conservative effects when all inputs are explicit and no captured environment exists.
+    pub const fn capture_free_call() -> [Self; 2] {
+        [Self::Ambient, Self::Escape]
+    }
+
     /// Describes a transition whose particular storage target is unresolved.
     /// Atomic updates and address escape retain their distinct meanings.
     pub fn unresolved(kind: DependencyMutationKind<Type>) -> Self {
@@ -152,10 +164,7 @@ mod tests {
 
         assert_eq!(
             missing.effects(),
-            &[
-                DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape
-            ]
+            &super::DependencyStorageEffect::opaque_call()
         );
 
         assert!(unchanged.effects().is_empty());

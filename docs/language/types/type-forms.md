@@ -910,7 +910,7 @@ func(left: i32, right: i32) -> i32
 func(pos value: i32) -> i32
 const func(pos value: i32) -> i32
 async func(pos request: Request) -> Response
-@abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32
+@abi(c) func(pos context: DataPointer<u8>, pos value: i32) -> i32
 ```
 
 A callable returning `unit` can omit the result type.
@@ -956,7 +956,7 @@ trusted func(pos bytes: &mut [u8])
 ABI-qualified callable type forms use `@abi(...)` immediately before `func`.
 
 ```bray
-@abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32
+@abi(c) func(pos context: DataPointer<u8>, pos value: i32) -> i32
 ```
 
 Callable ABI is part of the callable type's visible contract.

@@ -25,7 +25,7 @@ pub(crate) fn expression_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {
@@ -91,6 +91,13 @@ pub(crate) fn expression_condition(
         )
     }) {
         return condition;
+    }
+
+    if matches!(
+        semantics.selections().expression(expression),
+        Some(SemanticSelection::CallableReference(_))
+    ) {
+        return ExecutionCondition::Expression(expression);
     }
 
     match bound {
@@ -174,6 +181,22 @@ pub(crate) fn expression_condition(
                 return ExecutionCondition::Unknown;
             };
 
+            if unit.key().kind().uses_machine_arithmetic()
+                && !matches!(operator,
+                    bray_bound_tree::BoundOperator::Add if operands.len() == 1)
+                // Division and remainder do not wrap on normal completion. Retain their
+                // operation in short-circuit snapshots before an operand executes.
+                // Trapping input domains are still checked at the actual operation.
+                && !matches!(operator, bray_bound_tree::BoundOperator::Divide
+                    | bray_bound_tree::BoundOperator::Remainder | bray_bound_tree::BoundOperator::LogicalNot
+                    | bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr
+                    | bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual
+                    | bray_bound_tree::BoundOperator::Less | bray_bound_tree::BoundOperator::LessEqual
+                    | bray_bound_tree::BoundOperator::Greater | bray_bound_tree::BoundOperator::GreaterEqual)
+            {
+                return ExecutionCondition::Expression(expression);
+            }
+
             let operands = operands
                 .iter()
                 .map(|operand| {
@@ -186,72 +209,19 @@ pub(crate) fn expression_condition(
 
             ExecutionCondition::operation(operator, operands)
         }
-        BoundExpression::Structured(operation)
-            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
-                && matches!(
-                    semantics.selections().expression(expression),
-                    Some(SemanticSelection::Operation(SelectedOperation::Index {
-                        target: bray_bound_tree::IndexTarget::ArrayElement,
-                        ..
-                    }))
-                ) =>
-        {
-            let [receiver, index] = operation.operands() else {
-                return ExecutionCondition::Unknown;
-            };
-
-            let index = expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, *index, budget,
-                predicates,
-            );
-
-            let ExecutionCondition::Literal(index) = index else {
-                return ExecutionCondition::Unknown;
-            };
-
-            let ConstantValueKind::Integer(index) = index.kind() else {
-                return ExecutionCondition::Unknown;
-            };
-
-            let Some(index) = index.to_u64().and_then(|index| u32::try_from(index).ok()) else {
-                return ExecutionCondition::Unknown;
-            };
-
-            expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, *receiver, budget,
-                predicates,
-            )
-            .project(bray_bound_tree::StorageProjection::ElementFromStart(
-                bray_symbols::SymbolOrdinal::new(index),
-            ))
-        }
-        BoundExpression::Structured(operation)
-            if matches!(
-                operation.kind(),
-                bray_bound_tree::BoundStructuredExpressionKind::Condition
-                    | bray_bound_tree::BoundStructuredExpressionKind::Borrow
-                    | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
-            ) =>
-        {
-            let Some(operand) = operation.operands().first() else {
-                return ExecutionCondition::Unknown;
-            };
-
-            let value = expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, *operand, budget,
-                predicates,
-            );
-
-            match operation.kind() {
-                bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary => {
-                    value.requiring_trusted_predicates()
-                }
-                bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
-                    super::values::borrowed_condition(unit, semantics, values, *operand, value)
-                }
-                _ => value,
-            }
-        }
+        BoundExpression::Structured(operation) => super::values::structured_condition(
+            unit,
+            semantics,
+            values,
+            expression,
+            operation,
+            &mut |source| {
+                expression_condition(
+                    unit, semantics, values, literals, patterns, current, evaluated, source,
+                    budget, predicates,
+                )
+            },
+        ),
         _ => ExecutionCondition::Unknown,
     }
 }

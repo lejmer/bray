@@ -17,6 +17,8 @@ pub(crate) struct ExecutionState {
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) result: ExecutionCondition,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
+    pub(super) deferred_invocations:
+        BTreeMap<ExecutionCondition, bray_bound_tree::BoundExecutionSite>,
     pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 
@@ -34,6 +36,7 @@ impl Default for ExecutionState {
             pending_results: BTreeMap::new(),
             result: ExecutionCondition::Unknown,
             entries: BTreeMap::new(),
+            deferred_invocations: BTreeMap::new(),
             completion_dependencies: BTreeSet::new(),
         }
     }
@@ -192,6 +195,13 @@ impl ExecutionState {
 
         self.witness_dependencies.retain(|value, _| !stale(value));
 
+        self.deferred_invocations.retain(|value, source| {
+            !stale(value)
+                && !source
+                    .expression()
+                    .is_some_and(|expression| stale(&ExecutionCondition::Expression(expression)))
+        });
+
         self.trusted_assumptions
             .retain(|(condition, _)| !stale(condition));
 
@@ -200,7 +210,11 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, owner| !stale(condition) && !stale(owner));
 
-        for entry in self.entries.values_mut() {
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.pending_execution)
+        {
             if entry
                 .returned
                 .carriers
@@ -378,6 +392,28 @@ impl ExecutionState {
         }
 
         self.witness_dependencies = dependencies;
+
+        let mut computations = BTreeMap::<_, Option<_>>::new();
+
+        for (value, source) in &self.deferred_invocations {
+            let value = rename_identity(value);
+
+            if value != ExecutionCondition::Unknown {
+                computations
+                    .entry(value)
+                    .and_modify(|previous| {
+                        if *previous != Some(*source) {
+                            *previous = None;
+                        }
+                    })
+                    .or_insert(Some(*source));
+            }
+        }
+
+        self.deferred_invocations = computations
+            .into_iter()
+            .filter_map(|(value, source)| Some((value, source?)))
+            .collect();
 
         for value in self.current.values_mut() {
             *value = rename(value);

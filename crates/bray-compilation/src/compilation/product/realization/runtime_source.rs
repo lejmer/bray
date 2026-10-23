@@ -11,7 +11,7 @@ const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
 const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
-    let mut fields = [AbiField::RawPointer; NATIVE_PANIC_REPORT_FIELDS.len()];
+    let mut fields = [AbiField::NativePointer; NATIVE_PANIC_REPORT_FIELDS.len()];
     let mut index = 0;
 
     while index < fields.len() {
@@ -59,8 +59,8 @@ macro_rules! define_runtime_source_fields {
     (@field U32) => { U32 };
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };
-    (@field Pointer) => { AbiField::RawPointer };
-    (@field PanicReportPointer) => { AbiField::RawPointer };
+    (@field Pointer) => { AbiField::NativePointer };
+    (@field PanicReportPointer) => { AbiField::NativePointer };
     (@field PanicReport) => { PANIC_REPORT };
     (@result Void) => { None };
     (@result $kind:ident) => { Some(define_runtime_source_fields!(@field $kind)) };
@@ -137,7 +137,8 @@ pub(super) fn runtime_source_contract_matches(
         return Ok(false);
     }
 
-    let [(condition, true, _)] = conditions.value().as_slice() else {
+    let [(condition, bray_symbols::PredicateDomain::Trusted, _)] = conditions.value().as_slice()
+    else {
         return Ok(false);
     };
 
@@ -313,7 +314,10 @@ mod tests {
                 trusted predicate native_attachment_exit();
                 trusted predicate unrelated();
                 @abi(c)
-                trusted internal func entry(pos value: RawPointer<u8>) {requirement} {{}}
+                trusted internal func entry(pos value: DataPointer<u8>)
+                    {requirement}
+                {{
+                }}
             "#
                 ));
 
@@ -344,7 +348,17 @@ mod tests {
                 ),
             ] {
                 let compilation = compilation(&format!(
-                    "trusted module app; {declaration} @abi(c) trusted func entry(pos value: RawPointer<u8>) requires({requirement}) {{}}"
+                    r#"
+                        trusted module app;
+
+                        {declaration}
+
+                        @abi(c)
+                        trusted func entry(pos value: DataPointer<u8>)
+                            requires({requirement})
+                        {{
+                        }}
+                    "#
                 ));
 
                 let key = crate::test_support::source_function_body_key(&compilation, "entry");
@@ -699,6 +713,96 @@ mod tests {
                     "{target:?}, {abi:?}",
                 );
             }
+        }
+    }
+    #[test]
+    fn opaque_native_pointer_fields_accept_function_entries_without_loosening_data_fields() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            @abi(c)
+            func callback()
+            {
+            }
+        "#,
+        );
+
+        let values = compilation.semantic_value_store().unwrap();
+        let function = crate::test_support::source_function(&compilation, "callback");
+
+        let substitution =
+            crate::compilation::substitution::empty_substitution(values, function.into()).unwrap();
+
+        let callable = bray_symbols::CallableInstanceData::new(
+            bray_symbols::CallableDefinitionId::try_new(function.into()).unwrap(),
+            substitution,
+        );
+
+        let signature = compilation
+            .constant_callable_signature(callable, &CancellationToken::new())
+            .unwrap();
+
+        let callable_type = signature.value().as_ref().unwrap().callable_type();
+
+        let byte = compilation
+            .codegen_representation_type(RepresentationRole::ScalarU8)
+            .unwrap();
+
+        let data = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::RawPointer, byte)
+            .unwrap()
+            .unwrap();
+
+        let function = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::FunctionPointer, callable_type)
+            .unwrap()
+            .unwrap();
+
+        let nullable = values
+            .intern_type(bray_symbols::TypeData::Nullable(function))
+            .unwrap();
+
+        for (parameter, accepted) in [
+            (data, true),
+            (function, true),
+            (callable_type, false),
+            (nullable, false),
+            (byte, false),
+        ] {
+            let signature = CodegenCallableSignature::new(
+                [
+                    CodegenParameterMapping::direct(parameter, None, []),
+                    CodegenParameterMapping::direct(data, None, []),
+                ],
+                CodegenResultMapping::Void,
+                CallableAbi::C,
+                false,
+            );
+
+            assert_eq!(
+                runtime_source_signature_matches(
+                    &compilation,
+                    RuntimeAbiRole::ReportRecordAppend,
+                    &signature,
+                    &CancellationToken::new()
+                )
+                .unwrap(),
+                Some(accepted)
+            );
+
+            assert_eq!(
+                crate::compilation::foreign::abi_type_matches(
+                    &compilation,
+                    parameter,
+                    &crate::compilation::foreign::AbiField::Pointer(RepresentationRole::ScalarU8),
+                    &CancellationToken::new()
+                )
+                .unwrap(),
+                parameter == data
+            );
         }
     }
 }

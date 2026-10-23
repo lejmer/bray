@@ -111,7 +111,7 @@ where
             return;
         };
 
-        let Some(ty) = self.result_type() else {
+        let Some(ty) = self.storage.identity_type(result) else {
             return;
         };
 
@@ -131,7 +131,7 @@ where
                 .identity(path.root)
                 .expect("reference target has planned storage");
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind()) {
+            if identity.borrows_input_storage(self.request.unit().key().kind()) {
                 continue;
             }
 
@@ -164,23 +164,57 @@ where
         }
     }
 
+    fn escape_span(&self, exit: AnyBoundNodeId) -> bray_source::SourceSpan {
+        let origin = bound_node_origin(self.request, exit)
+            .expect("a control-flow exit retains its source origin");
+
+        let span = self.request.source(origin.source_anchor()).span();
+
+        let AnyBoundNodeId::Expression(expression) = exit else {
+            return span;
+        };
+
+        let Some(bray_bound_tree::BoundExpression::Call(call)) =
+            self.request.view().expression(expression)
+        else {
+            return span;
+        };
+
+        let callee = crate::diagnostic::expression_span(self.request, call.callee());
+
+        assert_eq!(
+            span.source_id(),
+            callee.source_id(),
+            "a source invocation and its callee share a snapshot"
+        );
+
+        bray_source::SourceSpan::new(span.source_id(), span.range().cover(callee.range()))
+    }
+
     fn report_escaping_access(
         &mut self,
         exit: AnyBoundNodeId,
         access: bray_bound_tree::StorageAccessId,
     ) {
-        let exit_origin = bound_node_origin(self.request, exit)
-            .expect("a control-flow exit retains its source origin");
+        let exit_span = self.escape_span(exit);
 
         let source = self
             .storage
-            .access(access)
-            .expect("retained dependency has its planned access")
-            .source();
+            .root_identity(access)
+            .and_then(|identity| self.storage.identity(identity))
+            .and_then(|identity| identity.definition_node())
+            .and_then(|node| bound_node_origin(self.request, node))
+            .map(|origin| origin.source_anchor())
+            .unwrap_or_else(|| {
+                self.storage
+                    .access(access)
+                    .expect("retained dependency has its planned access")
+                    .source()
+            });
 
         self.diagnostics.add(escaping_storage_dependency_diagnostic(
             diagnostic_id(self.diagnostics.len()),
-            self.request.source(exit_origin.source_anchor()).span(),
+            exit_span,
             self.request.source(source).span(),
         ));
     }
@@ -225,7 +259,7 @@ where
                 continue;
             };
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind())
+            if identity.borrows_input_storage(self.request.unit().key().kind())
                 || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
             {
                 continue;
@@ -243,9 +277,7 @@ where
             }
 
             let diagnostic = {
-                let origin = bound_node_origin(self.request, expression.into()).unwrap_or_else(|| panic!("report_escaping_default_storage requires bound node source origin, expression: {expression:?}"));
-
-                let source = self.request.source(origin.source_anchor());
+                let source = self.escape_span(expression.into());
 
                 let dependency = identity
                     .definition_node()
@@ -257,7 +289,7 @@ where
 
                 escaping_storage_dependency_diagnostic(
                     diagnostic_id(self.diagnostics.len()),
-                    source.span(),
+                    source,
                     dependency.span(),
                 )
             };
@@ -281,7 +313,7 @@ where
                 .and_then(|root| self.storage.identity(root))
                 .expect("retained storage access has its planned identity");
 
-            if identity.is_borrowed_provider_input(self.request.unit().key().kind()) {
+            if identity.borrows_input_storage(self.request.unit().key().kind()) {
                 continue;
             }
 
@@ -303,14 +335,10 @@ where
     }
 
     fn has_permanent_literal_storage(&self, access: bray_bound_tree::StorageAccessId) -> bool {
-        matches!(
-            self.storage.root_identity(access)
-                .and_then(|root| self.storage.identity(root)),
-            Some(bray_bound_tree::StorageIdentity::Temporary(expression))
-                if matches!(self.request.view().expression(expression),
-                    Some(bray_bound_tree::BoundExpression::Literal(literal))
-                        if literal.kind() == bray_bound_tree::BoundLiteralKind::String)
-        )
+        self.storage
+            .root_identity(access)
+            .and_then(|root| self.storage.identity(root))
+            .is_some_and(|identity| identity.has_permanent_literal_storage(self.request.view()))
     }
 
     pub(super) fn borrow_reaches_external_storage(

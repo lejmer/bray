@@ -316,9 +316,9 @@ trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Resul
     requires(blocking_execution())
 {
     let requested: usize = source.length();
-    let source_pointer: RawPointer<u8> = internal std.memory.slice_pointer(source, count = requested);
+    let source_pointer: DataPointer<u8> = internal std.memory.slice_pointer(source, count = requested);
     let mut transferred: u64 = 0;
-    let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+    let transferred_pointer: DataPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
     let status: std.platform.PlatformStatus = trusted platform_standard_output_write(
         source = source_pointer,
@@ -398,9 +398,9 @@ trusted internal func read_standard_input(pos destination: &mut [u8]) -> Result<
 {
     let lock: StandardInputLock = try trusted acquire_standard_input();
     let capacity: usize = destination.length();
-    let destination_pointer: RawPointer<u8> = internal std.memory.slice_pointer_mut(destination, count = capacity);
+    let destination_pointer: DataPointer<u8> = internal std.memory.slice_pointer_mut(destination, count = capacity);
     let mut transferred: u64 = 0;
-    let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+    let transferred_pointer: DataPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
     let status: std.platform.PlatformStatus = trusted platform_standard_input_read(
         destination = destination_pointer,

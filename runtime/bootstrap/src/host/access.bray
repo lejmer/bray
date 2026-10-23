@@ -57,7 +57,7 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
     executes(total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: RawPointer<HostOwner> = trusted host_access_pointer(lease);
+    let pointer: DataPointer<HostOwner> = trusted host_access_pointer(lease);
 
     return trusted std.memory.borrow_mut_from<HostOwner, HostAnchor>(anchor, pointer);
 }
@@ -93,8 +93,8 @@ internal struct HostLease
                 let identity: u64 = retirement.identity;
                 let native_thread: u64 = retirement.native_thread;
                 let remaining_active: usize = retirement.remaining_active;
-                let active_pointer: RawPointer<usize> = trusted completed_active_pointer(&self);
-                let pointer: RawPointer<Attachment> = trusted completed_attachment_pointer(&self);
+                let active_pointer: DataPointer<usize> = trusted completed_active_pointer(&self);
+                let pointer: DataPointer<Attachment> = trusted completed_attachment_pointer(&self);
 
                 let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
                     self.synchronization,
@@ -254,7 +254,7 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
     }
 }
 
-trusted internal func host_access_pointer(pos guard: &HostLease) -> RawPointer<HostOwner>
+trusted internal func host_access_pointer(pos guard: &HostLease) -> DataPointer<HostOwner>
     uses(intrinsic)
     executes(pure, total)
     requires(

@@ -5,7 +5,7 @@ using core.memory;
 using std.os.darwin;
 
 @abi(c)
-trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
+trusted internal func wait(pos address: DataPointer<u32>, pos expected: u32)
     requires(
         trusted core.memory.valid_read<u32>(pointer = address, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = address),
@@ -27,7 +27,7 @@ trusted internal func wait(pos address: RawPointer<u32>, pos expected: u32)
 }
 
 @abi(c)
-trusted internal func notify_one(pos address: RawPointer<u32>)
+trusted internal func notify_one(pos address: DataPointer<u32>)
     requires(
         trusted core.memory.valid_read<u32>(pointer = address, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = address),
@@ -47,7 +47,7 @@ trusted internal func notify_one(pos address: RawPointer<u32>)
 }
 
 @abi(c)
-trusted internal func notify_all(pos address: RawPointer<u32>)
+trusted internal func notify_all(pos address: DataPointer<u32>)
     requires(
         trusted core.memory.valid_read<u32>(pointer = address, count = 1),
         trusted core.memory.aligned_for<u32>(pointer = address),

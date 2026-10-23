@@ -282,6 +282,7 @@ where
     ) {
         CandidateApplicability::Applicable {
             abi,
+            constness,
             phase_behaviors,
         } => {
             // The durable selection owns Arc-backed candidate data after the probe ends.
@@ -313,6 +314,7 @@ where
                 key,
                 call: SelectedCall::new(
                     resolution,
+                    constness,
                     abi,
                     phase_behaviors,
                     selected_receiver,
@@ -337,6 +339,7 @@ where
 enum CandidateApplicability {
     Applicable {
         abi: CallableAbi,
+        constness: bray_symbols::CallableConstness,
         phase_behaviors: bray_symbols::CallablePhaseBehaviors,
     },
     Incompatible(SelectionCandidateRejectionReason),
@@ -460,6 +463,7 @@ where
 
     CandidateApplicability::Applicable {
         abi: callable_type.abi(),
+        constness: callable_type.constness(),
         phase_behaviors: callable_type.phase_behaviors().clone(),
     }
 }

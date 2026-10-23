@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
+using std.numeric;
 using core.target;
 using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.storage;
@@ -51,7 +52,7 @@ trusted internal func reserve_records(
     }
 
     let required: usize = count - pool.available;
-    let maximum: usize = ~0;
+    let maximum: usize = std.numeric.USIZE_MAX;
     let limit: usize = maximum / std.memory.size_of<ReportRecord>() - pool.total;
 
     if required > limit
@@ -207,7 +208,7 @@ trusted internal func activate_record(pos pool: &mut ReportPool) -> usize
 }
 
 @abi(c)
-trusted internal func report_records_admit(pos count: usize, pos destination: RawPointer<ReportRecords>) -> u32
+trusted internal func report_records_admit(pos count: usize, pos destination: DataPointer<ReportRecords>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_write<ReportRecords>(pointer = destination, count = 1),
@@ -227,7 +228,7 @@ trusted internal func report_records_admit(pos count: usize, pos destination: Ra
 trusted internal func admit_record_values(
     pos count: usize,
     pos mut output: ReportRecords,
-    pos destination: RawPointer<ReportRecords>
+    pos destination: DataPointer<ReportRecords>
 ) -> (u32, ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -247,7 +248,7 @@ trusted internal func admit_record_values(
         {
             let mut guard = trusted bray.runtime.bootstrap.pool.lock();
             let pool = guard.get();
-            let maximum: usize = ~0;
+            let maximum: usize = std.numeric.USIZE_MAX;
 
             if count > maximum - pool.credits
             {

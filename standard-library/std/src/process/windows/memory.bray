@@ -5,13 +5,13 @@ using std.memory;
 using std.numeric;
 using internal std.platform;
 
-trusted internal func windows_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
+trusted internal func windows_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> DataPointer<u16>
     uses(layout_reinterpret)
 {
     return trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(buffer));
 }
 
-trusted internal func windows_optional_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> RawPointer<u16>
+trusted internal func windows_optional_text_pointer(pos buffer: &std.memory.RawBuffer<u8>) -> DataPointer<u16>
 {
     if std.memory.initialized_count<u8>(buffer) == 0
     {
@@ -33,14 +33,14 @@ internal func write_windows_u32(pos destination: &mut [u64], pos value: u32, off
 
     let index: usize = offset / 8;
     let shift: u64 = (offset % 8 * 8) as u64;
-    let mask: u64 = 4_294_967_295 << shift;
+    let mask: u64 = (std.numeric.U32_MAX as u64) << shift;
 
-    destination[index] = destination[index] & (mask ^ 18_446_744_073_709_551_615) | (value as u64 << shift);
+    destination[index] = destination[index] & (mask ^ std.numeric.U64_MAX) | (value as u64 << shift);
 }
 
 trusted internal func write_windows_pointer(
     pos destination: &mut [u64],
-    pos value: RawPointer<u8>,
+    pos value: DataPointer<u8>,
     offset: usize,
 ) -> unit
 {
@@ -49,7 +49,7 @@ trusted internal func write_windows_pointer(
     destination[offset / 8] = trusted internal std.platform.pointer_handle(value);
 }
 
-trusted internal func read_windows_pointer(pos source: &[u64], offset: usize) -> RawPointer<u8>
+trusted internal func read_windows_pointer(pos source: &[u64], offset: usize) -> DataPointer<u8>
 {
     assert(offset % 8 == 0, "native pointer field is misaligned");
 

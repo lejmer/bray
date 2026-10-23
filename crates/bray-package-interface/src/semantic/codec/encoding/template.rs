@@ -65,6 +65,7 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     for input in template.inputs() {
         encode_input_kind(encoder, input.kind());
         encoder.write_u32(input.ty().raw());
+        write_optional_u32(encoder, input.state_output().map(|node| node.raw()));
     }
 
     write_count(encoder, template.nodes().len());
@@ -72,6 +73,11 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     for node in template.nodes() {
         encode_operation(encoder, node.operation());
         encoder.write_u32(node.ty().raw());
+
+        encoder.write_u8(
+            node.unsigned_integer_bits()
+                .map_or(0, std::num::NonZeroU8::get),
+        );
     }
 
     write_count(encoder, template.temporaries().len());
@@ -79,12 +85,19 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     for temporary in template.temporaries() {
         encoder.write_u32(temporary.initializer().raw());
         encoder.write_u32(temporary.ty().raw());
-        encoder.write_u32(temporary.dependency_contract().raw());
     }
 
     encoder.write_u32(template.result().raw());
 
     let behavior = template.behavior();
+
+    encoder.write_u32(u32::from(behavior.execution().constant_eligible()));
+    encoder.write_u32(u32::from(behavior.execution().may_unwind()));
+    write_count(encoder, behavior.execution().properties().len());
+
+    for property in behavior.execution().properties() {
+        encoder.write_u32(property.to_wire());
+    }
 
     write_symbol_references(encoder, behavior.effects());
     write_symbol_references(encoder, behavior.capabilities());
@@ -126,8 +139,88 @@ fn encode_input_kind(encoder: &mut WireEncoder, kind: &InterfaceCheckedTemplateI
     }
 }
 
+// rust-style: allow(function-too-large, reason = "one exhaustive checked-template wire dispatch keeps operation tags and complete payload order together")
 fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTemplateOperation) {
     match operation {
+        InterfaceCheckedTemplateOperation::Unreachable => encoder.write_u32(21),
+        InterfaceCheckedTemplateOperation::ArrayElement { subject } => {
+            encoder.write_u32(23);
+            encoder.write_u32(subject.raw());
+        }
+        InterfaceCheckedTemplateOperation::ArrayTransform {
+            subject,
+            element,
+            value,
+        } => {
+            encoder.write_u32(24);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(element.raw());
+            encoder.write_u32(value.raw());
+        }
+        InterfaceCheckedTemplateOperation::LoopValue { initial } => {
+            write_tagged_template_id(encoder, 30, initial.raw());
+        }
+        InterfaceCheckedTemplateOperation::Loop {
+            start,
+            bindings,
+            condition,
+            body,
+            next,
+            completed,
+            outputs,
+        } => {
+            encoder.write_u32(31);
+            encoder.write_u32(start.raw());
+            write_count(encoder, bindings.len());
+
+            for binding in bindings.iter() {
+                encoder.write_u32(binding.raw());
+            }
+
+            encoder.write_u32(condition.raw());
+
+            encoder.write_u32(u32::from(matches!(
+                body,
+                bray_bound_tree::CheckedTemplateLoopBody::Return(_)
+            )));
+
+            encoder.write_u32(body.node().raw());
+
+            for value in next.iter() {
+                encoder.write_u32(value.raw());
+            }
+
+            encoder.write_u32(completed.raw());
+
+            for value in outputs.iter() {
+                encoder.write_u32(value.raw());
+            }
+        }
+        InterfaceCheckedTemplateOperation::Update {
+            subject,
+            base,
+            component,
+            value,
+        } => {
+            encoder.write_u32(28);
+
+            for id in [subject, base, component, value] {
+                encoder.write_u32(id.raw());
+            }
+        }
+        InterfaceCheckedTemplateOperation::StateAfter { operation, ordinal } => {
+            encoder.write_u32(29);
+            encoder.write_u32(operation.raw());
+            encoder.write_u32(*ordinal);
+        }
+        InterfaceCheckedTemplateOperation::Snapshot { value } => {
+            write_tagged_template_id(encoder, 27, value.raw());
+        }
+        InterfaceCheckedTemplateOperation::Sequence { before, value } => {
+            encoder.write_u32(22);
+            encoder.write_u32(before.raw());
+            encoder.write_u32(value.raw());
+        }
         InterfaceCheckedTemplateOperation::Input(input) => {
             write_tagged_template_id(encoder, 1, input.raw());
         }
@@ -152,6 +245,21 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(left.raw());
             encoder.write_u32(right.raw());
         }
+        InterfaceCheckedTemplateOperation::MachineUnary { operation, operand } => {
+            encoder.write_u32(25);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(operand.raw());
+        }
+        InterfaceCheckedTemplateOperation::MachineBinary {
+            operation,
+            left,
+            right,
+        } => {
+            encoder.write_u32(26);
+            encoder.write_u32(operation.to_wire());
+            encoder.write_u32(left.raw());
+            encoder.write_u32(right.raw());
+        }
         InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
             encoder.write_u32(14);
             encoder.write_u32(kind.to_wire());
@@ -171,6 +279,7 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             arguments,
             ordinals,
             dispatch,
+            state_inputs,
         } => {
             encoder.write_u32(4);
             encode_template_reference(encoder, callable);
@@ -180,6 +289,16 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
 
             for ordinal in ordinals.iter() {
                 encoder.write_u32(*ordinal);
+            }
+
+            encoder.write_u32(u32::from(state_inputs.is_some()));
+
+            if let Some(inputs) = state_inputs {
+                write_count(encoder, inputs.len());
+
+                for input in inputs.iter() {
+                    encoder.write_u32(*input);
+                }
             }
 
             match dispatch {
@@ -200,8 +319,14 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(7);
             write_node_ids(encoder, elements);
         }
-        InterfaceCheckedTemplateOperation::Product(fields) => {
+        InterfaceCheckedTemplateOperation::Construct { variant, fields } => {
             encoder.write_u32(17);
+            encoder.write_u32(u32::from(variant.is_some()));
+
+            if let Some(variant) = variant {
+                encode_template_reference(encoder, variant);
+            }
+
             write_count(encoder, fields.len());
 
             for field in fields.iter() {
@@ -213,6 +338,10 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(19);
             encoder.write_u32(subject.raw());
             encode_template_reference(encoder, variant);
+        }
+        InterfaceCheckedTemplateOperation::NullableValue { subject } => {
+            encoder.write_u32(20);
+            encoder.write_u32(subject.raw());
         }
         InterfaceCheckedTemplateOperation::TupleElement { subject, index } => {
             encoder.write_u32(18);
@@ -250,11 +379,18 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             condition,
             when_true,
             when_false,
+            state_outputs,
         } => {
             encoder.write_u32(9);
             encoder.write_u32(condition.raw());
             encoder.write_u32(when_true.raw());
             encoder.write_u32(when_false.raw());
+            write_count(encoder, state_outputs.len());
+
+            for (when_true, when_false) in state_outputs.iter() {
+                write_optional_u32(encoder, when_true.map(|node| node.raw()));
+                write_optional_u32(encoder, when_false.map(|node| node.raw()));
+            }
         }
         InterfaceCheckedTemplateOperation::ShortCircuit { kind, left, right } => {
             encoder.write_u32(10);

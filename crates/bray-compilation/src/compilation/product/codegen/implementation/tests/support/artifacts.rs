@@ -7,6 +7,35 @@ use bray_codegen::{
 };
 use bray_symbols::ProductKind;
 
+pub(in super::super) fn unoptimized_library_ir(source: &str) -> String {
+    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+    let plan = compilation
+        .native_product_plan(
+            test_product_identity(),
+            crate::BuildConfiguration::Development,
+            None,
+            [],
+            None,
+        )
+        .expect("test library must reach native lowering");
+
+    let options = plan
+        .options()
+        .with_optimization(bray_codegen::OptimizationLevel::None);
+
+    generated_artifacts_of_kind_with_options(
+        &backend,
+        &plan,
+        BackendArtifactKind::BackendIr,
+        &options,
+    )
+    .into_iter()
+    .map(|bytes| String::from_utf8(bytes).expect("backend IR is UTF-8"))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
 pub(in super::super) fn assert_source_emits_valid_native_units(
     source: &str,
     configuration: crate::BuildConfiguration,

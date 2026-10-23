@@ -29,43 +29,26 @@ trusted internal func transfer(
 
     // Composition bound this exact child's result layout to this parent slot.
     // Root storage was admitted with the descriptor before capture transfer.
-    let retaining = trusted lambda(
-        pos cursor: &mut Cursor,
-        pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
-        pos ready: bray.runtime.bootstrap.activation.callback.Ready,
-        pos destination: usize,
-    ) -> (bray.runtime.bootstrap.activation.Progress, u32)
-        requires(trusted selected(cursor = &cursor), trusted bray.runtime.bootstrap.entry.native_entry())
+    let permit = trusted lambda(pos cursor: &mut Cursor, pos destination: usize)
+        requires(trusted selected(cursor = &cursor))
         ensures(
             trusted selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report)
+            trusted bray.runtime.bootstrap.activation.execution.completion_destination(
+                pointer = cursor.pointer,
+                address = destination
+            ),
         )
-    {
-        let permit = trusted lambda(pos cursor: &mut Cursor, pos destination: usize)
-            requires(trusted selected(cursor = &cursor))
-            ensures(
-                trusted selected(cursor = &cursor),
-                trusted bray.runtime.bootstrap.activation.execution.completion_destination(
-                    pointer = cursor.pointer,
-                    address = destination
-                ),
-            )
-            executes(pure, total) {};
+        executes(pure, total) {};
 
-        trusted permit(cursor, destination);
+    trusted permit(cursor, destination);
 
-        let (progress, _, _, status, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(
-            cursor,
-            callback,
-            ready,
-            4,
-            destination
-        );
-
-        return (progress, status);
-    };
-
-    let (mut progress, status) = trusted retaining(cursor, callback, ready, destination);
+    let (mut progress, status) = trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(
+        cursor,
+        callback,
+        ready,
+        4,
+        destination
+    );
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS
     {

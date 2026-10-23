@@ -13,7 +13,7 @@ using std.memory;
 trusted internal predicate constructing(token: &bray.runtime.bootstrap.activation.Inactive, context: usize);
 
 @abi(c)
-trusted internal func layout(pos bytes: RawPointer<usize>, pos alignment: RawPointer<usize>)
+trusted internal func layout(pos bytes: DataPointer<usize>, pos alignment: DataPointer<usize>)
     requires(
         trusted core.memory.valid_write<usize>(pointer = bytes, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = bytes),
@@ -36,7 +36,7 @@ trusted internal func initialize_owned(
     uses(raw_memory, unchecked_init)
 {
     let locate = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos context: usize) ->
-        RawPointer<bray.runtime.bootstrap.activation.Header>
+        DataPointer<bray.runtime.bootstrap.activation.Header>
         requires(trusted constructing(token = token, context = context))
         ensures(
             trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Header>(pointer = result, count = 1),
@@ -108,32 +108,32 @@ trusted internal func initialize_owned(
 // This entry owns the exact token and record slots as well as the provider's
 // uninitialized header. No caller-controlled field supplies that ownership.
 trusted internal predicate construction_entry(
-    token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     context: usize,
-    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 );
 
 @abi(c)
 trusted internal func initialize(
-    pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     pos context: usize,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 )
     requires(trusted construction_entry(token = token, context = context, records = records))
     uses(raw_memory, unchecked_init)
 {
     let read = trusted lambda(
-        pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
         pos context: usize,
-        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+        pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
     ) -> (bray.runtime.bootstrap.activation.Inactive, bray.runtime.bootstrap.ReportRecords)
         requires(trusted construction_entry(token = token, context = context, records = records))
         ensures(trusted constructing(token = &result.0, context = context))
         uses(raw_memory)
     {
         let permit = trusted lambda(
-            pos token: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
-            pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>
+            pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+            pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>
         )
             ensures(
                 trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
@@ -157,7 +157,7 @@ trusted internal func initialize(
 
     trusted initialize_owned(&value, context, outgoing);
 
-    let retained = trusted lambda(pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>)
+    let retained = trusted lambda(pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>)
         ensures(
             trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),

@@ -155,7 +155,7 @@ fn callable_indirection_closes_recursive_value_layouts_before_abi_classification
 
 #[test]
 fn raw_pointer_indirection_closes_recursive_value_layouts() {
-    for field in ["RawPointer<Node>", "core.atomic.Atomic<RawPointer<Node>>"] {
+    for field in ["DataPointer<Node>", "core.atomic.Atomic<DataPointer<Node>>"] {
         let compilation = compilation(&format!(
             "module app; using core.atomic; struct Node {{ next: {field}; }}"
         ));

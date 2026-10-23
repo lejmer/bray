@@ -45,6 +45,7 @@ pub(crate) fn guarantees(operation: Operation, property: ExecutionProperty) -> b
         | Operation::Null { .. }
         | Operation::IsNull { .. }
         | Operation::Offset { .. }
+        | Operation::ByteAddress { .. }
         | Operation::Reinterpret { .. }
         | Operation::CallableFromPointer { .. }
         | Operation::PointerFromCallable { .. }
@@ -132,6 +133,7 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::Null { .. }
         | Operation::IsNull { .. }
         | Operation::Offset { .. }
+        | Operation::ByteAddress { .. }
         | Operation::Reinterpret { .. }
         | Operation::CallableFromPointer { .. }
         | Operation::PointerFromCallable { .. }
@@ -181,6 +183,7 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
             ..
         }
         | Operation::VolatileWrite { .. }
+        | Operation::ByteBufferFill
         | Operation::Copy { .. }
         | Operation::AtomicStore { .. }
         | Operation::AtomicExchange { .. }
@@ -194,7 +197,6 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::RawBufferRelease { .. }
         | Operation::RawBufferReplace { .. }
         | Operation::RawBufferRelocate { .. }
-        | Operation::ByteBufferFill
         | Operation::DebuggerTrap
         | Operation::UnreachableTermination
         | Operation::InlineAssembly { .. } => StorageEffect::Unknown,

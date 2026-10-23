@@ -134,8 +134,27 @@ impl RefinementUniverse {
         Ok(match refinement {
             AnalysisRefinement::CleanupRequired { .. }
             | AnalysisRefinement::InvocationFailure(_)
+            | AnalysisRefinement::InvocationCancellation(_)
             | AnalysisRefinement::PreconditionFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
+            AnalysisRefinement::InvocationPresence(invocation, value) => {
+                let access = storage
+                    .invocation_result(invocation)
+                    .expect("presence edge retains its actual nullable result");
+
+                vec![Refinement::new(
+                    RefinementKind::Pattern {
+                        subject: invocation
+                            .expression()
+                            .expect("protocol result has an expression owner"),
+                        access,
+                        predicate: PatternPredicate::NullablePresent,
+                        value,
+                    },
+                    [access],
+                )]
+            }
+            AnalysisRefinement::InvocationBoolean(_, _) => Vec::new(),
             AnalysisRefinement::PropagationOutcome {
                 expression,
                 succeeded,
@@ -174,7 +193,7 @@ impl RefinementUniverse {
                     .ty();
 
                 storage
-                    .expression_plans(subject)
+                    .node_plans((subject).into())
                     .filter(|plan| {
                         storage
                             .access(plan.access())
@@ -358,7 +377,7 @@ impl RefinementUniverse {
                         ..
                     } => Some(access),
                     RefinementKind::NullablePresence { expression, .. } => storage
-                        .expression_plans(expression)
+                        .node_plans((expression).into())
                         .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Read)
                         .map(|plan| plan.access()),
                     _ => None,

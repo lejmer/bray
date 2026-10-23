@@ -2,6 +2,7 @@
 trusted module std.process;
 
 using std.memory;
+using std.numeric;
 using internal std.platform;
 
 trusted internal func spawn_storage(
@@ -95,59 +96,59 @@ trusted internal func spawn_storage(
         case Error(_) { return Error(internal std.platform.exhausted_status()); }
     };
 
-    let mut argument_pointers: std.memory.RawBuffer<RawPointer<u8>> = match trusted std.memory.RawBuffer<
-        RawPointer<u8>
+    let mut argument_pointers: std.memory.RawBuffer<DataPointer<u8>> = match trusted std.memory.RawBuffer<
+        DataPointer<u8>
     >(capacity = argument_count + 2)
     {
         case Ok(value) { yield value; }
         case Error(_) { return Error(internal std.platform.exhausted_status()); }
     };
 
-    let mut environment_pointers: std.memory.RawBuffer<RawPointer<u8>> = match trusted std.memory.RawBuffer<
-        RawPointer<u8>
+    let mut environment_pointers: std.memory.RawBuffer<DataPointer<u8>> = match trusted std.memory.RawBuffer<
+        DataPointer<u8>
     >(capacity = environment_count + 1)
     {
         case Ok(value) { yield value; }
         case Error(_) { return Error(internal std.platform.exhausted_status()); }
     };
 
-    let executable_pointer: RawPointer<u8> = trusted internal copy_native_text(&mut text, executable);
+    let executable_pointer: DataPointer<u8> = trusted internal copy_native_text(&mut text, executable);
 
-    let mut working_directory: RawPointer<u8> = std.memory.null<u8>();
+    let mut working_directory: DataPointer<u8> = std.memory.null<u8>();
 
     if working_length > 0
     {
         working_directory = trusted internal copy_native_text(&mut text, working_directory_span);
     }
 
-    trusted internal std.memory.initialize_spare<RawPointer<u8>>(&mut argument_pointers, executable_pointer);
+    trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut argument_pointers, executable_pointer);
     index = 0;
 
     while index < argument_count
     {
         let span: (&[u8]) = arguments[index];
-        let copied: RawPointer<u8> = trusted internal copy_native_text(&mut text, span);
+        let copied: DataPointer<u8> = trusted internal copy_native_text(&mut text, span);
 
-        trusted internal std.memory.initialize_spare<RawPointer<u8>>(&mut argument_pointers, copied);
+        trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut argument_pointers, copied);
 
         index += 1;
     }
 
-    trusted internal std.memory.initialize_spare<RawPointer<u8>>(&mut argument_pointers, std.memory.null<u8>());
+    trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut argument_pointers, std.memory.null<u8>());
 
     index = 0;
 
     while index < environment_count
     {
         let entry: PlatformEnvironmentEntry = environment[index];
-        let copied: RawPointer<u8> = trusted internal copy_environment_entry(&mut text, entry);
+        let copied: DataPointer<u8> = trusted internal copy_environment_entry(&mut text, entry);
 
-        trusted internal std.memory.initialize_spare<RawPointer<u8>>(&mut environment_pointers, copied);
+        trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut environment_pointers, copied);
 
         index += 1;
     }
 
-    trusted internal std.memory.initialize_spare<RawPointer<u8>>(&mut environment_pointers, std.memory.null<u8>());
+    trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut environment_pointers, std.memory.null<u8>());
 
     return Ok(
         {
@@ -212,7 +213,7 @@ trusted internal func environment_key_length(pos text: (&[u8])) -> Result<usize,
 
 internal func added_text_capacity(pos current: usize, pos length: usize) -> Result<usize, std.platform.PlatformStatus>
 {
-    if length == 18_446_744_073_709_551_615 || current > 18_446_744_073_709_551_615 - length - 1
+    if length == std.numeric.USIZE_MAX || current > std.numeric.USIZE_MAX - length - 1
     {
         return Error(internal std.platform.exhausted_status());
     }
@@ -242,10 +243,10 @@ internal func added_environment_capacity(
 trusted internal func copy_native_text(
     pos destination: &mut std.memory.RawBuffer<u8>,
     pos text: (&[u8]),
-) -> RawPointer<u8>
+) -> DataPointer<u8>
     uses(raw_memory, unchecked_init)
 {
-    let start: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
+    let start: DataPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
     let length: usize = text.length();
 
     let initialized: usize = trusted internal std.memory.copy_spare_bytes(destination, text, count = length);
@@ -259,10 +260,10 @@ trusted internal func copy_native_text(
 trusted internal func copy_environment_entry(
     pos destination: &mut std.memory.RawBuffer<u8>,
     pos entry: PlatformEnvironmentEntry,
-) -> RawPointer<u8>
+) -> DataPointer<u8>
     uses(raw_memory, unchecked_init)
 {
-    let start: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
+    let start: DataPointer<u8> = trusted std.memory.spare_pointer<u8>(destination);
     let key_length: usize = entry.key.length();
     let value_length: usize = entry.value.length();
 

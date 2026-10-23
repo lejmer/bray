@@ -145,16 +145,28 @@ scope Ambient at ambient {
         surface { internal end: T; }
     }
 
-    declaration RawPointer {
-        representation RawPointer;
+    declaration DataPointer {
+        representation DataPointer;
 
-        surface { struct RawPointer<T> with(true) {} }
+        surface { struct DataPointer<T> with(true) {} }
     }
 
-    declaration RawPointerElement {
-        owner RawPointer;
+    declaration DataPointerElement {
+        owner DataPointer;
 
         surface { element: T; }
+    }
+
+    declaration FunctionPointer {
+        representation FunctionPointer;
+
+        surface { struct FunctionPointer<F> with(true) {} }
+    }
+
+    declaration FunctionPointerContract {
+        owner FunctionPointer;
+
+        surface { contract: F; }
     }
 
     declaration DevicePointer {

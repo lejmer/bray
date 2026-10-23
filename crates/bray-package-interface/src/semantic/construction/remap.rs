@@ -205,6 +205,13 @@ fn remap_callable_contract(
             bray_symbols::CallableExecutionTarget::Callable(callable) => remap
                 .callable_instance(callable)
                 .map(bray_symbols::CallableExecutionTarget::Callable),
+            bray_symbols::CallableExecutionTarget::Requirement {
+                callable,
+                requirement: (subject, application),
+            } => Ok(bray_symbols::CallableExecutionTarget::Requirement {
+                callable: remap.callable_instance(callable)?,
+                requirement: (remap.ty(subject)?, remap.trait_application(application)?),
+            }),
             bray_symbols::CallableExecutionTarget::Indirect(ty) => remap
                 .ty(ty)
                 .map(bray_symbols::CallableExecutionTarget::Indirect),

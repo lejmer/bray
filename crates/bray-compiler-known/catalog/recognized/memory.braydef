@@ -7,7 +7,7 @@ scope StandardMemory at std.memory {
         implementation AddressOf;
 
         surface {
-            func address_of<T>(pos value: &T) -> RawPointer<T>
+            func address_of<T>(pos value: &T) -> DataPointer<T>
                 ensures(
                     trusted core.memory.valid_read<T>(pointer = result, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = result),
@@ -27,7 +27,7 @@ scope StandardMemory at std.memory {
         implementation AddressOfMut;
 
         surface {
-            func address_of_mut<T>(pos value: &mut T) -> RawPointer<T>
+            func address_of_mut<T>(pos value: &mut T) -> DataPointer<T>
                 ensures(
                     trusted core.memory.valid_read<T>(pointer = result, count = 1),
                     trusted core.memory.valid_write<T>(pointer = result, count = 1),
@@ -47,7 +47,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation RawPointerNull;
 
-        surface { func null<T>() -> RawPointer<T>; }
+        surface { func null<T>() -> DataPointer<T>; }
     }
 
     declaration StandardMemoryIsNull {
@@ -55,7 +55,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation RawPointerIsNull;
 
-        surface { func is_null<T>(pos pointer: RawPointer<T>) -> bool; }
+        surface { const func is_null<T>(pos pointer: DataPointer<T>) -> bool; }
     }
 
     declaration StandardMemoryOffset {
@@ -65,9 +65,9 @@ scope StandardMemory at std.memory {
 
         surface {
             func offset<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 elements: isize,
-            ) -> RawPointer<T>;
+            ) -> DataPointer<T>;
         }
     }
 
@@ -78,9 +78,19 @@ scope StandardMemory at std.memory {
 
         surface {
             func byte_offset<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 bytes: isize,
-            ) -> RawPointer<T>;
+            ) -> DataPointer<T>;
+        }
+    }
+
+    declaration StandardMemoryByteAddress {
+        identity name byte_address;
+        availability RawMemory;
+        implementation RawPointerByteAddress;
+
+        surface {
+            const func byte_address<T>(pos pointer: DataPointer<T>) -> DataPointer<u8>;
         }
     }
 
@@ -91,8 +101,8 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func reinterpret<Target, Source>(
-                pos pointer: RawPointer<Source>,
-            ) -> RawPointer<Target>
+                pos pointer: DataPointer<Source>,
+            ) -> DataPointer<Target>
                 uses(layout_reinterpret);
         }
     }
@@ -103,7 +113,7 @@ scope StandardMemory at std.memory {
         implementation CallableFromPointer;
 
         surface {
-            trusted func callable_from_pointer<F>(pos pointer: RawPointer<F>) -> F
+            trusted func callable_from_pointer<F>(pos pointer: FunctionPointer<F>) -> F
                 requires(
                     trusted core.memory.callable_address_valid<F>(pointer = pointer),
                 )
@@ -112,12 +122,12 @@ scope StandardMemory at std.memory {
     }
 
     declaration StandardMemoryPointerFromCallable {
-        identity name pointer_from_callable;
+        identity name function_address;
         availability RawMemory;
         implementation PointerFromCallable;
 
         surface {
-            trusted func pointer_from_callable<F>(pos value: F) -> RawPointer<F>
+            trusted func function_address<F>(pos value: F) -> FunctionPointer<F>
                 ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
                 uses(layout_reinterpret);
         }
@@ -129,7 +139,7 @@ scope StandardMemory at std.memory {
         implementation RawPointerRead;
 
         surface {
-            trusted func read<T>(pos pointer: RawPointer<T>) -> T
+            trusted func read<T>(pos pointer: DataPointer<T>) -> T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<T>(pointer = pointer),
@@ -146,7 +156,7 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func write<T>(
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
                 pos value: T,
             ) -> unit
                 requires(
@@ -167,8 +177,8 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func copy<T>(
-                pos source: RawPointer<T>,
-                pos destination: RawPointer<T>,
+                pos source: DataPointer<T>,
+                pos destination: DataPointer<T>,
                 count: usize,
             ) -> unit
                 requires(
@@ -202,8 +212,8 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted func copy_overlapping<T>(
-                pos source: RawPointer<T>,
-                pos destination: RawPointer<T>,
+                pos source: DataPointer<T>,
+                pos destination: DataPointer<T>,
                 count: usize,
             ) -> unit
                 requires(
@@ -249,7 +259,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation UninitPointer;
 
-        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> executes(pure, total); }
+        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> DataPointer<T> executes(pure, total); }
     }
 
     declaration StandardMemoryUninitPointerMut {
@@ -257,7 +267,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation UninitPointerMut;
 
-        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T> executes(pure, total); }
+        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> DataPointer<T> executes(pure, total); }
     }
 
     declaration StandardMemoryUninitWrite {
@@ -306,7 +316,7 @@ scope StandardMemory at std.memory {
         surface {
             trusted func borrow_from<T, Owner>(
                 pos owner: &Owner,
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
             ) -> &T
                 requires(
                     trusted core.memory.valid_read(pointer = pointer, count = 1),
@@ -331,7 +341,7 @@ scope StandardMemory at std.memory {
         surface {
             trusted func borrow_mut_from<T, Capability>(
                 pos capability: &mut Capability,
-                pos pointer: RawPointer<T>,
+                pos pointer: DataPointer<T>,
             ) -> &mut T
                 requires(
                     trusted core.memory.valid_write(pointer = pointer, count = 1),
@@ -442,7 +452,7 @@ scope StandardMemory at std.memory {
         owner StandardRawAllocation;
         identity name pointer;
 
-        surface { pointer: RawPointer<u8>; }
+        surface { pointer: DataPointer<u8>; }
     }
 
     declaration StandardRawAllocationBytes {
@@ -503,7 +513,7 @@ scope StandardMemory at std.memory {
         owner StandardRawBuffer;
         identity name pointer;
 
-        surface { pointer: RawPointer<T>; }
+        surface { pointer: DataPointer<T>; }
     }
 
     declaration StandardRawBufferCapacity {
@@ -529,7 +539,7 @@ scope StandardMemory at std.memory {
             trusted construct(
                 capacity: usize,
             ) -> Result<Self, MemoryLayoutError>
-                uses(manual_alloc, layout_reinterpret)
+                uses(manual_alloc)
             {}
         }
     }
@@ -603,7 +613,7 @@ scope StandardMemory at std.memory {
         implementation RawBufferPointer;
 
         surface {
-            func pointer<T>(pos buffer: &RawBuffer<T>) -> RawPointer<T>;
+            func pointer<T>(pos buffer: &RawBuffer<T>) -> DataPointer<T>;
         }
     }
 
@@ -643,7 +653,7 @@ scope StandardMemory at std.memory {
         surface {
             trusted func spare_pointer<T>(
                 pos buffer: &mut RawBuffer<T>,
-            ) -> RawPointer<T>
+            ) -> DataPointer<T>
                 ensures(
                     trusted core.memory.valid_write(
                         pointer = result,
@@ -686,7 +696,7 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted internal func byte_buffer_fill(
-                pos destination: RawPointer<u8>,
+                pos destination: DataPointer<u8>,
                 value: u8,
                 count: usize,
             ) -> unit
@@ -754,12 +764,13 @@ scope StandardMemory at std.memory {
 
         surface {
             trusted internal func byte_buffer_read(
-                pos pointer: RawPointer<u8>,
+                pos pointer: DataPointer<u8>,
                 index: usize,
             ) -> u8
                 requires(
-                    (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) && index != 18_446_744_073_709_551_615,
-                    trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1),
+                    index != std.numeric.USIZE_MAX &&
+                        (trusted core.memory.valid_read<u8>(pointer = pointer, count = index + 1)) &&
+                        (trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = index + 1)),
                 )
                 uses(raw_memory);
         }
@@ -776,7 +787,7 @@ scope StandardRuntimeMemory at std.runtime.memory {
             trusted func allocate(
                 pos bytes: usize,
                 pos align: usize,
-            ) -> RawPointer<u8>;
+            ) -> DataPointer<u8>;
         }
     }
 
@@ -786,10 +797,45 @@ scope StandardRuntimeMemory at std.runtime.memory {
 
         surface {
             trusted func deallocate(
-                pos pointer: RawPointer<u8>,
+                pos pointer: DataPointer<u8>,
                 pos bytes: usize,
                 pos align: usize,
             ) -> unit;
+        }
+    }
+}
+
+scope StandardFunctionMemory at std.memory.function {
+    declaration StandardMemoryFunctionPointerReinterpret {
+        identity name reinterpret;
+        availability RawMemory;
+        implementation FunctionPointerReinterpret;
+
+        surface {
+            trusted func reinterpret<Target, Source>(pos pointer: FunctionPointer<Source>) -> FunctionPointer<Target>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration StandardMemoryFunctionPointerFromData {
+        identity name from_data;
+        availability RawMemory;
+        implementation FunctionPointerFromData;
+
+        surface {
+            trusted func from_data<F>(pos pointer: DataPointer<u8>) -> FunctionPointer<F>
+                uses(layout_reinterpret);
+        }
+    }
+
+    declaration StandardMemoryFunctionPointerToData {
+        identity name to_data;
+        availability RawMemory;
+        implementation FunctionPointerToData;
+
+        surface {
+            trusted func to_data<F>(pos pointer: FunctionPointer<F>) -> DataPointer<u8>
+                uses(layout_reinterpret);
         }
     }
 }

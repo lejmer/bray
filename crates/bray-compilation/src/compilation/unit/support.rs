@@ -26,6 +26,10 @@ pub(super) fn bind_unit(
     unit: bray_bound_tree::BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<BoundUnitComputation, BoundUnitBindingError<FactQueryError>> {
+    if key.callable_type_header().is_some() {
+        return crate::compilation::binder::bind_callable_clause_unit(binding_context, unit, key);
+    }
+
     match key.kind() {
         BoundUnitKind::CallableBody => bind_callable_body(binding_context, unit, key),
         BoundUnitKind::AnonymousCallable => bind_anonymous_callable(binding_context, unit, key),

@@ -337,6 +337,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Operator::Add => llvm(self.builder.build_int_add(left, right, "add"))?.into(),
             Operator::Subtract => llvm(self.builder.build_int_sub(left, right, "subtract"))?.into(),
             Operator::Multiply => llvm(self.builder.build_int_mul(left, right, "multiply"))?.into(),
+            Operator::Exponentiate => self.integer_power(left, right)?.into(),
             Operator::Divide => {
                 if signed {
                     llvm(self.builder.build_int_signed_div(left, right, "divide"))?.into()
@@ -385,6 +386,137 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(value)
     }
 
+    fn integer_power(
+        &self,
+        base: IntValue<'context>,
+        exponent: IntValue<'context>,
+    ) -> Result<IntValue<'context>, CodegenFailure> {
+        let count_type = exponent.get_type();
+
+        if count_type.get_bit_width() == 1 {
+            return llvm(self.builder.build_select(
+                exponent,
+                base,
+                base.get_type().const_int(1, false),
+                "power.selected",
+            ))
+            .map(BasicValueEnum::into_int_value);
+        }
+
+        let entry = self
+            .builder
+            .get_insert_block()
+            .expect("integer power has an emitting block");
+
+        let context = self.module.get_context();
+        let header = context.append_basic_block(self.function, "power.header");
+        let body = context.append_basic_block(self.function, "power.body");
+        let multiply = context.append_basic_block(self.function, "power.multiply");
+        let advanced = context.append_basic_block(self.function, "power.advanced");
+        let square = context.append_basic_block(self.function, "power.square");
+        let done = context.append_basic_block(self.function, "power.done");
+        let value_type = base.get_type();
+
+        llvm(self.builder.build_unconditional_branch(header))?;
+        self.builder.position_at_end(header);
+
+        let remaining = llvm(self.builder.build_phi(count_type, "power.remaining"))?;
+        let result = llvm(self.builder.build_phi(value_type, "power.result"))?;
+        let factor = llvm(self.builder.build_phi(value_type, "power.factor"))?;
+
+        remaining.add_incoming(&[(&exponent, entry)]);
+        result.add_incoming(&[(&value_type.const_int(1, false), entry)]);
+        factor.add_incoming(&[(&base, entry)]);
+
+        let count = remaining.as_basic_value().into_int_value();
+        let accumulated = result.as_basic_value().into_int_value();
+        let current_factor = factor.as_basic_value().into_int_value();
+
+        let active = llvm(self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            count,
+            count_type.const_zero(),
+            "power.active",
+        ))?;
+
+        llvm(self.builder.build_conditional_branch(active, body, done))?;
+
+        self.builder.position_at_end(body);
+
+        let low_bit = llvm(self.builder.build_and(
+            count,
+            count_type.const_int(1, false),
+            "power.low",
+        ))?;
+
+        let odd = llvm(self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            low_bit,
+            count_type.const_zero(),
+            "power.odd",
+        ))?;
+
+        llvm(
+            self.builder
+                .build_conditional_branch(odd, multiply, advanced),
+        )?;
+
+        self.builder.position_at_end(multiply);
+
+        let product = llvm(self.builder.build_int_mul(
+            accumulated,
+            current_factor,
+            "power.product",
+        ))?;
+
+        llvm(self.builder.build_unconditional_branch(advanced))?;
+
+        self.builder.position_at_end(advanced);
+
+        let selected = llvm(self.builder.build_phi(value_type, "power.selected"))?;
+
+        selected.add_incoming(&[(&accumulated, body), (&product, multiply)]);
+
+        let selected_value = selected.as_basic_value().into_int_value();
+
+        let next_count = llvm(self.builder.build_right_shift(
+            count,
+            count_type.const_int(1, false),
+            false,
+            "power.next_count",
+        ))?;
+
+        let active = llvm(self.builder.build_int_compare(
+            inkwell::IntPredicate::NE,
+            next_count,
+            count_type.const_zero(),
+            "power.more",
+        ))?;
+
+        llvm(self.builder.build_conditional_branch(active, square, done))?;
+
+        self.builder.position_at_end(square);
+
+        let next_factor = llvm(self.builder.build_int_mul(
+            current_factor,
+            current_factor,
+            "power.next_factor",
+        ))?;
+
+        llvm(self.builder.build_unconditional_branch(header))?;
+        remaining.add_incoming(&[(&next_count, square)]);
+        result.add_incoming(&[(&selected_value, square)]);
+        factor.add_incoming(&[(&next_factor, square)]);
+
+        self.builder.position_at_end(done);
+
+        let completed = llvm(self.builder.build_phi(value_type, "power.completed"))?;
+
+        completed.add_incoming(&[(&accumulated, header), (&selected_value, advanced)]);
+
+        Ok(completed.as_basic_value().into_int_value())
+    }
+
     pub(super) fn float_binary(
         &self,
         operator: MirBinaryOperator,
@@ -417,7 +549,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "compare",
             ))?
             .into(),
-            Operator::BitwiseAnd
+            Operator::Exponentiate
+            | Operator::BitwiseAnd
             | Operator::BitwiseOr
             | Operator::BitwiseXor
             | Operator::ShiftLeft

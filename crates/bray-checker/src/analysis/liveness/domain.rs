@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
+use crate::analysis::id::AnalysisBlockId;
 use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
 use crate::analysis::reachability::ReachabilityResult;
 
@@ -58,8 +59,17 @@ impl<T: Copy + Ord> FixedPointDomain for SetLiveness<'_, T> {
     fn boundary(&self) -> Self::State {
         BTreeSet::new()
     }
-    fn merge_boundary(&self, _: &mut Self::State, _: &Self::State) -> bool {
-        false
+    fn merge(
+        &self,
+        _: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        source: &Self::State,
+    ) -> bool {
+        let before = target.len();
+
+        target.extend(source.iter().copied());
+
+        target.len() != before
     }
 
     fn should_seed(&self, block: &AnalysisBlock) -> bool {
@@ -110,11 +120,7 @@ impl<T: Copy + Ord> FixedPointDomain for SetLiveness<'_, T> {
             source
         };
 
-        let before = target.len();
-
-        target.extend(source.iter().copied());
-
-        target.len() != before
+        self.merge(Some(edge.target()), target, source)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

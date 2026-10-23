@@ -950,9 +950,16 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         for relation in &*contract.borrows {
-            self.include_dependency_subject(relation.entry());
+            if let Some(entry) = relation.entry() {
+                self.include_dependency_subject(entry);
+            }
+
             self.include_dependency_subject(relation.exit());
             self.include_dependency_projections(relation.target_projections());
+        }
+
+        if let Some(term) = contract.observed_result {
+            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
         }
 
         if let Some(input) = contract.returned_input {
@@ -981,6 +988,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
             match effect {
                 DependencyStorageEffect::Atomic
+                | DependencyStorageEffect::Ambient
                 | DependencyStorageEffect::Unknown
                 | DependencyStorageEffect::Escape => {}
                 DependencyStorageEffect::Cleanup(ty) => self.enqueue(PendingRecord::Type(ty.raw())),

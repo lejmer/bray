@@ -365,7 +365,16 @@ fn exports_require_their_own_dependency_declaration() {
 fn named_core_modules_need_using_but_ambient_names_do_not() {
     for using in ["", "using core.memory;"] {
         let source = format!(
-            "module app; {using} func pointer() -> RawPointer<i32> {{ return core.memory.null<i32>(); }}"
+            r#"
+                module app;
+
+                {using}
+
+                func pointer() -> DataPointer<i32>
+                {{
+                    return core.memory.null<i32>();
+                }}
+            "#
         );
 
         let consumer = compilation(&source);

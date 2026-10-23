@@ -217,34 +217,6 @@ impl Compilation {
                 }
             }
 
-            if let bray_ir::MirOperationKind::AdmitOutgoing {
-                owner:
-                    bray_ir::MirOutgoingOwner::Invocation {
-                        callable,
-                        result: bray_bound_tree::BoundCallResult::LazyFuture(_),
-                    },
-                ..
-            }
-            | bray_ir::MirOperationKind::DischargeOutgoing {
-                owner:
-                    bray_ir::MirOutgoingOwner::Invocation {
-                        callable,
-                        result: bray_bound_tree::BoundCallResult::LazyFuture(_),
-                    },
-                ..
-            } = operation.kind()
-            {
-                dependencies.push(ConcreteCodegenDemand::definition(
-                    self.concrete_codegen_callable_data(
-                        owner,
-                        &callable.instance(),
-                        target,
-                        cancellation,
-                    )?,
-                    NativeDemandReason::GeneratedHelper,
-                ));
-            }
-
             for reference in operation.kind().helper_references() {
                 if let Some(dependency) = self.concrete_codegen_helper_dependency(
                     owner,
@@ -538,8 +510,8 @@ impl Compilation {
                     realization
                         .outgoing_calls
                         .into_iter()
-                        .map(super::outgoing::outgoing_requirement)
-                        .collect::<Vec<_>>(),
+                        .map(|call| self.outgoing_requirement(call, cancellation))
+                        .collect::<Result<Vec<_>, _>>()?,
                     realization.finalization.map(|finalization| {
                         CodegenStaticFinalization::new(
                             finalization.execution,
@@ -825,6 +797,9 @@ impl Compilation {
             outgoing_calls.extend(local.iter().cloned());
 
             match data.kind() {
+                bray_symbols::ConstantValueKind::Borrowed(_) => {
+                    panic!("constant observation reached materialized static output")
+                }
                 bray_symbols::ConstantValueKind::StaticAddress(reference) => {
                     if relocations.contains_key(&value) {
                         continue;

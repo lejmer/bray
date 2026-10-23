@@ -101,10 +101,13 @@ fn decode_template(
     let mut inputs = context.allocate_items(reader, input_count)?;
 
     for _ in 0..input_count {
-        inputs.push(InterfaceCheckedTemplateInput::new(
-            decode_input_kind(reader, context)?,
-            InterfaceTypeId::new(read_u32(reader)?),
-        ));
+        inputs.push(
+            InterfaceCheckedTemplateInput::new(
+                decode_input_kind(reader, context)?,
+                InterfaceTypeId::new(read_u32(reader)?),
+            )
+            .with_state_output(read_optional_u32(reader)?.map(CheckedTemplateNodeId::new)),
+        );
     }
 
     let node_count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
@@ -114,10 +117,22 @@ fn decode_template(
     let mut nodes = context.allocate_items(reader, node_count)?;
 
     for _ in 0..node_count {
-        nodes.push(InterfaceCheckedTemplateNode::new(
-            decode_operation(reader, limits, context)?,
-            InterfaceTypeId::new(read_u32(reader)?),
-        ));
+        let operation = decode_operation(reader, limits, context)?;
+        let ty = InterfaceTypeId::new(read_u32(reader)?);
+        let raw_bits = reader.read_u8().map_err(map_wire_error)?;
+
+        if raw_bits > 64 {
+            return Err(crate::semantic::codec::common::invalid_discriminant(
+                crate::InterfaceValidationField::IntegerBitWidth,
+                u32::from(raw_bits),
+            ));
+        }
+
+        let bits = std::num::NonZeroU8::new(raw_bits);
+
+        nodes.push(
+            InterfaceCheckedTemplateNode::new(operation, ty).with_unsigned_integer_bits(bits),
+        );
     }
 
     let temporary_count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
@@ -130,11 +145,37 @@ fn decode_template(
         temporaries.push(InterfaceCheckedTemplateTemporary::new(
             CheckedTemplateNodeId::new(read_u32(reader)?),
             InterfaceTypeId::new(read_u32(reader)?),
-            InterfaceDependencyContractId::new(read_u32(reader)?),
         ));
     }
 
     let result = CheckedTemplateNodeId::new(read_u32(reader)?);
+
+    let constant_eligible = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+    };
+
+    let may_unwind = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+    };
+
+    let property_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut properties = context.allocate_items(reader, property_count)?;
+
+    for _ in 0..property_count {
+        properties.push(decode_tag(read_u32(reader)?)?);
+    }
 
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
@@ -163,7 +204,8 @@ fn decode_template(
         effects,
         capabilities,
         trusted_obligations,
-        InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation),
+        InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation)
+            .with_certification(properties, constant_eligible, may_unwind),
         lifecycle_obligations,
         dependency_contract,
         result_dependencies,
@@ -239,6 +281,7 @@ fn decode_input_kind(
     }
 }
 
+// rust-style: allow(function-too-large, reason = "one checked-template wire dispatch keeps every operation tag and its complete payload in one place")
 fn decode_operation(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
@@ -274,6 +317,25 @@ fn decode_operation(
                 ordinals.push(read_u32(reader)?);
             }
 
+            let state_inputs = match read_u32(reader)? {
+                0 => None,
+                1 => {
+                    let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+                    let mut inputs = context.allocate_items(reader, count)?;
+
+                    for _ in 0..count {
+                        inputs.push(read_u32(reader)?);
+                    }
+
+                    Some(inputs)
+                }
+                _ => {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
+                }
+            };
+
             let raw = read_u32(reader)?;
 
             let dispatch = if raw == 0 {
@@ -282,13 +344,18 @@ fn decode_operation(
                 Some(decode_template_dispatch(reader, context, raw)?)
             };
 
-            Ok(InterfaceCheckedTemplateOperation::ordered_call(
+            let call = InterfaceCheckedTemplateOperation::ordered_call(
                 callable,
                 substitution,
                 arguments,
                 ordinals,
                 dispatch,
-            ))
+            );
+
+            Ok(match state_inputs {
+                Some(inputs) => call.with_state_inputs(inputs),
+                None => call,
+            })
         }
         5 => Ok(InterfaceCheckedTemplateOperation::Convert {
             value: CheckedTemplateNodeId::new(read_u32(reader)?),
@@ -304,11 +371,27 @@ fn decode_operation(
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             member: decode_template_reference(reader, context)?,
         }),
-        9 => Ok(InterfaceCheckedTemplateOperation::Conditional {
-            condition: CheckedTemplateNodeId::new(read_u32(reader)?),
-            when_true: CheckedTemplateNodeId::new(read_u32(reader)?),
-            when_false: CheckedTemplateNodeId::new(read_u32(reader)?),
-        }),
+        9 => {
+            let condition = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let when_true = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let when_false = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+            let mut state_outputs = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                state_outputs.push((
+                    read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
+                    read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
+                ));
+            }
+
+            Ok(InterfaceCheckedTemplateOperation::Conditional {
+                condition,
+                when_true,
+                when_false,
+                state_outputs: state_outputs.into(),
+            })
+        }
         10 => Ok(InterfaceCheckedTemplateOperation::ShortCircuit {
             kind: decode_tag(read_u32(reader)?)?,
             left: CheckedTemplateNodeId::new(read_u32(reader)?),
@@ -322,6 +405,15 @@ fn decode_operation(
             operand: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
         13 => Ok(InterfaceCheckedTemplateOperation::Binary {
+            operation: decode_tag(read_u32(reader)?)?,
+            left: CheckedTemplateNodeId::new(read_u32(reader)?),
+            right: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        25 => Ok(InterfaceCheckedTemplateOperation::MachineUnary {
+            operation: decode_tag(read_u32(reader)?)?,
+            operand: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        26 => Ok(InterfaceCheckedTemplateOperation::MachineBinary {
             operation: decode_tag(read_u32(reader)?)?,
             left: CheckedTemplateNodeId::new(read_u32(reader)?),
             right: CheckedTemplateNodeId::new(read_u32(reader)?),
@@ -345,11 +437,100 @@ fn decode_operation(
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             variant: decode_template_reference(reader, context)?,
         }),
+        21 => Ok(InterfaceCheckedTemplateOperation::Unreachable),
+        23 => Ok(InterfaceCheckedTemplateOperation::ArrayElement {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        24 => Ok(InterfaceCheckedTemplateOperation::ArrayTransform {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            element: CheckedTemplateNodeId::new(read_u32(reader)?),
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        30 => Ok(InterfaceCheckedTemplateOperation::LoopValue {
+            initial: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        31 => {
+            let start = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+            let mut bindings = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                bindings.push(CheckedTemplateNodeId::new(read_u32(reader)?));
+            }
+
+            let condition = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let protocol = read_u32(reader)?;
+            let body = CheckedTemplateNodeId::new(read_u32(reader)?);
+
+            let body = match protocol {
+                0 => bray_bound_tree::CheckedTemplateLoopBody::Repeat(body),
+                1 => bray_bound_tree::CheckedTemplateLoopBody::Return(body),
+                raw => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Template,
+                        raw,
+                    ));
+                }
+            };
+
+            let mut next = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                next.push(CheckedTemplateNodeId::new(read_u32(reader)?));
+            }
+
+            let completed = CheckedTemplateNodeId::new(read_u32(reader)?);
+            let mut outputs = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                outputs.push(CheckedTemplateNodeId::new(read_u32(reader)?));
+            }
+
+            Ok(InterfaceCheckedTemplateOperation::Loop {
+                start,
+                bindings: bindings.into(),
+                condition,
+                body,
+                next: next.into(),
+                completed,
+                outputs: outputs.into(),
+            })
+        }
+        29 => Ok(InterfaceCheckedTemplateOperation::StateAfter {
+            operation: CheckedTemplateNodeId::new(read_u32(reader)?),
+            ordinal: read_u32(reader)?,
+        }),
+        28 => Ok(InterfaceCheckedTemplateOperation::Update {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            base: CheckedTemplateNodeId::new(read_u32(reader)?),
+            component: CheckedTemplateNodeId::new(read_u32(reader)?),
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        27 => Ok(InterfaceCheckedTemplateOperation::Snapshot {
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        22 => Ok(InterfaceCheckedTemplateOperation::Sequence {
+            before: CheckedTemplateNodeId::new(read_u32(reader)?),
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        20 => Ok(InterfaceCheckedTemplateOperation::NullableValue {
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         18 => Ok(InterfaceCheckedTemplateOperation::TupleElement {
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             index: bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
         }),
         17 => {
+            let variant = match read_u32(reader)? {
+                0 => None,
+                1 => Some(decode_template_reference(reader, context)?),
+                _ => {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
+                }
+            };
+
             let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
             let mut fields = context.allocate_items(reader, count)?;
 
@@ -360,7 +541,9 @@ fn decode_operation(
                 ));
             }
 
-            Ok(InterfaceCheckedTemplateOperation::product(fields))
+            Ok(InterfaceCheckedTemplateOperation::construct(
+                variant, fields,
+            ))
         }
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
@@ -649,6 +832,115 @@ mod tests {
     }
 
     #[test]
+    fn checked_integer_widths_round_trip_without_changing_declared_types() {
+        let (_, semantics) = template_fixture();
+
+        let original = &semantics.checked_templates()[0];
+
+        for raw_bits in 0..=64 {
+            let bits = std::num::NonZeroU8::new(raw_bits);
+
+            let template = InterfaceCheckedTemplate::new(
+                original.kind(),
+                [],
+                [InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Unreachable,
+                    InterfaceTypeId::new(0),
+                )
+                .with_unsigned_integer_bits(bits)],
+                [],
+                CheckedTemplateNodeId::new(0),
+                original.behavior().clone(),
+            );
+
+            let bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+
+            assert_eq!(
+                super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+                Ok(template),
+            );
+        }
+    }
+
+    #[test]
+    fn decoded_integer_widths_reject_values_outside_the_checked_domain() {
+        let (_, semantics) = template_fixture();
+
+        let original = &semantics.checked_templates()[0];
+
+        let template = InterfaceCheckedTemplate::new(
+            original.kind(),
+            [],
+            [InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Unreachable,
+                InterfaceTypeId::new(0),
+            )],
+            [],
+            CheckedTemplateNodeId::new(0),
+            original.behavior().clone(),
+        );
+
+        let mut bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+
+        // Kind, input count, node count, operation tag and declared type precede the width byte.
+        let certificate_offset = 5 * std::mem::size_of::<u32>();
+
+        for invalid in [65, u8::MAX] {
+            bytes[certificate_offset] = invalid;
+
+            assert_eq!(
+                super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+                Err(crate::semantic::codec::common::invalid_discriminant(
+                    crate::InterfaceValidationField::IntegerBitWidth,
+                    u32::from(invalid),
+                )),
+            );
+        }
+    }
+
+    #[test]
+    fn integer_width_certificates_reject_boolean_inputs_and_constants() {
+        let (surface, semantics) = operation_fixture();
+
+        let limits = InterfaceValidationLimits::default();
+
+        assert!(encode_semantics(&semantics, &surface, limits).is_ok());
+
+        for node_index in [0, 1] {
+            for bits in [1, 64] {
+                let mut malformed = semantics.clone();
+                let mut templates = malformed.checked_templates.to_vec();
+                let mut nodes = templates[0].nodes().to_vec();
+                let node = &nodes[node_index];
+
+                nodes[node_index] =
+                    InterfaceCheckedTemplateNode::new(node.operation().clone(), node.ty())
+                        .with_unsigned_integer_bits(std::num::NonZeroU8::new(bits));
+
+                let template = &templates[0];
+
+                templates[0] = InterfaceCheckedTemplate::new(
+                    template.kind(),
+                    template.inputs().iter().cloned(),
+                    nodes,
+                    template.temporaries().iter().copied(),
+                    template.result(),
+                    template.behavior().clone(),
+                );
+
+                malformed.checked_templates = templates.into();
+
+                assert_eq!(
+                    encode_semantics(&malformed, &surface, limits),
+                    Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_checked_template_operation_round_trips() {
         let (surface, semantics) = operation_fixture();
 
@@ -710,16 +1002,23 @@ mod tests {
             [
                 original.nodes()[0].clone(),
                 InterfaceCheckedTemplateNode::new(
-                    InterfaceCheckedTemplateOperation::product([
-                        ConstantField::new(
-                            InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0)),
-                            CheckedTemplateNodeId::new(0),
-                        ),
-                        ConstantField::new(
-                            InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(1)),
-                            CheckedTemplateNodeId::new(0),
-                        ),
-                    ]),
+                    InterfaceCheckedTemplateOperation::construct(
+                        None,
+                        [
+                            ConstantField::new(
+                                InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(
+                                    0,
+                                )),
+                                CheckedTemplateNodeId::new(0),
+                            ),
+                            ConstantField::new(
+                                InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(
+                                    1,
+                                )),
+                                CheckedTemplateNodeId::new(0),
+                            ),
+                        ],
+                    ),
                     InterfaceTypeId::new(0),
                 ),
             ],
@@ -897,61 +1196,67 @@ mod tests {
             ))
         );
 
-        let uninitialized = invalid_semantics(
-            4,
-            InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(0)),
-        );
+        for node in [3, 4] {
+            let uninitialized = invalid_semantics(
+                node,
+                InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(0)),
+            );
 
-        assert_eq!(
-            encode_semantics(
-                &uninitialized,
-                &surface,
-                InterfaceValidationLimits::default()
-            ),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+            assert_eq!(
+                encode_semantics(
+                    &uninitialized,
+                    &surface,
+                    InterfaceValidationLimits::default()
+                ),
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template
+                ))
+            );
+        }
     }
 
     #[test]
-    fn template_validation_rejects_decreasing_temporary_initializers() {
+    fn materialized_temporaries_reuse_earlier_nodes_in_allocation_order() {
         let (surface, semantics) = operation_fixture();
 
         let template = &semantics.checked_templates()[0];
+        let mut nodes = template.nodes().to_vec();
 
-        let invalid_template = InterfaceCheckedTemplate::new(
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(1)),
+            InterfaceTypeId::new(0),
+        ));
+
+        let template = InterfaceCheckedTemplate::new(
             template.kind(),
             template.inputs().iter().cloned(),
-            template.nodes().iter().cloned(),
+            nodes,
             [
-                InterfaceCheckedTemplateTemporary::new(
-                    CheckedTemplateNodeId::new(5),
-                    InterfaceTypeId::new(1),
-                    crate::InterfaceDependencyContractId::new(0),
-                ),
+                template.temporaries()[0],
                 InterfaceCheckedTemplateTemporary::new(
                     CheckedTemplateNodeId::new(0),
                     InterfaceTypeId::new(0),
-                    crate::InterfaceDependencyContractId::new(0),
                 ),
             ],
             template.result(),
             template.behavior().clone(),
         );
 
-        let invalid = semantics.clone().with_templates(
-            [invalid_template],
+        let expected = semantics.clone().with_templates(
+            [template],
             semantics.declaration_templates().iter().cloned(),
             semantics.support_entities().iter().cloned(),
         );
 
-        assert_eq!(
-            encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
-            Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Template
-            ))
-        );
+        let limits = InterfaceValidationLimits::default();
+
+        let sections = encode_semantics(&expected, &surface, limits)
+            .expect("later materialization may reuse an earlier checked input");
+
+        let owned = owned_sections(&sections);
+        let views = owned_section_views(&owned);
+
+        assert_eq!(decode_semantics(&views, &surface, limits), Ok(expected));
     }
 
     #[test]
@@ -1521,6 +1826,42 @@ mod tests {
             .with_templates(templates, declarations, support)
     }
 
+    #[test]
+    fn template_validation_rejects_array_elements_outside_their_transform() {
+        let (surface, semantics) = operation_fixture();
+
+        let template = &semantics.checked_templates[0];
+        let mut nodes = template.nodes().to_vec();
+        let result = template.result();
+
+        nodes[usize::try_from(result.raw()).unwrap()] = InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayElement {
+                subject: CheckedTemplateNodeId::new(6),
+            },
+            InterfaceTypeId::new(0),
+        );
+
+        let replacement = InterfaceCheckedTemplate::new(
+            template.kind(),
+            template.inputs().iter().cloned(),
+            nodes,
+            template.temporaries().iter().copied(),
+            result,
+            template.behavior().clone(),
+        );
+
+        let mut invalid = semantics;
+
+        invalid.checked_templates = vec![replacement].into();
+
+        assert_eq!(
+            encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            )),
+        );
+    }
+
     fn operation_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = template_surface();
         let semantics = operation_semantics(&surface);
@@ -1529,6 +1870,16 @@ mod tests {
     }
 
     fn operation_semantics(surface: &crate::PackageInterfaceSurface) -> InterfaceSemantics {
+        let boolean_key = bray_symbols::SymbolKey::compiler_known_declaration(
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool").unwrap(),
+            SymbolKind::Struct,
+        )
+        .unwrap();
+
+        let boolean = crate::InterfaceSymbolReference::CompilerKnown(
+            crate::CompilerKnownSymbolReference::try_new(boolean_key).unwrap(),
+        );
+
         let declaration = InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0));
 
         let callable =
@@ -1537,7 +1888,7 @@ mod tests {
         let implementation =
             InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(1));
 
-        let nodes = [
+        let mut nodes = vec![
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::Input(CheckedTemplateInputId::new(0)),
                 InterfaceTypeId::new(0),
@@ -1598,6 +1949,7 @@ mod tests {
                     condition: CheckedTemplateNodeId::new(0),
                     when_true: CheckedTemplateNodeId::new(4),
                     when_false: CheckedTemplateNodeId::new(7),
+                    state_outputs: Default::default(),
                 },
                 InterfaceTypeId::new(0),
             ),
@@ -1622,7 +1974,7 @@ mod tests {
             ),
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::Binary {
-                    operation: bray_symbols::ConstantBinaryOperation::Add,
+                    operation: bray_symbols::ConstantBinaryOperation::Equal,
                     left: CheckedTemplateNodeId::new(0),
                     right: CheckedTemplateNodeId::new(1),
                 },
@@ -1675,7 +2027,59 @@ mod tests {
                 },
                 InterfaceTypeId::new(0),
             ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Sequence {
+                    before: CheckedTemplateNodeId::new(4),
+                    value: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(0),
+            ),
         ];
+
+        let element = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).unwrap());
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayElement {
+                subject: CheckedTemplateNodeId::new(6),
+            },
+            InterfaceTypeId::new(0),
+        ));
+
+        let value = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).unwrap());
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Convert {
+                value: element,
+                target: InterfaceTypeId::new(0),
+            },
+            InterfaceTypeId::new(0),
+        ));
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::MachineUnary {
+                operation: bray_symbols::ConstantUnaryOperation::Identity,
+                operand: CheckedTemplateNodeId::new(0),
+            },
+            InterfaceTypeId::new(0),
+        ));
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::MachineBinary {
+                operation: bray_symbols::ConstantBinaryOperation::Equal,
+                left: CheckedTemplateNodeId::new(0),
+                right: CheckedTemplateNodeId::new(0),
+            },
+            InterfaceTypeId::new(0),
+        ));
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::ArrayTransform {
+                subject: CheckedTemplateNodeId::new(6),
+                element,
+                value,
+            },
+            InterfaceTypeId::new(2),
+        ));
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [symbol_reference(surface, SymbolKind::Function)],
@@ -1701,21 +2105,20 @@ mod tests {
             [InterfaceCheckedTemplateTemporary::new(
                 CheckedTemplateNodeId::new(4),
                 InterfaceTypeId::new(0),
-                crate::InterfaceDependencyContractId::new(0),
             )],
             CheckedTemplateNodeId::new(14),
             behavior,
         );
 
         let types = [
-            InterfaceType::TypeParameter(symbol_reference(
-                surface,
-                SymbolKind::GenericTypeParameter,
-            )),
+            InterfaceType::Named {
+                definition: boolean.clone(),
+                substitution: crate::InterfaceGenericSubstitutionId::new(1),
+            },
             InterfaceType::Tuple([InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into()),
             InterfaceType::Array {
                 element: InterfaceTypeId::new(0),
-                length: crate::InterfaceConstantTermId::new(0),
+                length: crate::InterfaceConstantTermId::new(1),
             },
             InterfaceType::Borrow {
                 kind: bray_symbols::BorrowKind::Shared,
@@ -1740,10 +2143,13 @@ mod tests {
 
         InterfaceSemantics::new()
             .with_applications(
-                [crate::InterfaceGenericSubstitution::new(
-                    symbol_reference(surface, SymbolKind::Function),
-                    [],
-                )],
+                [
+                    crate::InterfaceGenericSubstitution::new(
+                        symbol_reference(surface, SymbolKind::Function),
+                        [],
+                    ),
+                    crate::InterfaceGenericSubstitution::new(boolean, []),
+                ],
                 [],
                 [],
                 [],
@@ -1753,11 +2159,18 @@ mod tests {
                 types,
                 [InterfaceConstantValue::new(
                     InterfaceTypeId::new(0),
-                    InterfaceConstantValueKind::Unit,
+                    InterfaceConstantValueKind::Boolean(false),
                 )],
-                [InterfaceConstantTerm::Value(InterfaceConstantValueId::new(
-                    0,
-                ))],
+                [
+                    InterfaceConstantTerm::Value(InterfaceConstantValueId::new(0)),
+                    InterfaceConstantTerm::IntegerLiteral {
+                        ty: bray_symbols::TargetSizedIntegerType::Usize,
+                        value: bray_symbols::IntegerConstant::new(
+                            bray_symbols::IntegerSign::NonNegative,
+                            [2],
+                        ),
+                    },
+                ],
             )
             .with_templates(
                 [template],
@@ -1857,7 +2270,16 @@ mod tests {
             })
             .collect();
 
-        Resolver::new(symbols, keys)
+        let boolean_key = bray_symbols::SymbolKey::compiler_known_declaration(
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool").unwrap(),
+            SymbolKind::Struct,
+        )
+        .unwrap();
+
+        Resolver::new(symbols, keys).with_compiler_known(
+            boolean_key,
+            StructSymbolId::from_symbol_id(SymbolId::new(10_000)).into(),
+        )
     }
 
     fn helper_key() -> ExternalSymbolKey {

@@ -13,7 +13,6 @@ trusted internal func open_dynamic_library_path(
     policy: LoadPolicy,
 ) -> Result<u64, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut handle: u64 = 0;
 
@@ -33,7 +32,6 @@ trusted internal func open_dynamic_library_system(
     policy: LoadPolicy,
 ) -> Result<u64, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
     let mut handle: u64 = 0;
 
@@ -56,7 +54,6 @@ trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) 
         executes(pure, total)
         ensures(result matches Ok(_))
     }
-    uses(foreign_call)
 {
     if !library.is_owned_value
     {
@@ -97,7 +94,7 @@ internal func system_library_value(pos identity: SystemLibrary) -> u32
 trusted internal func platform_dynamic_library_open_path(
     pos path: std.fs.PlatformPath,
     pos policy: u32,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
@@ -134,36 +131,32 @@ trusted internal func platform_dynamic_library_open_path(
 @abi(c)
 trusted internal func platform_dynamic_library_symbol(
     pos handle: u64,
-    pos name: RawPointer<u8>,
+    pos name: DataPointer<u8>,
     pos length: u64,
-    pos address: RawPointer<RawPointer<u8>>,
+    pos address: DataPointer<DataPointer<u8>>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_read<u8>(pointer = name, count = length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = name, count = length as usize),
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = address, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = address),
-        trusted core.memory.exclusive_alias_valid<RawPointer<u8>>(pointer = address),
-        trusted core.memory.epoch_current<RawPointer<u8>>(pointer = address),
-        trusted core.memory.synchronized_access<RawPointer<u8>>(pointer = address),
-        trusted core.memory.movement_stable<RawPointer<u8>>(pointer = address),
-        trusted core.memory.finalization_pending<RawPointer<u8>>(pointer = address),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = address, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = address),
+        trusted core.memory.exclusive_alias_valid<DataPointer<u8>>(pointer = address),
+        trusted core.memory.epoch_current<DataPointer<u8>>(pointer = address),
+        trusted core.memory.synchronized_access<DataPointer<u8>>(pointer = address),
+        trusted core.memory.movement_stable<DataPointer<u8>>(pointer = address),
+        trusted core.memory.finalization_pending<DataPointer<u8>>(pointer = address),
         blocking_execution(),
     )
     uses(raw_memory, unchecked_init)
 {
-    let prepared: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_dynamic_library_symbol(
-        handle,
-        name,
-        length,
-        address,
-    );
+    let prepared: Result<DataPointer<u8>, std.platform.PlatformStatus> =
+        trusted internal prepare_dynamic_library_symbol(handle, name, length, address);
 
     match consume prepared
     {
         case Ok(pointer)
         {
-            trusted std.memory.write<RawPointer<u8>>(address, value = pointer);
+            trusted std.memory.write<DataPointer<u8>>(address, value = pointer);
 
             return internal std.platform.success_status();
         }
@@ -175,7 +168,7 @@ trusted internal func platform_dynamic_library_symbol(
 trusted internal func platform_dynamic_library_open_system(
     pos identity: u32,
     pos policy: u32,
-    pos opened: RawPointer<u64>,
+    pos opened: DataPointer<u64>,
 ) -> std.platform.PlatformStatus
     requires(
         trusted core.memory.valid_write<u64>(pointer = opened, count = 1),

@@ -472,10 +472,28 @@ fn validate_abi_type(target: &TargetDescription, ty: &str) -> Result<(), String>
     }
 
     if let Some(pointee) = ty
-        .strip_prefix("RawPointer<")
+        .strip_prefix("DataPointer<")
         .and_then(|pointee| pointee.strip_suffix('>'))
     {
         return validate_abi_type(target, pointee);
+    }
+
+    if let Some(contract) = ty
+        .strip_prefix("FunctionPointer<")
+        .and_then(|contract| contract.strip_suffix('>'))
+    {
+        if target
+            .callbacks
+            .iter()
+            .any(|callback| callback.name == contract)
+        {
+            return Ok(());
+        }
+
+        return Err(format!(
+            "{} function pointer contract {contract} has no native callback declaration",
+            target.target
+        ));
     }
 
     if target.types.iter().any(|candidate| candidate.name() == ty)

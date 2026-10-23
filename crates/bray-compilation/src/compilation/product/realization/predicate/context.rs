@@ -2,7 +2,7 @@ use super::super::synthetic::CompilationSyntheticLoweringContext;
 use crate::compilation::CodegenPreparationError;
 use crate::compilation::binder::binding_query_error;
 use crate::fact::FactQueryError;
-use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateIndexCall};
 use bray_ir::{MirCall, MirCallTarget, MirCallableReference, MirOperand, MirPredicateReference};
 use bray_lowering::PredicateLoweringContext;
@@ -31,26 +31,29 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             .filter(|hook| hook.is_available())
             .map(|hook| hook.hook()))
     }
-    fn predicate_field_ordinal(
+    fn predicate_input_ordinal(
         &self,
-        field: bray_symbols::StructFieldSymbolId,
+        field: bray_bound_tree::ConstructionInputId,
     ) -> Result<u32, Self::Error> {
         let binding = self.compilation.binding_context(self.cancellation)?;
 
-        if let Some(field) = binding.symbols().struct_field(field) {
-            return Ok(field.ordinal());
-        }
-
-        let imported = self
-            .compilation
-            .imported_symbol_skeleton_result_with_cancellation(self.cancellation)?;
-
-        Ok(imported
-            .value()
-            .as_ref()
-            .and_then(|symbols| symbols.struct_field(field))
-            .expect("checked imported construction retains its field")
-            .ordinal())
+        Ok(match field {
+            bray_bound_tree::ConstructionInputId::StructField(field) => binding
+                .struct_field(field)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its struct field")
+                .ordinal(),
+            bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => binding
+                .union_payload_field(field)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its union field")
+                .ordinal(),
+            bray_bound_tree::ConstructionInputId::CallableParameter(parameter) => binding
+                .callable_parameter(parameter)
+                .map_err(binding_query_error)?
+                .expect("checked constructor retains its parameter")
+                .ordinal(),
+        })
     }
     fn predicate_template(
         &self,
@@ -168,6 +171,15 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let symbol = self.predicate_symbol(key)?;
 
+        if let Some(provider) = bray_bound_tree::DefaultValueProvider::try_from_symbol(symbol) {
+            assert!(
+                dispatch.is_none(),
+                "default helper has no selected trait dispatch"
+            );
+
+            return self.predicate_default_call(provider, substitution, inputs);
+        }
+
         if let Some(predicate) = PredicateDefinitionSymbolId::try_from_any(symbol) {
             return self.predicate_application(
                 bray_symbols::PredicateInstanceData::new(predicate, substitution),
@@ -207,38 +219,10 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             inputs,
         )?;
 
-        let dispatch = match dispatch {
-            None | Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(..)) => None,
-            Some(bray_bound_tree::CheckedTemplateDispatch::Constraint { owner, ordinal }) => {
-                Some(bray_symbols::TraitConstraintDispatch::Constraint {
-                    owner: bray_symbols::GenericOwnerId::try_new(self.predicate_symbol(owner)?)
-                        .expect("checked callable constraint retains its generic owner"),
-                    ordinal: *ordinal,
-                })
-            }
-            Some(bray_bound_tree::CheckedTemplateDispatch::TraitDefault {
-                subject,
-                substitution,
-            }) => {
-                let owner = self.values.generic_substitution_data(*substitution).owner();
-
-                let AnySymbolId::Trait(definition) = owner.symbol() else {
-                    panic!("checked default dispatch retains its trait");
-                };
-
-                let application = self
-                    .values
-                    .intern_trait_application(bray_symbols::TraitApplicationData::new(
-                        definition,
-                        *substitution,
-                    ))
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                Some(bray_symbols::TraitConstraintDispatch::TraitDefault(
-                    bray_symbols::ImplementationRequirementKey::new(*subject, application),
-                ))
-            }
-        };
+        let dispatch = dispatch
+            .map(|dispatch| dispatch.trait_dispatch(self.values, |key| self.predicate_symbol(key)))
+            .transpose()?
+            .flatten();
 
         if let Some(dispatch) = dispatch {
             call = call.with_trait_dispatch(dispatch);
@@ -296,13 +280,9 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         implementation: Option<ImplementationInstanceId>,
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
-        let binding = self.compilation.binding_context(self.cancellation)?;
+        let (signature, parameters) = self.predicate_callable_signature(callable)?;
 
-        let signature = binding
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(binding_query_error)?;
+        let binding = self.compilation.binding_context(self.cancellation)?;
 
         let contracts = binding
             .resolve_symbol_query(
@@ -312,57 +292,19 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
             )
             .map_err(binding_query_error)?;
 
-        for diagnostics in [signature.diagnostics(), contracts.diagnostics()] {
-            if diagnostics.has_errors() {
-                return Err(CodegenPreparationError::Diagnostics(diagnostics.clone()));
-            }
+        if contracts.diagnostics().has_errors() {
+            return Err(CodegenPreparationError::Diagnostics(
+                contracts.diagnostics().clone(),
+            ));
         }
 
-        let callable_type = self.compilation.resolve_codegen_type(
-            signature.value().callable_type(),
-            callable.substitution(),
-            self.cancellation,
-        )?;
-
-        let data = self.values.type_data(callable_type);
+        let data = self.values.type_data(signature.callable_type());
 
         let bray_symbols::TypeData::Callable(ty) = data.as_ref() else {
             panic!("checked callable signature retains its callable type");
         };
 
-        let receiver = signature
-            .value()
-            .receiver()
-            .map(|receiver| {
-                let ty = self
-                    .values
-                    .substitute_type(receiver.ty(), callable.substitution())
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                let ty = self.predicate_type(ty)?;
-
-                receiver
-                    .mode()
-                    .input_type(self.values, ty)
-                    .map_err(|cause| {
-                        CodegenPreparationError::from(FactQueryError::SemanticValueStore(cause))
-                    })
-            })
-            .transpose()?;
-
-        let parameters = receiver
-            .into_iter()
-            .chain(ty.parameters().iter().map(|parameter| parameter.ty()))
-            .map(|ty| self.predicate_type(ty))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let result = self.compilation.resolve_codegen_type(
-            signature.value().result(),
-            callable.substitution(),
-            self.cancellation,
-        )?;
-
-        let result = self.predicate_type(result)?;
+        let result = self.predicate_type(signature.result())?;
         let target = MirCallTarget::Direct(MirCallableReference::new(callable, ty.abi()));
 
         let arguments = inputs.into_iter().enumerate().map(|(ordinal, value)| {
@@ -384,7 +326,7 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
                 None,
                 [],
             )
-            .with_invocation(signature.value().invocation()),
+            .with_invocation(signature.invocation()),
             parameters,
         ))
     }

@@ -9,13 +9,18 @@ use bray_testing::assert_goal_state_diagnostic_kind;
 fn bootstrap_pool_callbacks_reject_data_pointer_replacement() {
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../runtime/bootstrap/src/records.bray"),
         include_str!("../../../../../../../runtime/bootstrap/src/panic.bray"),
         r#"module app;
         using internal bray.runtime.bootstrap;
 
-        func poison(pos record: &mut bray.runtime.bootstrap.StoredReportPrimary, pos pointer: RawPointer<u8>)
+        func poison(pos record: &mut bray.runtime.bootstrap.StoredReportPrimary, pos pointer: DataPointer<u8>)
         {
             record.release_message = pointer;
         }
@@ -60,14 +65,14 @@ using std.ffi;
 
 @symbol(name = "valid_callback")
 @abi(c)
-trusted func valid_callback(pos context: RawPointer<i32>) -> bool uses(raw_memory)
+trusted func valid_callback(pos context: DataPointer<i32>) -> bool uses(raw_memory)
 {
     let state = trusted std.ffi.callback_state<i32>(context);
     return state == 0;
 }
 
 @abi(c)
-trusted func unexported_callback(pos context: RawPointer<i32>) -> i32 uses(raw_memory)
+trusted func unexported_callback(pos context: DataPointer<i32>) -> i32 uses(raw_memory)
 {
     let state: &i32 = trusted std.ffi.callback_state<i32>(context);
     return state;
@@ -75,14 +80,14 @@ trusted func unexported_callback(pos context: RawPointer<i32>) -> i32 uses(raw_m
 
 @symbol(name = "misplaced_context")
 @abi(c)
-trusted func misplaced_context(pos value: i32, pos context: RawPointer<i32>) -> i32 uses(raw_memory)
+trusted func misplaced_context(pos value: i32, pos context: DataPointer<i32>) -> i32 uses(raw_memory)
 {
     let state: &i32 = trusted std.ffi.callback_state<i32>(context);
     return state + value;
 }
 
 @symbol(name = "bray_abi_context")
-trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memory)
+trusted func bray_abi_context(pos context: DataPointer<i32>) -> i32 uses(raw_memory)
 {
     let state: &i32 = trusted std.ffi.callback_state<i32>(context);
     return state;
@@ -140,21 +145,17 @@ fn standard_callback_compilation(source: &str) -> Compilation {
 
     let request = CompilationRequest::new(
         package,
-        vec![
-            source_input(
-                include_str!("../../../../../../../standard-library/std/src/std.bray"),
-                0,
-            ),
-            source_input(
-                include_str!("../../../../../../../standard-library/std/src/memory.bray"),
-                1,
-            ),
-            source_input(
-                include_str!("../../../../../../../standard-library/std/src/ffi/callback.bray"),
-                2,
-            ),
-            source_input(source, 3),
-        ],
+        crate::test_support::source_inputs(&[
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+            include_str!("../../../../../../../standard-library/std/src/ffi/callback.bray"),
+            source,
+        ]),
     )
     .with_standard_library_source_authority();
 

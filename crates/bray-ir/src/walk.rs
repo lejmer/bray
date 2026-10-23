@@ -355,9 +355,7 @@ impl MirTerminatorKind {
             Self::Panic { report, .. }
             | Self::PropagatePanic { report, .. }
             | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
-            Self::Iterate { cursor, .. } | Self::RangeIterate { cursor, .. } => {
-                visit_place_operands(cursor, &mut visit)
-            }
+            Self::RangeIterate { cursor, .. } => visit_place_operands(cursor, &mut visit),
             Self::CheckCallOutcome {
                 panicked,
                 cancelled,
@@ -536,10 +534,7 @@ pub fn for_each_terminator_storage(
             visit_edge_storage(then_edge, &mut visit);
             visit_edge_storage(else_edge, &mut visit);
         }
-        MirTerminatorKind::Iterate {
-            cursor, exhausted, ..
-        }
-        | MirTerminatorKind::RangeIterate {
+        MirTerminatorKind::RangeIterate {
             cursor, exhausted, ..
         } => {
             visit(cursor.storage());

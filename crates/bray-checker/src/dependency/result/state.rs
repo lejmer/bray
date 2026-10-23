@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Possible retained dependencies travel with the same control-flow state as storage.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct State {
-    pub(super) values: BTreeMap<BoundExpressionId, BTreeSet<DependencyRequirement>>,
+    pub(super) values:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<DependencyRequirement>>,
     pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
     pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<super::sources::SourcePath>>,
     pub(super) borrowed_bindings: BTreeMap<LocalBindingSymbolId, BoundExpressionId>,
@@ -102,6 +103,18 @@ impl State {
         }
 
         match storage.identity(root) {
+            Some(bray_bound_tree::StorageIdentity::InvocationInput {
+                expression,
+                ordinal,
+            }) => {
+                values.extend(
+                    self.value_requirements(bray_bound_tree::BoundExecutionSite::CallInput {
+                        expression,
+                        ordinal,
+                    })
+                    .cloned(),
+                );
+            }
             Some(
                 bray_bound_tree::StorageIdentity::Temporary(expression)
                 | bray_bound_tree::StorageIdentity::Result(
@@ -119,9 +132,9 @@ impl State {
 
     pub(crate) fn value_requirements(
         &self,
-        expression: BoundExpressionId,
+        expression: impl Into<bray_bound_tree::BoundExecutionSite>,
     ) -> impl Iterator<Item = &DependencyRequirement> {
-        self.values.get(&expression).into_iter().flatten()
+        self.values.get(&expression.into()).into_iter().flatten()
     }
 
     pub(crate) fn commit_reports(
@@ -170,7 +183,7 @@ impl State {
     ) {
         if let Some(requirements) = self.reports.remove(&Some(boundary)) {
             if caught {
-                assign(&mut self.values, boundary, requirements);
+                assign(&mut self.values, boundary.into(), requirements);
             } else {
                 self.retain_reports(parent, requirements);
             }

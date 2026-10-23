@@ -10,14 +10,14 @@ trusted internal func resolve_dynamic_symbol<T>(
     pos name: &[u8],
 ) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
     requires(blocking_execution())
-    uses(foreign_call, layout_reinterpret)
+    uses(layout_reinterpret)
 {
     if !valid_symbol_name(name)
     {
         return Error(std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.InvalidInput));
     }
 
-    let mut address: RawPointer<u8> = std.memory.null<u8>();
+    let mut address: DataPointer<u8> = std.memory.null<u8>();
 
     let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
         library.handle_value,
@@ -28,7 +28,7 @@ trusted internal func resolve_dynamic_symbol<T>(
         handle,
         name = internal std.memory.slice_pointer(name, count = name.length()),
         length = name.length() as u64,
-        address = std.memory.address_of_mut<RawPointer<u8>>(&mut address),
+        address = std.memory.address_of_mut<DataPointer<u8>>(&mut address),
     );
 
     try internal std.ffi.checked_foreign_symbol_status(status);

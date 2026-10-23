@@ -676,8 +676,19 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
     let provider = compilation(
         r#"
         module api;
-        struct Holder<T> { reference: &T; address: RawPointer<T>; }
-        func make<T>(pos input: &T, pos address: RawPointer<T>) -> Holder<T> { return { reference = input, address = address }; }
+        struct Holder<T>
+        {
+            reference: &T;
+            address: DataPointer<T>;
+        }
+        func make<T>(pos input: &T, pos address: DataPointer<T>) -> Holder<T>
+            {
+                return
+                {
+                    reference = input,
+                    address = address,
+                };
+            }
     "#,
     );
 
@@ -686,7 +697,10 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
         r#"
         module app;
         using example.package.api;
-        func forwarded(pos input: &bool, pos address: RawPointer<bool>) -> example.package.api.Holder<bool> { return example.package.api.make(input, address); }
+        func forwarded(pos input: &bool, pos address: DataPointer<bool>) -> example.package.api.Holder<bool>
+            {
+                return example.package.api.make(input, address);
+            }
     "#,
     );
 
@@ -726,7 +740,7 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
             .unwrap_or_else(|| panic!("imported origin must retain {kind:?}: {template:#?}"));
 
         assert_eq!(
-            relation.entry().subject_root(),
+            relation.entry().expect("input origin").subject_root(),
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                 parameter
             ))
@@ -746,16 +760,73 @@ fn inferred_unwind_behavior_survives_export_and_import() {
     let provider = compilation(
         r#"
         module api;
-        func spin() { while true {} }
-        func fail() { panic("failure"); }
+
+        func spin()
+        {
+            while true
+            {
+            }
+        }
+
+        func fail()
+        {
+            panic("failure");
+        }
+
+        func cancel() -> u32
+        {
+            let outcome: RunResult<unit> = Cancelled;
+
+            try outcome;
+
+            return 0;
+        }
+
+        func with_default(pos value: u32 = cancel())
+        {
+        }
     "#,
     );
 
-    for (callee, expected) in [("spin", false), ("fail", true)] {
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (callee, expected, cancellation) in [
+        (
+            "spin",
+            false,
+            bray_symbols::CurrentRunCancellation::NotEntered,
+        ),
+        (
+            "fail",
+            true,
+            bray_symbols::CurrentRunCancellation::NotEntered,
+        ),
+        (
+            "cancel",
+            true,
+            bray_symbols::CurrentRunCancellation::MayEnter,
+        ),
+        (
+            "with_default",
+            true,
+            bray_symbols::CurrentRunCancellation::MayEnter,
+        ),
+    ] {
         let consumer = execution_consumer(
             &provider,
             &format!(
-                "module app; using example.package.api; func root() {{ example.package.api.{callee}(); }}"
+                r#"
+                module app;
+
+                using example.package.api;
+
+                func root()
+                {{
+                    example.package.api.{callee}();
+                }}
+                "#
             ),
         );
 
@@ -771,7 +842,13 @@ fn inferred_unwind_behavior_survives_export_and_import() {
             summary.result().diagnostics()
         );
 
-        assert_eq!(*summary.result().value(), expected, "{callee}");
+        assert_eq!(summary.result().value().may_unwind(), expected, "{callee}");
+
+        assert_eq!(
+            summary.result().value().current_run_cancellation(),
+            cancellation,
+            "{callee}"
+        );
 
         let lowered = consumer.lowered_unit(key).unwrap();
 
@@ -788,7 +865,7 @@ fn imported_generic_addresses_retain_authority_only_while_the_owner_lives() {
     let provider = compilation(
         r#"
         module api;
-        func forward<T>(pos pointer: RawPointer<T>) -> RawPointer<T>
+        func forward<T>(pos pointer: DataPointer<T>) -> DataPointer<T>
             executes(pure, total)
         { return pointer; }
     "#,
@@ -854,6 +931,20 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
             replace(&mut result, second);
             return result;
         }
+        func choose<T>(pos first: &T, pos second: &T, pos select: bool) -> Holder<T> {
+            let mut result: Holder<T> = { reference = first };
+            if select { replace(&mut result, second); }
+            return result;
+        }
+        func set_choice<T>(pos target: &mut Holder<T>, pos first: &T, pos second: &T, pos select: bool) {
+            if select { target.reference = first; }
+            else { target.reference = second; }
+        }
+        func forward_choice<T>(pos first: &T, pos second: &T, pos select: bool) -> Holder<T> {
+            let mut result: Holder<T> = { reference = first };
+            set_choice(&mut result, first, second, select);
+            return result;
+        }
     "#,
     );
 
@@ -883,7 +974,7 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
             .iter()
             .any(|relation| relation.exit().subject_root()
                 == bray_symbols::DependencySubjectRoot::Result
-                && relation.entry().subject_root()
+                && relation.entry().expect("input origin").subject_root()
                     == bray_symbols::DependencySubjectRoot::Parameter(
                         bray_symbols::SymbolOrdinal::new(1)
                     )),
@@ -906,6 +997,26 @@ fn imported_reference_replacements_preserve_both_identity_and_lifetime() {
         escaping.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
     );
+
+    for function in ["choose", "forward_choice"] {
+        let caller = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func bad(pos caller: &bool, pos select: bool) -> example.package.api.Holder<bool> {{
+                let local = true;
+                return example.package.api.{function}(caller, &local, select);
+            }}
+        "#
+        );
+
+        let escaping = execution_consumer(&provider, &caller);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            escaping.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
 }
 #[test]
 fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
@@ -944,7 +1055,14 @@ fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
         .collect::<Vec<_>>();
 
     assert_eq!(references.len(), 1, "{references:?}");
-    assert!(references[0].entry().projections().is_empty());
+
+    assert!(
+        references[0]
+            .entry()
+            .expect("input origin")
+            .projections()
+            .is_empty()
+    );
 
     assert!(matches!(
         references[0].target_projections(),
@@ -959,7 +1077,7 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
         module api;
 
         using core.memory;
-        func pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> {
+        func pointer<T>(pos storage: &Uninit<T>) -> DataPointer<T> {
             return core.memory.uninit_pointer<T>(storage);
         }
     "#,
@@ -970,7 +1088,7 @@ fn imported_generic_protected_payload_addresses_retain_their_storage_projection(
         r#"
         module app;
         using example.package.api.pointer;
-        func caller(pos storage: &Uninit<bool>) -> RawPointer<bool> {
+        func caller(pos storage: &Uninit<bool>) -> DataPointer<bool> {
             return example.package.api.pointer<bool>(storage);
         }
     "#,
@@ -1075,7 +1193,10 @@ fn imported_recursive_results_preserve_normal_completion_and_exact_origin() {
     assert_eq!(good.borrows().len(), 1, "{good:#?}");
 
     assert_eq!(
-        good.borrows()[0].entry().subject_root(),
+        good.borrows()[0]
+            .entry()
+            .expect("input origin")
+            .subject_root(),
         bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
     );
 
@@ -1486,7 +1607,7 @@ fn imported_unknown_call_effects_do_not_claim_only_retirement() {
         flow.value()
             .dependencies()
             .effects()
-            .contains(&bray_symbols::DependencyStorageEffect::Unknown)
+            .contains(&bray_symbols::DependencyStorageEffect::Ambient)
     );
 
     assert!(
@@ -1594,7 +1715,7 @@ fn imported_escape_effects_distinguish_retained_arguments_from_opaque_execution(
 
         extern trusted func opaque();
 
-        extern trusted func publish(pos pointer: RawPointer<Owner>);
+        extern trusted func publish(pos pointer: DataPointer<Owner>);
 
         trusted func make() -> Owner
             ensures(trusted live(&result.marker))
@@ -1707,14 +1828,14 @@ fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
 
         struct Owner
         {
-            pointer: RawPointer<u32>;
+            pointer: DataPointer<u32>;
         }
 
         func forward(pos owner: &Owner, pos counter: &core.atomic.Atomic<usize>) -> Owner
         {
             let _: usize = core.atomic.fetch_add<usize, 0>(counter, 1);
 
-            let make = lambda(pos pointer: RawPointer<u32>) -> Owner
+            let make = lambda(pos pointer: DataPointer<u32>) -> Owner
             {
                 return
                 {
@@ -1763,19 +1884,19 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
         struct Owner
         {
             marker: Marker;
-            pointer: RawPointer<u32>;
+            pointer: DataPointer<u32>;
         }
 
         trusted predicate live(marker: &Marker);
 
-        extern func pointer() -> RawPointer<u32>;
+        extern func pointer() -> DataPointer<u32>;
 
-        extern func touch(pos pointer: RawPointer<u32>);
+        extern func touch(pos pointer: DataPointer<u32>);
 
         func make() -> Result<Owner, bool>
             ensures(!(result matches Ok(_)) || trusted live(result_marker(&result)))
         {
-            let make_owner = trusted lambda(pos pointer: RawPointer<u32>) -> Owner
+            let make_owner = trusted lambda(pos pointer: DataPointer<u32>) -> Owner
                 ensures(trusted live(&result.marker))
             {
                 return Owner
@@ -1801,7 +1922,7 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
             }
         }
 
-        func copy_pointer(pos owner: &Owner) -> RawPointer<u32>
+        func copy_pointer(pos owner: &Owner) -> DataPointer<u32>
         {
             return owner.pointer;
         }
@@ -1842,19 +1963,19 @@ fn returned_union_payload_addresses_remain_bounded_after_extraction() {
 #[test]
 fn propagation_preserves_the_selected_payload_reference_relation() {
     for (ty, input, result, count) in [
-        ("RawPointer<u32>?", "input?", "pointer", 1),
+        ("DataPointer<u32>?", "input?", "pointer", 1),
         ("Wrapper?", "input?", "pointer", 1),
         ("Outer?", "input?", "pointer", 1),
         ("Result<Wrapper, bool>", "try input", "Ok(pointer)", 1),
         ("Result<Outer, Wrapper>", "try input", "Ok(pointer)", 2),
         (
-            "Result<RawPointer<u32>, bool>",
+            "Result<DataPointer<u32>, bool>",
             "try input",
             "Ok(pointer)",
             1,
         ),
         (
-            "Result<RawPointer<u32>, RawPointer<u32>>",
+            "Result<DataPointer<u32>, DataPointer<u32>>",
             "try input",
             "Ok(pointer)",
             2,
@@ -1893,7 +2014,7 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
 
                 struct Wrapper
                 {{
-                    pointer: RawPointer<u32>;
+                    pointer: DataPointer<u32>;
                 }}
 
                 struct Outer
@@ -1941,7 +2062,7 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
                 );
 
                 assert_eq!(
-                    relation.entry().projections(),
+                    relation.entry().expect("input origin").projections(),
                     relation.exit().projections()
                 );
             }
@@ -1961,11 +2082,11 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
 
         struct Value
         {
-            child: RawPointer<Child>;
+            child: DataPointer<Child>;
             fail: bool;
         }
 
-        extern func replace(pos child: RawPointer<Child>);
+        extern func replace(pos child: DataPointer<Child>);
 
         impl ValueAdd = Value(Add<Value>)
         {
@@ -2011,7 +2132,7 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
         dependencies
             .effects()
             .iter()
-            .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Unknown)),
+            .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Ambient)),
         "the operator's opaque effects must survive its scalar-only replacement: {dependencies:#?}"
     );
 
@@ -2075,7 +2196,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
 
         struct Slot
         {
-            mut pointer: RawPointer<bool>;
+            mut pointer: DataPointer<bool>;
         }
 
         func choose(pos left: &mut Slot, pos right: &mut Slot, pos first: bool) -> &mut Slot
@@ -2087,7 +2208,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
             return right;
         }
 
-        func store(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+        func store(pos left: &mut Slot, pos right: &mut Slot, pos pointer: DataPointer<bool>, pos first: bool)
         {
             let destination = choose(left, right, first);
             destination.pointer = pointer;
@@ -2103,7 +2224,7 @@ fn unresolved_assignment_retains_stored_reference_capture() {
         let body = r#"
             extern func opaque();
 
-            func forward(pos left: &mut Slot, pos right: &mut Slot, pos pointer: RawPointer<bool>, pos first: bool)
+            func forward(pos left: &mut Slot, pos right: &mut Slot, pos pointer: DataPointer<bool>, pos first: bool)
             {
                 store(left, right, pointer, first);
                 opaque();
@@ -2155,6 +2276,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         struct Metadata
         {
             value: bool;
+            namespace: [u64; 4];
         }
 
         extern func expose(pos value: &bool);
@@ -2167,6 +2289,13 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         func aggregate(pos value: Metadata)
         {
             expose(&value.value);
+        }
+
+        extern func accept(pos value: Metadata);
+
+        func forwarded(pos value: Metadata)
+        {
+            accept(value);
         }
 
         func reference(pos value: &Metadata)
@@ -2184,6 +2313,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
         for (name, argument) in [
             ("scalar", "value.value"),
             ("aggregate", "value"),
+            ("forwarded", "value"),
             ("reference", "&value"),
         ] {
             let body = format!(
@@ -2566,5 +2696,640 @@ fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() 
             preserved,
             "{name}: {dependencies:?}"
         );
+    }
+}
+
+#[test]
+fn imported_conditional_null_pointer_bounds_never_become_exact_identity() {
+    let provider = compilation(
+        r#"
+        module api;
+        using core.memory;
+
+        func pointer<T>(pos value: &T, pos present: bool) -> DataPointer<T>
+        {
+            if present { return core.memory.address_of<T>(value); }
+            return core.memory.null<T>();
+        }
+        "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using core.memory;
+        using example.package.api.pointer;
+
+        func caller(pos value: &u32, pos present: bool) -> DataPointer<u32>
+        {
+            return example.package.api.pointer<u32>(value, present);
+        }
+        "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let dependencies =
+        crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+    assert_eq!(dependencies.borrows().len(), 1, "{dependencies:#?}");
+    assert!(!dependencies.borrows()[0].is_exact(), "{dependencies:#?}");
+}
+
+#[test]
+fn slice_arguments_bound_opaque_effects_without_exposing_other_inputs() {
+    let source = r#"
+        module api;
+        extern func opaque(pos value: &mut [u8]);
+
+        func update(pos preserved: &mut bool, pos value: &mut [u8])
+        {
+            opaque(value);
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let caller = r#"
+        module app;
+        using example.package.api;
+
+        func caller(pos preserved: &mut bool)
+        {
+            let mut buffer: bytes<1> = [0];
+            example.package.api.update(preserved, &mut buffer[..]);
+        }
+    "#;
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, caller)
+        } else {
+            compilation_from_sources([source, &caller.replace("example.package.", "")])
+        };
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            !diagnostics.has_errors(),
+            "imported={imported}: {diagnostics:#?}"
+        );
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &consumer, "caller",
+        );
+
+        assert!(
+            summary.effects().iter().all(|effect| !matches!(
+                effect,
+                bray_symbols::DependencyStorageEffect::Escape
+                    | bray_symbols::DependencyStorageEffect::Indirect {
+                        kind: bray_symbols::DependencyMutationKind::Escape,
+                        ..
+                    }
+                    | bray_symbols::DependencyStorageEffect::Direct {
+                        kind: bray_symbols::DependencyMutationKind::Escape,
+                        ..
+                    }
+            )),
+            "imported={imported}: {summary:#?}"
+        );
+    }
+}
+
+#[test]
+fn recursive_nullable_pointer_bounds_include_every_normal_origin() {
+    let provider = compilation(
+        r#"
+        module api;
+        using core.memory;
+
+        func choose(pos first: &u32, pos second: &u32, pos depth: u32, pos present: bool) -> DataPointer<u32>
+        {
+            if depth == 0
+            {
+                if present { return core.memory.address_of<u32>(first); }
+                return core.memory.null<u32>();
+            }
+            return choose(second, first, depth - 1, present);
+        }
+        "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api.choose;
+
+        func caller(pos first: &u32, pos second: &u32, pos depth: u32, pos present: bool) -> DataPointer<u32>
+        {
+            return example.package.api.choose(first, second, depth, present);
+        }
+        "#,
+    );
+
+    for (application, name) in [(&provider, "choose"), (&consumer, "caller")] {
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{name}: {diagnostics:#?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            application,
+            name,
+        );
+
+        assert_eq!(summary.borrows().len(), 2, "{name}: {summary:#?}");
+
+        assert!(
+            summary
+                .borrows()
+                .iter()
+                .all(|relation| !relation.is_exact()),
+            "{name}: {summary:#?}"
+        );
+
+        let origins = summary
+            .borrows()
+            .iter()
+            .map(|relation| relation.entry().expect("input origin").subject_root())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            origins,
+            std::collections::BTreeSet::from([
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1)),
+            ])
+        );
+    }
+}
+
+#[test]
+fn copied_handles_do_not_publish_their_borrowed_containers() {
+    let source = r#"
+        trusted module api;
+        using core.target;
+        using core.memory;
+
+        struct Owner
+        {
+            handle: usize;
+            mut complete: bool;
+        }
+
+        extern trusted func opaque(pos pointer: DataPointer<u8>);
+
+        trusted func from_handle(pos handle: usize) -> DataPointer<u8>
+            uses(intrinsic)
+        {
+            return trusted core.target.from_exposed_address<u8>(address = handle);
+        }
+
+        func update(pos owner: &mut Owner)
+        {
+            opaque(from_handle(owner.handle));
+            owner.complete = true;
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let caller = r#"
+        module app;
+        using example.package.api;
+
+        func caller(pos owner: &mut example.package.api.Owner)
+        {
+            example.package.api.update(owner);
+        }
+    "#;
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, caller)
+        } else {
+            compilation_from_sources([source, &caller.replace("example.package.", "")])
+        };
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            !diagnostics.has_errors(),
+            "imported={imported}: {diagnostics:#?}"
+        );
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &consumer, "caller",
+        );
+
+        assert!(
+            summary.effects().iter().all(|effect| !matches!(
+                effect,
+                bray_symbols::DependencyStorageEffect::Escape
+                    | bray_symbols::DependencyStorageEffect::Indirect {
+                        kind: bray_symbols::DependencyMutationKind::Escape,
+                        ..
+                    }
+                    | bray_symbols::DependencyStorageEffect::Direct {
+                        kind: bray_symbols::DependencyMutationKind::Escape,
+                        ..
+                    }
+            )),
+            "imported={imported}: {summary:#?}"
+        );
+    }
+}
+
+#[test]
+fn owned_computations_retain_checked_effects_without_granting_authority() {
+    let source = r#"
+        trusted module api;
+        using core.memory;
+
+        struct Marker {}
+        struct Owner { marker: Marker; }
+
+        trusted predicate live(value: &Marker);
+        extern trusted func opaque();
+        extern trusted func publish(pos pointer: DataPointer<Owner>);
+
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+
+        async func work(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {
+            opaque();
+        }
+
+        async func escaping(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {
+            publish(core.memory.address_of<Owner>(owner));
+        }
+
+        struct Guard
+        {
+            owner: &Owner;
+
+            destruct()
+            {
+                publish(core.memory.address_of<Owner>(self.owner));
+            }
+        }
+
+        async func retained_result(pos owner: &Owner) -> Guard
+        {
+            return { owner = owner };
+        }
+
+        async func retained_input(pos guard: Guard) -> Guard
+        {
+            return guard;
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    for (body, valid) in [
+        (
+            "let task = api.work(&owner).start(); try await task.join();",
+            true,
+        ),
+        (
+            "let task = api.work(&owner).start(); let moved = task; try await moved.join();",
+            true,
+        ),
+        (
+            "let task = api.work(&owner).start(); await task.cancel();",
+            true,
+        ),
+        (
+            "{ let task = api.work(&owner).start(); await api.work(&owner); }",
+            true,
+        ),
+        (
+            "let task = api.work(&owner).start(); await api.work(&owner); try await task.join();",
+            true,
+        ),
+        ("{ let future = api.work(&owner); }", true),
+        ("api.work(&owner);", true),
+        ("api.retained_result(&owner);", true),
+        ("{ let task = api.retained_result(&owner).start(); }", false),
+        (
+            "let guard = api.Guard { owner = &owner }; { let task = api.retained_input(guard).start(); }",
+            false,
+        ),
+        (
+            "let task = api.escaping(&owner).start(); try await task.join();",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted module app;
+            using api;
+
+            async func caller()
+            {{
+                let owner = api.make();
+                {body}
+                api.opaque();
+                api.inspect(&owner);
+            }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &caller
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([source, &caller])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "imported={imported}, {body}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn independent_pointer_origins_survive_calls_without_publishing_other_inputs() {
+    let source = r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        trusted predicate live(value: &Marker);
+        extern trusted func opaque();
+        extern trusted func external() -> DataPointer<Owner>;
+        extern trusted func publish(pos pointer: DataPointer<Owner>);
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+        func independent(pos anchor: &Owner) -> DataPointer<Owner>
+        {
+            return external();
+        }
+        func direct(pos owner: &Owner) -> DataPointer<Owner>
+        {
+            return core.memory.address_of<Owner>(owner);
+        }
+        func mixed(pos owner: &Owner, pos choose_input: bool) -> DataPointer<Owner>
+        {
+            if choose_input { return direct(owner); }
+            return independent(owner);
+        }
+        async func independent_async(pos anchor: &Owner) -> DataPointer<Owner>
+        {
+            return independent(anchor);
+        }
+        async func mixed_async(pos owner: &Owner, pos choose_input: bool) -> DataPointer<Owner>
+        {
+            return mixed(owner, choose_input);
+        }
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    for (pointer, valid) in [
+        ("api.independent(&owner)", true),
+        ("api.direct(&owner)", false),
+        ("api.mixed(&owner, choose_input)", false),
+        ("await api.independent_async(&owner)", true),
+        ("await api.mixed_async(&owner, choose_input)", false),
+    ] {
+        let caller = format!(
+            r#"
+            trusted module app;
+            using api;
+            async func caller(pos choose_input: bool)
+            {{
+                let owner = api.make();
+                api.publish({pointer});
+                api.opaque();
+                api.inspect(&owner);
+            }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &caller
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([source, &caller])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "imported={imported}, {pointer}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+
+    let contract =
+        crate::compilation::result_dependencies::source_function_dependencies(&provider, "mixed");
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()),
+        "{contract:#?}"
+    );
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_some()),
+        "{contract:#?}"
+    );
+
+    assert!(
+        contract
+            .borrows()
+            .iter()
+            .all(|relation| !relation.is_exact()),
+        "{contract:#?}"
+    );
+}
+
+#[test]
+fn completed_composite_values_drop_only_the_obsolete_frame_capture() {
+    let source = r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Owner { marker: Marker; }
+        struct View { pointer: DataPointer<Owner>; }
+        struct DeferredView { pointer: DataPointer<Owner>; computation: Future<View>; }
+        trusted predicate live(value: &Marker);
+        extern trusted func opaque();
+        extern trusted func external() -> DataPointer<Owner>;
+        extern trusted func publish(pos value: View);
+        extern trusted func publish_deferred(pos value: DeferredView);
+        trusted func make() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+        func independent(pos anchor: &mut Owner) -> View
+        {
+            return { pointer = external() };
+        }
+        func direct(pos owner: &mut Owner) -> View
+        {
+            return { pointer = core.memory.address_of_mut<Owner>(owner) };
+        }
+        async func independent_async(pos anchor: &mut Owner) -> View
+        {
+            return independent(anchor);
+        }
+        async func direct_async(pos owner: &mut Owner) -> View
+        {
+            return direct(owner);
+        }
+        func deferred(pos owner: &mut Owner) -> Future<View>
+        {
+            return direct_async(owner);
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let completion = crate::compilation::result_dependencies::source_function_dependencies(
+        &provider,
+        "independent_async",
+    );
+
+    assert!(
+        completion
+            .borrows()
+            .iter()
+            .any(|relation| relation.entry().is_none()),
+        "the body publishes the independent nested result origin: {completion:#?}"
+    );
+
+    for (body, valid) in [
+        ("api.publish(api.independent(&mut owner));", true),
+        ("api.publish(api.direct(&mut owner));", false),
+        (
+            "api.publish(await api.independent_async(&mut owner));",
+            true,
+        ),
+        ("api.publish(await api.direct_async(&mut owner));", false),
+        (
+            "let pending = api.independent_async(&mut owner); let moved = pending; api.publish(await moved);",
+            true,
+        ),
+        (
+            "let pending = api.direct_async(&mut owner); let moved = pending; api.publish(await moved);",
+            false,
+        ),
+        (
+            "api.publish_deferred(api.DeferredView { pointer = api.external(), computation = api.deferred(&mut owner) });",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted module app;
+            using api;
+            async func caller()
+            {{
+                let mut owner = api.make();
+                {body}
+                api.opaque();
+                api.inspect(&owner);
+            }}
+        "#
+        );
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &caller
+                        .replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."),
+                )
+            } else {
+                compilation_from_sources([source, &caller])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "imported={imported}, {body}: {diagnostics:#?}, completion={completion:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
     }
 }

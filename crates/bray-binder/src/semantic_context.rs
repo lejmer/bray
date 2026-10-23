@@ -53,7 +53,10 @@ pub fn semantic_unit_context(symbols: &SymbolGraph, unit: &BoundUnit) -> Semanti
         (BoundUnitKeyData::Constraint(_), BoundUnitRoot::ExpressionSequence(_)) => {
             SemanticUnitContext::Constraint(declared_entry(symbols, unit))
         }
-        (BoundUnitKeyData::ContractClause(_), BoundUnitRoot::ExpressionSequence(_)) => {
+        (
+            BoundUnitKeyData::ContractClause(_) | BoundUnitKeyData::CallableTypeClause { .. },
+            BoundUnitRoot::ExpressionSequence(_),
+        ) => {
             let kind = contract_clause_kind(unit);
 
             let result = unit

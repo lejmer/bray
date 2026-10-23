@@ -7,6 +7,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 impl Compilation {
     pub(super) fn trusted_operation_contract(
         &self,
+        owner: bray_bound_tree::BoundExpressionId,
         operation: &bray_bound_tree::SelectedOperation,
         expression: &bray_bound_tree::BoundExpression,
         cancellation: &CancellationToken,
@@ -15,7 +16,8 @@ impl Compilation {
         use bray_bound_tree::SelectedOperation;
 
         if let SelectedOperation::Construction(construction) = operation
-            && let Some(contract) = self.trusted_storage_formation(construction, cancellation)?
+            && let Some(contract) =
+                self.trusted_storage_formation(owner, construction, cancellation)?
         {
             return Ok(Some(contract));
         }
@@ -35,59 +37,176 @@ impl Compilation {
         let inputs = self.execution_callable_inputs(target.definition().symbol(), cancellation)?;
 
         let operands = match operation {
-            SelectedOperation::Construction(construction) => construction
-                .inputs()
-                .iter()
-                .filter_map(|input| match input {
-                    bray_bound_tree::SelectedConstructionInput::Explicit {
-                        expression,
-                        ordinal,
-                        ..
-                    } => Some((*ordinal as usize, *expression)),
-                    _ => None,
-                })
-                .collect::<Vec<_>>(),
-            _ => expression.child_expressions().enumerate().collect(),
+            SelectedOperation::Construction(construction) => {
+                let staged = construction.inputs().iter().any(|input| {
+                    matches!(
+                        input,
+                        bray_bound_tree::SelectedConstructionInput::Default { .. }
+                    )
+                });
+
+                construction
+                    .inputs()
+                    .iter()
+                    .map(|input| {
+                        let (bray_bound_tree::SelectedConstructionInput::Explicit {
+                            ordinal, ..
+                        }
+                        | bray_bound_tree::SelectedConstructionInput::Default {
+                            ordinal, ..
+                        }) = input;
+
+                        let site = if staged {
+                            bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: owner,
+                                ordinal: bray_symbols::SymbolOrdinal::new(*ordinal),
+                            }
+                        } else {
+                            let bray_bound_tree::SelectedConstructionInput::Explicit {
+                                expression,
+                                ..
+                            } = input
+                            else {
+                                unreachable!("unstaged constructor has explicit inputs");
+                            };
+
+                            (*expression).into()
+                        };
+
+                        (
+                            usize::try_from(*ordinal).expect("input ordinal fits host"),
+                            site,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            }
+            _ => expression
+                .child_expressions()
+                .enumerate()
+                .map(|(ordinal, expression)| (ordinal, expression.into()))
+                .collect(),
         };
 
         let arguments = operands
             .into_iter()
             .filter_map(|(ordinal, expression)| {
-                inputs.get(ordinal).map(|input| (*input, expression.into()))
+                inputs.get(ordinal).map(|input| (*input, expression))
             })
             .collect();
 
         self.trusted_invocation_contract(target, &signature, arguments, cancellation, diagnostics)
     }
 
-    pub(super) fn add_scoped_trusted_contracts(
+    pub(super) fn add_implicit_trusted_contracts(
         &self,
-        scoped: &bray_bound_tree::SelectedScopedUse,
+        selection: &bray_bound_tree::SemanticSelection,
         inputs: &mut TrustedContractInputs,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(), FactQueryError> {
-        let expression = scoped.expression();
+        use bray_bound_tree::{BoundExecutionSite as Site, SemanticSelection};
 
-        for (invocation, selected) in [
-            (
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
-                scoped.enter(),
-            ),
-            (
-                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                scoped.exit(),
-            ),
-        ] {
-            if let Some(contract) = self.trusted_invocation_contract(
-                selected.0,
-                &selected.1,
-                std::collections::BTreeMap::new(),
-                cancellation,
-                diagnostics,
-            )? {
-                inputs.calls.insert(invocation, contract);
+        match selection {
+            SemanticSelection::ScopedUse(scoped) => {
+                for (site, selected, source) in [
+                    (
+                        Site::ScopedEnter(scoped.expression()),
+                        scoped.enter(),
+                        scoped.initializer().into(),
+                    ),
+                    (
+                        Site::ScopedExit(scoped.expression()),
+                        scoped.exit(),
+                        Site::ScopedEnter(scoped.expression()),
+                    ),
+                ] {
+                    self.add_implicit_invocation(
+                        site,
+                        selected.0,
+                        &selected.1,
+                        source,
+                        inputs,
+                        cancellation,
+                        diagnostics,
+                    )?;
+                }
             }
+            SemanticSelection::Iteration(iteration) => {
+                let context = self.binding_context(cancellation)?;
+
+                for (site, target, source) in [
+                    (
+                        Site::Iterate(iteration.expression()),
+                        iteration.iterate(),
+                        iteration.source().into(),
+                    ),
+                    (
+                        Site::Next(iteration.expression()),
+                        iteration.next(),
+                        Site::Iterate(iteration.expression()),
+                    ),
+                ] {
+                    let Some(signature) =
+                        self.resolve_callable_instance_signature(&context, target, diagnostics)?
+                    else {
+                        continue;
+                    };
+
+                    self.add_implicit_invocation(
+                        site,
+                        target,
+                        &signature,
+                        source,
+                        inputs,
+                        cancellation,
+                        diagnostics,
+                    )?;
+                }
+            }
+            _ => unreachable!("implicit contracts require a selected protocol"),
+        }
+
+        Ok(())
+    }
+
+    fn add_implicit_invocation(
+        &self,
+        site: bray_bound_tree::BoundExecutionSite,
+        target: bray_symbols::CallableInstanceData,
+        signature: &bray_symbols::CallableSignature,
+        source: bray_bound_tree::BoundExecutionSite,
+        inputs: &mut TrustedContractInputs,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), FactQueryError> {
+        let formal = if let Some(receiver) = signature.receiver() {
+            assert!(
+                signature.parameters().is_empty(),
+                "implicit receiver invocation has one input"
+            );
+
+            receiver.parameter().into()
+        } else {
+            assert_eq!(
+                signature.parameters().len(),
+                1,
+                "implicit invocation has one input"
+            );
+
+            signature.parameters()[0].parameter().into()
+        };
+
+        if let Some(contract) = self.trusted_invocation_contract(
+            target,
+            signature,
+            std::collections::BTreeMap::from([(
+                bray_bound_tree::BoundReferenceTarget::Surface(formal),
+                source,
+            )]),
+            cancellation,
+            diagnostics,
+        )? {
+            inputs.calls.insert(site, contract);
         }
 
         Ok(())
@@ -117,12 +236,6 @@ impl Compilation {
             .phase_behaviors()
             .deferred_execution()
             .unwrap_or(behavior);
-
-        if behavior.predicate_requirements().is_empty()
-            && completion.predicate_guarantees().is_empty()
-        {
-            return Ok(None);
-        }
 
         let inputs = self.execution_callable_inputs(target.definition().symbol(), cancellation)?;
 
@@ -200,15 +313,28 @@ impl Compilation {
     ) -> Result<TrustedCallContract, FactQueryError> {
         let mut requirements = Vec::new();
         let mut preconditions = Vec::new();
+        let mut execution_requirements = Vec::new();
 
         for predicate in behavior.predicate_requirements() {
-            let conditions = if predicate.is_trusted() {
-                &mut requirements
-            } else {
-                &mut preconditions
-            };
+            let condition = decode(predicate)?;
 
-            conditions.push(decode(predicate)?);
+            if predicate.domain() == bray_symbols::PredicateDomain::Execution
+                && predicate
+                    .execution_requirement(
+                        self.semantic_value_store()?,
+                        self.available_compiler_known_symbols(),
+                    )
+                    .is_none()
+            {
+                // Compound lane conditions are not a runtime Boolean or an unconditional lane requirement.
+                execution_requirements.push(condition.clone());
+            }
+
+            if predicate.is_trusted() {
+                requirements.push(condition);
+            } else {
+                preconditions.push((condition, predicate.domain()));
+            }
         }
 
         let mut guarantees = Vec::new();
@@ -228,6 +354,7 @@ impl Compilation {
             arguments: Default::default(),
             transferred_inputs: Vec::new(),
             completes: result.is_some(),
+            checks_preconditions: behavior.has_runtime_requirements(),
             preserves_inputs: false,
             witness_subjects: self.trusted_predicate_subjects(
                 &guarantees,
@@ -236,6 +363,7 @@ impl Compilation {
                 diagnostics,
             )?,
             requirements,
+            execution_requirements,
             preconditions,
             guarantees,
             postconditions,

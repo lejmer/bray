@@ -101,7 +101,11 @@ impl Compilation {
                         substitution,
                         cancellation,
                         &binding_context,
-                        name.origin().source_anchor().syntax(),
+                        Some({
+                            let source = name.origin().source_anchor().syntax();
+
+                            bray_source::SourceSpan::new(source.source_id(), source.full_range())
+                        }),
                     )?;
 
                     diagnostics = diagnostics.merged(&selection_diagnostics);

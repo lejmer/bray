@@ -19,8 +19,8 @@ internal struct Execution
 // The dispatcher retains this exact active frame and independent output slot
 // throughout the metadata callback. Reentry cannot dispatch or retire the frame.
 trusted internal predicate active_destination(
-    pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    output: RawPointer<Execution>,
+    pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
+    output: DataPointer<Execution>,
 );
 
 trusted internal func active(
@@ -43,7 +43,7 @@ trusted internal func active(
 
     let query = trusted lambda(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
-        pos callback: RawPointer<Query>,
+        pos callback: FunctionPointer<Query>,
         pos context: usize,
         pos state: u32,
         pos operation: u32,
@@ -54,7 +54,7 @@ trusted internal func active(
         uses(layout_reinterpret)
     {
         let authorize = trusted lambda(
-            pos callback: RawPointer<Query>,
+            pos callback: FunctionPointer<Query>,
             pos context: usize,
             pos state: u32,
             pos operation: u32,
@@ -73,7 +73,7 @@ trusted internal func active(
         return trusted selected(context, state, operation, argument);
     };
 
-    let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
+    let callback = trusted std.memory.function.from_data<Query>(descriptor.state);
     let own = trusted query(cursor, callback, header.context, state, operation, argument);
 
     let parent: State =
@@ -114,11 +114,11 @@ trusted internal func active(
 
 @abi(c)
 trusted internal func snapshot(
-    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
     pos state: u32,
     pos operation: u32,
     pos argument: usize,
-    pos output: RawPointer<Execution>,
+    pos output: DataPointer<Execution>,
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
@@ -127,11 +127,11 @@ trusted internal func snapshot(
     uses(raw_memory, unchecked_init)
 {
     let query = trusted lambda(
-        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos state: u32,
         pos operation: u32,
         pos argument: usize,
-        pos output: RawPointer<Execution>,
+        pos output: DataPointer<Execution>,
     ) -> Execution?
         requires(
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
@@ -142,7 +142,7 @@ trusted internal func snapshot(
             trusted core.memory.aligned_for<Execution>(pointer = output),
         )
     {
-        let acquire = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) ->
+        let acquire = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>) ->
             bray.runtime.bootstrap.activation.run.Cursor
             requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
             ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))

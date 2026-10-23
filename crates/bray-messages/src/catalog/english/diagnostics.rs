@@ -2028,6 +2028,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UnionTagDirectiveForms
         | DiagnosticNoteKind::CopyContractRequirements
         | DiagnosticNoteKind::TrustedObligationEvidenceRequired
+        | DiagnosticNoteKind::ExecutionRequirementEvidenceRequired
+        | DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements
         | DiagnosticNoteKind::TrustedWitnessTransferRequired
         | DiagnosticNoteKind::StoredTypeRequiresIndirection
         | DiagnosticNoteKind::SelectionMustBeDisambiguated
@@ -2720,6 +2722,20 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
                 " would copy or separate a value without preserving its trusted guarantees",
             ),
         ]),
+        DiagnosticKind::CheckingConstantCallRequirementNotProven => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
+            MessageTemplatePart::Text(
+                " has constant arguments that do not establish its requires clauses",
+            ),
+        ]),
+        DiagnosticKind::CheckingExecutionRequirementNotProven => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
+            MessageTemplatePart::Text(
+                " requires an execution-context condition that does not follow from caller evidence",
+            ),
+        ]),
         DiagnosticKind::CheckingTrustedObligationNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("this "),
             MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
@@ -3099,6 +3115,16 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::CopyContractRequirements => {
             MessageTemplate::new(NOTE_COPY_CONTRACT_REQUIREMENTS)
+        }
+        DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "supply constant arguments that satisfy the selected callable's requires(...) clauses",
+            )])
+        }
+        DiagnosticNoteKind::ExecutionRequirementEvidenceRequired => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "expose the execution condition in the enclosing callable's requirements, or prove a value branch that satisfies the condition",
+            )])
         }
         DiagnosticNoteKind::TrustedObligationEvidenceRequired => {
             MessageTemplate::new(&[MessageTemplatePart::Text(

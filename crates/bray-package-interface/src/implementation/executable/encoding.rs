@@ -905,10 +905,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(0);
                 self.ty(*ty)?;
             }
-            bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
+            bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
                 self.wire.write_u32(1);
-                self.callable_instance(callable.instance())?;
-                self.callable_abi(callable.abi());
+                self.callable_selection(selection)?;
                 self.call_result(*result)?;
             }
         }
@@ -1009,7 +1008,23 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
-        match call.intrinsic() {
+        self.call_intrinsic(call.intrinsic())?;
+
+        write_count(&mut self.wire, call.witnesses().len());
+
+        for witness in call.witnesses() {
+            self.implementation_requirement(witness.requirement())?;
+            self.implementation(witness.witness())?;
+        }
+
+        Ok(())
+    }
+
+    fn call_intrinsic(
+        &mut self,
+        intrinsic: Option<bray_ir::MirCallIntrinsic>,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match intrinsic {
             Some(bray_ir::MirCallIntrinsic::Unary(operator)) => {
                 self.wire.write_u32(1);
                 self.unary_operator(operator);
@@ -1035,11 +1050,29 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
-        write_count(&mut self.wire, call.witnesses().len());
+        Ok(())
+    }
 
-        for witness in call.witnesses() {
-            self.implementation_requirement(witness.requirement())?;
-            self.implementation(witness.witness())?;
+    fn callable_selection(
+        &mut self,
+        selection: &bray_ir::MirCallableSelection,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        self.callable_instance(selection.reference().instance())?;
+        self.callable_abi(selection.reference().abi());
+
+        match selection.trait_dispatch() {
+            Some(dispatch) => {
+                self.wire.write_u32(1);
+                self.trait_dispatch(dispatch)?;
+            }
+            None => self.wire.write_u32(0),
+        }
+
+        self.call_intrinsic(selection.intrinsic())?;
+        write_count(&mut self.wire, selection.witnesses().len());
+
+        for witness in selection.witnesses() {
+            self.implementation(*witness)?;
         }
 
         Ok(())
@@ -1231,23 +1264,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.pattern_predicate(*predicate)?;
                 self.edge(matched)?;
                 self.edge(unmatched)?;
-            }
-            MirTerminatorKind::Iterate {
-                cursor,
-                next,
-                witness,
-                element_type,
-                item,
-                exhausted,
-            } => {
-                self.wire.write_u32(3);
-                self.place(cursor)?;
-                self.callable_instance(next.instance())?;
-                self.callable_abi(next.abi());
-                self.implementation(*witness)?;
-                self.ty(*element_type)?;
-                self.wire.write_u32(item.slot());
-                self.edge(exhausted)?;
             }
             MirTerminatorKind::Switch {
                 discriminant,
@@ -1560,6 +1576,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirBinaryOperator::BitwiseXor => 13,
             MirBinaryOperator::ShiftLeft => 14,
             MirBinaryOperator::ShiftRight => 15,
+            MirBinaryOperator::Exponentiate => 16,
         });
     }
 
@@ -1902,6 +1919,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         Ok(())
     }
 
+    // rust-style: allow(function-too-large, reason = "memory operation tags and their wire fields form one exhaustive flat protocol mapping")
     fn memory_kind(
         &mut self,
         kind: CheckedMemoryOperationKind,
@@ -1950,6 +1968,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             Kind::IsNull { pointee } => {
                 self.wire.write_u32(2);
+                self.ty(pointee)?;
+            }
+            Kind::ByteAddress { pointee } => {
+                self.wire.write_u32(60);
                 self.ty(pointee)?;
             }
             Kind::Offset { unit, pointee } => {

@@ -12,7 +12,7 @@ use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundUnit, StoragePlan}
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ValueRetention {
     incoming: BTreeMap<AnalysisBlockId, BTreeSet<BoundExpressionId>>,
-    repeatable: BTreeSet<BoundExpressionId>,
+    repeatable: BTreeSet<bray_bound_tree::BoundExecutionSite>,
 }
 
 impl ValueRetention {
@@ -77,7 +77,7 @@ impl ValueRetention {
                                 .operation(*id)
                                 .expect("value liveness block retains its operation")
                         })
-                        .filter_map(|operation| operation.kind().occurrence().expression()),
+                        .map(|operation| operation.kind().occurrence()),
                 );
             }
         }
@@ -92,8 +92,8 @@ impl ValueRetention {
         &self.incoming[&block]
     }
 
-    pub(crate) fn can_repeat(&self, expression: BoundExpressionId) -> bool {
-        self.repeatable.contains(&expression)
+    pub(crate) fn can_repeat(&self, occurrence: bray_bound_tree::BoundExecutionSite) -> bool {
+        self.repeatable.contains(&occurrence)
     }
 }
 
@@ -110,6 +110,16 @@ fn transfers(
 
     for block in graph.blocks() {
         let transfer = &mut transfers[block.id().to_index().expect("flow block has an index")];
+
+        if let bray_bound_tree::BoundUnitRoot::Expression(root) = unit.root()
+            && graph.exits().iter().any(|exit| {
+                exit.block() == block.id()
+                    && exit.kind() == crate::analysis::model::AnalysisExitKind::NormalFallthrough
+            })
+        {
+            // Expression units publish this value and its witnesses at normal completion.
+            transfer.generated.insert(root);
+        }
 
         for edge in block.successors().iter().map(|id| {
             graph
@@ -132,7 +142,10 @@ fn transfers(
                 Some(
                     AnalysisRefinement::TrustBoundary(_)
                     | AnalysisRefinement::InvocationFailure(_)
+                    | AnalysisRefinement::InvocationCancellation(_)
                     | AnalysisRefinement::InvocationCompletion(_)
+                    | AnalysisRefinement::InvocationPresence(_, _)
+                    | AnalysisRefinement::InvocationBoolean(_, _)
                     | AnalysisRefinement::CleanupRequired { .. },
                 )
                 | None => {}
@@ -150,6 +163,25 @@ fn transfers(
                     transfer.killed.insert(expression);
                 }
                 AnalysisOperationKind::ScopeExit { .. } => {}
+                AnalysisOperationKind::Call {
+                    invocation:
+                        occurrence @ (bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                        | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                        | bray_bound_tree::BoundExecutionSite::Next(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                        | bray_bound_tree::BoundExecutionSite::ScopedExit(_)),
+                    ..
+                } => {
+                    transfer.generated.extend(
+                        storage
+                            .occurrence_plans(occurrence)
+                            .filter(|plan| {
+                                plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize
+                            })
+                            .map(|plan| plan.expression())
+                            .filter(|expression| Some(*expression) != occurrence.expression()),
+                    );
+                }
                 kind => {
                     if let Some(expression) = kind.occurrence().expression() {
                         let node = unit
@@ -160,6 +192,26 @@ fn transfers(
                         transfer.generated.remove(&expression);
                         transfer.killed.insert(expression);
                         transfer.generated.extend(node.child_expressions());
+
+                        if let bray_bound_tree::BoundExpression::Structured(index) = node
+                            && matches!(
+                                index.kind(),
+                                bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
+                                    | bray_bound_tree::BoundStructuredExpressionKind::SliceIndex
+                            )
+                        {
+                            let mut receiver = index.operands().first().copied();
+
+                            while let Some(bray_bound_tree::BoundExpression::Structured(slice)) =
+                                receiver.and_then(|receiver| unit.view().expression(receiver))
+                                && slice.kind()
+                                    == bray_bound_tree::BoundStructuredExpressionKind::SliceIndex
+                            {
+                                // Bounds proofs observe the coordinates captured by the inner slice.
+                                transfer.generated.extend(slice.operands());
+                                receiver = slice.operands().first().copied();
+                            }
+                        }
 
                         if matches!(
                             kind,

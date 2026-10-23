@@ -92,7 +92,7 @@ impl Compilation {
             Ok(result) => {
                 *diagnostics = diagnostics.merged(result.diagnostics());
 
-                ConstantReferenceResolution::Evaluated(*result.value())
+                ConstantReferenceResolution::Evaluated(result.value().clone())
             }
             Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle {
                 definition: self.constant_definition_span(definition)?,
@@ -598,7 +598,7 @@ impl Compilation {
 
         let context = self.checker_context(cancellation)?;
 
-        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, symbols);
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, Some(symbols));
 
         let diagnostic_span = self
             .dependency_interface_input(address.interface())
@@ -622,7 +622,7 @@ impl Compilation {
         ]);
 
         if let Some(evaluated) = evaluated.value() {
-            return Ok(DiagnosticResult::new(*evaluated, diagnostics));
+            return Ok(DiagnosticResult::new(evaluated.clone(), diagnostics));
         }
 
         recovered_error_constant_instance(
@@ -898,7 +898,9 @@ impl Compilation {
                             dependency_diagnostics =
                                 dependency_diagnostics.merged(result.diagnostics());
 
-                            Ok(ConstantReferenceResolution::Evaluated(*result.value()))
+                            Ok(ConstantReferenceResolution::Evaluated(
+                                result.value().clone(),
+                            ))
                         }
                         Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle {
                             definition: self.constant_definition_span(definition)?,
@@ -997,18 +999,15 @@ mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticRelatedLocationKind};
     use bray_symbols::{
         AnyConstantDefinitionId, CallableDefinitionId, CallableInstanceData,
-        CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
         ConstantDefinitionState, ConstantField, ConstantInstanceKey, ConstantTermData,
         ConstantValueData, ConstantValueId, ConstantValueKind, ErrorConstantDefinition,
         FunctionSymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, GenericTypeParameterSymbolId, IntegerConstant, IntegerSign,
-        NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId,
-        SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
+        NamedTypeSymbolId, SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
     use bray_target::{TargetIdentity, TargetProfile};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::super::support::{call_parameter_values, constant_callable_root};
     use super::recovered_error_constant_instance;
     use crate::SelectedTarget;
     use crate::fact::{ConstantCallQueryKey, ConstantInstanceQueryKey, FactCellTestEvent};
@@ -1061,30 +1060,101 @@ mod tests {
             }
         "#;
 
-        for definition in [
-            "const BAD: (Guard, i32) = (Guard { value = 1, }, 2);",
-            "const BAD: [Guard; 1] = [Guard { value = 1, }];",
-            "struct Wrapped { inner: Guard; } const BAD: Wrapped = Wrapped { inner = Guard { value = 1, }, };",
-            "const BAD: Guard? = Guard { value = 1, };",
-            "const BAD: Choice = .Owned(value = Guard { value = 1, });",
-            "const func take(pos value: Guard) -> i32 { return 1; } const BAD: i32 = take(Guard { value = 1, });",
-            "const func make() -> Guard { return Guard { value = 1, }; } const BAD: Guard = make();",
-            "const func same<T>(pos value: T) -> T { return value; } const BAD: Guard = same<Guard>(Guard { value = 1, });",
-            "struct Wrapped { inner: Guard; count: i32; } const func make() -> Wrapped { return Wrapped { inner = Guard { value = 1, }, count = 2, }; } const BAD: i32 = make().count;",
-            "const FIRST: Guard = Guard { value = 1, }; const BAD: Guard = FIRST;",
+        for (definition, expected) in [
+            (
+                "const BAD: (Guard, i32) = (Guard { value = 1, }, 2);",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: [Guard; 1] = [Guard { value = 1, }];",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    struct Wrapped
+                    {
+                        inner: Guard;
+                    }
+
+                    const BAD: Wrapped = Wrapped { inner = Guard { value = 1 } };
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: Guard? = Guard { value = 1, };",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                "const BAD: Choice = .Owned(value = Guard { value = 1, });",
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    const func take(pos value: Guard) -> i32
+                    {
+                        return 1;
+                    }
+
+                    const BAD: i32 = take(Guard { value = 1 });
+                "#,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                r#"
+                    const func make() -> Guard
+                    {
+                        return Guard { value = 1 };
+                    }
+
+                    const BAD: Guard = make();
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    const func same<T>(pos value: T) -> T
+                    {
+                        return value;
+                    }
+
+                    const BAD: Guard = same<Guard>(Guard { value = 1 });
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
+            (
+                r#"
+                    struct Wrapped
+                    {
+                        inner: Guard;
+                        count: i32;
+                    }
+
+                    const func make() -> Wrapped
+                    {
+                        return Wrapped { inner = Guard { value = 1 }, count = 2 };
+                    }
+
+                    const BAD: i32 = make().count;
+                "#,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            ),
+            (
+                r#"
+                    const FIRST: Guard = Guard { value = 1 };
+                    const BAD: Guard = FIRST;
+                "#,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            ),
         ] {
             let source = format!("{COMMON}{definition}");
             let compilation = compilation(&source);
             let diagnostics = compilation.check_diagnostics();
 
-            assert_goal_state_diagnostic_kind(
-                diagnostics,
-                DiagnosticKind::CheckingNonMaterializableConstant,
-            );
+            assert_goal_state_diagnostic_kind(diagnostics, expected);
 
             assert!(
                 diagnostics
-                    .by_kind(DiagnosticKind::CheckingNonMaterializableConstant)
+                    .by_kind(expected)
                     .all(|diagnostic| diagnostic.primary_span().is_some()),
                 "{definition}: {diagnostics:?}"
             );
@@ -1198,22 +1268,16 @@ mod tests {
             "}\n",
         ));
 
-        let values = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
-
         let ty = i32_type(&compilation);
 
         let (definition, request) = source_constant_call_request(&compilation, [], ty);
 
-        let callable = values
-            .intern_callable_instance(request.callable())
-            .unwrap_or_else(|error| panic!("constant callable instance must intern: {error:?}"));
+        let invocation = request.target().clone();
 
         let target = compilation.requested_target().profile().clone();
 
         let shallow = ConstantCallQueryKey::new(
-            callable,
+            invocation.clone(),
             None,
             Arc::from(request.arguments()),
             ty,
@@ -1222,7 +1286,7 @@ mod tests {
         );
 
         let deep = ConstantCallQueryKey::new(
-            callable,
+            invocation.clone(),
             None,
             Arc::from(request.arguments()),
             ty,
@@ -1239,13 +1303,13 @@ mod tests {
             .unwrap_or_else(|| panic!("source constant callable must have a body"));
 
         let body = compilation
-            .bound_unit(body_key)
-            .unwrap_or_else(|error| panic!("constant callable body must bind: {error:?}"));
+            .constant_body_template(body_key, &compilation.state.cancellation)
+            .expect("certified constant callable publishes its shared template");
 
         assert!(
-            constant_callable_root(body.value()).is_some(),
-            "unexpected constant callable body: {:#?}",
-            body.value()
+            body.result().value().is_some(),
+            "{:#?}",
+            body.result().diagnostics()
         );
 
         let first = compilation
@@ -1259,7 +1323,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert!(first.diagnostics().is_empty());
 
-        let Some(value) = *first.value() else {
+        let Some(value) = first.value().as_ref() else {
             panic!("constant callable must be eligible for evaluation");
         };
 
@@ -1269,7 +1333,26 @@ mod tests {
     #[test]
     fn pattern_conditions_evaluate_constant_calls_and_conditional_bindings() {
         let compilation = compilation(
-            "module app; const func choose(pos input: i32) -> i32 { if input matches 0 | 1 { return 10; } else if let value = input && value > 5 && let next = value + 1 { return next; } else { return 99; } }",
+            r#"
+                module app;
+
+                const func choose(pos input: i32) -> i32
+                    requires(input < 100)
+                {
+                    if input matches 0 | 1
+                    {
+                        return 10;
+                    }
+                    else if let value = input && value > 5 && let next = value + 1
+                    {
+                        return next;
+                    }
+                    else
+                    {
+                        return 99;
+                    }
+                }
+            "#,
         );
 
         let result_type = i32_type(&compilation);
@@ -1290,7 +1373,7 @@ mod tests {
             );
 
             assert_eq!(
-                integer_value(&compilation, result.value().unwrap().value()),
+                integer_value(&compilation, result.value().as_ref().unwrap().value()),
                 expected
             );
         }
@@ -1330,13 +1413,13 @@ mod tests {
             .unwrap_or_else(|| panic!("source constant callable must have a body"));
 
         let body = compilation
-            .bound_unit(body_key)
-            .unwrap_or_else(|error| panic!("constant callable body must bind: {error:?}"));
+            .constant_body_template(body_key, &compilation.state.cancellation)
+            .expect("certified constant callable publishes its shared template");
 
         assert!(
-            constant_callable_root(body.value()).is_some(),
-            "unexpected constant callable body: {:#?}",
-            body.value()
+            body.result().value().is_some(),
+            "{:#?}",
+            body.result().diagnostics()
         );
 
         assert!(
@@ -1355,7 +1438,7 @@ mod tests {
             result.diagnostics()
         );
 
-        let Some(value) = *result.value() else {
+        let Some(value) = result.value().as_ref() else {
             panic!("constant callable must be eligible for evaluation");
         };
 
@@ -1416,7 +1499,7 @@ mod tests {
                 checked.diagnostics()
             );
 
-            let Some(value) = *checked.value() else {
+            let Some(value) = checked.value().as_ref() else {
                 panic!("constant callable must be eligible for evaluation");
             };
 
@@ -1435,121 +1518,107 @@ mod tests {
     }
 
     #[test]
-    fn constant_call_arguments_map_the_receiver_before_ordinary_parameters() {
-        let compilation = compilation("module app;");
+    fn nullable_propagation_respects_callable_and_local_yield_boundaries() {
+        let compilation = compilation(
+            r#"
+            module app;
 
-        let values = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+            const func direct(pos value: i32?) -> i32?
+            {
+                return value?;
+            }
 
-        let ty = i32_type(&compilation);
+            const func local(pos value: i32?) -> i32?
+            {
+                let selected: i32? =
+                {
+                    yield value?;
+                };
 
-        let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(70));
-        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(71));
+                if selected.is_absent()
+                {
+                    return 7;
+                }
 
-        let signature = CallableSignature::new(
-            ty,
-            Some(ReceiverParameterSignature::new(
-                receiver,
-                ty,
-                ReceiverMode::Shared,
-            )),
-            [CallableParameterSignature::new(parameter, ty)],
-            ty,
+                return selected;
+            }
+
+            const direct_present: bool = direct(4).is_present();
+            const direct_absent: bool = direct(none).is_absent();
+            const local_present: bool = local(4).is_present();
+            const local_resumed: bool = local(none).is_present();
+        "#,
         );
 
-        let first = integer_constant(&compilation, ty, 1);
-        let second = integer_constant(&compilation, ty, 2);
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
 
-        let parameters = call_parameter_values(
-            values,
-            &signature,
-            &[first, second],
-            crate::compilation::SemanticQueryContext::Symbol(receiver.into()),
-        )
-        .unwrap_or_else(|error| panic!("constant call arguments must map: {error:?}"));
+        let definitions = source_constant_definitions(&compilation);
 
-        assert_eq!(parameters.get(&receiver.into()), Some(&first));
-        assert_eq!(parameters.get(&parameter.into()), Some(&second));
+        assert_eq!(definitions.len(), 4);
+
+        for definition in definitions {
+            let result = compilation
+                .constant_instance(instance_key(&compilation, definition))
+                .expect("checked nullable propagation evaluates");
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(true)
+            );
+        }
     }
 
     #[test]
-    fn constant_call_argument_count_failure_retains_call_context_and_counts() {
-        let compilation = compilation("module app;");
+    fn constant_call_templates_map_shared_receivers_before_ordinary_parameters() {
+        let compilation = compilation(
+            r#"
+            module app;
 
-        let values = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+            struct Item
+            {
+                value: u8;
 
-        let ty = i32_type(&compilation);
-        let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(72));
-        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(73));
+                const func equals(pos other: u8) -> bool
+                {
+                    return self.value == other;
+                }
+            }
 
-        let signature = CallableSignature::new(
-            ty,
-            Some(ReceiverParameterSignature::new(
-                receiver,
-                ty,
-                ReceiverMode::Shared,
-            )),
-            [CallableParameterSignature::new(parameter, ty)],
-            ty,
+            const same: bool = Item { value = 3 }.equals(3);
+            const different: bool = Item { value = 3 }.equals(4);
+        "#,
         );
 
-        let argument = integer_constant(&compilation, ty, 1);
-        let context = crate::compilation::SemanticQueryContext::Symbol(receiver.into());
+        let definitions = source_constant_definitions(&compilation);
 
-        let expected: crate::FactQueryError = crate::compilation::SemanticQueryFailure::contract(
-            context.clone(),
-            crate::compilation::SemanticQueryViolation::CountMismatch {
-                data: crate::compilation::SemanticDataKind::ConstantTerm,
-                expected: 2,
-                actual: 1,
-            },
-        )
-        .into();
+        assert_eq!(definitions.len(), 2);
 
-        assert_eq!(
-            call_parameter_values(values, &signature, &[argument], context),
-            Err(expected)
-        );
-    }
+        for (definition, expected) in definitions.into_iter().zip([true, false]) {
+            let result = compilation
+                .constant_instance(instance_key(&compilation, definition))
+                .expect("shared receiver and argument must evaluate through the checked template");
 
-    #[test]
-    fn constant_call_argument_type_failure_retains_parameter_and_types() {
-        let compilation = compilation("module app;");
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
 
-        let values = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
-
-        let expected_type = i32_type(&compilation);
-        let actual_type = bool_type(&compilation);
-        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(74));
-
-        let signature = CallableSignature::new(
-            expected_type,
-            None,
-            [CallableParameterSignature::new(parameter, expected_type)],
-            expected_type,
-        );
-
-        let argument = boolean_constant(&compilation, actual_type, true);
-        let context = crate::compilation::SemanticQueryContext::Symbol(parameter.into());
-
-        let expected: crate::FactQueryError = crate::compilation::SemanticQueryFailure::contract(
-            context.clone(),
-            crate::compilation::SemanticQueryViolation::TypeMismatch {
-                expected: expected_type,
-                actual: actual_type,
-            },
-        )
-        .into();
-
-        assert_eq!(
-            call_parameter_values(values, &signature, &[argument], context),
-            Err(expected)
-        );
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(expected)
+            );
+        }
     }
 
     #[test]
@@ -2122,7 +2191,10 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
 
         let request = ConstantCallRequest::new(
-            CallableInstanceData::new(definition, substitution),
+            bray_checker::ConstantCallTarget::Declaration(CallableInstanceData::new(
+                definition,
+                substitution,
+            )),
             None,
             arguments,
             result_type,
@@ -2317,11 +2389,10 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             panic!("constant value must be an integer: {value:?}");
         };
 
-        let [value] = integer.magnitude() else {
-            panic!("test integer must fit in one byte");
-        };
-
-        *value
+        integer
+            .to_u64()
+            .and_then(|value| u8::try_from(value).ok())
+            .expect("test integer must fit in one byte")
     }
 
     fn constant_value(
@@ -2332,5 +2403,53 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             .semantic_value_store()
             .map(|values| values.constant_value_data(value))
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
+    }
+    #[test]
+    fn checked_while_templates_commit_state_and_preserve_early_returns() {
+        let source = r#"
+            module app;
+
+            const func count(pos limit: u32) -> u32
+                executes(pure, total)
+            {
+                let mut index: u32 = 0;
+
+                while index < limit
+                {
+                    index += 1;
+
+                    if index == 3
+                    {
+                        return index;
+                    }
+                }
+
+                return index;
+            }
+
+            const empty: u32 = count(0);
+            const short: u32 = count(2);
+            const early: u32 = count(7);
+        "#;
+
+        let checked = compilation(source);
+
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:#?}",
+            checked.check_diagnostics()
+        );
+
+        let definitions = source_constant_definitions(&checked);
+
+        assert_eq!(definitions.len(), 3);
+
+        for (definition, expected) in definitions.into_iter().zip([0, 2, 3]) {
+            let value = checked
+                .constant_instance(instance_key(&checked, definition))
+                .expect("checked stateful constant loop evaluates");
+
+            assert_eq!(integer_value(&checked, value.value().value()), expected);
+        }
     }
 }

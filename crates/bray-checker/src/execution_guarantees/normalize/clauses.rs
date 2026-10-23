@@ -28,8 +28,14 @@ pub fn predicate_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
-) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError>
-{
+) -> Result<
+    Vec<(
+        BoundExpressionId,
+        ExecutionCondition,
+        bray_symbols::PredicateDomain,
+    )>,
+    bray_symbols::SemanticValueStoreError,
+> {
     predicate_conditions_with_inputs(
         unit,
         semantics,
@@ -50,10 +56,16 @@ pub fn predicate_conditions_with_inputs(
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
     >,
-) -> Result<Vec<(BoundExpressionId, ExecutionCondition, bool)>, bray_symbols::SemanticValueStoreError>
-{
+) -> Result<
+    Vec<(
+        BoundExpressionId,
+        ExecutionCondition,
+        bray_symbols::PredicateDomain,
+    )>,
+    bray_symbols::SemanticValueStoreError,
+> {
     let roots = match unit.root() {
         BoundUnitRoot::Expression(expression) => vec![expression],
         BoundUnitRoot::ExpressionSequence(block) => unit
@@ -121,43 +133,94 @@ pub fn predicate_conditions_with_inputs(
             predicates,
         );
 
-        let is_trusted = trusted || contains_trusted_condition(unit, root);
+        let domain = predicate_domain(unit, semantics, root, predicates).max(if trusted {
+            bray_symbols::PredicateDomain::Trusted
+        } else {
+            bray_symbols::PredicateDomain::Value
+        });
 
         if trusted {
             condition = condition.requiring_trusted_predicates();
         }
 
-        conditions.push((root, condition, is_trusted));
+        conditions.push((root, condition, domain));
     }
 
     Ok(conditions)
 }
 
-fn contains_trusted_condition(unit: &BoundUnit, root: BoundExpressionId) -> bool {
-    let mut pending = vec![root];
-    let mut budget = ExecutionCondition::WORK_LIMIT;
+fn predicate_domain(
+    unit: &BoundUnit,
+    semantics: &CheckedExpressionSemantics,
+    root: BoundExpressionId,
+    predicates: Option<
+        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+    >,
+) -> bray_symbols::PredicateDomain {
+    use bray_bound_tree::{AnyBoundNodeId, BoundWalkControl, BoundWalkEvent, SemanticSelection};
+    use bray_symbols::PredicateDomain;
 
-    while let Some(expression) = pending.pop() {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return true;
+    let mut domain = PredicateDomain::Value;
+
+    let outcome = bray_bound_tree::walk_bound_unit_view(unit.view(), root, |event| {
+        let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+            return BoundWalkControl::Continue;
         };
 
-        budget = remaining;
-
-        let Some(bound) = unit.view().expression(expression) else {
-            continue;
-        };
-
-        if matches!(bound, BoundExpression::Structured(expression)
-            if expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary)
+        if matches!(unit.view().expression(expression), Some(BoundExpression::Structured(operation))
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary)
         {
-            return true;
+            domain = domain.max(PredicateDomain::Trusted);
         }
 
-        pending.extend(bound.child_expressions());
-    }
+        let predicate = match semantics.selections().expression(expression) {
+            Some(SemanticSelection::Call(call)) => {
+                if call
+                    .implementation_hook()
+                    .is_some_and(bray_compiler_known::ImplementationHook::is_execution_requirement)
+                {
+                    domain = PredicateDomain::Execution;
 
-    false
+                    return BoundWalkControl::Stop;
+                }
+
+                match call.target() {
+                    bray_bound_tree::BoundCallableTarget::Predicate(predicate) => Some(predicate),
+                    _ => None,
+                }
+            }
+            Some(SemanticSelection::Predicate(predicate)) => {
+                Some(bray_symbols::PredicateInstanceData::new(
+                    predicate.predicate(),
+                    predicate.substitution(),
+                ))
+            }
+            _ => None,
+        };
+
+        if let Some(semantic) = predicate
+            .and_then(|predicate| predicates.and_then(|predicates| predicates.get(&predicate)))
+        {
+            domain = domain.max(semantic.domain());
+        }
+
+        if domain == PredicateDomain::Execution {
+            BoundWalkControl::Stop
+        } else {
+            BoundWalkControl::Continue
+        }
+    });
+
+    assert!(
+        matches!(
+            outcome,
+            bray_bound_tree::BoundWalkOutcome::Completed
+                | bray_bound_tree::BoundWalkOutcome::Stopped
+        ),
+        "checked predicate domain retains its complete source graph: {outcome:?}"
+    );
+
+    domain
 }
 
 // Use the owning storage analysis's exact normal-completion relation. This does not

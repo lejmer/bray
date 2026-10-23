@@ -14,7 +14,7 @@ union Access
 
 struct Region
 {
-    internal address: RawPointer<u8>;
+    internal address: DataPointer<u8>;
     internal bytes: usize;
     internal mut active: bool;
 
@@ -31,7 +31,7 @@ struct Region
         return self.bytes;
     }
 
-    trusted internal func pointer() -> RawPointer<u8>
+    trusted internal func pointer() -> DataPointer<u8>
     {
         return self.address;
     }
@@ -79,7 +79,7 @@ trusted internal func map(pos bytes: usize, access: Access) -> Result<Region, st
         return Error(internal std.platform.invalid_input_status());
     }
 
-    let mapped: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted platform_map(bytes, access = access);
+    let mapped: Result<DataPointer<u8>, std.platform.PlatformStatus> = trusted platform_map(bytes, access = access);
 
     match consume mapped
     {

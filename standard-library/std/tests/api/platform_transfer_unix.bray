@@ -2,6 +2,7 @@
 trusted module bray.standard_library_tests.platform_transfer_unix;
 
 using std.memory;
+using std.numeric;
 using internal std.memory;
 using internal std.platform;
 using std.io;
@@ -14,16 +15,20 @@ func descriptor_requests_are_bounded_without_signed_wraparound()
 {
     assert(internal std.platform.descriptor_request_length(0) == 0);
     assert(internal std.platform.descriptor_request_length(3) == 3);
-    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_807) == 9_223_372_036_854_775_807);
-    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_808) == 9_223_372_036_854_775_807);
-    assert(internal std.platform.descriptor_request_length(18_446_744_073_709_551_615) == 9_223_372_036_854_775_807);
+    assert(internal std.platform.descriptor_request_length(std.numeric.U64_MAX >> 1) == (std.numeric.USIZE_MAX >> 1));
+
+    assert(
+        internal std.platform.descriptor_request_length((std.numeric.U64_MAX >> 1) + 1) == (std.numeric.USIZE_MAX >> 1)
+    );
+
+    assert(internal std.platform.descriptor_request_length(std.numeric.U64_MAX) == (std.numeric.USIZE_MAX >> 1));
 }
 
 @test
 trusted func descriptor_zero_length_and_failure_preserve_progress()
 {
     let mut transferred: u64 = 99;
-    let bytes: RawPointer<u8> = std.memory.null<u8>();
+    let bytes: DataPointer<u8> = std.memory.null<u8>();
     let mut byte: u8 = 0;
 
     let empty_read: std.platform.PlatformStatus = trusted internal std.platform.descriptor_read(
@@ -64,7 +69,7 @@ trusted func descriptor_zero_length_and_failure_preserve_progress()
     transferred = 99;
 
     let source: [u8; 1] = b"x";
-    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+    let progress: DataPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
     let failed_write: std.platform.PlatformStatus = trusted internal std.platform.descriptor_write(
         -1,

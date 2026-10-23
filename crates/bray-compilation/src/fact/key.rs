@@ -14,11 +14,11 @@ use bray_runtime_interface::{
 };
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
-    ConstantValueId, FunctionSymbolId, GenericConstraintObligationKey,
-    ImplementationCoherenceDomainKey, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, ImportedInterfaceId, ImportedSemanticAddress, InterfaceSymbolId,
-    NamedTypeSymbolId, ProductIdentity, SymbolQueryKind, TypeId,
+    AnySymbolId, CallableTypeDirectiveKey, ConstantInstanceKey, ConstantValueId, FunctionSymbolId,
+    GenericConstraintObligationKey, ImplementationCoherenceDomainKey, ImplementationInstanceId,
+    ImplementationRequirementKey, ImplementationSymbolId, ImportedInterfaceId,
+    ImportedSemanticAddress, InterfaceSymbolId, NamedTypeSymbolId, ProductIdentity,
+    SymbolQueryKind, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -221,12 +221,13 @@ pub(crate) struct ConstantInstanceQueryKey {
 /// The complete compilation-local identity of one selected constant call.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ConstantCallQueryKey {
-    callable: CallableInstanceId,
+    invocation: bray_checker::ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
     limits: bray_checker::ConstantEvaluationLimits,
+    observation: bool,
 }
 
 /// The exact compilation-local identity of one iteration source selection.
@@ -355,16 +356,17 @@ impl CodegenArtifactQueryKey {
 /// The semantic call identity used for dependency-cycle detection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ConstantCallDependencyKey {
-    callable: CallableInstanceId,
+    invocation: bray_checker::ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
+    observation: bool,
 }
 
 impl ConstantCallQueryKey {
     pub(crate) fn new(
-        callable: CallableInstanceId,
+        invocation: bray_checker::ConstantCallTarget,
         selected_implementation: Option<ImplementationInstanceId>,
         arguments: impl Into<Arc<[ConstantValueId]>>,
         result_type: TypeId,
@@ -372,17 +374,28 @@ impl ConstantCallQueryKey {
         limits: bray_checker::ConstantEvaluationLimits,
     ) -> Self {
         Self {
-            callable,
+            invocation,
             selected_implementation,
             arguments: arguments.into(),
             result_type,
             target,
             limits,
+            observation: false,
         }
     }
 
-    pub(crate) const fn callable(&self) -> CallableInstanceId {
-        self.callable
+    pub(crate) fn with_observation(mut self, observation: bool) -> Self {
+        self.observation = observation;
+
+        self
+    }
+
+    pub(crate) const fn is_observation(&self) -> bool {
+        self.observation
+    }
+
+    pub(crate) const fn invocation(&self) -> &bray_checker::ConstantCallTarget {
+        &self.invocation
     }
 
     pub(crate) const fn selected_implementation(&self) -> Option<ImplementationInstanceId> {
@@ -407,7 +420,8 @@ impl ConstantCallQueryKey {
 
     pub(crate) fn dependency_key(&self) -> ConstantCallDependencyKey {
         ConstantCallDependencyKey {
-            callable: self.callable,
+            invocation: self.invocation.clone(),
+            observation: self.observation,
             selected_implementation: self.selected_implementation,
             arguments: Arc::clone(&self.arguments),
             result_type: self.result_type,
@@ -444,8 +458,8 @@ impl ConstantInstanceQueryKey {
 }
 
 impl ConstantCallDependencyKey {
-    pub(crate) const fn callable(&self) -> CallableInstanceId {
-        self.callable
+    pub(crate) const fn invocation(&self) -> &bray_checker::ConstantCallTarget {
+        &self.invocation
     }
 
     pub(crate) const fn selected_implementation(&self) -> Option<ImplementationInstanceId> {
@@ -507,6 +521,7 @@ pub(crate) enum CompilationFactKey {
     BodySemantics(BoundUnitKey),
     /// Body-local execution obligations whose dependencies have not been certified.
     ExecutionCandidates(BoundUnitKey),
+    ConstantBodyTemplate(BoundUnitKey),
     /// Body-local unwind behavior and dependencies, independent of termination.
     UnwindCandidate(BoundUnitKey),
     /// Transitive checked unwind behavior for a callable body.
@@ -670,6 +685,7 @@ impl CompilationFactKey {
             | Self::UnwindCandidate(key)
             | Self::UnwindBehavior(key)
             | Self::ExecutionCandidates(key)
+            | Self::ConstantBodyTemplate(key)
             | Self::CertifiedExecution(key)
             | Self::CleanupCompletion(key)
             | Self::SelectedBodyBehavior(key)

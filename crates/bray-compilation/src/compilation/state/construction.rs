@@ -265,6 +265,7 @@ impl Compilation {
                 unwind_candidates: UnitQueryCache::new(),
                 unwind_behavior: UnitQueryCache::new(),
                 execution_candidates: UnitQueryCache::new(),
+                constant_body_templates: UnitQueryCache::new(),
                 certified_execution: UnitQueryCache::new(),
                 cleanup_completion: UnitQueryCache::new(),
                 selected_body_behavior: UnitQueryCache::new(),
@@ -882,12 +883,16 @@ mod tests {
         let compilation = match Compilation::load_sources(
             package_identity(),
             vec![source_input(
-                concat!(
-                    "module app;\n",
-                    "@link(name = \"native\")\n",
-                    "struct NativeMutex;\n",
-                    "func use(pos pointer: RawPointer<NativeMutex>) {}\n",
-                ),
+                r#"
+                    module app;
+
+                    @link(name = "native")
+                    struct NativeMutex;
+
+                    func use(pos pointer: DataPointer<NativeMutex>)
+                    {
+                    }
+                "#,
                 0,
             )],
         ) {

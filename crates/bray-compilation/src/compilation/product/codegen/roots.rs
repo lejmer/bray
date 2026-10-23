@@ -234,7 +234,10 @@ impl Compilation {
             substitution,
             cancellation,
             binding_context,
-            initializer.source().syntax(),
+            Some(bray_source::SourceSpan::new(
+                initializer.source().syntax().source_id(),
+                initializer.source().syntax().full_range(),
+            )),
         )?;
 
         if diagnostics.has_errors() {

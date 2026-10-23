@@ -60,6 +60,7 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::Address { .. }
         | CheckedMemoryOperationKind::Null { .. }
         | CheckedMemoryOperationKind::IsNull { .. }
+        | CheckedMemoryOperationKind::ByteAddress { .. }
         | CheckedMemoryOperationKind::Reinterpret { .. }
         | CheckedMemoryOperationKind::CallableFromPointer { .. }
         | CheckedMemoryOperationKind::PointerFromCallable { .. } => true,

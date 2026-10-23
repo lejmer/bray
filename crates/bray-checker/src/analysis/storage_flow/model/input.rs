@@ -1,9 +1,8 @@
 use crate::storage::local_initialization_destinations;
 use crate::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
-    StoragePlan,
+    BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::{BorrowKind, CallableSignatureQuery};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,7 +13,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         BTreeMap<bray_bound_tree::StoragePath, BTreeSet<bray_bound_tree::StoragePath>>,
     expression_places:
         BTreeMap<BoundExpressionId, Vec<crate::analysis::storage_flow::memory::Place>>,
-    definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    definitions: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
@@ -47,9 +46,12 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
+    pub(in crate::analysis::storage_flow) complete_reference_types: BTreeSet<bray_symbols::TypeId>,
+    pub(in crate::analysis::storage_flow) raw_buffers:
+        BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
-    pub(in crate::analysis::storage_flow) returned_references: BTreeMap<
+    pub(in crate::analysis::storage_flow) value_references: BTreeMap<
         StorageIdentityId,
         BTreeMap<crate::analysis::storage_flow::memory::Place, bray_symbols::TypeId>,
     >,
@@ -81,6 +83,7 @@ impl StorageFlowInput {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         values: &crate::dependency::ValueInputs,
         selections: &bray_bound_tree::CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
         memory: &bray_bound_tree::CheckedMemoryOperations,
     ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
@@ -165,20 +168,10 @@ impl StorageFlowInput {
         let discriminants = footprint.discriminants;
         let scalar_values = footprint.scalars;
 
-        let reference_descriptors = storage
+        let owned_descriptors = storage
             .identity_entries()
             .filter_map(|(root, identity)| {
-                let ty = storage.identity_type(root)?;
-
-                (identity.is_invocation_owned(storage.kind())
-                    && matches!(
-                        crate::representation::reference_kind(request, ty),
-                        Some(
-                            bray_symbols::DependencyReferenceKind::Address
-                                | bray_symbols::DependencyReferenceKind::Borrow
-                        )
-                    ))
-                .then_some(root)
+                identity.is_invocation_owned(storage.kind()).then_some(root)
             })
             .map(bray_bound_tree::StoragePath::root);
 
@@ -190,7 +183,7 @@ impl StorageFlowInput {
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        let opaque_candidates = reference_descriptors
+        let opaque_candidates = owned_descriptors
             .chain(
                 stable_identities
                     .keys()
@@ -215,6 +208,7 @@ impl StorageFlowInput {
             .collect();
 
         let mut input = Self {
+            complete_reference_types: footprint.complete_reference_types,
             atomic_observations,
             opaque_values,
             opaque_candidates,
@@ -251,6 +245,31 @@ impl StorageFlowInput {
             demands.entry(ty).or_default().extend(paths);
         }
 
+        let buffer_types = storage
+            .identity_entries()
+            .filter_map(|(identity, _)| storage.storage_type(identity))
+            .chain(
+                storage
+                    .access_entries()
+                    .map(|(_, access)| access.reached_type()),
+            )
+            .chain(cleanup.opaque_types())
+            .chain(
+                memory
+                    .operations()
+                    .iter()
+                    .flat_map(|operation| {
+                        operation
+                            .arguments()
+                            .iter()
+                            .copied()
+                            .chain([operation.expression()])
+                    })
+                    .filter_map(|expression| types.expression(expression).map(|ty| ty.ty())),
+            );
+
+        input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
+
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 
         input.prepare_terminal_ownership(cleanup_shapes, request, storage, dependencies, memory)?;
@@ -276,7 +295,17 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
-        for plan in storage.access_plans().iter().copied() {
+        for plan in storage.access_plans().iter().copied().filter(|plan| {
+            matches!(
+                plan.occurrence(),
+                bray_bound_tree::BoundExecutionSite::Node(_)
+            ) && !matches!(
+                storage
+                    .root_identity(plan.access())
+                    .and_then(|identity| storage.identity(identity)),
+                Some(StorageIdentity::InvocationInput { .. })
+            )
+        }) {
             if let Some(place) = storage.logical_path(plan.access()).cloned() {
                 self.expression_places
                     .entry(plan.expression())
@@ -290,14 +319,19 @@ impl StorageFlowInput {
         let initialized_at = self
             .initialization_destinations
             .iter()
-            .map(|(expression, identity)| (*identity, AnyBoundNodeId::Expression(*expression)))
+            .map(|(expression, identity)| {
+                (
+                    *identity,
+                    bray_bound_tree::BoundExecutionSite::from(*expression),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
 
         for (storage, identity) in storage.identity_entries() {
             let Some(node) = initialized_at
                 .get(&storage)
                 .copied()
-                .or_else(|| identity_definition_node(identity))
+                .or_else(|| identity_definition_occurrence(identity))
             else {
                 continue;
             };
@@ -394,7 +428,7 @@ impl StorageFlowInput {
                 storage
                     .identity_entries()
                     .filter_map(|(identity, definition)| {
-                        Some((identity, definition.definition_node()?.into()))
+                        Some((identity, definition.definition_occurrence()?))
                     }),
             );
 
@@ -481,7 +515,7 @@ impl StorageFlowInput {
             .borrow_for_plan(plan)
             .and_then(|borrow| storage.borrow_capability(borrow))
             .map(|borrow| {
-                if borrow.expression() == Some(plan.expression()) {
+                if borrow.occurrence() == Some(plan.occurrence()) {
                     borrow.access()
                 } else {
                     // Reusing an input capability still accesses the reached field or element.
@@ -492,10 +526,10 @@ impl StorageFlowInput {
 
     pub(in crate::analysis::storage_flow) fn definitions(
         &self,
-        node: AnyBoundNodeId,
+        occurrence: bray_bound_tree::BoundExecutionSite,
     ) -> &[StorageIdentityId] {
         self.definitions
-            .get(&node)
+            .get(&occurrence)
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
@@ -546,10 +580,12 @@ impl StorageFlowInput {
     }
 }
 
-fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
+fn identity_definition_occurrence(
+    identity: StorageIdentity,
+) -> Option<bray_bound_tree::BoundExecutionSite> {
     match identity {
         StorageIdentity::Result(_) => None,
-        _ => identity.definition_node(),
+        _ => identity.definition_occurrence(),
     }
 }
 

@@ -38,6 +38,9 @@ fn static_constant<'context>(
     let ty = types.map(representation)?;
 
     match constant.data().kind() {
+        bray_symbols::ConstantValueKind::Borrowed(_) => {
+            panic!("constant observation reached static storage realization")
+        }
         bray_symbols::ConstantValueKind::Boolean(value) => {
             let BasicTypeEnum::IntType(integer) = ty else {
                 panic!(

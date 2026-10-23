@@ -27,7 +27,7 @@ impl Compilation {
         substitution: bray_symbols::GenericSubstitutionId,
         cancellation: &CancellationToken,
         binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
-        source: bray_declarations::SyntaxAnchor,
+        source: Option<SourceSpan>,
     ) -> Result<(StaticReferenceSelection, DiagnosticBag), FactQueryError> {
         let template = StaticInstanceTemplateId::new(declaration);
         let target = self.requested_target().profile().identity().clone();
@@ -67,19 +67,10 @@ impl Compilation {
         substitution: bray_symbols::GenericSubstitutionId,
         cancellation: &CancellationToken,
         binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
-        source: bray_declarations::SyntaxAnchor,
+        source: Option<SourceSpan>,
     ) -> Result<(Vec<bray_symbols::ImplementationInstanceId>, DiagnosticBag), FactQueryError> {
-        let symbol = declaration.into();
-
-        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-            crate::compilation::SemanticQueryFailure::contract(
-                crate::compilation::SemanticQueryContext::Symbol(symbol),
-                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
-                    actual: symbol.kind(),
-                },
-            )
-        })?;
+        let owner = GenericOwnerId::try_new(declaration.into())
+            .expect("static declaration retains its generic owner identity");
 
         let satisfaction = self.generic_constraint_satisfaction_with_cancellation(
             GenericConstraintObligationKey::new(owner, substitution),
@@ -93,20 +84,23 @@ impl Compilation {
         let mut diagnostics = satisfaction.diagnostics().merged(constraints.diagnostics());
 
         if *satisfaction.value() != ProofOutcome::Proven {
-            let span = SourceSpan::new(source.source_id(), source.full_range());
-
-            diagnostics.add(
-                Diagnostic::new(
-                    DiagnosticId::new(span.start().bytes()),
-                    DiagnosticKind::CheckingStaticConstraintUnsatisfied,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(span)
-                .with_label(DiagnosticLabel::primary(
-                    DiagnosticLabelKind::InvalidConstantExpression,
-                    span,
-                )),
+            let mut diagnostic = Diagnostic::new(
+                DiagnosticId::new(source.map_or(0, |span| span.start().bytes())),
+                DiagnosticKind::CheckingStaticConstraintUnsatisfied,
+                SeverityKind::Error,
             );
+
+            if let Some(span) = source {
+                diagnostic =
+                    diagnostic
+                        .with_primary_span(span)
+                        .with_label(DiagnosticLabel::primary(
+                            DiagnosticLabelKind::InvalidConstantExpression,
+                            span,
+                        ));
+            }
+
+            diagnostics.add(diagnostic);
         }
 
         let values = binding_context.semantic_values();

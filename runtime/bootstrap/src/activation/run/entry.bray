@@ -9,22 +9,22 @@ using std.memory;
 // The claim retains these three independent native output slots. Producer
 // callbacks cannot alias them or consume their owner through same-run reentry.
 trusted internal predicate destinations(
-    root: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
-    incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    root: DataPointer<bray.runtime.bootstrap.activation.Header>,
+    output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+    incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 );
 
 @abi(c)
 trusted internal func dispatch(
-    pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    pos callback: RawPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
-    pos ready: RawPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos root: DataPointer<bray.runtime.bootstrap.activation.Header>,
+    pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
     pos cancellation: u8,
     pos abandoning: u8,
-    pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
-    pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>,
 ) -> u32
     requires(
         trusted owned(root = root),
@@ -43,14 +43,14 @@ trusted internal func dispatch(
     let admit = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
 
     let dispatch_step = trusted lambda(
-        pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos root: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos invoke: bray.runtime.bootstrap.activation.callback.Invoke,
         pos admit: bray.runtime.bootstrap.activation.callback.Ready,
         pos cancellation: bool,
         pos abandoning: bool,
-        pos output: RawPointer<bray.runtime.bootstrap.activation.Progress>,
-        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
-        pos incidents: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+        pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+        pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>,
     ) -> (
         bray.runtime.bootstrap.activation.Progress,
         bray.runtime.bootstrap.ReportRecords,
@@ -73,7 +73,7 @@ trusted internal func dispatch(
             trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incidents),
         )
     {
-        let acquire = trusted lambda(pos root: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
+        let acquire = trusted lambda(pos root: DataPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
             requires(trusted owned(root = root))
             ensures(trusted selected(cursor = &result))
             executes(pure, total)
@@ -113,21 +113,21 @@ trusted internal func dispatch(
 }
 
 trusted internal predicate snapshot_destination(
-    root: RawPointer<bray.runtime.bootstrap.activation.Header>,
-    output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    root: DataPointer<bray.runtime.bootstrap.activation.Header>,
+    output: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
 );
 
 @abi(c)
 trusted internal func snapshot(
-    pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos root: DataPointer<bray.runtime.bootstrap.activation.Header>,
     pos cancellation: u8,
-    pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos output: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
 )
     requires(trusted owned(root = root), trusted snapshot_destination(root = root, output = output))
     ensures(trusted owned(root = root))
     uses(intrinsic, raw_memory, unchecked_init)
 {
-    let acquire = trusted lambda(pos root: RawPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
+    let acquire = trusted lambda(pos root: DataPointer<bray.runtime.bootstrap.activation.Header>) -> Cursor
         requires(trusted owned(root = root))
         ensures(trusted selected(cursor = &result))
         executes(pure, total)
@@ -185,8 +185,8 @@ trusted internal func snapshot(
     };
 
     let retained = trusted lambda(
-        pos root: RawPointer<bray.runtime.bootstrap.activation.Header>,
-        pos output: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+        pos root: DataPointer<bray.runtime.bootstrap.activation.Header>,
+        pos output: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
     )
         ensures(
             trusted owned(root = root),

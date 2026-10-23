@@ -23,7 +23,7 @@ trusted internal predicate valid(marker: &Marker);
 struct Owner<T>
 {
     instance: std.channel.owner.Marker;
-    internal core: RawPointer<std.channel.ChannelCore<T>>;
+    internal core: DataPointer<std.channel.ChannelCore<T>>;
 
     trusted destruct()
         requires(trusted std.channel.owner.live(&self.instance))
@@ -63,10 +63,10 @@ struct Owner<T>
                 yield (messages, send_waiters, receive_waiters);
             };
 
-            let authorize_release = trusted lambda(pos pointer: RawPointer<std.channel.ChannelCore<T>>)
+            let authorize_release = trusted lambda(pos pointer: DataPointer<std.channel.ChannelCore<T>>)
                 ensures(
                     trusted core.memory.owned_allocation(
-                        pointer = trusted std.memory.reinterpret<u8, std.channel.ChannelCore<T>>(pointer),
+                        pointer = std.memory.byte_address<std.channel.ChannelCore<T>>(pointer),
                         bytes = internal std.memory.value_allocation_bytes<std.channel.ChannelCore<T>>(),
                         align = std.memory.align_of<std.channel.ChannelCore<T>>(),
                     )

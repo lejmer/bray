@@ -7,7 +7,9 @@ using internal std.platform;
 using std.atomic;
 using std.memory;
 
-trusted internal func await_thread_identity<T>(pos pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>>) -> u64
+trusted internal func await_thread_identity<T>(
+    pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>
+) -> u64
 {
     let value: &ThreadControl = trusted internal thread_control<T>(pointer);
     let mut identity: u64 = value.identity.load(order = std.atomic.LoadOrder.Acquire);
@@ -27,7 +29,7 @@ trusted internal func await_thread_identity<T>(pos pointer: RawPointer<Transferr
 }
 
 trusted internal func thread_control<T>(
-    pos pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>>,
+    pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>,
 ) -> &ThreadControl
     uses(raw_memory)
 {
@@ -41,20 +43,22 @@ trusted internal func thread_control<T>(
 trusted internal func control_from_address(address: usize) -> &ThreadControl
     uses(intrinsic, raw_memory)
 {
-    let pointer: RawPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(address = address);
+    let pointer: DataPointer<ThreadControl> = trusted core.target.from_exposed_address<ThreadControl>(
+        address = address
+    );
 
     return trusted internal transferred_shared_value<ThreadControl>(pointer);
 }
 
-trusted internal func pointer_address<T>(pos pointer: RawPointer<T>) -> usize
+trusted internal func pointer_address<T>(pos pointer: DataPointer<T>) -> usize
     uses(intrinsic)
 {
     return trusted core.target.expose_address<T>(pointer);
 }
 
 trusted internal func thread_storage_control_pointer<T>(
-    pos pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>>,
-) -> RawPointer<ThreadControl>
+    pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>,
+) -> DataPointer<ThreadControl>
 {
     let control: &ThreadControl = trusted internal thread_control<T>(pointer);
 
@@ -80,7 +84,7 @@ internal func thread_name_contains_nul(pos name: &string) -> bool
     return false;
 }
 
-trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<TransferredThreadValue<T>>
+trusted internal func allocate_thread_value<T>(pos value: T) -> DataPointer<TransferredThreadValue<T>>
     uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
 {
     let bytes: usize = internal std.memory.value_allocation_bytes<TransferredThreadValue<T>>();
@@ -97,11 +101,11 @@ trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<Trans
         ),
     };
 
-    let pointer: RawPointer<TransferredThreadValue<T>> = trusted std.memory.reinterpret<TransferredThreadValue<T>, u8>(
+    let pointer: DataPointer<TransferredThreadValue<T>> = trusted std.memory.reinterpret<TransferredThreadValue<T>, u8>(
         owner.allocation.pointer
     );
 
-    let authorize = trusted lambda(pos destination: RawPointer<TransferredThreadValue<T>>)
+    let authorize = trusted lambda(pos destination: DataPointer<TransferredThreadValue<T>>)
         ensures(
             trusted core.memory.valid_write<TransferredThreadValue<T>>(pointer = destination, count = 1),
             trusted core.memory.aligned_for<TransferredThreadValue<T>>(pointer = destination),
@@ -115,7 +119,7 @@ trusted internal func allocate_thread_value<T>(pos value: T) -> RawPointer<Trans
     return pointer;
 }
 
-trusted internal func take_transferred_value<T>(pos pointer: RawPointer<TransferredThreadValue<T>>) -> T
+trusted internal func take_transferred_value<T>(pos pointer: DataPointer<TransferredThreadValue<T>>) -> T
     uses(raw_memory)
 {
     let storage: &mut TransferredThreadValue<T> = trusted internal transferred_value<TransferredThreadValue<T>>(
@@ -130,19 +134,19 @@ trusted internal func take_transferred_value<T>(pos pointer: RawPointer<Transfer
     return owner.value;
 }
 
-extern trusted internal func transferred_value<T>(pos pointer: RawPointer<T>) -> &mut T
+extern trusted internal func transferred_value<T>(pos pointer: DataPointer<T>) -> &mut T
     uses(raw_memory);
 
-extern trusted internal func transferred_shared_value<T>(pos pointer: RawPointer<T>) -> &T
+extern trusted internal func transferred_shared_value<T>(pos pointer: DataPointer<T>) -> &T
     uses(raw_memory);
 
 @abi(c)
 extern trusted internal func execute_native_thread(
     pos operation: ThreadOperation,
     pos context: usize,
-    pos cancellation: RawPointer<u8>,
+    pos cancellation: DataPointer<u8>,
     pos cancellation_context: usize,
-    pos panic_report: RawPointer<PanicReport>,
+    pos panic_report: DataPointer<PanicReport>,
 ) -> u32;
 
 extern internal func current_native_thread_identity() -> u64;
@@ -152,8 +156,8 @@ extern internal func main_native_thread_identity() -> u64;
 extern trusted internal func report_native_thread_panic(pos report: PanicReport) -> u32;
 
 trusted internal func thread_report_destination<T>(
-    pos pointer: RawPointer<TransferredThreadValue<ThreadStorage<T>>>
-) -> RawPointer<PanicReport>
+    pos pointer: DataPointer<TransferredThreadValue<ThreadStorage<T>>>
+) -> DataPointer<PanicReport>
     ensures(
         trusted core.memory.valid_write<PanicReport>(pointer = result, count = 1),
         trusted core.memory.aligned_for<PanicReport>(pointer = result),
@@ -164,12 +168,12 @@ trusted internal func thread_report_destination<T>(
         TransferredThreadValue<ThreadStorage<T>>
     >(pointer);
 
-    let report_pointer: RawPointer<Uninit<PanicReport>> = std.memory.address_of<Uninit<PanicReport>>(
+    let report_pointer: DataPointer<Uninit<PanicReport>> = std.memory.address_of<Uninit<PanicReport>>(
         &storage.value.report
     );
 
     let report: &mut Uninit<PanicReport> = trusted internal transferred_value<Uninit<PanicReport>>(report_pointer);
-    let destination: RawPointer<PanicReport> = std.memory.uninit_pointer_mut<PanicReport>(report);
+    let destination: DataPointer<PanicReport> = std.memory.uninit_pointer_mut<PanicReport>(report);
 
     // The native producer initializes the report only for a panicked outcome.
     // Completed and cancelled outcomes never read or dispose this storage.
@@ -179,17 +183,17 @@ trusted internal func thread_report_destination<T>(
 @abi(c)
 trusted internal func platform_thread_storage_load(
     pos key: u64,
-    pos value: RawPointer<RawPointer<u8>>,
+    pos value: DataPointer<DataPointer<u8>>,
 ) -> std.platform.PlatformStatus
     executes(total)
     requires(
-        trusted core.memory.valid_write<RawPointer<u8>>(pointer = value, count = 1),
-        trusted core.memory.aligned_for<RawPointer<u8>>(pointer = value),
+        trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
+        trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
     )
-    ensures(result.category != 0 || trusted core.memory.initialized_as<RawPointer<u8>>(pointer = value))
+    ensures(result.category != 0 || trusted core.memory.initialized_as<DataPointer<u8>>(pointer = value))
     uses(raw_memory, unchecked_init)
 {
-    let stored: Result<RawPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_load(
+    let stored: Result<DataPointer<u8>, std.platform.PlatformStatus> = trusted internal prepare_thread_storage_load(
         key,
         value
     );
@@ -198,7 +202,7 @@ trusted internal func platform_thread_storage_load(
     {
         case Ok(pointer)
         {
-            trusted std.memory.write<RawPointer<u8>>(value, pointer);
+            trusted std.memory.write<DataPointer<u8>>(value, pointer);
 
             return internal std.platform.success_status();
         }

@@ -50,7 +50,7 @@ impl StorageMutation {
 pub struct StorageCompletion {
     references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
     borrow_origins: std::collections::BTreeMap<
-        crate::BoundExpressionId,
+        crate::BoundExecutionSite,
         std::collections::BTreeSet<crate::StoragePath>,
     >,
 }
@@ -60,7 +60,7 @@ impl StorageCompletion {
     pub fn new(
         references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
         borrow_origins: std::collections::BTreeMap<
-            crate::BoundExpressionId,
+            crate::BoundExecutionSite,
             std::collections::BTreeSet<crate::StoragePath>,
         >,
     ) -> Self {
@@ -83,7 +83,7 @@ impl StorageCompletion {
     pub fn borrow_origins(
         &self,
     ) -> &std::collections::BTreeMap<
-        crate::BoundExpressionId,
+        crate::BoundExecutionSite,
         std::collections::BTreeSet<crate::StoragePath>,
     > {
         &self.borrow_origins
@@ -124,23 +124,23 @@ mod tests {
 
         let mut left = StorageCompletion::new(
             BTreeMap::from([(path(0), path(1))]),
-            BTreeMap::from([(argument, BTreeSet::from([path(1)]))]),
+            BTreeMap::from([(argument.into(), BTreeSet::from([path(1)]))]),
         );
 
         let right = StorageCompletion::new(
             BTreeMap::from([(path(0), path(2))]),
-            BTreeMap::from([(argument, BTreeSet::from([path(2)]))]),
+            BTreeMap::from([(argument.into(), BTreeSet::from([path(2)]))]),
         );
 
         left.merge(&right);
         assert!(left.references().is_empty());
 
         assert_eq!(
-            left.borrow_origins()[&argument],
+            left.borrow_origins()[&argument.into()],
             BTreeSet::from([path(1), path(2)])
         );
 
         left.merge(&StorageCompletion::default());
-        assert!(!left.borrow_origins().contains_key(&argument));
+        assert!(!left.borrow_origins().contains_key(&argument.into()));
     }
 }

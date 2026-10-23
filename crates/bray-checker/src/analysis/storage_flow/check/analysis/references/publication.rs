@@ -2,6 +2,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place};
 use crate::analysis::storage_flow::model::StorageFlowState;
+use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{DependencySubjectRoot, TypeData};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
@@ -32,6 +33,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     {
         let carriers = self.trusted.result_carriers(self.request);
 
+        let observed_result = self.trusted.observed_result.flatten();
+
         let returned_input = (!self.has_normal_effects)
             .then_some(self.trusted.returned_input)
             .flatten()
@@ -45,44 +48,61 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let mut relations = Vec::new();
+        let mut unbounded = std::collections::BTreeSet::new();
         let summary = std::mem::take(&mut self.results).summary();
-        let mut requirements = summary.requirements().to_vec();
 
-        for (slot, target, exact) in self
+        for (slot, target, exact, bounded) in self
             .references
             .iter()
             .flat_map(|references| references.targets())
         {
-            let Some(root) = self.formal_root(slot.root) else {
+            if self.formal_root(slot.root).is_none() {
+                continue;
+            }
+
+            let Some(ty) = self.storage.identity_type(slot.root) else {
                 continue;
             };
 
-            let ty = if root == DependencySubjectRoot::Result {
-                self.result_type()
+            if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
+                if bounded {
+                    let exact = exact && relation.entry().is_some();
+
+                    relations.push((slot.clone(), relation.with_exactness(exact)));
+                } else {
+                    unbounded.insert(slot.clone());
+                }
             } else {
-                self.storage.identity_type(slot.root)
-            };
-
-            let Some(ty) = ty else {
-                continue;
-            };
-
-            if let Some(relation) = self.result_reference(slot, target, ty)? {
-                if root == DependencySubjectRoot::Result
-                    && relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
-                {
-                    // Every possible returned reference retains its input, even when no exact origin holds.
-                    requirements.push(bray_symbols::DependencyRequirement::direct(
-                        relation.entry().clone(),
-                        bray_symbols::DependencyRequirementKind::ValueDependencies,
-                    ));
-                }
-
-                if exact {
-                    relations.push(relation);
-                }
+                unbounded.insert(slot.clone());
             }
         }
+
+        let relations = relations
+            .into_iter()
+            .filter_map(|(slot, relation)| (!unbounded.contains(&slot)).then_some(relation))
+            .collect::<Vec<_>>();
+
+        let mut requirements = summary.requirements().to_vec();
+
+        // Complete borrow origins retain references installed by mutation. Raw-address
+        // bounds carry no lifetime requirement, and incomplete origins add no certificate.
+        requirements.extend(
+            relations
+                .iter()
+                .filter(|relation| {
+                    relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                        && relation.exit().subject_root() == DependencySubjectRoot::Result
+                })
+                .map(|relation| {
+                    bray_symbols::DependencyRequirement::direct(
+                        relation
+                            .entry()
+                            .expect("complete borrow origin has its input")
+                            .clone(),
+                        bray_symbols::DependencyRequirementKind::ValueDependencies,
+                    )
+                }),
+        );
 
         Ok(summary
             .with_requirements(requirements)
@@ -90,25 +110,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_normal_completion(self.references.is_some())
             .with_carriers(carriers)
             .with_returned_input(returned_input)
+            .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn result_type(
-        &self,
-    ) -> Option<bray_symbols::TypeId> {
-        self.execution
-            .semantics
-            .types()
-            .callable_result_type()
-            .or_else(|| match self.request.root() {
-                crate::CheckerUnitRoot::Expression(expression) => self
-                    .execution
-                    .semantics
-                    .types()
-                    .expression(expression)
-                    .map(|ty| ty.ty()),
-                _ => None,
-            })
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn reference_kind(
@@ -142,6 +145,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
                 bray_bound_tree::BoundReferenceTarget::Surface(parameter.into())
             }
+            bray_bound_tree::StorageIdentity::ContractParameter(parameter) => {
+                bray_bound_tree::BoundReferenceTarget::Local(parameter.into())
+            }
             bray_bound_tree::StorageIdentity::AnonymousParameter(parameter) => {
                 bray_bound_tree::BoundReferenceTarget::Local(parameter.into())
             }
@@ -162,6 +168,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         slot: &Place,
         origin: &Origin,
         ty: bray_symbols::TypeId,
+        exact: bool,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyBorrowRelation>, C::UpstreamError>
     {
         let (target, stored_reference) = match origin {
@@ -169,7 +176,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference: path, ..
             } => (path, true),
             Origin::Storage(path) => (path, false),
-            Origin::Allocation(_) | Origin::Returned { .. } => return Ok(None),
+            Origin::Allocation(_) | Origin::Returned { .. } => {
+                let Some(exit) = dependency_projections(&slot.projections) else {
+                    return Ok(None);
+                };
+
+                // Coarse call-input bounds describe raw addresses. They cannot replace
+                // the ordinary borrow origin/lifetime contract, including deferred selection.
+                let kind = self.reference_kind(slot, ty)?;
+
+                return Ok(kind
+                    .filter(|kind| *kind == bray_symbols::DependencyReferenceKind::Address)
+                    .map(|kind| {
+                        bray_symbols::DependencyBorrowRelation::new(
+                            None,
+                            bray_symbols::DependencySubject::new(
+                                self.formal_root(slot.root)
+                                    .expect("reference exit has a formal root"),
+                                exit,
+                            ),
+                            kind,
+                        )
+                    }));
+            }
         };
 
         let Some(root) = self.formal_root(target.root) else {
@@ -228,6 +257,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let target_projections = match origin {
+            Origin::Entry { projections, .. } if !exact => Some(
+                projections
+                    .iter()
+                    .copied()
+                    .map_while(dependency_projection)
+                    .collect(),
+            ),
             Origin::Entry { projections, .. } => dependency_projections(projections),
             _ => Some(Vec::new()),
         };
@@ -238,7 +274,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         Ok(Some(
             bray_symbols::DependencyBorrowRelation::new(
-                bray_symbols::DependencySubject::new(root, entry),
+                Some(bray_symbols::DependencySubject::new(root, entry)),
                 bray_symbols::DependencySubject::new(
                     self.formal_root(slot.root)
                         .expect("reference exit has a formal root"),
@@ -255,30 +291,4 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_target_projections(target_projections),
         ))
     }
-}
-
-pub(in crate::analysis::storage_flow::check::analysis) fn dependency_projections(
-    projections: &[bray_bound_tree::StorageProjection],
-) -> Option<Vec<bray_symbols::DependencyProjection>> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::DependencyProjection;
-
-    projections
-        .iter()
-        .map(|projection| match projection {
-            StorageProjection::ProductField(field) => {
-                Some(DependencyProjection::ProductField(*field))
-            }
-            StorageProjection::TupleElement(index) => {
-                Some(DependencyProjection::TupleElement(*index))
-            }
-            StorageProjection::NullableValue => Some(DependencyProjection::NullableValue),
-            StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                Some(DependencyProjection::UnionPayloadField(*field))
-            }
-            StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
-            StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
-            _ => None,
-        })
-        .collect()
 }

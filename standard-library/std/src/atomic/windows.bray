@@ -13,10 +13,10 @@ trusted internal func platform_wait_word_for(
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let address: RawPointer<u32> = trusted internal word_pointer(storage);
-    let bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
-    let expected_pointer: RawPointer<u32> = std.memory.address_of<u32>(&expected);
-    let expected_bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, u32>(expected_pointer);
+    let address: DataPointer<u32> = trusted internal word_pointer(storage);
+    let bytes: DataPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
+    let expected_pointer: DataPointer<u32> = std.memory.address_of<u32>(&expected);
+    let expected_bytes: DataPointer<u8> = trusted std.memory.reinterpret<u8, u32>(expected_pointer);
 
     let _: i32 = trusted std.os.windows.wait_on_address(
         bytes,

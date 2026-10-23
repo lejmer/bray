@@ -47,7 +47,7 @@ Nullable types are produced by the postfix nullable type form `T?`.
 
 Borrow types are produced by `&T` and `&mut T`.
 
-Raw pointer types are produced by the compiler-known generic type `RawPointer<T>`.
+Raw pointer types are produced by the compiler-known generic types `DataPointer<T>` and `FunctionPointer<F>`.
 
 Trait-view types are produced by the `view` type form.
 
@@ -60,7 +60,7 @@ The compiler-known `string` type is a named protected-representation value type,
 The scalar and literal rules define the exact scalar type set, literal typing, scalar operation behavior, and scalar
 conversion rules.
 
-[Raw pointer type](../targets-layout-abi-and-raw-memory/raw-pointer-type.md) defines `RawPointer<T>`, raw pointer
+[Raw pointer type](../targets-layout-abi-and-raw-memory/raw-pointer-type.md) defines `DataPointer<T>` and `FunctionPointer<F>`, raw pointer
 validity, raw memory operations, raw memory trusted predicates, and raw pointer standard-library helpers.
 
 All other categories listed here are defined by the product, union, compiler-known result union, compiler-known async

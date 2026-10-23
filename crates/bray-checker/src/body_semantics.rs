@@ -128,7 +128,7 @@ where
 
     let mut excluded = std::collections::BTreeSet::new();
 
-    crate::analysis::exclude_non_unwinding_edges(graph, request, &mut excluded);
+    crate::analysis::exclude_impossible_call_outcomes(graph, request, &mut excluded);
 
     let (liveness, flow, refinements, asynchronous, completion) = loop {
         let Some(reachability) =

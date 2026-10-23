@@ -38,7 +38,6 @@ struct BodyBehaviorBuilder {
     execution_requirements: BTreeSet<CallableExecutionRequirement>,
     lifecycle_obligations: BTreeSet<LifecycleObligationKind>,
     static_dependencies: BTreeSet<StaticSymbolId>,
-    current_run_cancellation: bool,
     is_recovered: bool,
 }
 
@@ -58,8 +57,6 @@ impl BodyBehaviorBuilder {
 
         self.lifecycle_obligations
             .extend(behavior.lifecycle_obligations().iter().copied());
-
-        self.merge_cancellation(behavior.current_run_cancellation());
 
         self.static_dependencies.extend(
             static_dependencies_from_contract(context, behavior.dependency_contract())
@@ -109,21 +106,15 @@ impl BodyBehaviorBuilder {
         self.static_dependencies
             .extend(contributions.static_dependencies());
 
-        self.merge_cancellation(contributions.current_run_cancellation());
         self.is_recovered |= contributions.is_recovered();
     }
 
-    fn merge_cancellation(&mut self, cancellation: CurrentRunCancellation) {
-        self.current_run_cancellation |= cancellation == CurrentRunCancellation::MayEnter;
-    }
-
-    fn finish(self, key: &BoundUnitKey, unit: bray_bound_tree::BoundUnitId) -> CheckedBodyBehavior {
-        let cancellation = if self.current_run_cancellation {
-            CurrentRunCancellation::MayEnter
-        } else {
-            CurrentRunCancellation::NotEntered
-        };
-
+    fn finish(
+        self,
+        key: &BoundUnitKey,
+        unit: bray_bound_tree::BoundUnitId,
+        cancellation: CurrentRunCancellation,
+    ) -> CheckedBodyBehavior {
         let capability_uses = self
             .trusted_capabilities
             .iter()
@@ -202,6 +193,24 @@ impl Compilation {
         let symbols = self.symbol_graph()?;
 
         for call in contributions.result().value().behavior().calls() {
+            if let BoundCallableTarget::Indirect(ty) = call.target() {
+                let data = binding_context.semantic_values().type_data(ty);
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    panic!("checked indirect invocation retains its callable type: {ty:?}");
+                };
+
+                if callable.abi() != bray_symbols::CallableAbi::Bray {
+                    let capability = super::foreign::foreign_call_capability(self).expect(
+                        "foreign callable entry retains its compiler-known boundary capability",
+                    );
+
+                    record_trusted_capability_use(&mut capabilities, call.source(), [capability]);
+                }
+
+                continue;
+            }
+
             let BoundCallableTarget::Declaration(instance) = call.target() else {
                 continue;
             };
@@ -377,7 +386,14 @@ impl Compilation {
         builder.is_recovered |= capability_recovered;
 
         Ok((
-            builder.finish(root, root_bound.result().value().unit()),
+            builder.finish(
+                root,
+                root_bound.result().value().unit(),
+                self.unwind_behavior(root.clone(), cancellation)?
+                    .result()
+                    .value()
+                    .current_run_cancellation(),
+            ),
             diagnostics,
         ))
     }
@@ -426,11 +442,7 @@ impl Compilation {
                 let data = binding_context.semantic_values().type_data(ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
-                    return Err(SemanticQueryFailure::contract(
-                        SemanticQueryContext::Type(ty),
-                        SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
-                    )
-                    .into());
+                    panic!("checked indirect invocation retains its callable type: {ty:?}");
                 };
 
                 if let Some(phase) = phase_behavior_for(callable.phase_behaviors(), call.phase()) {

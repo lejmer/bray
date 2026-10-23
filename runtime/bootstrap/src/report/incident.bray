@@ -32,13 +32,13 @@ internal struct Record
 // The compiler-bound caller transfers the exclusive descriptor and retains its
 // concrete payload, backing, provider and attachment until this call returns.
 // Its C callbacks contain failures in initialized outcomes, never native unwind.
-trusted internal predicate owned(pointer: RawPointer<Record>);
+trusted internal predicate owned(pointer: DataPointer<Record>);
 
-trusted internal predicate returned(pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>);
+trusted internal predicate returned(pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
 
 internal callable Reporter = @abi(c) trusted func(
     pos payload: usize,
-    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -48,9 +48,9 @@ internal callable Reporter = @abi(c) trusted func(
     ensures(trusted returned(pointer = outcome));
 
 internal callable Destroyer = @abi(c) trusted func(
-    pos incident: RawPointer<Record>,
-    pos destruction: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos release: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos incident: DataPointer<Record>,
+    pos destruction: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos release: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -89,13 +89,13 @@ internal struct StoredOutcome
 }
 
 trusted internal func parts(
-    pos pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> (u32, bray.runtime.bootstrap.PanicReportData)
     requires(trusted returned(pointer = pointer))
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1))
     uses(raw_memory)
 {
-    let readable = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>) -> RawPointer<
+    let readable = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> DataPointer<
         bray.runtime.bootstrap.ReportOutcome
     >
         requires(trusted returned(pointer = pointer))
@@ -114,7 +114,7 @@ trusted internal func parts(
     return (value.state, value.report);
 }
 
-trusted internal func prepare(pos pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>) -> StoredOutcome
+trusted internal func prepare(pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> StoredOutcome
     requires(trusted returned(pointer = pointer))
 {
     let (state, report) = trusted parts(pointer);
@@ -150,8 +150,8 @@ trusted internal func prepare_value(pos state: u32, pos report: bray.runtime.boo
 // The other destination is a different live slot. Materialization reads only the
 // selected outcome and invokes no callback, so the other transfer remains valid.
 trusted internal func prepare_first(
-    pos pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos other: RawPointer<bray.runtime.bootstrap.ReportOutcome>
+    pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos other: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> StoredOutcome
     requires(
         trusted returned(pointer = pointer),
@@ -189,12 +189,12 @@ trusted internal func retain_outcome(pos value: StoredOutcome) -> (u32, bray.run
     return (status, trusted bray.runtime.bootstrap.retain_primary(value.primary, value.remaining, value.reserved));
 }
 
-trusted internal func read_record(pos pointer: RawPointer<Record>) -> bray.runtime.bootstrap.ReportValue
+trusted internal func read_record(pos pointer: DataPointer<Record>) -> bray.runtime.bootstrap.ReportValue
     requires(trusted owned(pointer = pointer))
     ensures(trusted bray.runtime.bootstrap.retained_report_value(value = &result))
     uses(raw_memory)
 {
-    let readable = trusted lambda(pos pointer: RawPointer<Record>) -> RawPointer<Record>
+    let readable = trusted lambda(pos pointer: DataPointer<Record>) -> DataPointer<Record>
         requires(trusted owned(pointer = pointer))
         ensures(
             trusted core.memory.valid_read<Record>(pointer = result, count = 1),
@@ -213,7 +213,7 @@ trusted internal func read_record(pos pointer: RawPointer<Record>) -> bray.runti
 trusted internal func destinations(
     pos left: &mut bray.runtime.bootstrap.ReportOutcome,
     pos right: &mut bray.runtime.bootstrap.ReportOutcome
-) -> (RawPointer<bray.runtime.bootstrap.ReportOutcome>, RawPointer<bray.runtime.bootstrap.ReportOutcome>)
+) -> (DataPointer<bray.runtime.bootstrap.ReportOutcome>, DataPointer<bray.runtime.bootstrap.ReportOutcome>)
     ensures(
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0, count = 1),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0),
@@ -236,7 +236,7 @@ trusted internal func destinations(
 
 @abi(c)
 trusted internal func retain(
-    pos pointer: RawPointer<Record>,
+    pos pointer: DataPointer<Record>,
     pos mut report: bray.runtime.bootstrap.PanicReportData
 ) -> bray.runtime.bootstrap.PanicReportData
     requires(
@@ -275,7 +275,7 @@ trusted internal func retain(
 }
 
 @abi(c)
-trusted internal func dispose(pos pointer: RawPointer<Record>, pos reporting: u32) -> u32
+trusted internal func dispose(pos pointer: DataPointer<Record>, pos reporting: u32) -> u32
     requires(trusted owned(pointer = pointer), trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let value = trusted read_record(pointer);
@@ -291,6 +291,7 @@ trusted internal func dispose_value(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.retained_report_value(value = &value)
     )
+    uses(foreign_call)
 {
     match value
     {

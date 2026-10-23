@@ -245,11 +245,14 @@ impl BoundResolvedCall {
         self.value_source = Some(CallableValueSource::Declaration(callable));
     }
 
-    /// Returns the exact declaration producing an indirectly invoked immutable value.
+    /// Returns the exact named implementation, including immutable callable aliases.
     pub fn declaration_source(&self) -> Option<CallableInstanceData> {
-        match self.value_source {
-            Some(CallableValueSource::Declaration(callable)) => Some(callable),
-            _ => None,
+        match self.target {
+            BoundCallableTarget::Declaration(callable) => Some(callable),
+            _ => match self.value_source {
+                Some(CallableValueSource::Declaration(callable)) => Some(callable),
+                _ => None,
+            },
         }
     }
 

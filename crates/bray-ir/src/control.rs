@@ -438,21 +438,6 @@ pub enum MirTerminatorKind {
         /// Destination when the predicate does not match.
         unmatched: MirEdge,
     },
-    /// Advance one selected iteration cursor.
-    Iterate {
-        /// Mutable cursor storage retained across iteration steps.
-        cursor: MirPlace,
-        /// Exact selected cursor-advance callable.
-        next: MirCallableReference,
-        /// Exact implementation supplying the cursor-advance callable.
-        witness: bray_symbols::ImplementationInstanceId,
-        /// Checked element type produced on the item edge.
-        element_type: TypeId,
-        /// Item block receiving the produced element as its sole parameter.
-        item: MirBlockId,
-        /// Destination reached on natural exhaustion.
-        exhausted: MirEdge,
-    },
     /// Advance one compiler-known half-open range cursor.
     RangeIterate {
         /// Mutable range cursor storage retained across iteration steps.
@@ -606,9 +591,7 @@ impl MirTerminatorKind {
                 visit(matched)?;
                 visit(unmatched)?;
             }
-            Self::Iterate { exhausted, .. } | Self::RangeIterate { exhausted, .. } => {
-                visit(exhausted)?
-            }
+            Self::RangeIterate { exhausted, .. } => visit(exhausted)?,
             Self::Switch {
                 cases, otherwise, ..
             } => {
@@ -667,10 +650,7 @@ impl MirTerminatorKind {
                 visit(matched.target());
                 visit(unmatched.target());
             }
-            Self::Iterate {
-                item, exhausted, ..
-            }
-            | Self::RangeIterate {
+            Self::RangeIterate {
                 item, exhausted, ..
             } => {
                 visit(*item);
@@ -759,7 +739,6 @@ impl MirTerminatorKind {
             Self::Goto(_)
             | Self::Branch { .. }
             | Self::PatternBranch { .. }
-            | Self::Iterate { .. }
             | Self::RangeIterate { .. }
             | Self::Switch { .. }
             | Self::InlineAssembly(_)

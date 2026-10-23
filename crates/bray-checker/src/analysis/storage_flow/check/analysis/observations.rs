@@ -17,15 +17,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> StorageInvalidation {
         let paths = match invalidation {
             StorageInvalidation::All { .. } => {
-                let invocation = occurrence.expression().is_some_and(|expression| {
-                    matches!(
-                        self.execution.semantics.selections().expression(expression),
-                        Some(bray_bound_tree::SemanticSelection::Call(_))
-                    ) || matches!(
-                        self.request.view().expression(expression),
-                        Some(bray_bound_tree::BoundExpression::Await(_))
-                    )
-                });
+                let invocation = self.dependencies.calls().contains_key(&occurrence)
+                    || occurrence.expression().is_some_and(|expression| {
+                        matches!(
+                            self.request.view().expression(expression),
+                            Some(bray_bound_tree::BoundExpression::Await(_))
+                        )
+                    });
 
                 return if invocation {
                     self.opaque_observations(
@@ -138,36 +136,40 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(path) = self.storage.logical_path(capability.access()) else {
-                continue;
-            };
+            let referent = memory.borrow_observation(*borrow);
 
-            // An address formed from this borrow can be used by native code to replace
-            // its allocation. The temporary borrow does not bound that opaque effect.
-            if exposed.contains(&path.root) {
-                continue;
+            for path in self
+                .storage
+                .logical_path(capability.access())
+                .into_iter()
+                .chain(referent.as_ref())
+            {
+                // An address formed from this borrow can be used by native code to replace
+                // its allocation. The temporary borrow does not bound that opaque effect.
+                if exposed.contains(&path.root) {
+                    continue;
+                }
+
+                let Some(markers) = self
+                    .input
+                    .stable_identities
+                    .get(&path.root)
+                    .or_else(|| self.input.borrowed_identities.get(&path.root))
+                else {
+                    continue;
+                };
+
+                // The logical access can be an invocation input. Its exact physical
+                // referent still retains the complete owner for this shared loan.
+                stable_descriptors.insert(path.clone());
+
+                stable_values.extend(
+                    markers
+                        .iter()
+                        .filter(|marker| path.contains(marker))
+                        .cloned(),
+                );
             }
-
-            let Some(markers) = self
-                .input
-                .stable_identities
-                .get(&path.root)
-                .or_else(|| self.input.borrowed_identities.get(&path.root))
-            else {
-                continue;
-            };
-
-            // A live shared borrow prevents replacement of the selected storage,
-            // including a complete owner nested in another value. Keep only marker
-            // observations within that borrow, never an unborrowed sibling.
-            stable_descriptors.insert(path.clone());
-
-            stable_values.extend(
-                markers
-                    .iter()
-                    .filter(|marker| path.contains(marker))
-                    .cloned(),
-            );
         }
     }
 
@@ -238,6 +240,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return self.opaque_observations(memory, roots);
         }
 
+        if effects.contains(&Effect::Ambient) {
+            // Resolve the union once. Merging an opaque observation with precise
+            // observations would discard its established preservation frame.
+            let inputs = effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Escape | Effect::Atomic));
+
+            let escaped = effects.iter().filter_map(|effect| match effect {
+                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape) => {
+                    Some(target.clone())
+                }
+                _ => None,
+            });
+
+            let roots = roots
+                .into_iter()
+                .filter(|_| inputs)
+                .chain(memory.escaped_regions(escaped))
+                .chain(
+                    effects
+                        .iter()
+                        .filter_map(Effect::mutation)
+                        .map(|(target, _)| target.clone()),
+                );
+
+            return self.opaque_observations(memory, roots);
+        }
+
         let atomic = effects.iter().any(|effect| {
             matches!(
                 effect,
@@ -279,10 +309,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 crate::storage::observation::restrict(targets, frame)
             }
         } else {
-            return self.target_observations(memory, ordinary);
+            self.target_observations(memory, ordinary.clone())
         };
 
-        if ordinary.clone().next().is_some() {
+        if atomic && ordinary.clone().next().is_some() {
             invalidation.merge(&self.target_observations(memory, ordinary));
         }
 
@@ -296,13 +326,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &[Effect],
         roots: &[Target],
     ) -> StorageInvalidation {
-        if effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
-        {
-            return self.opaque_observations(&state.memory, roots.iter().cloned());
-        }
-
         let mut invalidation =
             self.resolved_observations(&state.memory, effects, roots.iter().cloned());
 
@@ -317,20 +340,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for reference in contracts.references() {
             let relation = reference.relation();
 
-            if relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
-                || relation.entry() != relation.exit()
+            if !relation.is_exact()
+                || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
+                || relation.entry() != Some(relation.exit())
                 || relation.dereferences() != 0
                 || !relation.target_projections().is_empty()
             {
                 continue;
             }
 
-            let Some(prepared) = contracts.reference_path(relation.entry()) else {
+            let entry = relation
+                .entry()
+                .expect("exact reference has an input origin");
+
+            let Some(prepared) = contracts.reference_path(entry) else {
                 continue;
             };
 
-            let Some(locations) = self.invocation_locations(state, occurrence, relation.entry())
-            else {
+            let Some(locations) = self.invocation_locations(state, occurrence, entry) else {
                 continue;
             };
 
@@ -338,8 +365,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(base) = self.invocation_place(occurrence, relation.entry().subject_root())
-            else {
+            let Some(base) = self.invocation_place(occurrence, entry.subject_root()) else {
                 continue;
             };
 
@@ -481,6 +507,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if mutations.clone().next().is_none() {
             return StorageInvalidation::Observed {
+                scope: mutations
+                    .clone()
+                    .map(|target| {
+                        target.mutation_scope(self.storage, self.request.semantic_values())
+                    })
+                    .max()
+                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
                 referents,
@@ -592,6 +625,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if unrepresented.is_empty() {
             StorageInvalidation::Observed {
+                scope: mutations
+                    .clone()
+                    .map(|target| {
+                        target.mutation_scope(self.storage, self.request.semantic_values())
+                    })
+                    .max()
+                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
                 referents,

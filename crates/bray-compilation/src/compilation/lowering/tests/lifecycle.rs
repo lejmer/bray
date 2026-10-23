@@ -2290,7 +2290,22 @@ fn retained_capture_cleanup_publishes_frame_outcomes() {
 
     assert!(mir.frame_descriptor().unwrap().capture_cleanup().is_some());
 
+    let mut cancellation_entries = 0;
+
     for block in mir.blocks() {
+        if let MirTerminatorKind::CancelCurrentRun { cleanup } = block.terminator().kind() {
+            let entry = mir.block(cleanup.edge().target()).unwrap();
+
+            assert!(entry.operations().iter().any(|operation| {
+                matches!(mir.operation(*operation).unwrap().kind(),
+                    MirOperationKind::Call(call)
+                        if matches!(call.target(), bray_ir::MirCallTarget::Runtime(runtime)
+                            if runtime.role() == bray_runtime_interface::RuntimeAbiRole::CleanupShieldEnter))
+            }), "cancellation enters the shield before forwarding pending failure reports: {entry:#?}");
+
+            cancellation_entries += 1;
+        }
+
         if block.kind() != bray_ir::MirBlockKind::CleanupBroadcast {
             assert!(
                 !matches!(
@@ -2303,6 +2318,8 @@ fn retained_capture_cleanup_publishes_frame_outcomes() {
             );
         }
     }
+
+    assert!(cancellation_entries > 0);
 }
 
 #[test]

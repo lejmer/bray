@@ -845,8 +845,8 @@ fn operation_parts(
                     parts.operand("factory", callee, context)?
                 }
                 bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
-                bray_ir::MirOutgoingOwner::Invocation { callable, result } => {
-                    callable_reference("callable", *callable, parts, context);
+                bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
+                    callable_reference("callable", selection.reference(), parts, context);
                     parts.r#type("result", result.ty(), context)?;
                 }
             }
@@ -1004,6 +1004,9 @@ fn memory_operation_parts(
         }
         CheckedMemoryOperationKind::Null { pointee } => ("null", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::IsNull { pointee } => ("is_null", vec![("pointee", pointee)]),
+        CheckedMemoryOperationKind::ByteAddress { pointee } => {
+            ("byte_address", vec![("pointee", pointee)])
+        }
         CheckedMemoryOperationKind::Offset { pointee, .. } => {
             ("offset", vec![("pointee", pointee)])
         }
@@ -1014,7 +1017,7 @@ fn memory_operation_parts(
             ("callable_from_pointer", vec![("callable", callable)])
         }
         CheckedMemoryOperationKind::PointerFromCallable { callable } => {
-            ("pointer_from_callable", vec![("callable", callable)])
+            ("function_address", vec![("callable", callable)])
         }
         CheckedMemoryOperationKind::Read { pointee, .. } => ("read", vec![("pointee", pointee)]),
         CheckedMemoryOperationKind::Write { pointee } => ("write", vec![("pointee", pointee)]),
@@ -1834,24 +1837,6 @@ fn inspection_terminator(
 
             "pattern_branch"
         }
-        MirTerminatorKind::Iterate {
-            cursor,
-            next,
-            element_type,
-            item,
-            exhausted,
-            ..
-        } => {
-            parts.place("cursor", cursor, &context)?;
-            parts.callable_reference("next", *next, &context);
-            parts.r#type("element", *element_type, &context)?;
-
-            parts.target(String::from("item"), *item);
-
-            parts.edge("exhausted", exhausted, None, &context)?;
-
-            "iterate"
-        }
         MirTerminatorKind::RangeIterate {
             cursor,
             element_type,
@@ -2164,25 +2149,6 @@ impl TerminatorParts {
             text,
         });
     }
-
-    fn callable_reference(
-        &mut self,
-        role: &str,
-        reference: MirCallableReference,
-        context: &MirInspectionContext<'_>,
-    ) {
-        let instance = reference.instance();
-
-        self.symbol(role, instance.definition().symbol(), context.symbols);
-        self.attribute(format!("{role}_abi"), callable_abi(reference.abi()));
-
-        self.semantic_value(
-            format!("{role}_substitution"),
-            "generic_substitution",
-            instance.substitution().slot(),
-            None,
-        );
-    }
 }
 
 fn inspection_operand(
@@ -2399,6 +2365,7 @@ fn constant_text(
         ConstantValueKind::String(value) => format!("\"{}\"", value.escape_debug()),
         ConstantValueKind::Unit => String::from("()"),
         ConstantValueKind::StaticAddress(_) => String::from("<static-address>"),
+        ConstantValueKind::Borrowed(_) => String::from("<constant-observation>"),
         ConstantValueKind::NullableAbsent => String::from("none"),
         ConstantValueKind::NullablePresent(_) => String::from("some(<constant>)"),
         ConstantValueKind::Tuple(values) => format!("<tuple:{}>", values.len()),
@@ -2844,6 +2811,7 @@ fn binary_operator(operator: MirBinaryOperator) -> &'static str {
         MirBinaryOperator::BitwiseXor => "bitwise_xor",
         MirBinaryOperator::ShiftLeft => "shift_left",
         MirBinaryOperator::ShiftRight => "shift_right",
+        MirBinaryOperator::Exponentiate => "exponentiate",
     }
 }
 

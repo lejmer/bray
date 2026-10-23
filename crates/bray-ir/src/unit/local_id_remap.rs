@@ -163,13 +163,7 @@ pub(super) fn remap_terminator(
             remap_edge(matched, mappings);
             remap_edge(unmatched, mappings);
         }
-        MirTerminatorKind::Iterate {
-            cursor,
-            item,
-            exhausted,
-            ..
-        }
-        | MirTerminatorKind::RangeIterate {
+        MirTerminatorKind::RangeIterate {
             cursor,
             item,
             exhausted,

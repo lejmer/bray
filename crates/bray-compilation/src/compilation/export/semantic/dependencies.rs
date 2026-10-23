@@ -39,11 +39,15 @@ impl<'a> SemanticExporter<'a> {
             .into_iter()
             .map(|relation| {
                 Ok(bray_symbols::DependencyBorrowRelation::new(
-                    self.dependency_subject(relation.entry())?,
+                    relation
+                        .entry()
+                        .map(|entry| self.dependency_subject(entry))
+                        .transpose()?,
                     self.dependency_subject(relation.exit())?,
                     relation.kind(),
                 )
                 .with_dereferences(relation.dereferences())
+                .with_exactness(relation.is_exact())
                 .with_target_projections(
                     relation
                         .target_projections()
@@ -81,6 +85,7 @@ impl<'a> SemanticExporter<'a> {
 
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                     DependencyStorageEffect::Cleanup(ty) => {
@@ -128,6 +133,11 @@ impl<'a> SemanticExporter<'a> {
             .with_borrows(borrows)
             .with_carriers(carriers)
             .with_returned_input(returned_input)
+            .with_observed_result(
+                data.observed_result()
+                    .map(|term| self.constant_term_id(term))
+                    .transpose()?,
+            )
             .with_effects(effects)
             .with_normal_completion(data.normal_completion())
             .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
@@ -532,7 +542,7 @@ mod tests {
                     ));
 
                     borrows.push(DependencyBorrowRelation::new(
-                        subject,
+                        Some(subject),
                         DependencySubject::root(DependencySubjectRoot::Result),
                         DependencyReferenceKind::Borrow,
                     ));

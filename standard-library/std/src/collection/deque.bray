@@ -272,7 +272,7 @@ trusted internal func take_deque_slot<T>(pos storage: &mut std.memory.RawBuffer<
     uses(raw_memory)
 {
     let slots: &mut [(T?)] = trusted std.memory.initialized_slice_mut(storage);
-    let pending: T? = std.memory.replace_value(&mut slots[physical_index], none);
+    let pending: T? = std.memory.take_nullable<T>(&mut slots[physical_index]);
 
     return match consume pending
     {

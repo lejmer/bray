@@ -93,7 +93,7 @@ static EMPTY_BUFFER<T, const N: usize>: Buffer<T, N>
 predicate within(value: usize, limit: usize) =
     value <= limit;
 
-trusted predicate valid_address<T>(pointer: RawPointer<T>);
+trusted predicate valid_address<T>(pointer: DataPointer<T>);
 
 callable Mapper<T, U> =
     func(pos value: T) -> U;
@@ -123,7 +123,7 @@ async func load_count(pos key: u64) -> usize
     return read_count(key);
 }
 
-trusted func pointer_at<T>(address: usize) -> RawPointer<T>
+trusted func pointer_at<T>(address: usize) -> DataPointer<T>
     uses(raw_memory)
 {
     return pointer_from_address<T>(address);

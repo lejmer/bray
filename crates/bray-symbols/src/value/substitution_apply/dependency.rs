@@ -82,11 +82,15 @@ impl SemanticValueStore {
             .iter()
             .map(|relation| {
                 Ok(super::super::DependencyBorrowRelation::new(
-                    self.substitute_dependency_subject(relation.entry(), substitution)?,
+                    relation
+                        .entry()
+                        .map(|entry| self.substitute_dependency_subject(entry, substitution))
+                        .transpose()?,
                     self.substitute_dependency_subject(relation.exit(), substitution)?,
                     relation.kind(),
                 )
                 .with_dereferences(relation.dereferences())
+                .with_exactness(relation.is_exact())
                 .with_target_projections(
                     relation
                         .target_projections()
@@ -124,6 +128,7 @@ impl SemanticValueStore {
 
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
+                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                     DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
@@ -159,6 +164,12 @@ impl SemanticValueStore {
             substituted
                 .with_borrows(borrows)
                 .with_carriers(carriers)
+                .with_observed_result(
+                    template
+                        .observed_result()
+                        .map(|term| self.substitute_constant_term_data(term, substitution))
+                        .transpose()?,
+                )
                 .with_returned_input(
                     template
                         .returned_input()

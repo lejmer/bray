@@ -69,6 +69,7 @@ where
         dependencies,
         values,
         execution.semantics.selections(),
+        execution.semantics.types(),
         execution.disposal.plan,
         memory,
     ) {
@@ -221,7 +222,7 @@ where
     let exits = collector.exit_decisions().collect::<Vec<_>>();
     let replacements = collector.replacement_decisions().collect::<Vec<_>>();
 
-    let assignments = collector.take_assignment_targets();
+    let targets = collector.take_state_targets();
     let effects = std::mem::take(&mut collector.effects);
 
     let analysis = StorageFlow::try_new(
@@ -247,8 +248,9 @@ where
     })
     .and_then(|analysis| analysis.with_memory_operations(memory, memory_decisions))
     .and_then(|analysis| analysis.with_replacements(replacements))
-    .and_then(|analysis| analysis.with_assignment_targets(assignments))
+    .and_then(|analysis| analysis.with_state_targets(targets))
     .expect("durable storage flow must preserve the checked plan's identities")
+    .with_observation_invalidations(collector.observation_invalidations)
     .with_dependencies(dependencies.with_effects(effects))
     .with_report_collections(collector.report_collections)
     .with_reporting_completions(collector.reporting_completions)
@@ -370,7 +372,12 @@ where
     exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
-    assignments: BTreeMap<BoundExpressionId, Option<crate::analysis::storage_flow::memory::Place>>,
+    pub(in crate::analysis::storage_flow::check::analysis) observation_invalidations:
+        BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageInvalidation>,
+    pub(in crate::analysis::storage_flow::check::analysis) state_targets: BTreeMap<
+        bray_bound_tree::StorageStateTarget,
+        Option<crate::analysis::storage_flow::memory::Target>,
+    >,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
@@ -487,7 +494,8 @@ where
             exits: Vec::new(),
             exit_indices: BTreeMap::new(),
             replacements: BTreeMap::new(),
-            assignments: BTreeMap::new(),
+            state_targets: BTreeMap::new(),
+            observation_invalidations: BTreeMap::new(),
             invalidations: BTreeMap::new(),
             cleanup_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
@@ -546,6 +554,7 @@ where
         }
     }
 
+    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
     pub(in crate::analysis::storage_flow) fn apply_operation(
         &mut self,
         state: &mut StorageFlowState,
@@ -558,6 +567,8 @@ where
                 phase: crate::analysis::model::AnalysisResultPhase::Begin,
                 ..
             } => {
+                self.initialize_operation_storage(state, kind);
+
                 self.execution.transfer_operation(
                     state
                         .execution
@@ -600,7 +611,16 @@ where
         self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind);
 
-        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if self.publish
+            && !matches!(
+                kind,
+                AnalysisOperationKind::Result { .. }
+                    | AnalysisOperationKind::Call {
+                        phase: AnalysisCallPhase::Input,
+                        ..
+                    }
+            )
+        {
             self.trusted
                 .before_operation(self.execution, &execution, kind);
         }
@@ -611,7 +631,7 @@ where
         let completing = matches!(
             kind,
             AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Completion,
+                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Completion,
                 ..
             } | AnalysisOperationKind::Result { .. }
         );
@@ -620,7 +640,19 @@ where
             .then(|| self.assignment_target(state, kind.node()))
             .flatten();
 
-        self.apply_scoped_entry_borrows(state, kind, &refinements);
+        self.apply_invocation_inputs(state, kind, &refinements);
+
+        if self.publish
+            && matches!(
+                kind,
+                AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Input,
+                    ..
+                }
+            )
+        {
+            self.record_input_targets(state, kind.occurrence());
+        }
 
         let assignment_mutation = (!completing)
             .then(|| self.assignment_mutation(kind, &execution))
@@ -719,6 +751,7 @@ where
 
         if !completing {
             self.record_operation_effects(
+                &state.memory,
                 kind,
                 call_effects.as_deref(),
                 assignment.as_ref(),
@@ -726,11 +759,7 @@ where
                 normal_effects,
             );
 
-            self.record_operation_observations(
-                kind,
-                assignment_path.as_ref(),
-                invalidation.as_ref(),
-            );
+            self.record_operation_observations(kind, assignment.as_ref(), invalidation.as_ref());
 
             let assignment = assignment_path
                 .as_ref()
@@ -744,7 +773,14 @@ where
             );
         }
 
-        if matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if matches!(
+            kind,
+            AnalysisOperationKind::Result { .. }
+                | AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Input,
+                    ..
+                }
+        ) {
             self.execution
                 .transfer_operation(&mut execution, kind, None, None);
         }
@@ -797,7 +833,7 @@ where
         state.refinements = refinements;
     }
 
-    fn apply_scoped_entry_borrows(
+    fn apply_invocation_inputs(
         &mut self,
         state: &mut StorageFlowState,
         kind: AnalysisOperationKind,
@@ -806,14 +842,21 @@ where
         if matches!(
             kind,
             AnalysisOperationKind::Call {
-                invocation: bray_bound_tree::BoundExecutionSite::ScopedEnter(_),
-                phase: AnalysisCallPhase::Attempt
+                phase: AnalysisCallPhase::Input,
+                ..
             }
         ) {
+            self.initialize_operation_storage(state, kind);
+
             for plan in self
                 .storage
                 .occurrence_plans(kind.occurrence())
-                .filter(|plan| matches!(plan.purpose(), StorageAccessPurpose::Borrow(_)))
+                .filter(|plan| {
+                    matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                        && !self
+                            .storage
+                            .access_is_produced_at(plan.access(), kind.occurrence())
+                })
             {
                 self.apply_plan(
                     state,
@@ -855,7 +898,7 @@ where
     fn record_operation_observations(
         &mut self,
         kind: AnalysisOperationKind,
-        assignment: Option<&crate::analysis::storage_flow::memory::Place>,
+        assignment: Option<&crate::analysis::storage_flow::memory::Target>,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
         if !self.publish {
@@ -868,15 +911,10 @@ where
                 Some(bray_bound_tree::BoundExpression::Assignment(_))
             )
         {
-            self.assignments
-                .entry(expression)
-                .and_modify(|previous| {
-                    if previous.as_ref() != assignment {
-                        *previous = None;
-                    }
-                })
-                // Target paths share immutable projections with the transition.
-                .or_insert_with(|| assignment.cloned());
+            self.record_state_target(
+                bray_bound_tree::StorageStateTarget::Assignment(expression),
+                assignment.cloned(),
+            );
         }
 
         if let Some(effects) =
@@ -896,6 +934,16 @@ where
         kind: AnalysisOperationKind,
         memory_status: Option<MemoryOperationStatus>,
     ) {
+        if matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Input,
+                ..
+            }
+        ) {
+            return;
+        }
+
         let observations = if !matches!(
             kind,
             AnalysisOperationKind::Call {
@@ -918,7 +966,16 @@ where
                 .complete_operation(execution, kind, Some(&observations));
         }
 
-        if self.publish && !matches!(kind, AnalysisOperationKind::Result { .. }) {
+        if self.publish
+            && !matches!(
+                kind,
+                AnalysisOperationKind::Result { .. }
+                    | AnalysisOperationKind::Call {
+                        phase: AnalysisCallPhase::Input,
+                        ..
+                    }
+            )
+        {
             self.trusted
                 .after_operation(self.execution, execution, kind, self.memory_evidence);
         }
@@ -1033,10 +1090,20 @@ where
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) -> Option<MemoryOperationStatus> {
+        if matches!(
+            operation.kind(),
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Input,
+                ..
+            }
+        ) {
+            return None;
+        }
+
         if let AnalysisOperationKind::PatternObservation(pattern) = operation.kind() {
             state
                 .observed_pattern_bindings
-                .extend(self.input.definitions(pattern.into()));
+                .extend(self.input.definitions(AnyBoundNodeId::from(pattern).into()));
 
             return None;
         }
@@ -1073,16 +1140,37 @@ where
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(_))
                     if phase == AnalysisCallPhase::Attempt =>
                 {
+                    for plan in self.storage.occurrence_plans(invocation).filter(|plan| {
+                        !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                            && matches!(
+                                self.storage
+                                    .root_identity(plan.access())
+                                    .and_then(|root| self.storage.identity(root)),
+                                Some(StorageIdentity::InvocationInput { .. })
+                            )
+                    }) {
+                        self.apply_plan(state, plan, refinements.clone());
+                    }
+
+                    state.memory.finish_value_transfers();
+
                     return None;
                 }
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
+                bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
                         for plan in self
                             .storage
                             .occurrence_plans(operation.kind().occurrence())
                             .filter(|plan| {
-                                !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
+                                !matches!(
+                                    plan.purpose(),
+                                    StorageAccessPurpose::Borrow(_)
+                                        | StorageAccessPurpose::Initialize
+                                )
                             })
                         {
                             self.apply_plan(state, plan, refinements.clone());
@@ -1129,13 +1217,18 @@ where
         self.initialize_operation_storage(state, operation.kind());
 
         for plan in self.storage.node_plans(operation.kind().node()) {
-            if matches!(operation.kind(), AnalysisOperationKind::Result { .. })
-                && self
-                    .storage
+            if matches!(
+                operation.kind(),
+                AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Completion,
+                    ..
+                }
+            ) && matches!(
+                self.storage
                     .root_identity(plan.access())
-                    .and_then(|identity| self.storage.identity(identity))
-                    .is_some_and(StorageIdentity::is_iteration_storage)
-            {
+                    .and_then(|root| self.storage.identity(root)),
+                Some(StorageIdentity::InvocationInput { .. })
+            ) {
                 continue;
             }
 
@@ -1155,6 +1248,13 @@ where
                     .as_ref()
                     .and_then(|execution| self.execution.awaited_invocation(execution, expression))
                 {
+                    if let Some(frame) = source
+                        .expression()
+                        .and_then(|id| self.expression_result_storage(id))
+                    {
+                        state.memory.clear(&frame);
+                    }
+
                     state.memory.complete_transition(source);
 
                     if let Some(source) = source
@@ -1220,7 +1320,7 @@ where
 
         let outcome = self.operation_status(state, plan, purpose, refinements.clone());
 
-        let status = outcome.status;
+        let mut status = outcome.status;
         let borrow = self.storage.borrow_for_plan(plan);
 
         if matches!(
@@ -1229,26 +1329,55 @@ where
                 | StorageOperationStatus::InactiveProjection
                 | StorageOperationStatus::NotCopyable
         ) {
-            panic!(
-                "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, unit: {:?}, origin: {:?}, expression: {:?}, access: {:?}, purpose: {:?}, status: {:?}, root: {:?}, initialized: {:?}",
-                self.request.unit().key(),
-                self.request
-                    .view()
-                    .expression(plan.expression())
-                    .map(|expression| expression.origin()),
-                plan.expression(),
-                plan.access(),
-                purpose,
-                status,
-                self.storage
-                    .root_identity(plan.access())
-                    .and_then(|identity| self.storage.identity(identity)),
-                state.initialized
-            );
+            if state.recovered {
+                // Recovery has cleared these guarantees. Other established storage
+                // facts still participate in borrow and authority checking.
+                status = StorageOperationStatus::Recovered;
+            } else {
+                panic!(
+                    "Storage-flow analysis produced a state forbidden for one exact planned source operation. in apply_plan, unit: {:?}, origin: {:?}, expression: {:?}, access: {:?}, purpose: {:?}, status: {:?}, root: {:?}, initialized: {:?}, root id: {:?}, projections: {:?}, borrow chain: {:?}, active borrows: {:?}, refinements: {:?}",
+                    self.request.unit().key(),
+                    self.request
+                        .view()
+                        .expression(plan.expression())
+                        .map(|expression| expression.origin()),
+                    plan.expression(),
+                    plan.access(),
+                    purpose,
+                    status,
+                    self.storage
+                        .root_identity(plan.access())
+                        .and_then(|identity| self.storage.identity(identity)),
+                    state.initialized,
+                    self.storage.root_identity(plan.access()),
+                    self.storage.resolved_projections(plan.access()),
+                    self.borrow_chain(plan.access()).map(|chain| chain
+                        .into_iter()
+                        .map(|id| (id, self.storage.borrow_capability(id)))
+                        .collect::<Vec<_>>()),
+                    state.definitely_active_borrows,
+                    refinements.collect::<Vec<_>>()
+                );
+            }
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
-            if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
+            let target = self
+                .input
+                .reference_target(&state.memory, self.storage, plan.access());
+
+            if self.publish {
+                // The transition and publication share immutable target paths.
+                self.record_state_target(
+                    bray_bound_tree::StorageStateTarget::Access {
+                        occurrence: plan.occurrence(),
+                        access: plan.access(),
+                    },
+                    target.clone(),
+                );
+            }
+
+            if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow, target) {
                 self.query_failure = Some(error);
 
                 return;
@@ -1364,15 +1493,12 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
+        target: Option<crate::analysis::storage_flow::memory::Target>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
             StorageAccessPurpose::Move
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Assignment => {
-                let target =
-                    self.input
-                        .reference_target(&state.memory, self.storage, plan.access());
-
                 let observed = target
                     .as_ref()
                     .and_then(|target| target.storage_path())
@@ -1426,7 +1552,7 @@ where
                         .borrow_capability(borrow)
                         .expect("checked borrow retains its capability");
 
-                    if capability.expression() == Some(plan.expression()) {
+                    if capability.occurrence() == Some(plan.occurrence()) {
                         let access = capability.access();
 
                         if let Some(source) =
@@ -1503,22 +1629,50 @@ where
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
     ) {
-        let definitions = self.input.definitions(operation.node());
+        use crate::analysis::model::AnalysisResultPhase;
 
-        let included = |identity: &bray_bound_tree::StorageIdentityId| {
-            !matches!(operation, AnalysisOperationKind::Result { .. })
-                || !self
-                    .storage
-                    .identity(*identity)
-                    .expect("operation definition retains its storage identity")
-                    .is_iteration_storage()
+        let completes = !matches!(
+            operation,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Input,
+                ..
+            } | AnalysisOperationKind::Result {
+                phase: AnalysisResultPhase::Begin,
+                ..
+            }
+        );
+
+        let definitions = self.input.definitions(operation.occurrence());
+
+        let begins = match operation {
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Attempt,
+                ..
+            } => return,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Completion,
+                ..
+            }
+            | AnalysisOperationKind::Result {
+                phase: AnalysisResultPhase::Completion,
+                ..
+            } => false,
+            _ => true,
         };
 
-        let defines = |identity: &bray_bound_tree::StorageIdentityId| {
-            definitions.contains(identity) && included(identity)
-        };
+        if !begins {
+            if completes {
+                state.live.extend(definitions.iter().copied());
+                state.initialized.extend(definitions.iter().copied());
+            }
 
-        for identity in definitions.iter().filter(|identity| included(identity)) {
+            return;
+        }
+
+        let defines =
+            |identity: &bray_bound_tree::StorageIdentityId| definitions.contains(identity);
+
+        for identity in definitions {
             state.memory.begin(*identity);
         }
 
@@ -1534,13 +1688,15 @@ where
 
         state.fully_moved.retain(|storage| !defines(storage));
 
-        state
-            .live
-            .extend(definitions.iter().copied().filter(included));
-
-        state
-            .initialized
-            .extend(definitions.iter().copied().filter(included));
+        // Reserving result storage does not create an owner. A successful commit,
+        // including an earlier result yield, establishes its cleanup obligations.
+        if completes {
+            state.live.extend(definitions.iter().copied());
+            state.initialized.extend(definitions.iter().copied());
+        } else {
+            state.live.retain(|identity| !defines(identity));
+            state.initialized.retain(|identity| !defines(identity));
+        }
     }
 
     fn moved_origins(
@@ -1722,10 +1878,25 @@ where
         }
     }
 
-    fn take_assignment_targets(
+    pub(super) fn record_state_target(
         &mut self,
-    ) -> BTreeMap<BoundExpressionId, bray_bound_tree::StoragePath> {
-        std::mem::take(&mut self.assignments)
+        operation: bray_bound_tree::StorageStateTarget,
+        target: Option<crate::analysis::storage_flow::memory::Target>,
+    ) {
+        self.state_targets
+            .entry(operation)
+            .and_modify(|previous| {
+                if previous.as_ref() != target.as_ref() {
+                    *previous = None;
+                }
+            })
+            .or_insert(target);
+    }
+
+    fn take_state_targets(
+        &mut self,
+    ) -> BTreeMap<bray_bound_tree::StorageStateTarget, bray_bound_tree::StorageTarget> {
+        std::mem::take(&mut self.state_targets)
             .into_iter()
             .filter_map(|(expression, target)| target.map(|target| (expression, target)))
             .collect()
@@ -1950,7 +2121,9 @@ where
     ) -> DiagnosticStorageRoot {
         let root = match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
-            Some(StorageIdentity::Parameter(_)) => DiagnosticStorageRoot::Parameter,
+            Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => {
+                DiagnosticStorageRoot::Parameter
+            }
             Some(StorageIdentity::Receiver(_)) => DiagnosticStorageRoot::Receiver,
             Some(StorageIdentity::Static(_)) => DiagnosticStorageRoot::Static,
             Some(StorageIdentity::AnonymousParameter(_)) => {
@@ -1963,10 +2136,17 @@ where
                 DiagnosticStorageRoot::PostconditionResult
             }
             Some(StorageIdentity::Result(_)) => DiagnosticStorageRoot::Result,
-            Some(StorageIdentity::Temporary(_)) => DiagnosticStorageRoot::Temporary,
+            Some(StorageIdentity::Temporary(_) | StorageIdentity::InvocationInput { .. }) => {
+                DiagnosticStorageRoot::Temporary
+            }
             Some(StorageIdentity::CustomIndexBorrow(_)) => DiagnosticStorageRoot::CustomIndexBorrow,
-            Some(StorageIdentity::IterationCursor(_)) => DiagnosticStorageRoot::IterationCursor,
-            Some(StorageIdentity::IterationElement(_)) => DiagnosticStorageRoot::IterationElement,
+            Some(StorageIdentity::InvocationResult(
+                bray_bound_tree::BoundExecutionSite::Iterate(_),
+            )) => DiagnosticStorageRoot::IterationCursor,
+            Some(StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Next(
+                _,
+            ))) => DiagnosticStorageRoot::IterationElement,
+            Some(StorageIdentity::InvocationResult(_)) => DiagnosticStorageRoot::Temporary,
             Some(StorageIdentity::ScopedCapability { .. }) => {
                 DiagnosticStorageRoot::ScopedCapability
             }
