@@ -11,7 +11,9 @@ use bray_symbols::{
 use crate::test_support::source_function_body_key;
 use crate::{Compilation, CompilationRequest, DependencyInterfaceInput};
 
-use super::fixtures::{compilation, compilation_from_sources, execution_consumer, export};
+use super::fixtures::{
+    compilation, compilation_from_sources, execution_consumer, export, implementation_dependency,
+};
 
 #[test]
 fn imported_generic_references_preserve_declared_argument_counts() {
@@ -796,4 +798,56 @@ fn member_access_distinguishes_trait_applications_from_value_arguments() {
             }
         }
     }
+}
+
+#[test]
+fn imported_array_extents_normalize_closed_definitions_calls_and_substitutions() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        const COUNT: u8 = 1;
+
+        const func count(pos value: usize) -> usize
+        {
+            return value;
+        }
+
+        struct Items<const length: usize>
+        {
+            values: [u8; length + 1];
+        }
+
+        func retain<const length: usize>(pos values: [u8; length + 1]) -> [u8; length + 1]
+        {
+            return values;
+        }
+    "#,
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const VALUES: [u8; example.package.api.COUNT as usize] = [7];
+
+        func sample() -> u8
+        {
+            let repeated: [u8; example.package.api.count(1)] = [7; 1];
+            let pair: [u8; 2] = example.package.api.retain<1>([2, 3]);
+            let items: example.package.api.Items<1> = { values = pair, };
+
+            return items.values[1] + repeated[0] + VALUES[0];
+        }
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 }

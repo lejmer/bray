@@ -125,22 +125,17 @@ where
                     .as_ref()
                     .expect("admitted ordinary requirement retains its complete checked graph");
 
-                let mut evaluator = TemplateEvaluator {
-                    context: self.context,
-                    template,
-                    substitution: self.substitution,
-                    selected_implementation: self.selected_implementation,
-                    arguments: self.arguments,
-                    resolver: self.resolver,
-                    limits: self.limits,
-                    budget: self.budget,
-                    values: vec![None; template.nodes().len()],
-                    outputs: Default::default(),
-                    checked_materialization: Default::default(),
-                    diagnostics: Default::default(),
-                    upstream_failure: None,
-                    static_initializer: false,
-                };
+                let mut evaluator = TemplateEvaluator::new(
+                    self.context,
+                    Some(template),
+                    self.substitution,
+                    self.resolver,
+                    self.limits,
+                    self.budget,
+                );
+
+                evaluator.selected_implementation = self.selected_implementation;
+                evaluator.arguments = self.arguments;
 
                 let result = evaluator.evaluate_result(
                     bray_bound_tree::CheckedTemplateKind::CallableContract,
@@ -167,9 +162,7 @@ where
                     .try_charge_step()
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                let term = values
-                    .substitute_constant_term(term, self.substitution)
-                    .expect("checked constant requirement belongs to its selected generic context");
+                let term = self.substitute_term(term);
 
                 let condition = crate::execution_condition_from_type_term(values, term, 0)
                     .expect("checked compiler-only requirement has portable predicate meaning");
@@ -230,11 +223,7 @@ where
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
-            let ty = evaluator
-                .context
-                .semantic_values()
-                .substitute_type(*ty, evaluator.substitution)
-                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
+            let ty = evaluator.substitute_type(*ty);
 
             evaluator.evaluate_term(*term, ty)
         }
@@ -276,12 +265,7 @@ where
         }
         ConstantTermData::Conversion { operand, target } => {
             let operand = evaluator.evaluate_term(*operand, ty)?;
-
-            let target = evaluator
-                .context
-                .semantic_values()
-                .substitute_type(*target, evaluator.substitution)
-                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
+            let target = evaluator.substitute_type(*target);
 
             evaluator.evaluate_conversion(operand, target)
         }

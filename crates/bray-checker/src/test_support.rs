@@ -247,6 +247,15 @@ impl CheckerRequestContext for TestCheckerContext {
         )
     }
 
+    fn normalize_array_length(
+        &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            term,
+        ))
+    }
+
     fn generic_constraints(
         &self,
         _obligation: bray_symbols::GenericConstraintObligationKey,

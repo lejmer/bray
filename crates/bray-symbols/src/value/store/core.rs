@@ -111,7 +111,7 @@ impl SemanticValueStore {
             .map(|parameter| self.intern_generic_parameter_argument(parameter))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let Some(owner) = super::super::GenericOwnerId::try_new(owner) else {
+        let Some(owner) = GenericOwnerId::try_new(owner) else {
             return Ok(None);
         };
 
@@ -135,14 +135,14 @@ impl SemanticValueStore {
         &self,
         definition: NamedTypeSymbolId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let Some(owner) = super::super::GenericOwnerId::try_new(definition.into_any()) else {
+        let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
             unreachable!("named type symbols are generic owners");
         };
 
         let substitution = match GenericSubstitutionData::try_new(
             owner,
             std::iter::empty::<GenericParameterSymbolId>(),
-            std::iter::empty::<super::super::GenericArgument>(),
+            std::iter::empty::<GenericArgument>(),
         ) {
             Ok(substitution) => substitution,
             Err(_) => unreachable!("empty substitutions are valid for non-generic named types"),
@@ -261,6 +261,13 @@ impl SemanticValueStore {
     /// Returns immutable data for a constant term issued by this store.
     pub fn constant_term_data(&self, id: ConstantTermId) -> Arc<ConstantTermData> {
         self.tables().constant_terms.get_shared(self.id, id)
+    }
+
+    /// Returns whether a term has no unresolved inputs or generic arguments.
+    ///
+    /// Closed terms may still require checked evaluation and can fail during that evaluation.
+    pub fn constant_term_is_closed(&self, id: ConstantTermId) -> bool {
+        super::concrete::constant_term_is_closed(&self.tables(), self.id, id)
     }
 
     /// Returns the integer represented by a checked constant term when it is already known.
@@ -741,6 +748,52 @@ mod tests {
 
             assert_eq!(store.substitution_is_concrete(substitution), expected);
         }
+    }
+
+    #[test]
+    fn closed_constant_terms_reuse_concreteness_without_closing_generic_inputs() {
+        let store = store();
+        let ty = concrete_named_type(&store, 91);
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Integer(IntegerConstant::from_u64(1)),
+            ))
+            .unwrap();
+
+        let value = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let parameter = store
+            .intern_constant_term(ConstantTermData::Parameter(
+                GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(92)),
+            ))
+            .unwrap();
+
+        for (operand, closed) in [(value, true), (parameter, false)] {
+            let sum = store
+                .intern_constant_term(ConstantTermData::Binary {
+                    operation: ConstantBinaryOperation::Add,
+                    left: operand,
+                    right: value,
+                })
+                .unwrap();
+
+            assert_eq!(store.constant_term_is_closed(sum), closed);
+        }
+
+        let projection = store
+            .intern_constant_term(ConstantTermData::Projection(
+                crate::ConstantProjection::new(
+                    parameter,
+                    crate::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)),
+                ),
+            ))
+            .unwrap();
+
+        assert!(!store.constant_term_is_closed(projection));
     }
 
     #[test]

@@ -355,3 +355,145 @@ fn has_value_kind(analysis: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bo
         | DeclaredValueTypeTerm::BoxStoragePolicy(_) => false,
     })
 }
+
+#[test]
+fn closed_array_extents_share_literal_named_and_computed_types() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const COUNT: usize = 1;
+        const NARROW_COUNT: u8 = 1;
+
+        const func count(pos value: usize) -> usize
+        {
+            return value;
+        }
+
+        const VALUES: [u8; NARROW_COUNT as usize] = [7];
+
+        func literal(pos value: [u8; 1]) {}
+
+        func sample()
+        {
+            let named: [u8; COUNT] = [7];
+            let computed: [u8; count(COUNT)] = [7; COUNT];
+            let widened: [u8; NARROW_COUNT as usize] = VALUES;
+
+            literal(named);
+            literal(computed);
+            literal(widened);
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn substituted_array_extents_close_before_callable_and_field_comparison() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Items<const count: usize>
+        {
+            values: [u8; count + 1];
+        }
+
+        func retain<const count: usize>(pos values: [u8; count + 1]) -> [u8; count + 1]
+        {
+            return values;
+        }
+
+        func sample() -> u8
+        {
+            let pair: [u8; 2] = retain<1>([2, 3]);
+            let items: Items<1> = { values = pair, };
+
+            return items.values[1];
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn invalid_closed_array_extents_preserve_their_source_diagnostics() {
+    use bray_diagnostics::DiagnosticKind;
+
+    for (source, expected) in [
+        (
+            r#"
+            module app;
+            const COUNT: usize = 2;
+
+            func sample()
+            {
+                let values: [u8; COUNT] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        ),
+        (
+            r#"
+            module app;
+
+            func sample()
+            {
+                let values: [u8; -1] = [];
+            }
+        "#,
+            DiagnosticKind::CheckingConstantLiteralNotRepresentable,
+        ),
+        (
+            r#"
+            module app;
+
+            func sample()
+            {
+                let values: [u8; true] = [];
+            }
+        "#,
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        ),
+        (
+            r#"
+            module app;
+            const COUNT: usize = 1 << 64;
+
+            func sample()
+            {
+                let values: [u8; COUNT] = [];
+            }
+        "#,
+            DiagnosticKind::CheckingConstantValueNotRepresentable,
+        ),
+        (
+            r#"
+            module app;
+            const FIRST: usize = SECOND;
+            const SECOND: usize = FIRST;
+
+            func sample()
+            {
+                let values: [u8; FIRST] = [];
+            }
+        "#,
+            DiagnosticKind::CheckingCyclicConstantDefinition,
+        ),
+    ] {
+        let compilation = compilation(source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), expected);
+    }
+}

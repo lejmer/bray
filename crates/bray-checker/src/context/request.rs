@@ -281,6 +281,12 @@ pub trait CheckerRequestContext: Sync {
         occurrence: bray_symbols::ConstantExpressionOccurrence,
     ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
 
+    /// Normalizes a closed array extent while retaining unresolved generic terms.
+    fn normalize_array_length(
+        &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
+
     /// Proves the static constraints for one exact generic declaration instance.
     fn generic_constraints(
         &self,

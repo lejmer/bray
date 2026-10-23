@@ -580,6 +580,57 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn normalize_array_length(
+        &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>> {
+        let values = self.semantic_values();
+
+        if matches!(
+            values.constant_term_data(term).as_ref(),
+            bray_symbols::ConstantTermData::IntegerLiteral {
+                ty: bray_symbols::TargetSizedIntegerType::Usize,
+                ..
+            }
+        ) || !values.constant_term_is_closed(term)
+        {
+            return Ok(DiagnosticResult::without_diagnostics(term));
+        }
+
+        let resolver = crate::compilation::constant::CompilationConstantTemplateResolver::new(
+            self.binding_context.compilation(),
+            self.binding_context.cancellation(),
+            self.binding_context
+                .imported_symbols()
+                .map_err(checker_binder_error)?,
+        );
+
+        let evaluated = checker_result(bray_checker::evaluate_array_length(
+            self, term, &resolver, None,
+        ))
+        .map_err(checker_query_error)?;
+
+        Ok(evaluated.map(|evaluated| {
+            let Some(evaluated) = evaluated else {
+                return term;
+            };
+
+            let data = values.constant_value_data(evaluated.value());
+
+            let bray_symbols::ConstantValueKind::Integer(value) = data.kind() else {
+                panic!("checked array extent must retain its integer value: {term:?}");
+            };
+
+            // IntegerConstant shares its immutable arbitrary-precision value.
+            values
+                .intern_constant_term(bray_symbols::ConstantTermData::IntegerLiteral {
+                    ty: bray_symbols::TargetSizedIntegerType::Usize,
+                    value: value.clone(),
+                })
+                .expect("checked array extent retains a valid semantic value")
+        }))
+    }
+
     fn generic_constraints(
         &self,
         obligation: bray_symbols::GenericConstraintObligationKey,

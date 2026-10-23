@@ -19,7 +19,7 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
         while next != base {
             path.push(next);
 
-            next = self.template.nodes()[template_index(next.raw())]
+            next = self.template().nodes()[template_index(next.raw())]
                 .operation()
                 .inline_projection_subject()
                 .expect("checked update retains its inline base");
@@ -40,7 +40,7 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
             return Ok(replacement);
         };
 
-        let operation = self.template.nodes()[template_index(component.raw())]
+        let operation = self.template().nodes()[template_index(component.raw())]
             .operation()
             .clone();
 
@@ -161,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
             return Ok(subject);
         }
 
-        let node = &self.template.nodes()[template_index(component.raw())];
+        let node = &self.template().nodes()[template_index(component.raw())];
         let ty = node.ty();
         let operation = node.operation().clone();
 

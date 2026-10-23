@@ -19,8 +19,8 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     pub(in crate::constant::template_evaluation) context: &'evaluation C,
-    pub(in crate::constant::template_evaluation) template: &'evaluation CheckedTemplate,
-    pub(in crate::constant::template_evaluation) substitution: GenericSubstitutionId,
+    pub(in crate::constant::template_evaluation) template: Option<&'evaluation CheckedTemplate>,
+    pub(in crate::constant::template_evaluation) substitution: Option<GenericSubstitutionId>,
     pub(in crate::constant::template_evaluation) selected_implementation:
         Option<bray_symbols::ImplementationInstanceId>,
     pub(in crate::constant::template_evaluation) arguments: &'evaluation [ConstantValueId],
@@ -37,16 +37,82 @@ where
     pub(in crate::constant::template_evaluation) static_initializer: bool,
 }
 
-impl<C> TemplateEvaluator<'_, C>
+impl<'evaluation, C> TemplateEvaluator<'evaluation, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(in crate::constant::template_evaluation) fn new(
+        context: &'evaluation C,
+        template: Option<&'evaluation CheckedTemplate>,
+        substitution: Option<GenericSubstitutionId>,
+        resolver: &'evaluation dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
+        limits: ConstantEvaluationLimits,
+        budget: &'evaluation mut EvaluationBudget,
+    ) -> Self {
+        Self {
+            context,
+            template,
+            substitution,
+            selected_implementation: None,
+            arguments: &[],
+            resolver,
+            limits,
+            budget,
+            values: vec![None; template.map_or(0, |template| template.nodes().len())],
+            outputs: Default::default(),
+            checked_materialization: BTreeSet::new(),
+            diagnostics: DiagnosticBag::new(),
+            upstream_failure: None,
+            static_initializer: false,
+        }
+    }
+
+    pub(in crate::constant::template_evaluation) fn template(
+        &self,
+    ) -> &'evaluation CheckedTemplate {
+        self.template
+            .expect("node evaluation retains its checked template")
+    }
+
+    pub(in crate::constant::template_evaluation) fn substitute_type(&self, ty: TypeId) -> TypeId {
+        self.substitution.map_or(ty, |substitution| {
+            self.context
+                .semantic_values()
+                .substitute_type(ty, substitution)
+                .expect("checked evaluation retains a valid type substitution")
+        })
+    }
+
+    pub(in crate::constant::template_evaluation) fn substitute_term(
+        &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> bray_symbols::ConstantTermId {
+        self.substitution.map_or(term, |substitution| {
+            self.context
+                .semantic_values()
+                .substitute_constant_term(term, substitution)
+                .expect("checked evaluation retains a valid constant substitution")
+        })
+    }
+
+    pub(in crate::constant::template_evaluation) fn substitute_arguments(
+        &self,
+        arguments: GenericSubstitutionId,
+    ) -> GenericSubstitutionId {
+        self.substitution.map_or(arguments, |substitution| {
+            self.context
+                .semantic_values()
+                .substitute_generic_substitution(arguments, substitution)
+                .expect("checked evaluation retains valid generic arguments")
+        })
+    }
+
     pub(in crate::constant::template_evaluation) fn evaluate_result(
         &mut self,
         kind: CheckedTemplateKind,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        if self.template.kind() != kind {
+        if self.template().kind() != kind {
             panic!("constant template must match requested kind {kind:?}");
         }
 
@@ -56,7 +122,7 @@ where
                 | CheckedTemplateKind::ThreadLocalStaticInitializer
         );
 
-        let value = self.evaluate_node(self.template.result())?;
+        let value = self.evaluate_node(self.template().result())?;
         let data = self.context.semantic_values().constant_value_data(value);
 
         if !matches!(
@@ -89,17 +155,13 @@ where
             .try_charge_step()
             .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-        let node = self.template.nodes().get(index).unwrap_or_else(|| {
+        let node = self.template().nodes().get(index).unwrap_or_else(|| {
             panic!(
                 "evaluate_node requires constant template node, node: {node:?}, index: {index:?}"
             )
         });
 
-        let ty = self
-            .context
-            .semantic_values()
-            .substitute_type(node.ty(), self.substitution)
-            .unwrap_or_else(|error| panic!("semantic_value in evaluate_node: {error:?}"));
+        let ty = self.substitute_type(node.ty());
 
         let value = self.evaluate_operation(
             CheckedTemplateNodeId::new(u32::try_from(index).expect("checked node fits its ID")),
@@ -176,13 +238,7 @@ where
                     .try_charge_usage(usage)
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                let term = self
-                    .context
-                    .semantic_values()
-                    .substitute_constant_term(*term, self.substitution)
-                    .unwrap_or_else(|error| {
-                        panic!("semantic_value in evaluate_operation: {error:?}")
-                    });
+                let term = self.substitute_term(*term);
 
                 self.evaluate_term(term, ty)
             }
@@ -231,14 +287,7 @@ where
             ),
             CheckedTemplateOperation::Convert { value, target } => {
                 let value = self.evaluate_node(*value)?;
-
-                let target = self
-                    .context
-                    .semantic_values()
-                    .substitute_type(*target, self.substitution)
-                    .unwrap_or_else(|error| {
-                        panic!("semantic_value in evaluate_operation: {error:?}")
-                    });
+                let target = self.substitute_type(*target);
 
                 self.evaluate_conversion(value, target)
             }
@@ -362,7 +411,7 @@ where
                 let index = template_index(temporary.raw());
 
                 let temporary = self
-                    .template
+                    .template()
                     .temporaries()
                     .get(index).unwrap_or_else(|| panic!("evaluate_operation requires constant template temporary, ty: {ty:?}, index: {index:?}"));
 

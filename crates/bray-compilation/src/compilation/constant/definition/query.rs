@@ -38,7 +38,6 @@ use crate::compilation::checker::checker_result;
 use crate::compilation::constant::call::{
     CompilationConstantCallResolver, CompilationConstantTemplateResolver,
 };
-use crate::compilation::substitution::empty_substitution;
 
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
@@ -672,7 +671,17 @@ impl Compilation {
                         return Ok(ConstantReferenceResolution::Invalid);
                     };
 
-                    let substitution = empty_substitution(values, definition.into_any())?;
+                    let parameters = crate::compilation::binder::visible_generic_parameters(
+                        self.symbol_graph()?,
+                        symbol,
+                    );
+
+                    let substitution = crate::compilation::substitution::identity_substitution(
+                        values,
+                        bray_symbols::GenericOwnerId::try_new(definition.into_any())
+                            .expect("constant definitions retain a generic environment"),
+                        &parameters,
+                    )?;
 
                     let term = values
                         .intern_constant_term(ConstantTermData::DefinitionApplication {

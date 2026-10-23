@@ -166,10 +166,20 @@ where
             TypeData::Array { element, length } => {
                 let element = self.normalize_type(*element)?;
 
-                self.intern(TypeData::Array {
-                    element,
-                    length: *length,
-                })?
+                let length = self.request.normalize_array_length(*length)?;
+                let recovered = length.diagnostics().has_errors();
+
+                self.diagnostics
+                    .extend(length.diagnostics().iter().cloned());
+
+                if recovered {
+                    self.intern(TypeData::Error)?
+                } else {
+                    self.intern(TypeData::Array {
+                        element,
+                        length: *length.value(),
+                    })?
+                }
             }
             TypeData::FlexibleArray(element) => {
                 let element = self.normalize_type(*element)?;

@@ -901,3 +901,34 @@ fn predicate_signed_complement_preserves_exact_intermediates() {
         assert!(!ir.contains(&format!("xor i{bits} ")), "{ty}: {ir}");
     }
 }
+
+#[test]
+fn closed_array_extents_reach_native_layout_and_cleanup() {
+    let source = r#"
+        module app;
+
+        const BUFFER_CAPACITY: usize = 512;
+
+        const func count(pos value: usize) -> usize
+        {
+            return value;
+        }
+
+        func retain<const length: usize>(pos values: [u8; length + 1]) -> [u8; length + 1]
+        {
+            return values;
+        }
+
+        public func sample() -> u8
+        {
+            let mut buffer: bytes<BUFFER_CAPACITY> = [0; BUFFER_CAPACITY];
+            let pair: [u8; count(2)] = retain<1>([2, 3]);
+
+            buffer[0] = pair[1];
+
+            return buffer[0];
+        }
+    "#;
+
+    assert_source_emits_valid_native_units(source, crate::BuildConfiguration::Development);
+}
