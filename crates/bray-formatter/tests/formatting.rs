@@ -271,6 +271,94 @@ fn spaces_parenthesized_return_expressions() {
 }
 
 #[test]
+fn spaces_parenthesized_yield_and_break_expressions() {
+    let source = r#"
+module app;
+
+func main() -> (i32, i32)
+{
+    let value: (i32, i32) =
+    {
+        yield(2, 0);
+    };
+
+    let result: (i32, i32) = loop
+    {
+        break(value.0, value.1);
+    };
+
+    return identity(result);
+}
+"#;
+
+    let output = formatted(source);
+
+    assert!(output.text().contains("yield (2, 0);"), "{}", output.text());
+
+    assert!(
+        output.text().contains("break (value.0, value.1);"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains("return identity(result);"),
+        "{}",
+        output.text()
+    );
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
+fn spaces_parenthesized_control_flow_and_effect_operands() {
+    let source = r#"
+module app;
+
+async func main()
+{
+    if(true) {}
+    while(false) {}
+
+    let matched = match consume(input)
+    {
+        case(first, second) { yield(first, second); }
+    };
+
+    for(first, second) in move(items) {}
+
+    let ordinary = await(task);
+    let success = try(result);
+    let foreign = trusted(read());
+    let caught = catch(task);
+}
+"#;
+
+    let output = formatted(source);
+
+    assert_valid_and_idempotent(&output);
+
+    for expected in [
+        "if (true)",
+        "while (false)",
+        "match consume (input)",
+        "case (first, second)",
+        "yield (first, second);",
+        "for (first, second) in move (items)",
+        "await (task)",
+        "try (result)",
+        "trusted (read())",
+        "catch (task)",
+    ] {
+        assert!(
+            output.text().contains(expected),
+            "{expected}: {}",
+            output.text()
+        );
+    }
+}
+
+#[test]
 fn separates_overloads_from_following_declarations_in_every_valid_scope() {
     let source = concat!(
         "module app;",

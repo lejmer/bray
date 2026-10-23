@@ -13,12 +13,54 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Option<()> {
     }
 
     validate_frame_descriptor(unit)?;
+    validate_cleanup_continuation(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
     validate_host_sequence(unit)?;
 
     Some(())
 }
+fn validate_cleanup_continuation(unit: &MirUnit) -> Option<()> {
+    let Some(continuation) = unit.cleanup_continuation() else {
+        return Some(());
+    };
+
+    if !matches!(unit.kind(), crate::MirUnitKind::Synchronous)
+        || !matches!(
+            unit.storage(continuation.context())?.kind(),
+            crate::MirStorageKind::Parameter(1)
+        )
+        || continuation.selector().storage() != continuation.context()
+        || !matches!(continuation.selector().projections(), [first, second]
+            if matches!(first.kind(), crate::MirProjectionKind::Dereference)
+                && matches!(second.kind(), crate::MirProjectionKind::TupleField(_)))
+        || continuation.entries().is_empty()
+    {
+        return None;
+    }
+
+    let mut entries = std::collections::BTreeSet::new();
+
+    for cleanup in continuation.entries() {
+        if !matches!(
+            unit.block(cleanup.handoff())?.terminator().kind(),
+            crate::MirTerminatorKind::Return(None)
+        ) {
+            return None;
+        }
+
+        for entry in cleanup.targets() {
+            unit.block(entry)?;
+
+            if entry == unit.entry() || !entries.insert(entry) {
+                return None;
+            }
+        }
+    }
+
+    Some(())
+}
+
 fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
     let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
         return Some(());
@@ -173,12 +215,7 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
         (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
             return None;
         }
-        (
-            crate::MirUnitKind::Synchronous
-            | crate::MirUnitKind::ExecutableHost(_)
-            | crate::MirUnitKind::GeneratedLifecycle(_),
-            Some(_),
-        ) => {
+        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::ExecutableHost(_), Some(_)) => {
             return None;
         }
         (crate::MirUnitKind::ExecutableHost(host), None) => {
@@ -188,7 +225,7 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
 
             return Some(());
         }
-        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::GeneratedLifecycle(_), None) => {
+        (crate::MirUnitKind::Synchronous, None) => {
             return Some(());
         }
     };
@@ -203,12 +240,14 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
                 .states()
                 .iter()
                 .find(|entry| entry.state() == state)?
+                .retention()
                 .is_completion_cleanup()
                 || value.ty() != descriptor.result_type()
                 || !descriptor
                     .states()
                     .iter()
                     .find(|entry| entry.state() == state)?
+                    .retention()
                     .initialized_storages()
                     .contains(&storage)
             {
@@ -224,20 +263,33 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
     }
 
     for state in descriptor.states() {
-        if state.is_completion_cleanup() && descriptor.completion_state().is_none() {
+        if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
             return None;
         }
 
-        for entry in [state.entry(), state.broadcast()] {
-            if entry.unit() != unit.unit() || unit.block(entry).is_none() {
-                return None;
-            }
-        }
+        validate_frame_retention(unit, state.retention())?;
+    }
 
-        for storage in state.initialized_storages() {
-            if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
-                return None;
-            }
+    Some(())
+}
+
+pub(super) fn validate_frame_retention(
+    unit: &MirUnit,
+    retention: &crate::MirFrameRetention,
+) -> Option<()> {
+    let descriptor = unit.frame_descriptor()?;
+
+    if retention.is_completion_cleanup() && descriptor.completion_state().is_none() {
+        return None;
+    }
+
+    if retention.broadcast().unit() != unit.unit() || unit.block(retention.broadcast()).is_none() {
+        return None;
+    }
+
+    for storage in retention.initialized_storages() {
+        if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
+            return None;
         }
     }
 

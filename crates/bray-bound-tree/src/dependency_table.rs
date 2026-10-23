@@ -4,9 +4,9 @@ use std::sync::Arc;
 use bray_symbols::AnyLocalSymbolId;
 
 use crate::{
-    BorrowCapabilityId, BoundBlockItem, BoundDependencyContract, BoundDependencyContractId,
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId,
-    BoundUnitKind, StorageAccessId, StoragePlan,
+    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId, BoundExpression,
+    BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId, BoundUnitKind,
+    StorageAccessId, StoragePlan,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -152,7 +152,10 @@ impl BoundCallDependencyContracts {
             input_count: 0,
             deferred,
             references: Vec::new(),
-            effects: Arc::new([bray_symbols::DependencyStorageEffect::Unknown]),
+            effects: Arc::new([
+                bray_symbols::DependencyStorageEffect::Unknown,
+                bray_symbols::DependencyStorageEffect::Escape,
+            ]),
             retained_inputs: None,
             reference_paths: BTreeMap::new(),
             normal_completion: true,
@@ -580,7 +583,7 @@ impl CheckedDependencyContracts {
             return None;
         }
 
-        let initializers = local_initializers(unit);
+        let initializers = unit.tree().local_initializers();
         let mut current = expression;
         let mut active = BTreeSet::new();
 
@@ -672,30 +675,6 @@ impl CheckedDependencyContracts {
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
     }
-}
-
-fn local_initializers(unit: &BoundUnit) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId> {
-    let mut initializers = BTreeMap::new();
-
-    for (_, block) in unit.tree().blocks() {
-        for item in block.items() {
-            match item {
-                BoundBlockItem::LocalBinding(binding) => {
-                    for symbol in binding.bindings() {
-                        initializers.insert((*symbol).into(), binding.initializer());
-                    }
-                }
-                BoundBlockItem::LocalConstant(constant) => {
-                    if let Some(symbol) = constant.symbol() {
-                        initializers.insert(symbol.into(), constant.initializer());
-                    }
-                }
-                BoundBlockItem::Expression(_) => {}
-            }
-        }
-    }
-
-    initializers
 }
 
 fn build_entries<I>(

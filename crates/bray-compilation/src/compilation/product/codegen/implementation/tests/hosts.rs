@@ -126,10 +126,17 @@ fn independently_started_tasks_emit_native_units() {
             .all(|artifact| !artifact.is_empty())
     );
 
-    let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
-        .into_iter()
-        .map(|bytes| String::from_utf8(bytes).unwrap())
-        .collect::<String>();
+    let options = plan.options().with_optimization(OptimizationLevel::None);
+
+    let ir = generated_artifacts_of_kind_with_options(
+        &backend,
+        &plan,
+        BackendArtifactKind::BackendIr,
+        &options,
+    )
+    .into_iter()
+    .map(|bytes| String::from_utf8(bytes).unwrap())
+    .collect::<String>();
 
     assert!(
         ir.contains("frame.terminal.broadcast:"),
@@ -156,6 +163,15 @@ fn independently_started_tasks_emit_native_units() {
         let body = callback.split("\n}").next().unwrap();
 
         assert!(!body.contains("@bray_runtime_panic_propagation("));
+        assert!(body.contains("@bray_runtime_cleanup_shield_enter("));
+        assert!(body.contains("@bray_runtime_cleanup_shield_leave("));
+
+        let invocation = body
+            .lines()
+            .find(|line| line.contains("call void @bray_lifecycle_"))
+            .unwrap();
+
+        assert_eq!(invocation.matches("ptr ").count(), 3);
     }
 }
 
@@ -199,9 +215,10 @@ fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
                 .map(bray_codegen::CodegenHelperMapping::reference)
                 .collect::<Vec<_>>();
 
-            assert!(helper_references.contains(&&MirHelperReference::Finalize(error)));
-
-            assert!(helper_references.contains(&&MirHelperReference::Destroy(error)));
+            assert!(helper_references.contains(&&MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: error,
+            }));
 
             let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
                 .into_iter()
@@ -769,16 +786,16 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
         );
 
         assert_eq!(
-            completions[0].lane_requirements(),
+            completions[0].retention().lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
         assert_eq!(
-            completions[0].operation_requirements()[1].as_ref(),
+            completions[0].retention().operation_requirements()[1].as_ref(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
-        assert!(completions[0].operation_requirements()[2].is_empty());
+        assert!(completions[0].retention().operation_requirements()[2].is_empty());
 
         let frame = plan
             .units()
@@ -789,7 +806,7 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
             .unwrap();
 
         assert_eq!(
-            frame.states()[0].operation_requirements()[1].as_ref(),
+            frame.states()[0].retention().operation_requirements()[1].as_ref(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
             "abandoning the generic capture runs its concrete destructor before body entry"
         );
@@ -828,12 +845,12 @@ fn inactive_cancellation_does_not_require_unentered_body_lanes() {
 
     for state in states {
         assert_eq!(
-            state.lane_requirements(),
+            state.retention().lane_requirements(),
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
-        assert!(state.operation_requirements()[1].is_empty());
-        assert!(state.operation_requirements()[2].is_empty());
+        assert!(state.retention().operation_requirements()[1].is_empty());
+        assert!(state.retention().operation_requirements()[2].is_empty());
     }
 }
 

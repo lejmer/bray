@@ -30,13 +30,18 @@ pub struct MirUnitBuilder {
     target: MirTargetContract,
     kind: MirUnitKind,
     frame_descriptor: Option<MirFrameDescriptor>,
+    cleanup_continuation: Option<crate::MirCleanupContinuation>,
     blocks: Vec<MirBlockBuilder>,
     operations: Vec<MirOperation>,
+    removed_operations: Vec<MirOperationId>,
     storages: Vec<MirStorage>,
     values: Vec<MirValue>,
 }
 
 impl MirUnitBuilder {
+    pub(in crate::unit) fn retain_checked_sources(&mut self) {
+        self.allow_foreign_sources = true;
+    }
     pub(super) fn for_reconstruction(unit: &MirUnit) -> Self {
         // Reconstructed bodies may carry source anchors from checked inlined callees.
         // The reconstructed unit keeps its caller's semantic identity and target contract.
@@ -48,11 +53,101 @@ impl MirUnitBuilder {
             target: unit.target.clone(),
             kind: unit.kind.clone(),
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
+    }
+
+    /// Opens a checked unit for expansion at established control-flow boundaries.
+    /// Existing identities remain stable until `finish` compacts removed effect operations.
+    pub fn for_expansion(unit: &MirUnit) -> Self {
+        let mut builder = Self::for_reconstruction(unit);
+
+        // Expansion owns the node tables while immutable paths and descriptors remain shared.
+        builder.cleanup_continuation = unit.cleanup_continuation().cloned();
+        builder.storages = unit.storages().to_vec();
+        builder.values = unit.values().to_vec();
+        builder.operations = unit.operations().to_vec();
+
+        // The expansion owner installs its completed descriptor once after adding states.
+        builder.blocks = unit
+            .blocks()
+            .iter()
+            .map(|block| MirBlockBuilder {
+                source: block.source().clone(),
+                kind: block.kind(),
+                parameters: block.parameters().to_vec(),
+                operations: block.operations().to_vec(),
+                terminator: Some(block.terminator().clone()),
+            })
+            .collect();
+
+        builder
+    }
+
+    /// Returns blocks already allocated, including blocks introduced by expansion.
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Returns the number of allocated SSA definitions before appending a checked region.
+    pub fn value_count(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Returns the established type of storage in this builder.
+    pub fn storage_type(&self, storage: MirStorageId) -> TypeId {
+        assert_eq!(
+            storage.unit(),
+            self.unit,
+            "storage belongs to this MIR builder"
+        );
+
+        self.storages[storage
+            .to_index()
+            .expect("allocated storage has a local slot")]
+        .ty()
+    }
+
+    /// Returns the last operation of a block, when present.
+    pub fn last_operation(&self, block: MirBlockId) -> Option<&MirOperation> {
+        let operation = self.blocks[self.block_index(block)].operations.last()?;
+
+        self.operations
+            .get(operation.to_index().expect("operation has a local slot"))
+    }
+
+    /// Opens a closed block by removing its last effect and its continuation.
+    /// The effect must have no result. The caller replaces both before finishing the unit.
+    pub fn take_last_effect(&mut self, block: MirBlockId) -> (MirOperation, MirTerminator) {
+        let index = self.block_index(block);
+        let block = &mut self.blocks[index];
+
+        let operation = block
+            .operations
+            .pop()
+            .expect("expanded block has an effect");
+
+        let terminal = block
+            .terminator
+            .take()
+            .expect("expanded effect has a continuation");
+
+        let effect = &self.operations[operation.to_index().expect("effect has a local slot")];
+
+        assert!(
+            effect.result().is_none(),
+            "effect expansion cannot remove an SSA definition"
+        );
+
+        self.removed_operations.push(operation);
+
+        // The expansion consumes the effect while the original table awaits one final compaction.
+        (effect.clone(), terminal)
     }
 
     /// Returns the target contract retained by the body under construction.
@@ -74,8 +169,10 @@ impl MirUnitBuilder {
             target,
             kind: MirUnitKind::Synchronous,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -96,8 +193,10 @@ impl MirUnitBuilder {
             target,
             kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -122,8 +221,10 @@ impl MirUnitBuilder {
             target,
             kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -146,30 +247,35 @@ impl MirUnitBuilder {
             target,
             kind: MirUnitKind::ExecutableHost(host),
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
     }
 
-    /// Starts MIR construction for one type-specialized generated lifecycle definition.
+    /// Starts a generated lifecycle definition with its selected execution representation.
     pub fn for_generated_lifecycle(
         unit: MirUnitId,
         key: MirUnitKey,
         reference: MirHelperReference,
+        kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Self {
         Self {
             key,
             unit,
-            source: MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+            source: MirSourceOrigin::GeneratedLifecycle(reference),
             allow_foreign_sources: false,
             target,
-            kind: MirUnitKind::GeneratedLifecycle(reference),
+            kind,
             frame_descriptor: None,
+            cleanup_continuation: None,
             blocks: Vec::new(),
             operations: Vec::new(),
+            removed_operations: Vec::new(),
             storages: Vec::new(),
             values: Vec::new(),
         }
@@ -187,9 +293,7 @@ impl MirUnitBuilder {
             MirUnitKind::ProtectedAsyncFrame(_) => {
                 panic!("MIR frame descriptor has the wrong frame")
             }
-            MirUnitKind::Synchronous
-            | MirUnitKind::ExecutableHost(_)
-            | MirUnitKind::GeneratedLifecycle(_) => {
+            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => {
                 panic!("MIR unit cannot carry a frame descriptor")
             }
         }
@@ -305,6 +409,22 @@ impl MirUnitBuilder {
         Ok(MirOperationCommit::new(operation, result))
     }
 
+    /// Makes the block's last structural operation borrow the enclosing collection.
+    /// Source invocations retain their separate failure channel and return false.
+    pub fn borrow_cleanup_collection(
+        &mut self,
+        block: MirBlockId,
+        collection: &crate::MirCleanupCollection,
+    ) -> bool {
+        let Some(id) = self.blocks[self.block_index(block)].operations.last() else {
+            return false;
+        };
+
+        self.operations[usize::try_from(id.slot()).expect("operation slot fits usize")]
+            .kind
+            .borrow_cleanup_collection(collection)
+    }
+
     /// Sets the single terminator for one block.
     pub fn set_terminator(
         &mut self,
@@ -401,8 +521,68 @@ impl MirUnitBuilder {
         false
     }
 
+    /// Redirects established storage roots into caller-owned places without changing operations.
+    pub fn substitute_places(
+        &mut self,
+        replacements: &std::collections::BTreeMap<MirStorageId, crate::MirPlace>,
+    ) {
+        for operation in &mut self.operations {
+            let mut kind = operation.kind().clone();
+
+            kind.substitute_places(replacements);
+            *operation = MirOperation::new(operation.source().clone(), kind, operation.result());
+        }
+
+        for block in &mut self.blocks {
+            if let Some(terminal) = &mut block.terminator {
+                let mut kind = terminal.kind().clone();
+
+                kind.substitute_places(replacements);
+                *terminal = MirTerminator::new(terminal.source().clone(), kind);
+            }
+        }
+    }
+
+    /// Materializes crossing values only in the selected continuation block.
+    pub fn substitute_block_values(
+        &mut self,
+        block: MirBlockId,
+        replacements: &std::collections::BTreeMap<MirValueId, crate::MirOperand>,
+    ) {
+        let index = self.block_index(block);
+
+        for id in &self.blocks[index].operations {
+            let operation =
+                &mut self.operations[id.to_index().expect("allocated operation has its slot")];
+
+            let mut kind = operation.kind().clone();
+
+            kind.substitute_values(replacements);
+            *operation = MirOperation::new(operation.source().clone(), kind, operation.result());
+        }
+
+        if let Some(terminal) = &mut self.blocks[index].terminator {
+            let mut kind = terminal.kind().clone();
+
+            kind.substitute_values(replacements);
+            *terminal = MirTerminator::new(terminal.source().clone(), kind);
+        }
+    }
+
+    /// Installs the selected receiver cleanup entries produced with this body.
+    pub fn set_cleanup_continuation(&mut self, continuation: crate::MirCleanupContinuation) {
+        assert!(
+            self.cleanup_continuation.is_none(),
+            "cleanup continuation is installed once"
+        );
+
+        self.cleanup_continuation = Some(continuation);
+    }
+
     /// Completes the MIR unit after its producers have established their contracts.
-    pub fn finish(self, entry: MirBlockId) -> MirUnit {
+    pub fn finish(mut self, entry: MirBlockId) -> MirUnit {
+        self.compact_removed_effects();
+
         assert_eq!(
             entry.unit(),
             self.unit,
@@ -443,6 +623,7 @@ impl MirUnitBuilder {
             target: self.target,
             kind: self.kind,
             frame_descriptor: self.frame_descriptor,
+            cleanup_continuation: self.cleanup_continuation,
             entry,
             blocks: blocks.into(),
             operations: self.operations.into(),
@@ -451,6 +632,72 @@ impl MirUnitBuilder {
         };
 
         unit
+    }
+
+    fn compact_removed_effects(&mut self) {
+        if self.removed_operations.is_empty() {
+            return;
+        }
+
+        let mut removed = vec![false; self.operations.len()];
+
+        for operation in &self.removed_operations {
+            removed[operation
+                .to_index()
+                .expect("removed effect has a local slot")] = true;
+        }
+
+        let mut next = 0_u32;
+
+        let mappings = removed
+            .iter()
+            .map(|removed| {
+                if *removed {
+                    None
+                } else {
+                    let id = MirOperationId::from_slot(self.unit, next);
+
+                    next = next
+                        .checked_add(1)
+                        .expect("existing operation table fits compact identities");
+
+                    Some(id)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut index = 0;
+
+        self.operations.retain(|_| {
+            let keep = !removed[index];
+
+            index += 1;
+
+            keep
+        });
+
+        for block in &mut self.blocks {
+            for operation in &mut block.operations {
+                *operation = mappings[operation.to_index().expect("block effect has a local slot")]
+                    .expect("removed effect no longer belongs to a block");
+            }
+        }
+
+        for value in &mut self.values {
+            if let MirValueOrigin::Operation(operation) = value.origin() {
+                let mapped = mappings[operation
+                    .to_index()
+                    .expect("value producer has a local slot")]
+                .expect("effect removal preserves all value producers");
+
+                // Compaction preserves the value's independently owned immutable provenance.
+                *value = MirValue::new(
+                    value.source().clone(),
+                    value.ty(),
+                    MirValueOrigin::Operation(mapped),
+                );
+            }
+        }
     }
 
     fn assert_source(&self, source: &MirSourceAnchor) {
@@ -1115,7 +1362,11 @@ mod tests {
             let report = MirPlace::new(report_storage, [], ty);
 
             let operation = if fallible {
-                MirOperationKind::Destroy(place)
+                MirOperationKind::Destroy {
+                    collection: None,
+                    place,
+                    abandoned: None,
+                }
             } else {
                 MirOperationKind::Store {
                     kind: crate::MirStoreKind::Initialize,
@@ -1137,8 +1388,8 @@ mod tests {
                 source.clone(),
                 MirTerminatorKind::CheckCallOutcome {
                     completed: MirEdge::new(completed, []),
-                    panicked: crate::MirCallPanicEdge::new(panicked, report),
-                    cancelled: MirEdge::new(cancelled, []),
+                    panicked: crate::MirCallFailureEdge::new(panicked, report.clone()),
+                    cancelled: crate::MirCallFailureEdge::new(cancelled, report),
                 },
             );
 
@@ -1223,7 +1474,7 @@ mod tests {
             Err(error) => panic!("test task storage must be valid: {error:?}"),
         };
 
-        let task = MirOperand::Move(MirPlace::new(storage, [], ty));
+        let task = MirPlace::new(storage, [], ty);
 
         let runtime =
             MirRuntimeReference::new(RuntimeAbiRole::TaskStart, RuntimeAbiVersion::new(1, 0));
@@ -1316,7 +1567,11 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            crate::MirFrameRetention::new(entry, [], []),
+        );
 
         let abi = RuntimeAbiVersion::new(1, 0);
 

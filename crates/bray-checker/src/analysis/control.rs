@@ -37,8 +37,6 @@ where
                 Some(Some(self.push_scope_exit(completion, *scope, id.into())))
             }
             BoundStructuredExpressionKind::Conditional => {
-                self.push_bound(current, id.into());
-
                 self.build_branches(expression.blocks(), expression.operands(), current)
             }
             BoundStructuredExpressionKind::While => {
@@ -86,7 +84,7 @@ where
                 self.build_generator_region(id, expression, current)
             }
             BoundStructuredExpressionKind::Catch => {
-                self.build_catch(id, expression.operands(), expression.blocks(), current)
+                self.build_catch(expression.operands(), expression.blocks(), current)
             }
             BoundStructuredExpressionKind::ResultPropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
@@ -96,9 +94,7 @@ where
             BoundStructuredExpressionKind::NullablePropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
 
-                let subject = expression.operands().first().copied().unwrap_or(id);
-
-                self.build_nullable_propagation(id, subject, current)
+                self.build_nullable_propagation(id, current)
             }
             BoundStructuredExpressionKind::Panic => {
                 let current = self.build_operands(expression.operands(), current)?;
@@ -265,8 +261,6 @@ where
             );
         }
 
-        self.push_bound(completion, id.into());
-
         Some(Some(completion))
     }
 
@@ -429,13 +423,10 @@ where
 
     fn build_catch(
         &mut self,
-        id: BoundExpressionId,
         operands: &[BoundExpressionId],
         blocks: &[BoundBlockId],
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        self.push_bound(current, id.into());
-
         let join = self.push_block();
 
         self.catches.push(CatchContext {
@@ -484,8 +475,6 @@ where
     ) -> Option<Option<AnalysisBlockId>> {
         let current = self.build_expression(expression.subject(), current)?;
         let current = current.unwrap_or_else(|| self.push_block());
-
-        self.push_bound(current, id.into());
 
         let join = self.push_block();
         let mut candidate = current;
@@ -579,7 +568,7 @@ where
 
         let condition = condition.first().copied()?;
 
-        self.push_bound(header, id.into());
+        self.push_result(header, id, super::model::AnalysisResultPhase::Begin);
 
         let depth = self.scope_depth();
         let scope = self.begin_condition_scope(condition, header);
@@ -644,7 +633,7 @@ where
         let join = self.push_block();
 
         self.push_edge(current, header, AnalysisEdgeKind::Sequential, None);
-        self.push_bound(header, id.into());
+        self.push_result(header, id, super::model::AnalysisResultPhase::Begin);
         self.push_edge(header, body_entry, AnalysisEdgeKind::LoopEntry, None);
         self.push_exit(header, AnalysisExitKind::Divergence, id.into());
 

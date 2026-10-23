@@ -161,9 +161,10 @@ impl InspectionMirUnit {
                     .map(|state| InspectionMirFrameState {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
-                        broadcast: state.broadcast().slot(),
-                        completion_cleanup: state.is_completion_cleanup(),
+                        broadcast: state.retention().broadcast().slot(),
+                        completion_cleanup: state.retention().is_completion_cleanup(),
                         initialized_storages: state
+                            .retention()
                             .initialized_storages()
                             .iter()
                             .map(|storage| storage.slot())
@@ -613,6 +614,21 @@ fn operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<&'static str, MirInspectionModelError> {
+    if let Some(collection) = operation.cleanup_collection() {
+        parts.place("cleanup_state", collection.state(), context)?;
+        parts.place("cleanup_report", collection.report(), context)?;
+
+        if let Some(retention) = collection.retention() {
+            parts.attribute("cleanup_broadcast", retention.broadcast().slot());
+            parts.attribute("cleanup_completion", retention.is_completion_cleanup());
+            parts.attribute("cleanup_affinity", retention.affinity().code());
+
+            for (index, storage) in retention.initialized_storages().iter().enumerate() {
+                parts.attribute(format!("cleanup_storage_{index}"), storage.slot());
+            }
+        }
+    }
+
     let kind = match operation {
         MirOperationKind::AnonymousCallable(key) => {
             match key {
@@ -793,17 +809,23 @@ fn operation_parts(
                 "outgoing_discharge"
             }
         }
-        MirOperationKind::Finalize(place) => {
+        MirOperationKind::Quiesce { place, .. } => {
             parts.place("place", place, context)?;
 
-            "finalize"
+            "quiesce"
         }
-        MirOperationKind::Destroy(place) => {
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
             parts.place("place", place, context)?;
+
+            if let Some(abandoned) = abandoned {
+                parts.operand("abandoned", abandoned, context)?;
+            }
 
             "destroy"
         }
-        MirOperationKind::Cleanup { phase, place } => {
+        MirOperationKind::Cleanup { phase, place, .. } => {
             parts.attribute("phase", cleanup_phase(*phase));
             parts.place("place", place, context)?;
 
@@ -884,6 +906,10 @@ fn memory_operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
+    if let Some(abandoned) = memory.abandoned_cleanup() {
+        parts.operand("abandoned", abandoned, context)?;
+    }
+
     match memory.kind() {
         CheckedMemoryOperationKind::AtomicLoad { order, .. }
         | CheckedMemoryOperationKind::AtomicStore { order, .. }
@@ -1372,6 +1398,7 @@ fn generator_operation(
             destination,
             element,
             runtime,
+            ..
         } => {
             parts.attribute("step", "cleanup_broadcast");
             parts.r#type("element_type", *element, context)?;
@@ -1381,9 +1408,12 @@ fn generator_operation(
         MirGeneratorOperation::Destroy {
             destination,
             element,
+            abandoned,
             runtime,
+            ..
         } => {
             parts.attribute("step", "destroy");
+            parts.operand("abandoned", abandoned, context)?;
             parts.r#type("element_type", *element, context)?;
             runtime_reference("runtime", *runtime, parts);
             parts.place("destination", destination, context)?;
@@ -1452,9 +1482,21 @@ fn async_operation(
             child,
             resume_state,
             frame,
-            completion,
+            composition,
         } => {
-            parts.attribute("completion_storage", completion.slot());
+            parts.attribute(
+                "composition",
+                match composition {
+                    bray_ir::MirFrameComposition::Completion(_) => "completion",
+                    bray_ir::MirFrameComposition::Abandon => "abandonment",
+                    bray_ir::MirFrameComposition::Quiesce => "quiescence",
+                },
+            );
+
+            if let Some(completion) = composition.completion() {
+                parts.attribute("completion_storage", completion.slot());
+            }
+
             parts.attribute("parent_frame", digest_text(parent.digest()));
             parts.attribute("resume_state", resume_state.raw());
             frame_reference("child_frame", *child, parts);
@@ -1463,7 +1505,10 @@ fn async_operation(
             "compose_awaited_frame"
         }
         MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
-            parts.attribute("completion_storage", completion.slot());
+            if let Some(completion) = completion {
+                parts.attribute("completion_storage", completion.slot());
+            }
+
             frame_reference("child_frame", *child, parts);
 
             "commit_awaited_completion"
@@ -1483,7 +1528,7 @@ fn async_operation(
         }
         MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
             runtime_reference("runtime", *runtime, parts);
-            parts.operand("task", task, context)?;
+            parts.place("task", task, context)?;
 
             "request_task_cancellation"
         }
@@ -1495,7 +1540,7 @@ fn async_operation(
         }
         MirAsyncOperation::ResolveTask { task, runtime, .. } => {
             runtime_reference("runtime", *runtime, parts);
-            parts.operand("task", task, context)?;
+            parts.place("task", task, context)?;
 
             "resolve_task"
         }
@@ -1507,7 +1552,10 @@ fn async_operation(
                     parts.attribute("state", "completed");
                     parts.operand("value", value, context)?;
                 }
-                MirTaskTerminalState::Cancelled => parts.attribute("state", "cancelled"),
+                MirTaskTerminalState::Cancelled(report) => {
+                    parts.attribute("state", "cancelled");
+                    parts.operand("report", report, context)?;
+                }
                 MirTaskTerminalState::Panicked(report) => {
                     parts.attribute("state", "panicked");
                     parts.operand("report", report, context)?;
@@ -1516,21 +1564,30 @@ fn async_operation(
 
             "publish_terminal_state"
         }
-        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
-            parts.attribute("frame", digest_text(frame.digest()));
+        MirAsyncOperation::BroadcastInactiveFrame { frame, runtime } => {
+            parts.operand("frame", frame, context)?;
             runtime_reference("runtime", *runtime, parts);
 
-            "execute_cleanup_broadcast"
+            "broadcast_inactive_frame"
         }
-        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
-            parts.attribute("frame", digest_text(frame.digest()));
+        MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
+            parts.operand("frame", frame, context)?;
             runtime_reference("runtime", *runtime, parts);
 
-            "execute_lifecycle_resolution"
+            "destroy_inactive_frame"
         }
-        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            report,
+            producer,
+            invocation,
+            runtime,
+        } => {
+            callable_reference("producer", *producer, parts, context);
+            parts.r#type("invocation_result", invocation.ty(), context)?;
             runtime_reference("runtime", *runtime, parts);
-            parts.operand("incident", incident, context)?;
+            parts.place("incident", incident, context)?;
+            parts.place("report", report, context)?;
 
             "transfer_cleanup_incident"
         }
@@ -1822,7 +1879,15 @@ fn inspection_terminator(
             cancelled,
         } => {
             parts.edge("completed", completed, None, &context)?;
-            parts.edge("cancelled", cancelled, None, &context)?;
+
+            parts.edges.push(InspectionMirEdge {
+                role: String::from("cancelled"),
+                target: cancelled.target().slot(),
+                arguments: Vec::new(),
+                cleanup_phase: None,
+            });
+
+            parts.place("cancelled_report", cancelled.report(), &context)?;
 
             parts.edges.push(InspectionMirEdge {
                 role: String::from("panicked"),
@@ -1856,7 +1921,11 @@ fn inspection_terminator(
 
             "propagate_panic"
         }
-        MirTerminatorKind::PropagateCancellation { .. } => "propagate_cancellation",
+        MirTerminatorKind::PropagateCancellation { report, .. } => {
+            parts.operand("report", report, &context)?;
+
+            "propagate_cancellation"
+        }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             parts.cleanup_edge("cleanup", cleanup, &context)?;
 
@@ -2565,15 +2634,14 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
         MirUnitKind::Synchronous => "synchronous",
         MirUnitKind::ProtectedAsyncFrame(_) => "protected_async_frame",
         MirUnitKind::ExecutableHost(_) => "executable_host",
-        MirUnitKind::GeneratedLifecycle(_) => "generated_lifecycle",
     }
 }
 
 const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
     match reference {
-        MirHelperReference::Finalize(_) => Some("finalize"),
+        MirHelperReference::Quiesce(_) => Some("quiesce"),
         MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
-        MirHelperReference::Destroy(_) => Some("destroy"),
+        MirHelperReference::Destroy(_, _) => Some("destroy"),
         MirHelperReference::Cleanup {
             phase: MirCleanupPhase::TaskCancellation,
             ..
@@ -2601,9 +2669,9 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
 
 const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
     match role {
-        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
-        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::Destroy(_) => "destroy",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"
         }
@@ -2768,6 +2836,7 @@ fn immediate_text(value: MirImmediateValue) -> &'static str {
         MirImmediateValue::Boolean(false) => "false",
         MirImmediateValue::Unit => "()",
         MirImmediateValue::NullableAbsent => "none",
+        MirImmediateValue::EmptyPanicReport => "empty_report",
     }
 }
 

@@ -3,15 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole, MirHelperReference};
 use bray_symbols::{
-    DeclaredStorageShape, GenericArgument, GenericSubstitutionId, NamedTypeSymbolId,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    DeclaredStorageShape, GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot,
+    TypeData, TypeId,
 };
 
 use super::super::{CodegenPreparationError, Compilation};
-use super::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
-    ProductValueKind,
-};
+use super::{ProductQueryFailure, ProductSynchronizationComponent};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,29 +20,26 @@ impl CodegenLifecycleNeeds {
     const DESTROY: Self = Self(1 << 1);
     const TASK_CANCELLATION: Self = Self(1 << 2);
     const LIFECYCLE_RESOLUTION: Self = Self(1 << 3);
+    const QUIESCE: Self = Self(1 << 4);
     const ALL: Self = Self(
         Self::FINALIZE.0
             | Self::DESTROY.0
             | Self::TASK_CANCELLATION.0
-            | Self::LIFECYCLE_RESOLUTION.0,
+            | Self::LIFECYCLE_RESOLUTION.0
+            | Self::QUIESCE.0,
     );
 
     const fn contains(self, other: Self) -> bool {
         self.0 & other.0 != 0
     }
 
-    const fn requires(self, role: MirGeneratedLifecycleRole) -> bool {
-        let required = match role {
-            MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize => {
-                Self::FINALIZE
-            }
-            MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
-            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
-                Self::TASK_CANCELLATION
-            }
-            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
-                Self::LIFECYCLE_RESOLUTION
-            }
+    const fn requires(self, phase: bray_bound_tree::LifecyclePhase) -> bool {
+        let required = match phase {
+            bray_bound_tree::LifecyclePhase::Finalize => Self::FINALIZE,
+            bray_bound_tree::LifecyclePhase::Destroy => Self::DESTROY,
+            bray_bound_tree::LifecyclePhase::Quiesce => Self::QUIESCE,
+            bray_bound_tree::LifecyclePhase::Cancel => Self::TASK_CANCELLATION,
+            bray_bound_tree::LifecyclePhase::Resolve => Self::LIFECYCLE_RESOLUTION,
         };
 
         self.contains(required)
@@ -64,6 +58,10 @@ impl CodegenLifecycleNeeds {
 
         if children.contains(Self::TASK_CANCELLATION) {
             represented = represented.with(Self::TASK_CANCELLATION);
+        }
+
+        if children.contains(Self::QUIESCE) {
+            represented = represented.with(Self::QUIESCE);
         }
 
         if represented.contains(Self::DESTROY) {
@@ -94,23 +92,26 @@ impl Compilation {
         reference: &MirHelperReference,
         cancellation: &CancellationToken,
     ) -> Result<bool, CodegenPreparationError> {
-        let role = MirGeneratedLifecycleRole::from_reference(reference).ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirHelper(reference.clone()),
-                ProductDataKind::LifecycleRole,
-            )
-        })?;
+        let role = MirGeneratedLifecycleRole::from_reference(reference).unwrap_or_else(|| {
+            panic!("lifecycle query requires a lifecycle helper, got {reference:?}")
+        });
 
-        let ty = reference.lifecycle_type().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirHelper(reference.clone()),
-                ProductDataKind::LifecycleType,
-            )
-        })?;
+        let ty = reference
+            .lifecycle_type()
+            .expect("selected lifecycle helper retains its owner type");
 
+        self.codegen_lifecycle_phase_is_trivial(ty, role.phase(), cancellation)
+    }
+
+    pub(super) fn codegen_lifecycle_phase_is_trivial(
+        &self,
+        ty: TypeId,
+        phase: bray_bound_tree::LifecyclePhase,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
         Ok(!self
             .codegen_lifecycle_needs(ty, cancellation)?
-            .requires(role))
+            .requires(phase))
     }
 
     fn codegen_lifecycle_needs(
@@ -209,9 +210,11 @@ impl Compilation {
             }
             TypeData::Generator(_) => CodegenLifecycleNeeds::DESTROY
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
+                .with(CodegenLifecycleNeeds::QUIESCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::OwnedIndirection { .. } => CodegenLifecycleNeeds::DESTROY
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
+                .with(CodegenLifecycleNeeds::QUIESCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::FlexibleArray(_) | TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 CodegenLifecycleNeeds::NONE
@@ -242,9 +245,7 @@ impl Compilation {
             return Ok(needs);
         }
 
-        let raw_buffer = self
-            .raw_buffer_element(definition, substitution, cancellation)?
-            .is_some();
+        let raw_buffer = self.raw_buffer_element(definition, substitution, cancellation)?;
 
         let surface =
             self.type_associated_surface_result_with_cancellation(definition, cancellation)?;
@@ -299,8 +300,12 @@ impl Compilation {
 
         needs = needs.with(CodegenLifecycleNeeds::represented(children));
 
-        if raw_buffer {
+        if let Some(element) = raw_buffer {
+            let children =
+                self.compute_codegen_lifecycle_needs(element, cancellation, active, computed)?;
+
             needs = needs
+                .with(CodegenLifecycleNeeds::represented(children))
                 .with(CodegenLifecycleNeeds::DESTROY)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION);
         }
@@ -370,6 +375,7 @@ impl Compilation {
                 CodegenLifecycleNeeds::DESTROY.with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             ),
             RepresentationRole::Task => Some(CodegenLifecycleNeeds::ALL),
+            RepresentationRole::Future => Some(CodegenLifecycleNeeds::ALL),
             _ if super::super::representation::target_scalar(role).is_some()
                 || matches!(
                     role,
@@ -379,7 +385,6 @@ impl Compilation {
                         | RepresentationRole::RawPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Uninit
-                        | RepresentationRole::Future
                 ) =>
             {
                 Some(CodegenLifecycleNeeds::NONE)
@@ -403,50 +408,6 @@ impl Compilation {
             .copied();
 
         Ok(needs)
-    }
-
-    pub(super) fn raw_buffer_element(
-        &self,
-        definition: NamedTypeSymbolId,
-        substitution: GenericSubstitutionId,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<TypeId>, CodegenPreparationError> {
-        let context = self.binding_context(cancellation)?;
-
-        if !crate::compilation::standard_library::recognized_declaration(
-            &context,
-            definition.into_any(),
-            "StandardRawBuffer",
-        )? {
-            return Ok(None);
-        }
-
-        let substitution_id = substitution;
-
-        let substitution = self
-            .semantic_value_store()?
-            .generic_substitution_data(substitution_id);
-
-        let [binding] = substitution.bindings() else {
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductDataKind::GenericSubstitution,
-                1,
-                substitution.bindings().len(),
-            )
-            .into());
-        };
-
-        let GenericArgument::Type(element) = binding.argument() else {
-            return Err(ProductQueryFailure::unexpected_kind(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductValueKind::GenericTypeArgument,
-                ProductValueKind::ConstantArgument,
-            )
-            .into());
-        };
-
-        Ok(Some(element))
     }
 }
 
@@ -498,7 +459,7 @@ mod tests {
         let cancellation = CancellationToken::new();
 
         for reference in [
-            MirHelperReference::Destroy(report),
+            MirHelperReference::Destroy(report, bray_ir::MirDestructionDisposition::Dynamic),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
                 ty: report,
@@ -514,7 +475,7 @@ mod tests {
         }
 
         for reference in [
-            MirHelperReference::Finalize(report),
+            MirHelperReference::StaticFinalize(report),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,
                 ty: report,
@@ -573,14 +534,20 @@ mod tests {
 
         assert!(
             compilation
-                .codegen_lifecycle_is_trivial(&MirHelperReference::Destroy(leaf), &cancellation,)
+                .codegen_lifecycle_is_trivial(
+                    &MirHelperReference::Destroy(leaf, bray_ir::MirDestructionDisposition::Dynamic),
+                    &cancellation,
+                )
                 .unwrap_or_else(|error| panic!("leaf lifecycle must resolve: {error:?}"))
         );
 
         assert!(
             !compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Destroy(container),
+                    &MirHelperReference::Destroy(
+                        container,
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    ),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("container lifecycle must resolve: {error:?}"))
@@ -632,7 +599,7 @@ mod tests {
         assert!(
             compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Finalize(resource),
+                    &MirHelperReference::StaticFinalize(resource),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("resource finalization must resolve: {error:?}"))
@@ -641,10 +608,23 @@ mod tests {
         assert!(
             !compilation
                 .codegen_lifecycle_is_trivial(
-                    &MirHelperReference::Destroy(resource),
+                    &MirHelperReference::Destroy(
+                        resource,
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    ),
                     &cancellation,
                 )
                 .unwrap_or_else(|error| panic!("resource destruction must resolve: {error:?}"))
+        );
+    }
+    #[test]
+    #[should_panic(expected = "lifecycle query requires a lifecycle helper, got PanicReport")]
+    fn lifecycle_query_rejects_an_internal_non_lifecycle_reference() {
+        let compilation = compilation("module app;");
+
+        let _ = compilation.codegen_lifecycle_is_trivial(
+            &MirHelperReference::PanicReport,
+            &CancellationToken::new(),
         );
     }
 }

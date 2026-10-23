@@ -269,9 +269,25 @@ pub struct InterfaceCallablePhaseBehavior {
     pub(crate) dependency_contract: InterfaceDependencyContractId,
     pub(crate) current_run_cancellation: CurrentRunCancellation,
     pub(crate) may_unwind: bool,
+    pub(crate) receiver_cleanup: Arc<[super::InterfaceTypeId]>,
 }
 
 impl InterfaceCallablePhaseBehavior {
+    /// Retains the checked owners in an implicit consuming-receiver cleanup tail.
+    pub fn with_receiver_cleanup(
+        mut self,
+        types: impl IntoIterator<Item = super::InterfaceTypeId>,
+    ) -> Self {
+        self.receiver_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns the represented owners that can remain after the source body.
+    pub fn receiver_cleanup(&self) -> &[super::InterfaceTypeId] {
+        &self.receiver_cleanup
+    }
+
     /// Attaches inferred abnormal-exit behavior on valid inputs, independent of termination.
     pub const fn with_may_unwind(mut self, may_unwind: bool) -> Self {
         self.may_unwind = may_unwind;
@@ -306,6 +322,7 @@ impl InterfaceCallablePhaseBehavior {
             dependency_contract,
             current_run_cancellation,
             may_unwind: true,
+            receiver_cleanup: Arc::from([]),
         }
     }
 

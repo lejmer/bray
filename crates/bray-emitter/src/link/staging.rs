@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -389,9 +388,21 @@ fn reserve_output(
         }
     };
 
-    let path = transaction.join(transaction_output_name(planned.id(), suffix));
+    let directory = transaction.join(format!(
+        "output-{}-{}",
+        planned.id().kind().machine_key(),
+        planned.id().ordinal(),
+    ));
 
-    Ok(path)
+    std::fs::create_dir(&directory).map_err(|error| {
+        LinkStagingError::Storage(Box::new(crate::StorageError::io(
+            &directory,
+            crate::StorageOperation::Create,
+            error,
+        )))
+    })?;
+
+    Ok(directory.join(suffix))
 }
 
 fn transaction_directory(
@@ -446,18 +457,6 @@ fn transaction_input_name(artifact: &ArtifactId) -> String {
     if artifact.kind() == ArtifactKind::BackendBitcode {
         name.push_str(".bc");
     }
-
-    name
-}
-
-fn transaction_output_name(artifact: &ArtifactId, suffix: OsString) -> OsString {
-    let mut name = OsString::from(format!(
-        "output-{}-{}-",
-        artifact.kind().machine_key(),
-        artifact.ordinal()
-    ));
-
-    name.push(suffix);
 
     name
 }
@@ -709,7 +708,27 @@ mod tests {
         let private_metadata = directory.path().join(".bray");
 
         assert!(output_directory.starts_with(private_metadata.join("operations")));
-        assert_eq!(input_path.parent(), Some(output_directory));
+        assert_eq!(input_path.parent(), output_directory.parent());
+
+        for output in first.outputs() {
+            let planned = plan.artifact(output.artifact()).unwrap();
+
+            let destination = match planned.destination() {
+                crate::PlannedArtifactDestination::Publish(crate::OutputSink::Filesystem(path)) => {
+                    path.clone()
+                }
+                crate::PlannedArtifactDestination::Publish(
+                    crate::OutputSink::ManagedFilesystem { artifact, .. },
+                ) => artifact.to_path_buf(),
+                _ => panic!("filesystem fixture has a published output name"),
+            };
+
+            assert_eq!(
+                output.path().file_name(),
+                destination.file_name(),
+                "native embedded companion names must survive publication"
+            );
+        }
 
         let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
             .unwrap_or_else(|error| panic!("second link staging must complete: {error:?}"));

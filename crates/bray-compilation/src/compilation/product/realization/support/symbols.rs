@@ -32,7 +32,7 @@ pub(in crate::compilation::product::realization) fn native_boundary_mapping(
         (ForeignCallableDirection::Export, NativeSymbolBinding::Strong) => CodegenLinkage::Export,
         (ForeignCallableDirection::Export, NativeSymbolBinding::Weak) => CodegenLinkage::Weak,
         (ForeignCallableDirection::Import, NativeSymbolBinding::Weak) => {
-            return Err(CodegenPreparationError::InvalidAbiMapping);
+            panic!("checked native import {symbol:?} cannot have weak binding");
         }
     };
 

@@ -115,8 +115,6 @@ pub(crate) enum ProductQueryContext {
     ImplementationRequirement(ImplementationRequirementKey),
     /// Product construction for one MIR unit.
     MirUnit(MirUnitKey),
-    /// Product construction for one generated MIR helper.
-    MirHelper(MirHelperReference),
     /// Product construction for one operation in a concrete code generation instance.
     Operation {
         /// The instance containing the operation.
@@ -195,10 +193,6 @@ pub(crate) enum ProductDataKind {
     ConversionPlan,
     /// A compiler-known representation declaration.
     CompilerKnownRepresentation,
-    /// A generated lifecycle role.
-    LifecycleRole,
-    /// The semantic type owned by a lifecycle helper.
-    LifecycleType,
     /// A static declaration's initializer.
     StaticInitializer,
     /// An implementation's checked header.
@@ -237,8 +231,6 @@ pub(crate) enum ProductDataKind {
     NativeStaticContract,
     /// A callable's ordered parameter list.
     CallableParameters,
-    /// A callable's receiver parameter.
-    CallableReceiver,
     /// The concrete substitution applied to a static reference.
     StaticSubstitution,
     /// The external semantic address of an imported declaration.
@@ -268,8 +260,6 @@ pub(crate) enum ProductValueKind {
     NamedType,
     /// A callable semantic type.
     CallableType,
-    /// A semantic type with represented lifecycle work.
-    LifecycleRepresentableType,
 }
 
 /// One typed product-specialization or realization contract failure.
@@ -403,11 +393,6 @@ pub(crate) enum ProductQueryFailure {
         symbol: AnySymbolId,
         /// The exact package-interface export failure.
         cause: Box<crate::compilation::PackageInterfaceExportError>,
-    },
-    /// A compiler-known declaration key literal is invalid.
-    InvalidCompilerKnownDeclarationKey {
-        /// The rejected declaration key.
-        key: String,
     },
     /// An executable entry produced a result shape unsupported by the selected host contract.
     UnexpectedEntryResult {
@@ -593,8 +578,7 @@ impl ProductQueryFailure {
             Self::UnsupportedConstantValue { .. }
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }
-            | Self::ExternalSymbolIdentity { .. }
-            | Self::InvalidCompilerKnownDeclarationKey { .. } => ProductQueryErrorKind::Identity,
+            | Self::ExternalSymbolIdentity { .. } => ProductQueryErrorKind::Identity,
             Self::UnexpectedKind { .. }
             | Self::CountMismatch { .. }
             | Self::Conflict { .. }

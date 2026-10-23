@@ -89,7 +89,7 @@ trusted internal func begin_abandonment(pos cursor: &mut Cursor)
 {
     let root = trusted bray.runtime.bootstrap.activation.execution.read(cursor, root = true);
 
-    if root.abandoned != 0
+    if root.disposition != 0
     {
         return;
     }

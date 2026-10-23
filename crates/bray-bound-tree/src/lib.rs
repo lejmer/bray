@@ -56,7 +56,7 @@ pub use dependency_table::{
     BoundCallDependencyContracts, BoundCallReference, CheckedDependencyContracts,
     DependencyContractsBuildError,
 };
-pub use lifecycle::{LifecycleAction, LifecycleCallable, LifecyclePhase};
+pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
 };

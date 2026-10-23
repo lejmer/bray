@@ -142,7 +142,7 @@ pub(super) fn take_completion(outcome: &mut bray_runtime_abi::NativeRunOutcome) 
 }
 
 pub(super) fn compose(frame: NativeInactiveFrame, state: u32) {
-    super::export::bray_runtime_awaited_frame_composition(frame, state, destination())
+    super::export::bray_runtime_awaited_frame_composition(frame, state, destination(), 0)
 }
 
 extern "C" fn state(

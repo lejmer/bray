@@ -301,10 +301,7 @@ impl Compilation {
             .iter()
             .any(|entry| entry.root() == RootExecution::Synchronous)
         {
-            runtime_roles.extend([
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::CurrentRunCancellationPropagation,
-            ]);
+            runtime_roles.insert(RuntimeAbiRole::PanicPropagation);
         }
 
         let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
@@ -606,7 +603,11 @@ pub(super) fn native_host_runtime_roles(
         .collect::<BTreeSet<_>>();
 
     if !statics.is_empty() || !native_statics.is_empty() {
-        roles.insert(RuntimeAbiRole::ProductHostControl);
+        roles.extend([
+            RuntimeAbiRole::ProductHostControl,
+            RuntimeAbiRole::CleanupShieldEnter,
+            RuntimeAbiRole::CleanupShieldLeave,
+        ]);
     }
 
     if statics

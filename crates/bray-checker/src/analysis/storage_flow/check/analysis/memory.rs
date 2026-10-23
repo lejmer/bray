@@ -498,6 +498,19 @@ where
             .map(|argument| (argument, element, purpose))
     }
 
+    pub(super) fn nullable_is_absent(
+        &self,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        expression: BoundExpressionId,
+        ty: bray_symbols::TypeId,
+    ) -> bool {
+        matches!(
+            self.request.semantic_values().type_data(ty).as_ref(),
+            bray_symbols::TypeData::Nullable(_)
+        ) && matches!(self.execution.value(execution, expression), crate::ExecutionCondition::Literal(value)
+                if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+    }
+
     pub(super) fn assignment_target(
         &self,
         state: &StorageFlowState,
@@ -552,7 +565,7 @@ where
             );
         }
 
-        let (argument, _, purpose) = self.memory_mutation(operation)?;
+        let (argument, element, purpose) = self.memory_mutation(operation)?;
 
         let targets = if matches!(
             operation.kind(),
@@ -570,7 +583,7 @@ where
         let kind = if purpose == StorageAccessPurpose::Move {
             bray_symbols::DependencyMutationKind::Consume
         } else {
-            bray_symbols::DependencyMutationKind::Write
+            bray_symbols::DependencyMutationKind::Replace(element)
         };
 
         Some(

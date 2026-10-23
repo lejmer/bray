@@ -1,9 +1,7 @@
 use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirOperation, MirUnit};
-use bray_symbols::{
-    BorrowKind, CallableAbi, CallableExecution, ReceiverMode, SemanticValueStore, TypeData, TypeId,
-};
+use bray_symbols::{CallableAbi, CallableExecution, TypeData, TypeId};
 
 use crate::compilation::{
     CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
@@ -106,31 +104,6 @@ pub(in crate::compilation::product::realization) fn void_signature(
     abi: CallableAbi,
 ) -> CodegenCallableSignature {
     CodegenCallableSignature::new([], CodegenResultMapping::Void, abi, false)
-}
-
-pub(in crate::compilation::product::realization) fn receiver_codegen_type(
-    values: &SemanticValueStore,
-    ty: TypeId,
-    mode: ReceiverMode,
-) -> Result<TypeId, FactQueryError> {
-    let data = match mode {
-        ReceiverMode::Shared => Some(TypeData::Borrow {
-            kind: BorrowKind::Shared,
-            target: ty,
-        }),
-        ReceiverMode::Mutable => Some(TypeData::Borrow {
-            kind: BorrowKind::Mutable,
-            target: ty,
-        }),
-        ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
-    };
-
-    match data {
-        Some(data) => values
-            .intern_type(data)
-            .map_err(FactQueryError::SemanticValueStore),
-        None => Ok(ty),
-    }
 }
 
 pub(in crate::compilation::product::realization) fn is_void_result(

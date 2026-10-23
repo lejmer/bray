@@ -89,7 +89,7 @@ trusted internal func initialize_owned(
         outgoing = outgoing,
         destination = 0,
         incoming = bray.runtime.bootstrap.activation.empty_progress(),
-        abandoned = 0,
+        disposition = 0,
     };
 
     trusted std.memory.write<bray.runtime.bootstrap.activation.Header>(pointer, header);

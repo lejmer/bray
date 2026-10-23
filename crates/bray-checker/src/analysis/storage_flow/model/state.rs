@@ -217,7 +217,10 @@ impl StorageFlowState {
             .filter_map(|(id, capability)| capability.entry_binding().is_some().then_some(id))
             .collect::<BTreeSet<_>>();
 
-        let mut memory = crate::analysis::storage_flow::memory::State::for_storage(storage);
+        let mut memory = crate::analysis::storage_flow::memory::State::for_storage(
+            storage,
+            &input.cleanup_free_storage,
+        );
 
         for capability in &active_borrows {
             let borrow = storage

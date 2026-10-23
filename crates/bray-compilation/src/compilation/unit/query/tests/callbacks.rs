@@ -15,9 +15,9 @@ fn bootstrap_pool_callbacks_reject_data_pointer_replacement() {
         r#"module app;
         using internal bray.runtime.bootstrap;
 
-        func poison(pos record: &mut bray.runtime.bootstrap.ReportRecord, pos pointer: RawPointer<u8>)
+        func poison(pos record: &mut bray.runtime.bootstrap.StoredReportPrimary, pos pointer: RawPointer<u8>)
         {
-            record.primary.release_message = pointer;
+            record.release_message = pointer;
         }
         "#,
     ];

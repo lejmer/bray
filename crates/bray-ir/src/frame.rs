@@ -19,11 +19,30 @@ pub enum MirFrameReference {
     Erased,
 }
 
-/// Checked lane, affinity, and storage state for one protected-frame state.
+/// Ownership disposition when a child joins its enclosing run.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirFrameComposition {
+    /// Transfer the completion into the parent's admitted destination, then retire the child.
+    Completion(MirStorageId),
+    /// Resolve inactive captures and retire the child without executing its body.
+    Abandon,
+    /// Resolve child work but retain capture storage for later synchronous destruction.
+    Quiesce,
+}
+
+impl MirFrameComposition {
+    /// Returns the admitted result destination, if this composition produces a value.
+    pub const fn completion(self) -> Option<MirStorageId> {
+        match self {
+            Self::Completion(storage) => Some(storage),
+            Self::Abandon | Self::Quiesce => None,
+        }
+    }
+}
+
+/// Checked retention shared by a source continuation and its structural cleanup expansion.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirFrameState {
-    state: MirFrameStateId,
-    entry: MirBlockId,
+pub struct MirFrameRetention {
     broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
     completion_cleanup: bool,
@@ -31,34 +50,20 @@ pub struct MirFrameState {
     initialized_storages: Arc<[MirStorageId]>,
 }
 
-impl MirFrameState {
-    /// Creates state-indexed frame state.
+impl MirFrameRetention {
+    /// Retains the checked broadcast entry, execution requirements and live storage.
     pub fn new(
-        state: MirFrameStateId,
-        entry: MirBlockId,
         broadcast: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
-            state,
-            entry,
             broadcast,
             affinity: ProtectedFrameAffinity::Movable,
             completion_cleanup: false,
             lane_requirements: [ExecutionLaneRequirement::set(lane_requirements), &[], &[]],
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
-    }
-
-    /// Returns the descriptor-local frame state.
-    pub const fn state(&self) -> MirFrameStateId {
-        self.state
-    }
-
-    /// Returns the block entered when this state resumes.
-    pub const fn entry(&self) -> MirBlockId {
-        self.entry
     }
 
     /// Returns the checked entry that only broadcasts initialized task obligations.
@@ -112,9 +117,58 @@ impl MirFrameState {
         self
     }
 
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        self.broadcast = mappings.block(self.broadcast);
+
+        for storage in Arc::make_mut(&mut self.initialized_storages) {
+            *storage = mappings.storage(*storage);
+        }
+    }
+
     /// Returns storages known to be initialized when this state is entered.
     pub fn initialized_storages(&self) -> &[MirStorageId] {
         &self.initialized_storages
+    }
+}
+
+/// One executable continuation and the checked state it retains.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirFrameState {
+    state: MirFrameStateId,
+    entry: MirBlockId,
+    retention: MirFrameRetention,
+}
+
+impl MirFrameState {
+    /// Associates a continuation with its established retention contract.
+    pub const fn new(
+        state: MirFrameStateId,
+        entry: MirBlockId,
+        retention: MirFrameRetention,
+    ) -> Self {
+        Self {
+            state,
+            entry,
+            retention,
+        }
+    }
+
+    /// Returns the descriptor-local frame state.
+    pub const fn state(&self) -> MirFrameStateId {
+        self.state
+    }
+
+    /// Returns the block entered when this state resumes.
+    pub const fn entry(&self) -> MirBlockId {
+        self.entry
+    }
+
+    /// Returns the established state retained across suspension.
+    pub const fn retention(&self) -> &MirFrameRetention {
+        &self.retention
     }
 }
 
@@ -126,6 +180,7 @@ pub struct MirFrameDescriptor {
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
     completion_state: Option<MirFrameStateId>,
+    capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     states: Arc<[MirFrameState]>,
 }
 
@@ -141,7 +196,7 @@ impl MirFrameDescriptor {
         );
 
         for (state, requirements) in Arc::make_mut(&mut self.states).iter_mut().zip(requirements) {
-            state.lane_requirements = *requirements;
+            state.retention.lane_requirements = *requirements;
         }
     }
 
@@ -151,11 +206,7 @@ impl MirFrameDescriptor {
     ) {
         for state in Arc::make_mut(&mut self.states) {
             state.entry = mappings.block(state.entry);
-            state.broadcast = mappings.block(state.broadcast);
-
-            for storage in Arc::make_mut(&mut state.initialized_storages) {
-                *storage = mappings.storage(*storage);
-            }
+            state.retention.remap_local_ids(mappings);
         }
     }
 
@@ -212,8 +263,39 @@ impl MirFrameDescriptor {
             frame_abi,
             result_type,
             completion_state,
+            capture_cleanup: None,
             states: shared_slice(states),
         })
+    }
+
+    /// Records quiescence and subsequent synchronous destruction of inactive captures.
+    /// Both entries retain the original capture storage. Quiescence never enters the body.
+    pub fn with_capture_cleanup(
+        mut self,
+        entries: Option<(MirFrameStateId, MirFrameStateId)>,
+    ) -> Self {
+        if let Some((quiescence, destruction)) = entries {
+            assert_ne!(
+                quiescence, destruction,
+                "capture quiescence and destruction are distinct entries"
+            );
+
+            for entry in [quiescence, destruction] {
+                assert!(
+                    self.states.iter().any(|state| state.state() == entry),
+                    "capture cleanup identifies a described frame state"
+                );
+            }
+        }
+
+        self.capture_cleanup = entries;
+
+        self
+    }
+
+    /// Returns the quiescence entry followed by the retained-capture destruction entry.
+    pub const fn capture_cleanup(&self) -> Option<(MirFrameStateId, MirFrameStateId)> {
+        self.capture_cleanup
     }
 
     /// Returns the stable protected-frame identity.
@@ -287,7 +369,11 @@ mod tests {
             .is_err()
         );
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            crate::MirFrameRetention::new(entry, [], []),
+        );
 
         assert!(
             std::panic::catch_unwind(|| {
@@ -303,7 +389,11 @@ mod tests {
             .is_err()
         );
 
-        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, entry, [], []);
+        let non_contiguous = MirFrameState::new(
+            MirFrameStateId::new(1),
+            entry,
+            crate::MirFrameRetention::new(entry, [], []),
+        );
 
         assert!(
             std::panic::catch_unwind(|| {

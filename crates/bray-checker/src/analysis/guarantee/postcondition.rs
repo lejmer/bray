@@ -5,9 +5,7 @@ use bray_symbols::ReceiverMode;
 
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
-use crate::{
-    CheckerRequestContext, ExecutionCompletionContract, ExecutionCondition, ExecutionPlace,
-};
+use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
@@ -162,41 +160,74 @@ fn unsigned_sum_is_bounded(
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn receiver_post_state(
+    pub(super) fn call_post_state(
         &self,
-        state: &mut ExecutionState,
+        state: &ExecutionState,
         call: &SelectedCall,
-        contracts: &[&ExecutionCompletionContract],
     ) -> BTreeMap<ExecutionPlace, ExecutionCondition> {
         let mut inputs = BTreeMap::new();
 
-        let Some(receiver) = call.receiver().filter(|receiver| {
+        // Borrowed arguments, like borrowed receivers, observe caller-owned storage
+        // after mutation. Consumed value parameters have no caller-visible post-state.
+        for argument in call.arguments() {
+            let bray_bound_tree::SelectedArgument::Explicit {
+                expression,
+                parameter,
+                ordinal,
+                conversion,
+                ..
+            } = argument
+            else {
+                continue;
+            };
+
+            if !matches!(
+                self.request
+                    .semantic_values()
+                    .type_data(conversion.target_type())
+                    .as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) {
+                continue;
+            }
+
+            let value = self.borrowed_value(state, *expression);
+
+            if let Some(parameter) = parameter {
+                inputs.insert(
+                    BoundReferenceTarget::Surface((*parameter).into()).into(),
+                    value.clone(),
+                );
+            }
+
+            let ordinal = ordinal
+                .checked_add(u32::from(call.receiver().is_some()))
+                .expect("selected argument order must fit");
+
+            inputs.insert(
+                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
+                value,
+            );
+        }
+
+        if let Some(receiver) = call.receiver().filter(|receiver| {
             matches!(
                 receiver.mode(),
                 ReceiverMode::Shared | ReceiverMode::Mutable
             )
-        }) else {
-            return inputs;
-        };
+        }) {
+            let value = self.borrowed_value(state, receiver.expression());
 
-        let input = BoundReferenceTarget::Surface(receiver.parameter().into());
+            inputs.insert(
+                BoundReferenceTarget::Surface(receiver.parameter().into()).into(),
+                value.clone(),
+            );
 
-        if !contracts
-            .iter()
-            .flat_map(|contract| &contract.postconditions)
-            .any(|(condition, _)| {
-                condition
-                    .inputs()
-                    .iter()
-                    .any(|place| place.reference() == Some(input))
-            })
-        {
-            return inputs;
+            inputs.insert(
+                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
+                value,
+            );
         }
-
-        let value = self.borrowed_value(state, receiver.expression());
-
-        inputs.insert(input.into(), value);
 
         inputs
     }

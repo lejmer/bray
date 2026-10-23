@@ -654,10 +654,6 @@ where
                 continue;
             };
 
-            if expected_type_directed_variant(request, argument.expression()) {
-                session.add_evidence(argument.expression(), expected);
-            }
-
             session.add_expectation(argument.expression(), expected);
         }
 
@@ -781,25 +777,6 @@ where
     }
 
     Ok(expected)
-}
-
-fn expected_type_directed_variant<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match request.view().expression(expression) {
-        Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_)) => {
-            true
-        }
-        Some(BoundExpression::Call(call)) => matches!(
-            request.view().expression(call.callee()),
-            Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_))
-        ),
-        _ => false,
-    }
 }
 
 fn common_candidate_value<T: Copy + Eq>(

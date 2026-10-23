@@ -42,15 +42,16 @@ trusted internal func empty_panic_report() -> PanicReportData
         source_namespace_word_2 = 0,
         source_namespace_word_3 = 0,
         cause = 0,
+        primary_present = 0,
         message = 0,
         message_length = 0,
-        copy_message = std.memory.null<u8>(),
-        release_message = std.memory.null<u8>(),
+        copy_message = 0,
+        release_message = 0,
         outgoing_head = 0,
         outgoing_tail = 0,
         outgoing_count = 0,
         reserved = 0,
-        consumer = std.memory.null<u8>(),
+        consumer = 0,
     };
 }
 
@@ -60,7 +61,8 @@ trusted internal func allocation_failure() -> ReportOutcome
     let mut failure = empty_panic_report();
 
     failure.cause = PANIC_ALLOCATION_FAILURE;
-    failure.consumer = trusted consume_pointer();
+    failure.primary_present = 1;
+    failure.consumer = trusted consume_address();
 
     return
     {
@@ -114,6 +116,7 @@ trusted internal func panic_report_construction(
     report.source_namespace_word_2 = source_namespace_word_2;
     report.source_namespace_word_3 = source_namespace_word_3;
     report.cause = cause;
+    report.primary_present = 1;
 
     if message_length != 0
     {
@@ -131,15 +134,15 @@ trusted internal func panic_report_construction(
     let copy: PanicMessageCopy = panic_message_copy;
     let release: PanicMessageRelease = panic_message_release;
 
-    report.copy_message = trusted std.memory.reinterpret<u8, PanicMessageCopy>(
+    report.copy_message = trusted core.target.expose_address<PanicMessageCopy>(
         trusted std.memory.pointer_from_callable(copy)
     );
 
-    report.release_message = trusted std.memory.reinterpret<u8, PanicMessageRelease>(
+    report.release_message = trusted core.target.expose_address<PanicMessageRelease>(
         trusted std.memory.pointer_from_callable(release)
     );
 
-    report.consumer = trusted consume_pointer();
+    report.consumer = trusted consume_address();
 
     let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
 

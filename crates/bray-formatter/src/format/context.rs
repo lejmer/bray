@@ -286,7 +286,23 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         SyntaxKind::OpenParenToken
             if matches!(
                 previous,
-                SyntaxKind::LetKeyword | SyntaxKind::OverloadKeyword | SyntaxKind::ReturnKeyword
+                SyntaxKind::LetKeyword
+                    | SyntaxKind::OverloadKeyword
+                    | SyntaxKind::ReturnKeyword
+                    | SyntaxKind::YieldKeyword
+                    | SyntaxKind::BreakKeyword
+                    | SyntaxKind::IfKeyword
+                    | SyntaxKind::WhileKeyword
+                    | SyntaxKind::MatchKeyword
+                    | SyntaxKind::CaseKeyword
+                    | SyntaxKind::ForKeyword
+                    | SyntaxKind::InKeyword
+                    | SyntaxKind::MoveKeyword
+                    | SyntaxKind::ConsumeKeyword
+                    | SyntaxKind::AwaitKeyword
+                    | SyntaxKind::TryKeyword
+                    | SyntaxKind::CatchKeyword
+                    | SyntaxKind::TrustedKeyword
             ) =>
         {
             Some(space(FormatterRule::WordSpacing))

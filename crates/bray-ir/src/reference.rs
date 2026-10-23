@@ -231,6 +231,20 @@ impl MirCall {
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
+        self.result = match self.result {
+            BoundCallResult::Immediate(ty) => BoundCallResult::Immediate(mappings.ty(ty)),
+            BoundCallResult::LazyFuture(future) => {
+                BoundCallResult::LazyFuture(bray_bound_tree::BoundFutureConstruction::new(
+                    mappings.ty(future.completion_type()),
+                    mappings.ty(future.future_type()),
+                ))
+            }
+        };
+
+        if let MirCallTarget::Direct(reference) = &mut self.target {
+            *reference = mappings.callable(*reference);
+        }
+
         if let MirCallTarget::Indirect { callee, .. } = &mut self.target {
             callee.remap_local_ids(mappings);
         }

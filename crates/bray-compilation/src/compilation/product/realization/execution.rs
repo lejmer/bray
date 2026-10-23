@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_codegen::{CodegenInstance, CodegenInstanceKey, CodegenTarget};
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirGeneratedLifecycleRole, MirOperand, MirOperationId,
-    MirOperationKind, MirTerminatorKind, MirUnit, MirUnitId, MirValueOrigin,
+    MirOperationKind, MirTerminatorKind, MirUnit, MirValueOrigin,
 };
 use bray_runtime_interface::ExecutionLaneRequirement;
 
@@ -92,24 +92,33 @@ impl Compilation {
         let mut edges = Vec::with_capacity(helpers.len());
         let mut calls = BTreeMap::new();
 
-        for (instance, owner) in &helpers {
+        for (instance, _) in &helpers {
             cancellation.check()?;
-
-            let lowered = self.codegen_generated_lifecycle(
-                instance.key(),
-                owner
-                    .generated_lifecycle_reference()
-                    .expect("selected lifecycle retains its role"),
-                MirUnitId::new(0),
-                cancellation,
-            )?;
 
             let mut requirements = ExecutionLaneRequirement::set([]);
 
-            for call in lowered.local_calls() {
-                let selected = match calls.entry(call.callable) {
+            // Lowering already selected every local invocation. Structural helper edges
+            // below retain child work, so do not select the lifecycle action again here.
+            let invocations = instance.mir().operations().iter().filter_map(|operation| {
+                let call = match operation.kind() {
+                    MirOperationKind::Call(call)
+                    | MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer: bray_ir::MirFrameInitializer::Callable(call),
+                        ..
+                    }) => call,
+                    _ => return None,
+                };
+
+                match call.target() {
+                    bray_ir::MirCallTarget::Direct(reference) => Some(reference.instance()),
+                    _ => None,
+                }
+            });
+
+            for callable in invocations {
+                let selected = match calls.entry(callable) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(self.lifecycle_invocation_lanes(call.callable, cancellation)?)
+                        entry.insert(self.lifecycle_invocation_lanes(callable, cancellation)?)
                     }
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 };
@@ -308,13 +317,13 @@ impl Compilation {
                     ordinary[state.entry().slot() as usize]
                         .iter()
                         .copied()
-                        .chain(state.lane_requirements().iter().copied()),
+                        .chain(state.retention().lane_requirements().iter().copied()),
                 );
 
                 [
                     resume,
                     cancelled[state.entry().slot() as usize],
-                    ordinary[state.broadcast().slot() as usize],
+                    ordinary[state.retention().broadcast().slot() as usize],
                 ]
             })
             .collect();

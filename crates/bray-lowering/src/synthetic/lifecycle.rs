@@ -1,11 +1,13 @@
 mod aggregate;
 mod body;
 mod calls;
+mod destruction;
+mod expansion;
 mod outcome;
 mod outgoing;
 mod representation;
 mod storage;
-mod support;
 mod task;
 
-pub use body::{LoweredLifecycle, lower_lifecycle};
+pub use body::lower_lifecycle;
+pub use expansion::expand_lifecycle_continuations;

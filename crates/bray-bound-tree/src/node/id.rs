@@ -142,7 +142,8 @@ define_bound_node_ids! {
 
 /// A source-correlated execution site used to key checked contracts and storage plans.
 ///
-/// Ordinary operations use their bound node identity. A `with` expression also owns
+/// Ordinary operations use their bound node identity. Cleanup retains a distinct
+/// identity from the operation that initiates it. A `with` expression also owns
 /// separate implicit `enter` and `exit` calls, which must retain distinct checked inputs
 /// and results despite sharing the same source node. Lexical tree traversal continues
 /// to use `BoundWalkEvent`, and control-flow analysis identifies individual executions
@@ -151,6 +152,8 @@ define_bound_node_ids! {
 pub enum BoundExecutionSite {
     /// An explicit source operation, binding or scope boundary.
     Node(AnyBoundNodeId),
+    /// Ownership resolution at a scope exit or assignment, distinct from its initiating operation.
+    Cleanup(AnyBoundNodeId),
     /// The implicit lifecycle entry selected by a with expression.
     ScopedEnter(BoundExpressionId),
     /// The implicit lifecycle exit paired with a successful scoped entry.
@@ -161,7 +164,7 @@ impl BoundExecutionSite {
     /// Returns the bound node owning this execution site.
     pub const fn node(self) -> AnyBoundNodeId {
         match self {
-            Self::Node(node) => node,
+            Self::Node(node) | Self::Cleanup(node) => node,
             Self::ScopedEnter(expression) | Self::ScopedExit(expression) => {
                 AnyBoundNodeId::Expression(expression)
             }

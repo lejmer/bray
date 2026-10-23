@@ -8,47 +8,23 @@ use bray_symbols::{BorrowKind, TypeData, TypeId};
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
-/// Execution and local storage needs produced by the same lifecycle expansion.
-#[derive(Clone, Debug, Hash)]
-pub struct LoweredLifecycle {
-    /// Generated execution body before optimization.
-    mir: MirUnit,
-    /// Each local invocation in expansion order, retaining repeated calls.
-    /// Structural child operations use their children's existing allowances.
-    local_calls: std::sync::Arc<[bray_bound_tree::LifecycleCallable]>,
-}
-
-impl LoweredLifecycle {
-    /// Returns execution before optimization, sharing the selected expansion with admission.
-    pub const fn mir(&self) -> &MirUnit {
-        &self.mir
-    }
-
-    /// Returns local invocations with their substituted completion and execution kinds.
-    pub fn local_calls(&self) -> &[bray_bound_tree::LifecycleCallable] {
-        &self.local_calls
-    }
-}
-
-/// Expands one closed lifecycle specialization and its local storage requirements.
+/// Expands one selected lifecycle specialization into execution operations.
 pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
     context: &C,
     key: MirUnitKey,
     reference: &MirHelperReference,
     unit: MirUnitId,
     target: &MirTargetContract,
-) -> Result<LoweredLifecycle, C::Error> {
-    let mut lowerer = SyntheticLowerer {
+) -> Result<MirUnit, C::Error> {
+    SyntheticLowerer {
         context,
-        local_calls: Vec::new(),
-    };
-
-    let mir = lowerer.lower_lifecycle(key, reference, unit, target)?;
-
-    Ok(LoweredLifecycle {
-        mir,
-        local_calls: lowerer.local_calls.into(),
-    })
+        abandoned: None,
+        collection: None,
+        frame: None,
+        frame_states: Vec::new(),
+        continuation: None,
+    }
+    .lower_lifecycle(key, reference, unit, target)
 }
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     fn lower_lifecycle(
@@ -76,8 +52,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let source = MirSourceAnchor::generated_lifecycle(reference.clone());
 
-        let mut builder =
-            MirUnitBuilder::for_generated_lifecycle(unit, key, reference.clone(), target.clone());
+        let mut builder = MirUnitBuilder::for_generated_lifecycle(
+            unit,
+            key,
+            reference.clone(),
+            bray_ir::MirUnitKind::Synchronous,
+            target.clone(),
+        );
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
@@ -96,6 +77,43 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )],
             ty,
         );
+
+        if let MirHelperReference::Destroy(_, disposition) = reference {
+            let boolean = self
+                .context
+                .representation_type(RepresentationRole::ScalarBool)?;
+
+            self.abandoned = Some(match disposition {
+                bray_ir::MirDestructionDisposition::Dynamic => {
+                    let argument = builder
+                        .push_storage(source.clone(), MirStorageKind::Parameter(1), boolean)
+                        .map_err(|cause| self.capacity_error(cause))?;
+
+                    MirOperand::Copy(MirPlace::new(argument, [], boolean))
+                }
+                disposition => MirOperand::Immediate {
+                    value: bray_ir::MirImmediateValue::Boolean(
+                        *disposition == bray_ir::MirDestructionDisposition::Abandoned,
+                    ),
+                    ty: boolean,
+                },
+            });
+        }
+
+        if !matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            self.collection = Some(self.borrow_collection(
+                &mut builder,
+                &source,
+                if matches!(
+                    reference,
+                    MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+                ) {
+                    2
+                } else {
+                    1
+                },
+            )?);
+        }
 
         match reference {
             MirHelperReference::Cleanup { phase, .. } => {
@@ -118,11 +136,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                 let return_value = if let bray_bound_tree::LifecycleAction::Call(callable) = action
                 {
-                    let returns_void = callable.execution
+                    let returns_void = callable.result.execution()
                         == bray_symbols::CallableExecution::Synchronous
-                        && self.is_void_result(callable.result);
+                        && self.is_void_result(callable.result.ty());
 
-                    let (completed, value) = self.push_static_finalizer_call(
+                    let (completed, value) = self.push_checked_lifecycle_call(
                         &mut builder,
                         entry,
                         &source,
@@ -153,7 +171,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirTerminatorKind::Return(return_value),
                 );
             }
-            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
+            MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_, _) => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
                     entry,
@@ -183,7 +201,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         }
 
-        if let MirHelperReference::Destroy(ty) = reference {
+        if let MirHelperReference::Destroy(ty, _) = reference {
             super::outgoing::discharge_owner(&mut builder, *ty)
                 .map_err(|cause| self.capacity_error(cause))?;
         }
@@ -343,6 +361,7 @@ mod tests {
             assert!(matches!(
                 role,
                 RepresentationRole::ScalarBool
+                    | RepresentationRole::ScalarU32
                     | RepresentationRole::PanicReport
                     | RepresentationRole::Unit
                     | RepresentationRole::ScalarUsize
@@ -370,6 +389,13 @@ mod tests {
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
         }
+
+        fn destruction_body(
+            &self,
+            _: CallableInstanceData,
+        ) -> Result<std::sync::Arc<crate::DestructionBody>, Self::Error> {
+            panic!("tuple lowering does not select source destructors");
+        }
     }
 
     #[test]
@@ -395,14 +421,15 @@ mod tests {
                 })
                 .unwrap();
 
-            let reference = MirHelperReference::Destroy(array);
+            let reference =
+                MirHelperReference::Destroy(array, bray_ir::MirDestructionDisposition::Dynamic);
 
             let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
-                MirGeneratedLifecycleRole::Destroy,
+                MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::Dynamic),
                 [9; 32],
             ));
 
-            let lowered = lower_lifecycle(
+            let mir = lower_lifecycle(
                 &context,
                 key,
                 &reference,
@@ -412,11 +439,14 @@ mod tests {
             .unwrap();
 
             assert!(
-                lowered.local_calls().is_empty(),
+                context
+                    .lifecycle_action(array, bray_bound_tree::LifecyclePhase::Destroy)
+                    .unwrap()
+                    .local_calls()
+                    .next()
+                    .is_none(),
                 "elements retain their own allowances"
             );
-
-            let mir = lowered.mir();
 
             sizes.push((mir.blocks().len(), mir.operations().len()));
 
@@ -425,7 +455,7 @@ mod tests {
                     .iter()
                     .filter(|operation| matches!(
                         operation.kind(),
-                        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                        MirOperationKind::Cleanup { .. } | MirOperationKind::Destroy { .. }
                     ))
                     .count(),
                 2
@@ -445,10 +475,11 @@ mod tests {
             .intern_type(TypeData::tuple([leaf, leaf]))
             .unwrap();
 
-        let reference = MirHelperReference::Destroy(pair);
+        let reference =
+            MirHelperReference::Destroy(pair, bray_ir::MirDestructionDisposition::Dynamic);
 
         let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
-            MirGeneratedLifecycleRole::Destroy,
+            MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::Dynamic),
             [4; 32],
         ));
 
@@ -459,8 +490,7 @@ mod tests {
             MirUnitId::new(3),
             &bray_testing::test_mir_target(),
         )
-        .unwrap()
-        .mir;
+        .unwrap();
 
         assert_eq!(mir.key(), &key);
 
@@ -469,8 +499,8 @@ mod tests {
             .iter()
             .filter_map(|operation| {
                 let (finalize, place) = match operation.kind() {
-                    MirOperationKind::Finalize(place) => (true, place),
-                    MirOperationKind::Destroy(place) => (false, place),
+                    MirOperationKind::Cleanup { place, .. } => (true, place),
+                    MirOperationKind::Destroy { place, .. } => (false, place),
                     _ => return None,
                 };
 
@@ -484,7 +514,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(operations, [(true, 1), (false, 1), (true, 0), (false, 0)]);
+        assert_eq!(operations, [(false, 1), (true, 1), (false, 0), (true, 0)]);
     }
 
     #[test]
@@ -514,8 +544,7 @@ mod tests {
                 MirUnitId::new(5),
                 &bray_testing::test_mir_target(),
             )
-            .unwrap()
-            .mir;
+            .unwrap();
 
             assert!(mir.operations().iter().all(|operation| operation.source()
                 == &bray_ir::MirSourceAnchor::generated_lifecycle(reference.clone())));
@@ -533,8 +562,8 @@ mod tests {
             );
 
             match phase {
-                MirCleanupPhase::TaskCancellation => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == leaf))),
-                MirCleanupPhase::LifecycleResolution => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == nullable))),
+                MirCleanupPhase::TaskCancellation => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place.ty() == leaf))),
+                MirCleanupPhase::LifecycleResolution => assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == nullable))),
             }
         }
     }

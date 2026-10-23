@@ -10,7 +10,7 @@ use bray_ir::{
 use bray_symbols::ConstantValueId;
 
 use super::control::{CleanupDestination, TerminalState};
-use crate::cleanup_outcome::CleanupOutcome;
+use crate::cleanup_outcome::{CleanupFailure, CleanupOutcome};
 use crate::lowering::LoweringError;
 use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
@@ -65,8 +65,12 @@ enum AbnormalCleanupStep {
         access: StorageAccessId,
         place: bray_ir::MirPlace,
         completed: bool,
+        exit: AnyBoundNodeId,
     },
-    Temporary(InputTemporary),
+    Temporary {
+        temporary: InputTemporary,
+        exit: Option<AnyBoundNodeId>,
+    },
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -77,6 +81,14 @@ struct AbnormalCleanupSuffix {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn cleanup_state_constants(
+        &self,
+    ) -> Result<(bray_symbols::TypeId, [bray_symbols::ConstantValueId; 4]), LoweringError> {
+        let ty = self.representation_type(RepresentationRole::ScalarU32)?;
+
+        CleanupOutcome::state_constants(self.input.semantic_values(), ty).map_err(Into::into)
+    }
+
     pub(in crate::lowering) fn create_cleanup_outcome(
         &mut self,
         block: MirBlockId,
@@ -85,6 +97,7 @@ impl Lowerer<'_> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
         let report = self.representation_type(RepresentationRole::PanicReport)?;
         let unit = self.representation_type(RepresentationRole::Unit)?;
+        let states = self.cleanup_state_constants()?;
 
         CleanupOutcome::new(
             &mut self.builder,
@@ -94,6 +107,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            states,
         )
         .map_err(Into::into)
     }
@@ -112,7 +126,7 @@ impl Lowerer<'_> {
 
         let outcome = self.create_cleanup_outcome(broadcast, source)?;
 
-        outcome.initialize_cancellation(&mut self.builder, broadcast, source)?;
+        outcome.initialize_cancellation(&mut self.builder, broadcast, source, None)?;
         self.cleanup_outcome = Some(outcome);
 
         let lifecycle = self.resolve_cleanup(
@@ -154,12 +168,12 @@ impl Lowerer<'_> {
         first_phase: MirCleanupPhase,
         current: MirBlockId,
         source: &MirSourceAnchor,
-        report: Option<MirOperand>,
+        failure: CleanupFailure,
         destination: CleanupDestination,
         plans: &[AsyncScopeExitPlan],
         abandoned: Option<&bray_ir::MirPlace>,
     ) -> Result<(), LoweringError> {
-        let panicking = report.is_some();
+        let panicking = matches!(failure, CleanupFailure::Panic(_));
 
         let input_exit = if panicking {
             self.abnormal_input_exit(destination)
@@ -188,14 +202,18 @@ impl Lowerer<'_> {
 
         machine.outcome.begin(&mut self.builder, current, source)?;
 
-        if let Some(report) = report {
-            machine
-                .outcome
-                .initialize_panic(&mut self.builder, current, source, report)?;
-        } else {
-            machine
-                .outcome
-                .initialize_cancellation(&mut self.builder, current, source)?;
+        match failure {
+            CleanupFailure::Panic(report) => {
+                machine
+                    .outcome
+                    .initialize_panic(&mut self.builder, current, source, report)?
+            }
+            CleanupFailure::Cancellation(report) => machine.outcome.initialize_cancellation(
+                &mut self.builder,
+                current,
+                source,
+                report,
+            )?,
         }
 
         let temporaries = self.input_cleanup(input_exit);
@@ -283,6 +301,7 @@ impl Lowerer<'_> {
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
         let report = self.representation_type(RepresentationRole::PanicReport)?;
         let unit = self.representation_type(RepresentationRole::Unit)?;
+        let states = self.cleanup_state_constants()?;
         let selector_type = self.representation_type(RepresentationRole::ScalarU32)?;
 
         let outcome = CleanupOutcome::allocate(
@@ -292,6 +311,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            states,
             bray_ir::MirStorageKind::Temporary,
         )?;
 
@@ -329,6 +349,7 @@ impl Lowerer<'_> {
             source,
             panicked,
             cancellation_dispatcher,
+            &mut None,
         )?;
 
         self.set_terminator(
@@ -398,12 +419,7 @@ impl Lowerer<'_> {
             MirBlockKind::LifecycleResolution,
         )?;
 
-        self.set_destination(
-            target,
-            source,
-            destination,
-            panicking.then(|| machine.outcome.report()),
-        )?;
+        self.set_destination(target, source, destination, Some(machine.outcome.report()))?;
 
         machine.routes.push(AbnormalCleanupRoute {
             panicking,
@@ -456,7 +472,13 @@ impl Lowerer<'_> {
                 })
                 + 1;
 
-            Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, depth);
+            Self::push_abnormal_temporary_steps(
+                &mut steps,
+                &mut temporaries,
+                phase,
+                depth,
+                Some(plan.exit()),
+            );
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
@@ -466,11 +488,18 @@ impl Lowerer<'_> {
                     access: *access,
                     place: self.place_for_access(*access, false)?,
                     completed: self.input.finalizer_is_complete(plan.exit(), *access),
+                    exit: plan.exit(),
                 });
             }
         }
 
-        Self::push_abnormal_temporary_steps(&mut steps, &mut temporaries, phase, 0);
+        Self::push_abnormal_temporary_steps(
+            &mut steps,
+            &mut temporaries,
+            phase,
+            0,
+            plans.last().map(AsyncScopeExitPlan::exit),
+        );
 
         Ok(steps)
     }
@@ -480,6 +509,7 @@ impl Lowerer<'_> {
         temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
         phase: MirCleanupPhase,
         scope_depth: usize,
+        exit: Option<AnyBoundNodeId>,
     ) {
         loop {
             let Some(temporary) =
@@ -489,7 +519,10 @@ impl Lowerer<'_> {
             };
 
             if temporary.requires_cleanup(phase) {
-                steps.push(AbnormalCleanupStep::Temporary(temporary.clone()));
+                steps.push(AbnormalCleanupStep::Temporary {
+                    temporary: temporary.clone(),
+                    exit,
+                });
             }
         }
     }
@@ -548,8 +581,13 @@ impl Lowerer<'_> {
                     access,
                     place,
                     completed,
+                    exit,
                 } => {
-                    self.push_cleanup_place(
+                    let previous = self
+                        .cleanup_occurrence
+                        .replace(bray_bound_tree::BoundExecutionSite::Cleanup(*exit));
+
+                    let result = self.push_cleanup_place(
                         entry,
                         source,
                         phase,
@@ -557,11 +595,24 @@ impl Lowerer<'_> {
                         place.clone(),
                         *completed,
                         None,
-                    )?
-                    .0
+                    )?;
+
+                    self.cleanup_occurrence = previous;
+
+                    result.0
                 }
-                AbnormalCleanupStep::Temporary(temporary) => {
-                    self.push_input_cleanup_temporary(entry, phase, temporary)?
+                AbnormalCleanupStep::Temporary { temporary, exit } => {
+                    let previous = self.cleanup_occurrence;
+
+                    self.cleanup_occurrence = exit
+                        .map(bray_bound_tree::BoundExecutionSite::Cleanup)
+                        .or(previous);
+
+                    let end = self.push_input_cleanup_temporary(entry, phase, temporary)?;
+
+                    self.cleanup_occurrence = previous;
+
+                    end
                 }
             };
 
@@ -792,8 +843,14 @@ impl Lowerer<'_> {
             MirBlockKind::LifecycleResolution,
         )?;
 
-        let completed =
-            outcome.dispatch(&mut self.builder, lifecycle, source, panicked, cancelled)?;
+        let completed = outcome.dispatch(
+            &mut self.builder,
+            lifecycle,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
+        )?;
 
         self.set_terminator(
             completed,
@@ -801,7 +858,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(cancelled, [])),
         )?;
 
-        self.set_destination(cancelled, source, destination, None)?;
+        self.set_destination(cancelled, source, destination, Some(outcome.report()))?;
 
         let panic_destination = if self.input.unit_kind().protected_frame().is_some() {
             let report = self.representation_type(RepresentationRole::PanicReport)?;

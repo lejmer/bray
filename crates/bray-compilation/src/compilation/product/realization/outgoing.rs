@@ -43,6 +43,19 @@ impl Compilation {
             } => self
                 .invocation_outgoing_requirements(owner, *callable, *result, target, cancellation)
                 .map(Some),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                producer,
+                invocation,
+                ..
+            }) => self
+                .invocation_outgoing_requirements(
+                    owner,
+                    *producer,
+                    *invocation,
+                    target,
+                    cancellation,
+                )
+                .map(Some),
             MirOperationKind::Call(call) if call.is_cleanup() => {
                 let MirCallTarget::Direct(reference) = call.target() else {
                     panic!(
@@ -84,12 +97,8 @@ impl Compilation {
             .callable_instance()
             .expect("selected invocation has a concrete callable instance");
 
-        let (execution, result) = match result {
-            bray_bound_tree::BoundCallResult::Immediate(ty) => (CallableExecution::Synchronous, ty),
-            bray_bound_tree::BoundCallResult::LazyFuture(future) => {
-                (CallableExecution::Asynchronous, future.completion_type())
-            }
-        };
+        let execution = result.execution();
+        let result = result.completion_type();
 
         let result =
             self.concrete_codegen_type(result, owner.substitution(), Some(owner), cancellation)?;
@@ -98,12 +107,7 @@ impl Compilation {
             return Ok(Vec::new());
         }
 
-        Ok(vec![CodegenCleanupRequirement::new(
-            super::names::generated_identity("cleanup_storage", callee.key()),
-            callee.key().clone(),
-            result,
-            execution,
-        )])
+        Ok(vec![outgoing_requirement((callee, result, execution))])
     }
 
     pub(super) fn owner_outgoing_requirements(
@@ -114,14 +118,7 @@ impl Compilation {
         Ok(self
             .owner_outgoing_calls(ty, cancellation)?
             .into_iter()
-            .map(|(callee, result, execution)| {
-                CodegenCleanupRequirement::new(
-                    super::names::generated_identity("cleanup_storage", callee.key()),
-                    callee.key().clone(),
-                    result,
-                    execution,
-                )
-            })
+            .map(outgoing_requirement)
             .collect())
     }
 
@@ -140,8 +137,8 @@ impl Compilation {
         let mut requirements = Vec::new();
 
         for helper in [
-            MirHelperReference::Finalize(ty),
-            MirHelperReference::Destroy(ty),
+            MirHelperReference::StaticFinalize(ty),
+            MirHelperReference::Destroy(ty, bray_ir::MirDestructionDisposition::Dynamic),
             MirHelperReference::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,
                 ty,
@@ -153,18 +150,13 @@ impl Compilation {
 
             let instance = self.concrete_codegen_lifecycle(helper.clone(), &target)?;
 
-            let lowered = self.codegen_generated_lifecycle(
-                instance.key(),
-                &helper,
-                bray_ir::MirUnitId::new(0),
-                cancellation,
-            )?;
+            let action = self.codegen_lifecycle_action(&helper, cancellation)?;
 
-            for call in lowered.local_calls() {
+            for call in action.local_calls() {
                 if self.call_requires_outgoing(
                     call.callable,
-                    call.execution,
-                    call.result,
+                    call.result.execution(),
+                    call.result.completion_type(),
                     cancellation,
                 )? {
                     let callee = self.concrete_codegen_callable_data(
@@ -174,7 +166,11 @@ impl Compilation {
                         cancellation,
                     )?;
 
-                    requirements.push((callee, call.result, call.execution));
+                    requirements.push((
+                        callee,
+                        call.result.completion_type(),
+                        call.result.execution(),
+                    ));
                 }
             }
         }
@@ -214,8 +210,73 @@ impl Compilation {
     }
 }
 
+pub(super) fn outgoing_requirement(
+    (callee, result, execution): (ConcreteCodegenInstance, TypeId, CallableExecution),
+) -> CodegenCleanupRequirement {
+    CodegenCleanupRequirement::new(
+        super::names::generated_identity("cleanup_storage", callee.key()),
+        callee.key().clone(),
+        result,
+        execution,
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn async_cleanup_admission_does_not_generate_lifecycle_bodies() {
+        use crate::fact::{CompilationFactKey, FactEvaluationTestObserver};
+
+        let compilation = crate::test_support::compilation(
+            r#"
+module app;
+struct Owner {
+    async finalize() { panic("cleanup"); }
+}
+async func abandon(pos owner: Owner) { panic("body"); }
+"#,
+        );
+
+        let lowered = compilation
+            .lowered_unit(crate::test_support::source_function_body_key(
+                &compilation,
+                "abandon",
+            ))
+            .unwrap();
+
+        assert!(!lowered.diagnostics().has_errors(), "{lowered:?}");
+
+        let owner = lowered
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+            .unwrap()
+            .ty();
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(FactEvaluationTestObserver::new(|key| {
+                assert!(
+                    !matches!(key, CompilationFactKey::GeneratedLifecycle(..)),
+                    "admission consumes selected actions without generating execution: {key:?}"
+                );
+            }))
+            .unwrap();
+
+        let calls = compilation
+            .owner_outgoing_calls(owner, &crate::CancellationToken::new())
+            .unwrap();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].2, bray_symbols::CallableExecution::Asynchronous);
+    }
+
     #[test]
     fn lifecycle_total_certification_keeps_requirements_and_guards_distinct() {
         for (guarantee, body, total) in [

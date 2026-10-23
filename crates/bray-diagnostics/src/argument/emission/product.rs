@@ -196,13 +196,6 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendArtifactRead(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
     CodegenMirUnavailable(DiagnosticNativeProductFailureDetail),
-    /// A demanded callable has no executable implementation or valid native import.
-    CodegenMissingCallableImplementation {
-        /// Stable identity of the callable that could not be compiled.
-        callable: Box<crate::DiagnosticInterfaceSymbolIdentity>,
-        /// Its source declaration, when available in the current compilation.
-        source: Option<bray_source::SourceSpan>,
-    },
     CodegenMissingEntrypoint,
     CodegenInvalidInstance(DiagnosticNativeProductFailureDetail),
     CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
@@ -308,9 +301,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
             Self::CodegenBackendResourceLimit(detail) => detail.reason(),
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",
-            Self::CodegenMissingCallableImplementation { .. } => {
-                "codegen_missing_callable_implementation"
-            }
             Self::CodegenMirUnavailable(detail)
             | Self::CodegenInvalidInstance(detail)
             | Self::CodegenInvalidUnit(detail)

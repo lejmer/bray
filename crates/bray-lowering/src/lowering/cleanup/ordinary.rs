@@ -119,6 +119,14 @@ impl Lowerer<'_> {
     ) -> Result<BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, MirPlace)>, LoweringError> {
         let report_type = self.representation_type(RepresentationRole::PanicReport)?;
 
+        let report_storage = self.builder.push_storage(
+            Self::retained_source(source),
+            MirStorageKind::Temporary,
+            report_type,
+        )?;
+
+        let report = MirPlace::new(report_storage, [], report_type);
+
         let cancelled = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::LifecycleResolution,
@@ -136,7 +144,9 @@ impl Lowerer<'_> {
             bray_ir::MirCleanupPhase::TaskCancellation,
             cancelled,
             source,
-            None,
+            crate::cleanup_outcome::CleanupFailure::Cancellation(Some(MirOperand::Move(
+                Self::retained_place(&report),
+            ))),
             destination,
             &remaining,
             pending,
@@ -172,14 +182,6 @@ impl Lowerer<'_> {
                     MirBlockKind::LifecycleResolution,
                 )?;
 
-                let report_storage = self.builder.push_storage(
-                    Self::retained_source(source),
-                    MirStorageKind::Temporary,
-                    report_type,
-                )?;
-
-                let report = MirPlace::new(report_storage, [], report_type);
-
                 let (destination, depth) =
                     match catch {
                         Some((block, depth)) => (CleanupDestination::Goto(block), depth),
@@ -199,7 +201,9 @@ impl Lowerer<'_> {
                     bray_ir::MirCleanupPhase::TaskCancellation,
                     panicked,
                     source,
-                    Some(MirOperand::Move(Self::retained_place(&report))),
+                    crate::cleanup_outcome::CleanupFailure::Panic(MirOperand::Move(
+                        Self::retained_place(&report),
+                    )),
                     destination,
                     &remaining,
                     pending,
@@ -207,7 +211,7 @@ impl Lowerer<'_> {
 
                 handlers.insert(catch, (panicked, Self::retained_place(&report)));
 
-                (panicked, report)
+                (panicked, Self::retained_place(&report))
             };
 
             failures.insert(plan.scope(), (panicked, cancelled, report));
@@ -222,10 +226,11 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         released_owner: Option<TypeId>,
         shielded: bool,
-    ) -> Result<MirBlockId, LoweringError> {
+        value: Option<MirOperand>,
+    ) -> Result<(MirBlockId, Option<MirOperand>), LoweringError> {
         let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
         else {
-            return Ok(block);
+            return Ok((block, value));
         };
 
         if released_owner.is_some() || shielded {
@@ -258,13 +263,14 @@ impl Lowerer<'_> {
             }
         }
 
-        crate::cleanup_outcome::check_call_outcome(
+        crate::continuation::check_call_outcome(
             &mut self.builder,
             block,
             source,
             panicked,
             cancelled,
             report,
+            value,
         )
         .map_err(Into::into)
     }

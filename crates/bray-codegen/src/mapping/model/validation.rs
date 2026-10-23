@@ -47,6 +47,11 @@ pub fn demanded_runtime_references_for_mir(
         )
     });
 
+    let owns_collection = mir
+        .operations()
+        .iter()
+        .any(|operation| operation.kind().owns_cleanup_collection());
+
     mir.operations()
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind(), runtime_abi))
@@ -79,14 +84,6 @@ pub fn demanded_runtime_references_for_mir(
             runtime_abi,
         ))))
         .chain(
-            (checked_call_cancellation_propagation_is_demanded(mir) || boundary_panic).then_some(
-                Some(MirRuntimeReference::new(
-                    bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-                    runtime_abi,
-                )),
-            ),
-        )
-        .chain(
             [
                 RuntimeAbiRole::OutgoingActivation,
                 RuntimeAbiRole::ActivationPublication,
@@ -105,17 +102,17 @@ pub fn demanded_runtime_references_for_mir(
             .filter(|_| asynchronous_root)
             .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
+        .chain(
+            [
+                RuntimeAbiRole::CleanupShieldEnter,
+                RuntimeAbiRole::CleanupShieldLeave,
+            ]
+            .into_iter()
+            .filter(|_| owns_collection)
+            .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
         .flatten()
         .collect()
-}
-
-fn checked_call_cancellation_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
-    mir.blocks().iter().any(|block| {
-        matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::CheckCallOutcome { .. }
-        )
-    })
 }
 
 fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
@@ -173,12 +170,7 @@ pub fn mapped_symbol_runtime_roles(
             }),
         )
         .chain(
-            [
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::CurrentRunCancellationPropagation,
-            ]
-            .into_iter()
-            .filter(move |_| panic_report_context),
+            std::iter::once(RuntimeAbiRole::PanicPropagation).filter(move |_| panic_report_context),
         )
 }
 
@@ -225,13 +217,25 @@ fn operation_runtime_references(
     match operation {
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
-        MirOperationKind::Memory(operation) => [
-            operation
-                .atomic_word_runtime_role()
-                .map(|role| MirRuntimeReference::new(role, abi)),
-            None,
-            None,
+        MirOperationKind::Async(
+            MirAsyncOperation::BroadcastInactiveFrame { runtime, .. }
+            | MirAsyncOperation::DestroyInactiveFrame { runtime, .. },
+        ) => [
+            Some(*runtime),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::ActivationCallback,
+                abi,
+            )),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::ActivationActionReadiness,
+                abi,
+            )),
         ],
+        MirOperationKind::Memory(operation) => {
+            let mut roles = operation.runtime_roles();
+
+            std::array::from_fn(|_| roles.next().map(|role| MirRuntimeReference::new(role, abi)))
+        }
         MirOperationKind::Call(call) if call.is_cleanup() => [
             Some(MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::OutgoingActivation,
@@ -249,6 +253,17 @@ fn operation_runtime_references(
             | bray_ir::MirCallTarget::DefaultValue { .. }
             | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
         },
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { runtime, .. }) => [
+            Some(*runtime),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::CleanupStorageClaim,
+                abi,
+            )),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::CleanupStorageRelease,
+                abi,
+            )),
+        ],
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
@@ -274,10 +289,7 @@ fn operation_runtime_references(
             MirAsyncOperation::ResumeFrame { runtime, .. }
             | MirAsyncOperation::RequestTaskCancellation { runtime, .. }
             | MirAsyncOperation::ObserveCurrentRunCancellation { runtime }
-            | MirAsyncOperation::ResolveTask { runtime, .. }
-            | MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
-            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. }
-            | MirAsyncOperation::TransferCleanupIncident { runtime, .. },
+            | MirAsyncOperation::ResolveTask { runtime, .. },
         )
         | MirOperationKind::Host(
             MirHostOperation::InitializeRuntime { runtime }
@@ -309,8 +321,8 @@ fn operation_runtime_references(
         )
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
-        | MirOperationKind::Finalize(_)
-        | MirOperationKind::Destroy(_)
+        | MirOperationKind::Quiesce { .. }
+        | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(
             MirHostOperation::MaterializeStatic { .. }
@@ -340,7 +352,7 @@ fn terminator_runtime_references(
             registration, wake, ..
         } => [Some(*registration), Some(*wake), None],
         MirTerminatorKind::PropagatePanic { runtime, .. }
-        | MirTerminatorKind::PropagateCancellation { runtime } => [Some(*runtime), None, None],
+        | MirTerminatorKind::PropagateCancellation { runtime, .. } => [Some(*runtime), None, None],
         MirTerminatorKind::Goto(_)
         | MirTerminatorKind::Branch { .. }
         | MirTerminatorKind::PatternBranch { .. }
@@ -464,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_outcome_context_demands_panic_and_cancellation_runtime() {
+    fn hidden_outcome_context_demands_the_terminal_report_consumer() {
         let fixture = codegen_request();
         let request = fixture.request();
 
@@ -487,13 +499,6 @@ mod tests {
             references
                 .iter()
                 .any(|reference| reference.role() == RuntimeAbiRole::PanicPropagation)
-        );
-
-        assert!(
-            references
-                .iter()
-                .any(|reference| reference.role()
-                    == RuntimeAbiRole::CurrentRunCancellationPropagation)
         );
     }
 }

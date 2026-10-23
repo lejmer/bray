@@ -100,7 +100,7 @@ pub fn reconstruct_with_edits(
 ) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
     assert!(unit.is_valid(), "MIR reconstruction requires a valid unit");
 
-    let retained_blocks = retained_blocks(unit, terminators);
+    let retained_blocks = retained_blocks(unit, terminators, omitted_operations);
     let operation_owners = operation_owners(unit);
 
     let retained_operations = retained_operations(
@@ -138,8 +138,8 @@ pub fn reconstruct_with_edits(
 fn retained_blocks(
     unit: &MirUnit,
     terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+    omitted_operations: &BTreeSet<MirOperationId>,
 ) -> Vec<bool> {
-    let mut retained = vec![false; unit.blocks().len()];
     let mut pending = vec![unit.entry()];
 
     if let Some(descriptor) = unit.frame_descriptor() {
@@ -147,9 +147,63 @@ fn retained_blocks(
             descriptor
                 .states()
                 .iter()
-                .flat_map(|state| [state.entry(), state.broadcast()]),
+                .flat_map(|state| [state.entry(), state.retention().broadcast()]),
         );
     }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        pending.extend(
+            continuation
+                .entries()
+                .iter()
+                .flat_map(|entry| [entry.handoff(), entry.ordinary(), entry.abandoned()]),
+        );
+    }
+
+    reachable_with_edits(
+        unit,
+        pending,
+        terminators,
+        omitted_operations,
+        &BTreeMap::new(),
+    )
+}
+
+/// Returns the closed MIR blocks reachable from explicit entries and established handoff edges.
+/// Additional edges belong to the same unit and do not change operation effects.
+pub fn reachable_blocks(
+    unit: &MirUnit,
+    entries: impl IntoIterator<Item = MirBlockId>,
+    handoffs: &BTreeMap<MirBlockId, Vec<MirBlockId>>,
+) -> BTreeSet<MirBlockId> {
+    reachable_with_edits(
+        unit,
+        entries.into_iter().collect(),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+        handoffs,
+    )
+    .into_iter()
+    .enumerate()
+    .filter_map(|(index, retained)| {
+        retained.then(|| {
+            MirBlockId::from_slot(
+                unit.unit(),
+                u32::try_from(index).expect("allocated block slot fits u32"),
+            )
+        })
+    })
+    .collect()
+}
+
+fn reachable_with_edits(
+    unit: &MirUnit,
+    mut pending: Vec<MirBlockId>,
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+    omitted_operations: &BTreeSet<MirOperationId>,
+    handoffs: &BTreeMap<MirBlockId, Vec<MirBlockId>>,
+) -> Vec<bool> {
+    let mut retained = vec![false; unit.blocks().len()];
 
     while let Some(block) = pending.pop() {
         let index = local_index(
@@ -165,6 +219,25 @@ fn retained_blocks(
         }
 
         retained[index] = true;
+
+        if let Some(successors) = handoffs.get(&block) {
+            pending.extend(successors);
+        }
+
+        for operation in unit
+            .block(block)
+            .expect("reachable MIR block must resolve")
+            .operations()
+        {
+            if omitted_operations.contains(operation) {
+                continue;
+            }
+
+            unit.operation(*operation)
+                .expect("reachable MIR operation must resolve")
+                .kind()
+                .for_each_retained_block(|entry| pending.push(entry));
+        }
 
         let terminator = terminators.get(&block).unwrap_or_else(|| {
             unit.block(block)
@@ -271,10 +344,15 @@ fn retained_storages(
 
     if let Some(descriptor) = unit.frame_descriptor() {
         for state in descriptor.states() {
-            for storage in state.initialized_storages() {
+            for storage in state.retention().initialized_storages() {
                 retain_storage(unit, &mut retained, *storage);
             }
         }
+    }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        retain_storage(unit, &mut retained, continuation.context());
+        retain_storage(unit, &mut retained, continuation.selector().storage());
     }
 
     retained
@@ -452,6 +530,14 @@ fn rebuild_unit(
 
         descriptor.remap_local_ids(mappings);
         builder.set_frame_descriptor(descriptor);
+    }
+
+    if let Some(continuation) = unit.cleanup_continuation() {
+        // The rebuilt artifact owns its descriptor while sharing immutable paths.
+        let mut continuation = continuation.clone();
+
+        continuation.remap_local_ids(mappings);
+        builder.set_cleanup_continuation(continuation);
     }
 
     Ok(builder.finish(MirLocalIdMapping::block(mappings, unit.entry())))
@@ -978,6 +1064,40 @@ mod tests {
             .push_storage(source.clone(), MirStorageKind::FrameCompletion, ty)
             .unwrap_or_else(|error| panic!("result storage must be valid: {error:?}"));
 
+        let retained_broadcast =
+            push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
+
+        builder.set_terminator(
+            retained_broadcast,
+            source.clone(),
+            MirTerminatorKind::Return(None),
+        );
+
+        let retained_storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+            .unwrap();
+
+        let place = crate::MirPlace::new(storage, [], ty);
+
+        let collection = crate::MirCleanupCollection::new(place.clone(), place.clone())
+            .with_retention(Some(std::sync::Arc::new(
+                crate::MirFrameRetention::new(retained_broadcast, [], [retained_storage])
+                    .with_affinity(bray_runtime_interface::ProtectedFrameAffinity::MainThread),
+            )));
+
+        let cleanup_operation = builder
+            .push_operation(
+                lifecycle,
+                source.clone(),
+                MirOperationKind::Quiesce {
+                    place,
+                    collection: Some(Box::new(collection)),
+                },
+                None,
+            )
+            .unwrap()
+            .operation();
+
         let descriptor = MirFrameDescriptor::new(
             frame,
             abi,
@@ -985,28 +1105,48 @@ mod tests {
             ty,
             Some(MirFrameStateId::new(2)),
             [
-                MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []),
-                MirFrameState::new(MirFrameStateId::new(1), resume, resume, [], []),
+                MirFrameState::new(
+                    MirFrameStateId::new(0),
+                    entry,
+                    crate::MirFrameRetention::new(entry, [], []),
+                ),
+                MirFrameState::new(
+                    MirFrameStateId::new(1),
+                    resume,
+                    crate::MirFrameRetention::new(resume, [], []),
+                ),
                 MirFrameState::new(
                     MirFrameStateId::new(2),
                     external_resume,
-                    broadcast,
-                    [],
-                    [storage, completion],
-                )
-                .with_completion_cleanup(true)
-                .with_operation_requirements([
-                    vec![bray_runtime_interface::ExecutionLaneRequirement::Compute],
-                    vec![bray_runtime_interface::ExecutionLaneRequirement::Blocking],
-                    vec![bray_runtime_interface::ExecutionLaneRequirement::MainThread],
-                ]),
+                    crate::MirFrameRetention::new(broadcast, [], [storage, completion])
+                        .with_completion_cleanup(true)
+                        .with_operation_requirements([
+                            vec![bray_runtime_interface::ExecutionLaneRequirement::Compute],
+                            vec![bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+                            vec![bray_runtime_interface::ExecutionLaneRequirement::MainThread],
+                        ]),
+                ),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));
 
         builder.set_frame_descriptor(descriptor);
 
-        assert_round_trip(builder.finish(entry));
+        let unit = builder.finish(entry);
+
+        assert_round_trip(unit.clone());
+
+        let (rebuilt, mappings) = reconstruct_with_edits(
+            &unit,
+            &BTreeMap::new(),
+            &BTreeSet::from([cleanup_operation]),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(mappings.block(retained_broadcast), None);
+        assert_eq!(mappings.storage(retained_storage), None);
+        assert!(rebuilt.is_valid());
     }
 
     fn ordinary_unit(with_dead_block: bool) -> (MirUnit, Option<crate::MirBlockId>) {

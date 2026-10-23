@@ -10,7 +10,7 @@ trusted internal func context_table(pos storage: std.memory.RawBuffer<u8>, envir
     let width: usize = trusted internal std.platform.native_text_width() / 8;
     let source: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
 
-    if(width != 1 && width != 2) || source.length() % width != 0
+    if (width != 1 && width != 2) || source.length() % width != 0
     {
         panic("the platform process context contains invalid native text");
     }

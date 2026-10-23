@@ -1181,82 +1181,15 @@ mod tests {
 
         let roles: Vec<_> = bindings.iter().map(|binding| binding.role()).collect();
 
-        assert_eq!(
-            roles,
-            [
-                RuntimeAbiRole::ReportRecordAdmission,
-                RuntimeAbiRole::ReportRecordTake,
-                RuntimeAbiRole::ReportRecordExchange,
-                RuntimeAbiRole::ReportRecordAppend,
-                RuntimeAbiRole::ReportRecordPop,
-                RuntimeAbiRole::ReportSegmentMark,
-                RuntimeAbiRole::ReportSegmentTake,
-                RuntimeAbiRole::ReportConsumer,
-                RuntimeAbiRole::ReportMessageCopy,
-                RuntimeAbiRole::ReportMessageRelease,
-                RuntimeAbiRole::RuntimeInitialization,
-                RuntimeAbiRole::MemoryObservationBegin,
-                RuntimeAbiRole::MemoryAllocationObservation,
-                RuntimeAbiRole::MemoryCopyObservation,
-                RuntimeAbiRole::PerformanceIntervalBegin,
-                RuntimeAbiRole::PerformanceIntervalEnd,
-                RuntimeAbiRole::RootExecution,
-                RuntimeAbiRole::EntryContextRegistration,
-                RuntimeAbiRole::EntryContinuation,
-                RuntimeAbiRole::SynchronousRootExecution,
-                RuntimeAbiRole::ForeignCallbackExecution,
-                RuntimeAbiRole::NativeThreadExecution,
-                RuntimeAbiRole::CurrentNativeThreadIdentity,
-                RuntimeAbiRole::MainNativeThreadIdentity,
-                RuntimeAbiRole::TaskEventCreation,
-                RuntimeAbiRole::TaskEventSignal,
-                RuntimeAbiRole::TaskEventDestruction,
-                RuntimeAbiRole::ThreadAttachmentIdentity,
-                RuntimeAbiRole::ThreadStaticCleanupRegistration,
-                RuntimeAbiRole::ProductHostControl,
-                RuntimeAbiRole::RootCancellationRequest,
-                RuntimeAbiRole::TaskAllocation,
-                RuntimeAbiRole::TaskStart,
-                RuntimeAbiRole::SuspensionRegistration,
-                RuntimeAbiRole::Wake,
-                RuntimeAbiRole::TaskCancellationRequest,
-                RuntimeAbiRole::CurrentRunCancellationObservation,
-                RuntimeAbiRole::CurrentRunCancellationPropagation,
-                RuntimeAbiRole::CleanupShieldEnter,
-                RuntimeAbiRole::CleanupShieldLeave,
-                RuntimeAbiRole::JoinRegistration,
-                RuntimeAbiRole::TaskObservationCreation,
-                RuntimeAbiRole::TaskResolution,
-                RuntimeAbiRole::RuntimeEvent,
-                RuntimeAbiRole::CompatibleLaneSelection,
-                RuntimeAbiRole::CleanupIncidentReporting,
-                RuntimeAbiRole::MainThreadLaneStartup,
-                RuntimeAbiRole::MainThreadLaneDrive,
-                RuntimeAbiRole::RootTerminalObservation,
-                RuntimeAbiRole::RootCompletionResolution,
-                RuntimeAbiRole::PanicReporting,
-                RuntimeAbiRole::PanicReportDestruction,
-                RuntimeAbiRole::OutgoingAdmission,
-                RuntimeAbiRole::OutgoingDischarge,
-                RuntimeAbiRole::OutgoingActivation,
-                RuntimeAbiRole::OutgoingRetirement,
-                RuntimeAbiRole::PanicReportSuppression,
-                RuntimeAbiRole::EntryFailureReporting,
-                RuntimeAbiRole::TestEntrySelection,
-                RuntimeAbiRole::StructuredShutdown,
-                RuntimeAbiRole::FrameCompletionMove,
-                RuntimeAbiRole::PanicReportConstruction,
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::AwaitedFrameComposition,
-                RuntimeAbiRole::TaskDestruction,
-            ]
-        );
+        let exported = RuntimeAbiRole::ALL
+            .into_iter()
+            .filter(|role| role.native_symbol().is_some())
+            .collect::<Vec<_>>();
 
-        let test_bindings = runtime_role_bindings()
-            .unwrap_or_else(|error| panic!("test runtime role bindings must be valid: {error}"));
+        assert_eq!(roles, exported);
 
         assert!(
-            test_bindings
+            bindings
                 .iter()
                 .any(|binding| binding.role() == RuntimeAbiRole::TestEntrySelection)
         );

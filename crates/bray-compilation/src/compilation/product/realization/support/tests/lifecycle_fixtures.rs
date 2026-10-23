@@ -50,9 +50,7 @@ pub(super) fn reachable_cleanup_operations(
 
             if matches!(
                 operation,
-                MirOperationKind::Cleanup { .. }
-                    | MirOperationKind::Finalize(_)
-                    | MirOperationKind::Destroy(_)
+                MirOperationKind::Cleanup { .. } | MirOperationKind::Destroy { .. }
             ) {
                 operations.insert(*id, operation);
             }

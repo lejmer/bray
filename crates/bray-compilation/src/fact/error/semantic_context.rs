@@ -235,6 +235,11 @@ fn push_fact_context(
 
             "execution_candidates"
         }
+        Fact::CleanupCompletion(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "cleanup_completion"
+        }
         Fact::CertifiedExecution(unit) => {
             push_bound_unit_key(fields, unit);
 
@@ -289,6 +294,11 @@ fn push_fact_context(
             ]);
 
             "generated_lifecycle"
+        }
+        Fact::DestructionBody(instance) => {
+            fields.push(identity_field("codegen_instance", instance));
+
+            "destruction_body"
         }
         Fact::OptimizedMir(key) => {
             fields.extend([

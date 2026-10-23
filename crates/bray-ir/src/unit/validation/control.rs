@@ -190,14 +190,12 @@ pub(super) fn validate_terminator(
             panicked,
             cancelled,
         } => {
-            validate_call_panic_check(unit, block_id, block, completed, panicked)?;
-            validate_local_edge(unit, block_id, cancelled)?;
+            validate_call_outcome_check(unit, block_id, block, completed, panicked)?;
+            validate_call_failure_edge(unit, block_id, cancelled)?;
         }
         MirTerminatorKind::BeginCleanup(edge) => {
-            if block.kind() == MirBlockKind::LifecycleResolution {
-                return None;
-            }
-
+            // A finalizer may return a new owned error during outer resolution.
+            // Its own child graph must broadcast before that graph starts waiting.
             validate_cleanup_start(unit, block_id, edge)?;
         }
         MirTerminatorKind::ContinueCleanup(edge) => {
@@ -213,20 +211,14 @@ pub(super) fn validate_terminator(
             validate_operand(unit, report, block_id, None)?;
             validate_cleanup_start(unit, block_id, cleanup)?;
         }
-        MirTerminatorKind::PropagatePanic { report, runtime } => {
+        MirTerminatorKind::PropagatePanic { report, runtime }
+        | MirTerminatorKind::PropagateCancellation { report, runtime } => {
             validate_operand(unit, report, block_id, None)?;
 
             validate_runtime_role(
                 unit,
                 *runtime,
                 bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-            )?;
-        }
-        MirTerminatorKind::PropagateCancellation { runtime } => {
-            validate_runtime_role(
-                unit,
-                *runtime,
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
             )?;
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
@@ -280,10 +272,10 @@ fn validate_iteration_item(
     Some(())
 }
 
-fn validate_call_panic_edge(
+fn validate_call_failure_edge(
     unit: &MirUnit,
     source: MirBlockId,
-    edge: &crate::MirCallPanicEdge,
+    edge: &crate::MirCallFailureEdge,
 ) -> Option<()> {
     let Some(block) = unit.block(edge.target()) else {
         return None;
@@ -300,15 +292,15 @@ fn validate_call_panic_edge(
     Some(())
 }
 
-fn validate_call_panic_check(
+fn validate_call_outcome_check(
     unit: &MirUnit,
     source: MirBlockId,
     block: &MirBlock,
     completed: &MirEdge,
-    panicked: &crate::MirCallPanicEdge,
+    panicked: &crate::MirCallFailureEdge,
 ) -> Option<()> {
     validate_local_edge(unit, source, completed)?;
-    validate_call_panic_edge(unit, source, panicked)?;
+    validate_call_failure_edge(unit, source, panicked)?;
 
     let propagates_panic = block
         .operations()
@@ -326,8 +318,8 @@ fn validate_call_panic_check(
             })
             | crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
-            | crate::MirOperationKind::Finalize(_)
-            | crate::MirOperationKind::Destroy(_) => true,
+            | crate::MirOperationKind::Quiesce { .. }
+            | crate::MirOperationKind::Destroy { .. } => true,
             _ => false,
         });
 

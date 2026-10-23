@@ -106,22 +106,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> (ExecutionCondition, Option<bool>) {
+    ) -> (ExecutionCondition, ExecutionCondition, Option<bool>) {
         let condition = state
             .expressions
             .get(&expression)
             .cloned()
             .unwrap_or_else(|| self.value(state, expression));
 
+        // Branches inspect Boolean truth, not ownership identity. Use checked
+        // equalities to observe a call result through its immutable input snapshot.
+        let equalities = ExecutionCondition::equalities(&state.assumptions, Some(expression));
+        let observed = condition.with_equalities(&equalities);
+
         let value = self
             .checked_body
             .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
-                condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                observed.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
             });
 
-        (condition, value)
+        // Preserve the evaluated condition across joins. Substitution can differ
+        // between the first loop iteration and subsequent visits to the same branch.
+        (condition, observed, value)
     }
 
     pub(in crate::analysis) fn refine_edge(
@@ -156,7 +163,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(AnalysisRefinement::Condition { expression, value }) = edge.refinement() {
-            let (condition, known) = self.condition_evidence(state, expression);
+            let (condition, observed, known) = self.condition_evidence(state, expression);
 
             if known.is_some_and(|known| known != value) {
                 return false;
@@ -197,6 +204,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .assume(true, &mut state.assumptions);
             }
 
+            // Keep both the stable evaluated branch and its checked Boolean meaning.
+            // The latter exposes conjunctions carried by completion observations.
+            observed.assume(value, &mut state.assumptions);
             condition.assume(value, &mut state.assumptions);
         }
 
@@ -211,94 +221,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(value, &mut state.assumptions);
         }
 
+        if let Some(AnalysisRefinement::PropagationOutcome {
+            expression,
+            succeeded: false,
+        }) = edge.refinement()
+        {
+            self.propagate_result(state, expression);
+        }
+
         state.refine_witnesses();
         self.retain_successor_values(state, edge);
 
         true
-    }
-    fn branch_condition(
-        &self,
-        state: &ExecutionState,
-        edge: &AnalysisEdge,
-    ) -> Option<(ExecutionCondition, bool)> {
-        match edge.refinement()? {
-            AnalysisRefinement::PatternOutcome {
-                subject,
-                pattern,
-                value,
-            } => {
-                let (operator, expected) = self.pattern_conditions.get(&pattern)?;
-
-                Some((
-                    ExecutionCondition::pattern(
-                        self.value(state, subject),
-                        *operator,
-                        expected.clone(),
-                    ),
-                    value,
-                ))
-            }
-            AnalysisRefinement::NullablePresence {
-                expression,
-                is_present,
-            } => {
-                let ty = self
-                    .semantics
-                    .types()
-                    .expression(expression)
-                    .expect("nullable edge retains its subject type")
-                    .ty();
-
-                let (operator, absent) = crate::execution_guarantees::pattern_value(
-                    self.request.semantic_values(),
-                    ty,
-                    bray_bound_tree::PatternPredicate::NullableAbsent,
-                )
-                .expect("nullable presence has a prepared comparison");
-
-                Some((
-                    ExecutionCondition::pattern(self.value(state, expression), operator, absent),
-                    !is_present,
-                ))
-            }
-            AnalysisRefinement::PropagationOutcome {
-                expression,
-                succeeded,
-            } => {
-                let bray_bound_tree::SemanticSelection::Propagation(selection) = self
-                    .semantics
-                    .selections()
-                    .expression(expression)
-                    .expect("checked propagation retains its selection")
-                else {
-                    unreachable!("propagation edge requires a propagation selection")
-                };
-
-                let (variant, _) = selection
-                    .success()
-                    .expect("union propagation has a success variant");
-
-                let Some(BoundExpression::Structured(operation)) =
-                    self.request.view().expression(expression)
-                else {
-                    unreachable!("propagation edge requires a structured expression")
-                };
-
-                let subject = *operation
-                    .operands()
-                    .first()
-                    .expect("propagation retains its operand");
-
-                Some((
-                    ExecutionCondition::VariantTest(
-                        variant,
-                        std::sync::Arc::new(self.value(state, subject)),
-                    ),
-                    succeeded,
-                ))
-            }
-            _ => None,
-        }
     }
 }
 

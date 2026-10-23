@@ -17,10 +17,11 @@ internal struct ReportPrimary
     mut source_namespace_word_2: u64;
     mut source_namespace_word_3: u64;
     mut cause: u32;
+    mut primary_present: u32;
     mut message: usize;
     mut message_length: usize;
-    mut copy_message: RawPointer<u8>;
-    mut release_message: RawPointer<u8>;
+    mut copy_message: usize;
+    mut release_message: usize;
 }
 
 @copy
@@ -45,12 +46,28 @@ internal struct ReportSegment
 @layout(c)
 internal struct ReportRecord
 {
-    mut primary: StoredReportPrimary;
+    mut value: ReportValue;
     mut message: std.memory.RawBuffer<u8>?;
     mut next: usize;
     mut segment: ReportSegment;
     mut segment_tail: usize;
     mut segment_count: usize;
+}
+
+internal union ReportValue
+{
+    Panic(pos primary: StoredReportPrimary);
+    Error(pos mut incident: bray.runtime.bootstrap.report.incident.Record);
+}
+
+// An error variant owns the exact payload and backing described by its
+// callbacks. Constructing the visible fields does not establish this witness.
+trusted internal predicate retained_report_value(value: &ReportValue);
+
+trusted internal func panic_record(pos primary: StoredReportPrimary) -> ReportValue
+    ensures(trusted retained_report_value(value = &result))
+{
+    return ReportValue.Panic(primary);
 }
 
 // Pool storage retains actual callable values. The C header remains a wire format.
@@ -66,6 +83,7 @@ internal struct StoredReportPrimary
     source_namespace_word_2: u64;
     source_namespace_word_3: u64;
     cause: u32;
+    primary_present: u32;
     message: usize;
     message_length: usize;
     copy_message: PanicMessageCopy?;
@@ -89,6 +107,7 @@ trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReport
         source_namespace_word_2 = primary.source_namespace_word_2,
         source_namespace_word_3 = primary.source_namespace_word_3,
         cause = primary.cause,
+        primary_present = primary.primary_present,
         message = primary.message,
         message_length = primary.message_length,
         copy_message = copy,
@@ -114,30 +133,30 @@ internal func empty_records() -> ReportRecords
     };
 }
 
-trusted internal func serialized_primary(pos primary: StoredReportPrimary) -> ReportPrimary
+trusted internal func serialized_primary(pos primary: &StoredReportPrimary) -> ReportPrimary
     ensures(trusted native_primary_callbacks(primary = &result))
-    uses(layout_reinterpret)
+    uses(intrinsic, layout_reinterpret)
 {
-    let copy: RawPointer<u8> = match primary.copy_message
+    let copy: usize = match primary.copy_message
     {
         case ?callback
         {
-            yield trusted std.memory.reinterpret<u8, PanicMessageCopy>(
+            yield trusted core.target.expose_address<PanicMessageCopy>(
                 trusted std.memory.pointer_from_callable<PanicMessageCopy>(callback)
             );
         }
-        case none { yield std.memory.null<u8>(); }
+        case none { yield 0; }
     };
 
-    let release: RawPointer<u8> = match primary.release_message
+    let release: usize = match primary.release_message
     {
         case ?callback
         {
-            yield trusted std.memory.reinterpret<u8, PanicMessageRelease>(
+            yield trusted core.target.expose_address<PanicMessageRelease>(
                 trusted std.memory.pointer_from_callable<PanicMessageRelease>(callback)
             );
         }
-        case none { yield std.memory.null<u8>(); }
+        case none { yield 0; }
     };
 
     return
@@ -152,6 +171,7 @@ trusted internal func serialized_primary(pos primary: StoredReportPrimary) -> Re
         source_namespace_word_2 = primary.source_namespace_word_2,
         source_namespace_word_3 = primary.source_namespace_word_3,
         cause = primary.cause,
+        primary_present = primary.primary_present,
         message = primary.message,
         message_length = primary.message_length,
         copy_message = copy,
@@ -335,17 +355,25 @@ trusted internal func append_record_values(
 trusted internal func exchange_primary(pos handle: usize, pos value: ReportPrimary) -> ReportPrimary
     requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted native_primary_callbacks(primary = &value))
     ensures(trusted native_primary_callbacks(primary = &result))
+    uses(intrinsic)
 {
-    let replacement: StoredReportPrimary = trusted stored_primary(value);
+    let old = trusted exchange_record(handle, trusted panic_record(trusted stored_primary(value)));
+
+    match old
+    {
+        case Panic(primary) { return trusted serialized_primary(&primary); }
+        case Error(_) { trusted core.target.abort(); }
+    };
+}
+
+trusted internal func exchange_record(pos handle: usize, pos value: ReportValue) -> ReportValue
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted retained_report_value(value = &value))
+    ensures(trusted retained_report_value(value = &result))
+{
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let entry: &mut ReportRecord = trusted record(guard.get(), handle);
 
-    let old: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(
-        &mut entry.primary,
-        replacement
-    );
-
-    return trusted serialized_primary(old);
+    return trusted std.memory.replace_value<ReportValue>(&mut entry.value, value);
 }
 
 @abi(c)

@@ -20,6 +20,23 @@ pub enum ReceiverMode {
     ConsumingMutable,
 }
 
+impl ReceiverMode {
+    /// Returns the value passed for a receiver, including its borrow mode.
+    pub fn input_type(
+        self,
+        values: &SemanticValueStore,
+        target: TypeId,
+    ) -> Result<TypeId, crate::SemanticValueStoreError> {
+        let kind = match self {
+            Self::Shared => crate::BorrowKind::Shared,
+            Self::Mutable => crate::BorrowKind::Mutable,
+            Self::Consuming | Self::ConsumingMutable => return Ok(target),
+        };
+
+        values.intern_type(TypeData::Borrow { kind, target })
+    }
+}
+
 /// One callable parameter and its checked declared type in signature order.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableParameterSignature {

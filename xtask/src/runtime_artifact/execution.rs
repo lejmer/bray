@@ -1,14 +1,20 @@
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use bray_base::NonEmptySharedStr;
 use bray_compilation::{
     BuildConfiguration, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
 };
+use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{ArtifactKind, resolve_published_artifact};
+use bray_linker::{LinkSearchPath, LinkSearchPathKind};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::NativeTarget;
-use bray_tooling::load_llvm_compilation;
+use bray_symbols::{
+    NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity, ProductKind,
+};
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_tooling::{llvm_tool_path, load_llvm_compilation};
 
 use super::command::{CommandError, Package};
 use super::smoke::{command_output, standard_library};
@@ -18,11 +24,18 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    let probe = allocation_probe(target, directory)?;
+
     for (name, source, expected) in [
         (
             "async-values",
             include_str!("../../fixtures/native-execution/async-i32.bray"),
             42,
+        ),
+        (
+            "ordinary-finalization",
+            include_str!("../../fixtures/native-execution/ordinary-finalization.bray"),
+            0,
         ),
         (
             "async-tasks",
@@ -48,7 +61,8 @@ pub(super) fn smoke_test(
                 WorkerBudget::default(),
                 ProductKind::Executable,
                 SelectedTarget::for_native(target),
-            ),
+            )
+            .with_native_link_inputs((name == "ordinary-finalization").then(|| probe.clone())),
         )
         .with_standard_library_root(standard_library(target)?);
 
@@ -78,7 +92,10 @@ pub(super) fn smoke_test(
                 target,
                 &runtime.metadata,
                 &output,
-                [],
+                [
+                    LinkSearchPath::try_new(LinkSearchPathKind::Library, directory)
+                        .expect("native smoke directory is a valid link search path"),
+                ],
                 None,
                 configuration,
             )
@@ -110,4 +127,46 @@ pub(super) fn smoke_test(
     }
 
     Ok(())
+}
+
+fn allocation_probe(
+    target: NativeTarget,
+    directory: &Path,
+) -> Result<NativeLinkRequirement, CommandError> {
+    let name = "bray_allocation_probe";
+    let source = directory.join("allocation-probe.c");
+    let object = directory.join("allocation-probe.o");
+
+    let archive = directory.join(
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+            .file_name(name)
+            .expect("allocation probe library name is valid"),
+    );
+
+    fs::write(
+        &source,
+        include_str!("../../fixtures/runtime-allocation-probe.c"),
+    )
+    .map_err(|error| CommandError::write(&source, error))?;
+
+    let compiler = llvm_tool_path(DiagnosticLlvmToolRole::CompilerDriver)
+        .map_err(CommandError::NativeCompilerToolUnavailable)?;
+
+    crate::native_product::compile_c_fixture(&compiler, &source, &object, &[])
+        .map_err(CommandError::EntrySmoke)?;
+
+    let bytes = fs::read(&object).map_err(|error| CommandError::read(&object, error))?;
+
+    let archiver = llvm_tool_path(DiagnosticLlvmToolRole::Archiver)
+        .map_err(CommandError::NativeCompilerToolUnavailable)?;
+
+    let bytes = crate::native_archive::archive_bytes(&archiver, &[bytes], "o")
+        .map_err(CommandError::RuntimePartitionTool)?;
+
+    fs::write(&archive, bytes).map_err(|error| CommandError::write(&archive, error))?;
+
+    Ok(NativeLinkRequirement::new(
+        NonEmptySharedStr::try_new(name).expect("allocation probe link name is valid"),
+        NativeLinkKind::Static,
+    ))
 }

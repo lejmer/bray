@@ -291,9 +291,7 @@ pub(in crate::compilation::binder::symbol) fn conditional_postconditions(
 fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BindingQueryResult<
-    DiagnosticResult<<GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value>,
-> {
+) -> BindingQueryResult<DiagnosticResult<<GenericConstraintsQuery as SymbolQueryContract>::Value>> {
     let generic_owner = GenericOwnerId::try_new(owner).ok_or_else(|| {
         query_contract(
             owner,
@@ -442,9 +440,7 @@ fn bind_generic_constraints(
 fn bind_callable_contracts(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
-) -> BindingQueryResult<
-    DiagnosticResult<<CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value>,
-> {
+) -> BindingQueryResult<DiagnosticResult<<CallableContractsQuery as SymbolQueryContract>::Value>> {
     if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         return super::imported::imported_callable_contracts(context, address);
     }
@@ -597,6 +593,24 @@ fn bind_callable_contracts(
             .as_ref()
             .map(|behavior| behavior.result().value()),
     );
+
+    if owner.into_any().kind() == bray_symbols::SymbolKind::Destructor {
+        if let Some(key) = &body_key {
+            let body = context
+                .compilation()
+                .body_semantics_with_cancellation(key.clone(), context.cancellation())
+                .map_err(super::binding::binder_error)?;
+
+            invocation_behavior = invocation_behavior.with_receiver_cleanup(
+                body.result()
+                    .value()
+                    .storage_flow()
+                    .receiver_cleanup()
+                    .iter()
+                    .copied(),
+            );
+        }
+    }
 
     let may_unwind = if let Some(key) = body_key {
         let unwind = context
@@ -975,7 +989,7 @@ fn bind_callable_predicates(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
-    expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
+    expressions: impl IntoIterator<Item = ExpressionSyntax>,
     kind: CallableContractClauseKind,
     predicates: &mut Vec<CallableContractClause>,
     execution_requirements: &mut Vec<CallableExecutionRequirement>,
@@ -1194,7 +1208,7 @@ fn missing_semantic_data(
 fn bind_callable_static_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-    expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
+    expressions: impl IntoIterator<Item = ExpressionSyntax>,
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<()> {

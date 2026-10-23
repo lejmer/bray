@@ -56,6 +56,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
         assignment_place: Option<&crate::ExecutionPlace>,
     ) {
+        if let super::super::super::model::AnalysisOperationKind::Result { expression, phase } =
+            operation
+        {
+            match phase {
+                super::super::super::model::AnalysisResultPhase::Begin => {
+                    if self.values.can_repeat(expression) {
+                        state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
+                            expression.into(),
+                        ));
+                    }
+
+                    state.expressions.remove(&expression);
+                    state.pending_results.remove(&expression);
+                }
+                super::super::super::model::AnalysisResultPhase::Completion => {
+                    self.expression(state, expression, None, None);
+                }
+            }
+
+            return;
+        }
+
         if let super::super::super::model::AnalysisOperationKind::Call {
             invocation:
                 invocation @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
@@ -275,6 +297,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(&empty);
 
         self.observe_references(state, observations.references());
+
+        if matches!(
+            operation,
+            super::super::super::model::AnalysisOperationKind::Result { .. }
+        ) {
+            return;
+        }
 
         if matches!(
             operation.occurrence(),

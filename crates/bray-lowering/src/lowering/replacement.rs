@@ -51,6 +51,12 @@ impl Lowerer<'_> {
             return Ok(block);
         };
 
+        let previous_occurrence =
+            self.cleanup_occurrence
+                .replace(bray_bound_tree::BoundExecutionSite::Cleanup(
+                    expression.into(),
+                ));
+
         let storage = self.builder.push_storage(
             Self::retained_source(source),
             MirStorageKind::Temporary,
@@ -159,11 +165,19 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
 
-        let completed =
-            outcome.dispatch(&mut self.builder, installed, source, panicked, cancelled)?;
+        let completed = outcome.dispatch(
+            &mut self.builder,
+            installed,
+            source,
+            panicked,
+            cancelled,
+            &mut None,
+        )?;
 
         self.finish_panic_to_active_catch(expression, panicked, source, outcome.report(), report)?;
-        self.finish_cancellation(cancelled, source, expression.into())?;
+        self.finish_cancellation(cancelled, source, expression.into(), Some(outcome.report()))?;
+
+        self.cleanup_occurrence = previous_occurrence;
 
         Ok(completed)
     }

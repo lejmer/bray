@@ -221,18 +221,18 @@ internal func ordered_bound_end<Key>(pos bound: Bound<Key>) -> ((&Key)?, bool)
 
     return match bound
     {
-        case Bound.Unbounded { yield(upper, false); }
+        case Bound.Unbounded { yield (upper, false); }
         case Bound.Included(value)
         {
             upper = value;
 
-            yield(upper, true);
+            yield (upper, true);
         }
         case Bound.Excluded(value)
         {
             upper = value;
 
-            yield(upper, false);
+            yield (upper, false);
         }
     };
 }

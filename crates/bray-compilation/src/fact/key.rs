@@ -60,9 +60,9 @@ pub(crate) struct NativeProductQueryKey {
     product: ProductIdentity,
     configuration: crate::BuildConfiguration,
     linked_product: Option<bray_linker::LinkedProductKind>,
-    runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
-    required_capabilities: std::sync::Arc<[RuntimeCapability]>,
-    linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
+    runtime: Option<Arc<[RuntimeNativeIndexQueryIdentity]>>,
+    required_capabilities: Arc<[RuntimeCapability]>,
+    linker_drivers: Arc<[LinkerDriverIdentity]>,
 }
 
 impl NativeProductQueryKey {
@@ -70,9 +70,9 @@ impl NativeProductQueryKey {
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
         linked_product: Option<bray_linker::LinkedProductKind>,
-        runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
-        required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
-        linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
+        runtime: Option<Arc<[RuntimeNativeIndexQueryIdentity]>>,
+        required_capabilities: impl Into<Arc<[RuntimeCapability]>>,
+        linker_drivers: impl Into<Arc<[LinkerDriverIdentity]>>,
     ) -> Self {
         Self {
             product,
@@ -223,7 +223,7 @@ pub(crate) struct ConstantInstanceQueryKey {
 pub(crate) struct ConstantCallQueryKey {
     callable: CallableInstanceId,
     selected_implementation: Option<ImplementationInstanceId>,
-    arguments: std::sync::Arc<[ConstantValueId]>,
+    arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
     limits: bray_checker::ConstantEvaluationLimits,
@@ -357,7 +357,7 @@ impl CodegenArtifactQueryKey {
 pub(crate) struct ConstantCallDependencyKey {
     callable: CallableInstanceId,
     selected_implementation: Option<ImplementationInstanceId>,
-    arguments: std::sync::Arc<[ConstantValueId]>,
+    arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
 }
@@ -366,7 +366,7 @@ impl ConstantCallQueryKey {
     pub(crate) fn new(
         callable: CallableInstanceId,
         selected_implementation: Option<ImplementationInstanceId>,
-        arguments: impl Into<std::sync::Arc<[ConstantValueId]>>,
+        arguments: impl Into<Arc<[ConstantValueId]>>,
         result_type: TypeId,
         target: TargetProfile,
         limits: bray_checker::ConstantEvaluationLimits,
@@ -409,7 +409,7 @@ impl ConstantCallQueryKey {
         ConstantCallDependencyKey {
             callable: self.callable,
             selected_implementation: self.selected_implementation,
-            arguments: std::sync::Arc::clone(&self.arguments),
+            arguments: Arc::clone(&self.arguments),
             result_type: self.result_type,
             // Cycle coordination owns its key independently of the cache entry.
             target: self.target.clone(),
@@ -513,6 +513,8 @@ pub(crate) enum CompilationFactKey {
     UnwindBehavior(BoundUnitKey),
     /// Certified unconditional execution properties with foreign assertion provenance.
     CertifiedExecution(BoundUnitKey),
+    /// Certified implicit finalizer completion and normal ownership-end legality.
+    CleanupCompletion(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
@@ -524,7 +526,9 @@ pub(crate) enum CompilationFactKey {
     /// One optimized concrete MIR body for exact instance and generation policy.
     OptimizedMir(Arc<OptimizedMirQueryKey>),
     /// Generated execution and local requirements for an exact lifecycle specialization.
-    GeneratedLifecycle(bray_codegen::CodegenInstanceKey, bray_ir::MirUnitId),
+    GeneratedLifecycle(CodegenInstanceKey, bray_ir::MirUnitId),
+    /// Checked receiver cleanup and concrete substitutions shared by its consuming call sites.
+    DestructionBody(CodegenInstanceKey),
     /// The complete native product for exact product and host selections.
     NativeProduct(Arc<NativeProductQueryKey>),
     /// Source-declared value type templates and equality constraints for one bound unit.
@@ -667,6 +671,7 @@ impl CompilationFactKey {
             | Self::UnwindBehavior(key)
             | Self::ExecutionCandidates(key)
             | Self::CertifiedExecution(key)
+            | Self::CleanupCompletion(key)
             | Self::SelectedBodyBehavior(key)
             | Self::PreparedBodyAnalysis(key)
             | Self::ResultDependencyComponent(key)
@@ -691,6 +696,7 @@ impl CompilationFactKey {
             | Self::CodegenArtifact(_)
             | Self::OptimizedMir(_)
             | Self::GeneratedLifecycle(..)
+            | Self::DestructionBody(..)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph
@@ -764,7 +770,7 @@ mod tests {
     #[test]
     fn compilation_dependency_keys_remain_compact() {
         assert!(
-            std::mem::size_of::<CompilationFactKey>() <= 64,
+            size_of::<CompilationFactKey>() <= 64,
             "large query payloads must not enlarge every dependency key"
         );
     }

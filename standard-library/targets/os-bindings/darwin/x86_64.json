@@ -430,7 +430,7 @@
           "native_result": "int",
           "link": "c",
           "error_state": "returns minus one and sets the C runtime error state",
-          "ownership": "the caller retains descriptor ownership after failure",
+          "ownership": "a valid descriptor without a close guard is relinquished even when close reports an error",
           "initialization": "no output storage",
           "dependencies": [
             "foreign_call"

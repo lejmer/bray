@@ -55,7 +55,7 @@ struct Owner<T>
                 let send_waiters = channel.send_waiters.take_storage();
                 let receive_waiters = channel.receive_waiters.take_storage();
 
-                yield(messages, send_waiters, receive_waiters);
+                yield (messages, send_waiters, receive_waiters);
             };
 
             let authorize_release = trusted lambda(pos pointer: RawPointer<std.channel.ChannelCore<T>>)

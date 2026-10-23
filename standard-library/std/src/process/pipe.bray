@@ -5,16 +5,32 @@ using std.memory;
 
 internal struct ChildInputState
 {
-    handle: u64;
+    mut handle: u64;
     mut is_open: bool;
 }
 
 struct ChildInput
 {
     internal mut state: ChildInputState;
+    /// Whether this owner has no unresolved resource obligation.
+    predicate complete(value: &ChildInput) = !value.state.is_open;
+
+    /// Reports whether the resource obligation has been resolved, including after an error.
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(result == ChildInput.complete(value = &self))
+    {
+        return !self.state.is_open;
+    }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(ChildInput.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || ChildInput.complete(value = &self))
+        when(ChildInput.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_input(&mut self);
     }
@@ -29,8 +45,14 @@ struct ChildInput
         }
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+    mut func close() -> Result<unit, std.io.IoError>
+        requires(ChildInput.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || ChildInput.complete(value = &self))
+        when(ChildInput.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_input(&mut self);
     }
@@ -38,16 +60,32 @@ struct ChildInput
 
 internal struct ChildOutputState
 {
-    handle: u64;
+    mut handle: u64;
     mut is_open: bool;
 }
 
 struct ChildOutput
 {
     internal mut state: ChildOutputState;
+    /// Whether this owner has no unresolved resource obligation.
+    predicate complete(value: &ChildOutput) = !value.state.is_open;
+
+    /// Reports whether the resource obligation has been resolved, including after an error.
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(result == ChildOutput.complete(value = &self))
+    {
+        return !self.state.is_open;
+    }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(ChildOutput.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || ChildOutput.complete(value = &self))
+        when(ChildOutput.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_output(&mut self);
     }
@@ -62,8 +100,14 @@ struct ChildOutput
         }
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+    mut func close() -> Result<unit, std.io.IoError>
+        requires(ChildOutput.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || ChildOutput.complete(value = &self))
+        when(ChildOutput.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_output(&mut self);
     }
@@ -93,21 +137,25 @@ impl ChildOutputReader = ChildOutput(std.io.Reader)
     }
 }
 
-internal func child_input(handle: u64) -> ChildInput?
+trusted internal func child_input(handle: &mut u64) -> ChildInput?
+    uses(raw_memory)
 {
-    if handle == 0
+    if trusted std.memory.read<u64>(std.memory.address_of_mut<u64>(handle)) == 0
     {
         return none;
     }
 
-    let input: ChildInput = ChildInput
+    let mut input: ChildInput =
     {
         state =
         {
-            handle = handle,
-            is_open = true,
+            handle = 0,
+            is_open = false,
         }
     };
+
+    input.state.handle = trusted std.memory.replace_value<u64>(handle, 0);
+    input.state.is_open = true;
 
     let mut value: ChildInput? = none;
 
@@ -116,21 +164,25 @@ internal func child_input(handle: u64) -> ChildInput?
     return value;
 }
 
-internal func child_output(handle: u64) -> ChildOutput?
+trusted internal func child_output(handle: &mut u64) -> ChildOutput?
+    uses(raw_memory)
 {
-    if handle == 0
+    if trusted std.memory.read<u64>(std.memory.address_of_mut<u64>(handle)) == 0
     {
         return none;
     }
 
-    let output: ChildOutput = ChildOutput
+    let mut output: ChildOutput =
     {
         state =
         {
-            handle = handle,
-            is_open = true,
+            handle = 0,
+            is_open = false,
         }
     };
+
+    output.state.handle = trusted std.memory.replace_value<u64>(handle, 0);
+    output.state.is_open = true;
 
     let mut value: ChildOutput? = none;
 
@@ -205,35 +257,55 @@ trusted internal func child_output_read(
 }
 
 trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
-    requires(blocking_execution())
+    requires(ChildInput.complete(value = &input) || blocking_execution())
+    ensures(result matches Error(_) || ChildInput.complete(value = &input))
+    when(ChildInput.complete(value = &input))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
 {
     if !input.state.is_open
     {
         return Ok(unit);
     }
 
-    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
-        trusted internal platform_process_pipe_close(handle = input.state.handle)
-    );
+    let (status, released) = trusted internal std.platform.resource.close(input.state.handle);
 
+    if released
+    {
+        input.state.is_open = false;
+    }
+
+    try internal std.io.checked_status(status);
     input.state.is_open = false;
 
-    return result;
+    return Ok(unit);
 }
 
 trusted internal func close_child_output(pos output: &mut ChildOutput) -> Result<unit, std.io.IoError>
-    requires(blocking_execution())
+    requires(ChildOutput.complete(value = &output) || blocking_execution())
+    ensures(result matches Error(_) || ChildOutput.complete(value = &output))
+    when(ChildOutput.complete(value = &output))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
 {
     if !output.state.is_open
     {
         return Ok(unit);
     }
 
-    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
-        trusted internal platform_process_pipe_close(handle = output.state.handle)
-    );
+    let (status, released) = trusted internal std.platform.resource.close(output.state.handle);
 
+    if released
+    {
+        output.state.is_open = false;
+    }
+
+    try internal std.io.checked_status(status);
     output.state.is_open = false;
 
-    return result;
+    return Ok(unit);
 }

@@ -106,16 +106,7 @@ pub(in super::super) fn codegen_compilation_for_sources_target_with_source_roles
     Arc<bray_codegen_llvm::LlvmCodeGenerator>,
     crate::Compilation,
 ) {
-    let backend = Arc::new(
-        bray_codegen_llvm::LlvmCodeGenerator::try_new()
-            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
-    );
-
-    let registry = CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
-        .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
-
-    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
-        .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
+    let (backend, codegen) = codegen_configuration();
 
     let runtime_dependency = crate::test_support::runtime_standard_library_dependency(&target);
 
@@ -154,4 +145,22 @@ pub(in super::super) fn codegen_compilation_for_sources_target_with_source_roles
 pub(in super::super) fn test_product_identity() -> ProductIdentity {
     ProductIdentity::try_new(crate::test_support::package_identity(), "application")
         .unwrap_or_else(|| panic!("test product identity must be valid"))
+}
+
+pub(in super::super) fn codegen_configuration() -> (
+    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
+    CodegenConfiguration,
+) {
+    let backend = Arc::new(
+        bray_codegen_llvm::LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
+    );
+
+    let registry = CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+        .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
+
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+        .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
+
+    (backend, codegen)
 }

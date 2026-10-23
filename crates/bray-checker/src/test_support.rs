@@ -248,6 +248,14 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn raw_buffer_element(
+        &self,
+        _definition: bray_symbols::NamedTypeSymbolId,
+        _substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>, Self::UpstreamError> {
+        Ok(None)
+    }
+
     fn lifecycle_callable(
         &self,
         _ty: TypeId,
@@ -266,12 +274,12 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
-    fn declared_type_has_lifecycle(
+    fn declared_type_lifecycle(
         &self,
         _subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::TypeLifecycle>> {
         Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
-            false,
+            bray_symbols::TypeLifecycle::None,
         ))
     }
 

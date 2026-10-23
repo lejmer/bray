@@ -106,8 +106,17 @@ impl InterfaceSemantics {
             for effect in &*contract.effects {
                 use bray_symbols::DependencyStorageEffect;
 
+                if let DependencyStorageEffect::Direct { kind, .. }
+                | DependencyStorageEffect::Indirect { kind, .. } = effect
+                    && let bray_symbols::DependencyMutationKind::Replace(ty) = kind
+                {
+                    validate_index(ty.to_index(), self.types.len())?;
+                }
+
                 match effect {
-                    DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+                    DependencyStorageEffect::Atomic
+                    | DependencyStorageEffect::Unknown
+                    | DependencyStorageEffect::Escape => {}
                     DependencyStorageEffect::Cleanup(ty) => {
                         validate_index(ty.to_index(), self.types.len())?
                     }

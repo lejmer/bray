@@ -159,12 +159,17 @@ pub(super) fn translate_state_callback<'context>(
         operation,
     )?;
 
+    // Capture resolution selects its own entry after ordinary cancellation routing.
+    let (state, operation) =
+        capture_entry(context, &builder, function, descriptor, state, operation)?;
+
     for state in descriptor.states() {
         let block = context.append_basic_block(function, "frame.state.known");
 
         let mut operations = Vec::with_capacity(6);
 
         for (index, lanes) in state
+            .retention()
             .operation_requirements()
             .iter()
             .map(|lanes| lanes.as_ref())
@@ -179,7 +184,7 @@ pub(super) fn translate_state_callback<'context>(
                 if lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread) {
                     bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
                 } else {
-                    state.affinity().code()
+                    state.retention().affinity().code()
                 };
 
             builder.position_at_end(selected);
@@ -303,4 +308,77 @@ fn callback_entry<'context>(
         )
         .map_err(CodegenFailure::backend_library)
         .map(|value| value.into_int_value())
+}
+
+fn capture_entry<'context>(
+    context: &'context Context,
+    builder: &inkwell::builder::Builder<'context>,
+    function: inkwell::values::FunctionValue<'context>,
+    descriptor: &bray_ir::MirFrameDescriptor,
+    state: inkwell::values::IntValue<'context>,
+    operation: inkwell::values::IntValue<'context>,
+) -> Result<
+    (
+        inkwell::values::IntValue<'context>,
+        inkwell::values::IntValue<'context>,
+    ),
+    CodegenFailure,
+> {
+    let Some((quiescence, destruction)) = descriptor.capture_cleanup() else {
+        return Ok((state, operation));
+    };
+
+    let argument = function
+        .get_nth_param(3)
+        .expect("state query retains its operation argument")
+        .into_int_value();
+
+    let resolving = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            operation,
+            context.i32_type().const_int(3, false),
+            "frame.capture.resolve",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let mut selected = state;
+    let mut selected_operation = operation;
+
+    for (exit, entry) in [(4, quiescence), (5, destruction)] {
+        let requested = builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                argument,
+                argument.get_type().const_int(exit, false),
+                "frame.capture.exit",
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
+        let requested = builder
+            .build_and(resolving, requested, "frame.capture.requested")
+            .map_err(CodegenFailure::backend_library)?;
+
+        selected = builder
+            .build_select(
+                requested,
+                state.get_type().const_int(u64::from(entry.raw()), false),
+                selected,
+                "frame.capture.entry",
+            )
+            .map_err(CodegenFailure::backend_library)?
+            .into_int_value();
+
+        selected_operation = builder
+            .build_select(
+                requested,
+                operation.get_type().const_zero(),
+                selected_operation,
+                "frame.capture.operation",
+            )
+            .map_err(CodegenFailure::backend_library)?
+            .into_int_value();
+    }
+
+    Ok((selected, selected_operation))
 }

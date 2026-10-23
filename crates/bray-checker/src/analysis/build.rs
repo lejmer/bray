@@ -316,9 +316,7 @@ where
         };
 
         match expression {
-            BoundExpression::Block(expression) => {
-                self.build_block_expression(id, *expression, current)
-            }
+            BoundExpression::Block(expression) => self.build_block_expression(*expression, current),
             BoundExpression::Binary(expression)
                 if matches!(
                     expression.operator(),
@@ -365,7 +363,6 @@ where
 
     fn build_block_expression(
         &mut self,
-        id: BoundExpressionId,
         expression: bray_bound_tree::BoundBlockExpression,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
@@ -389,8 +386,6 @@ where
                 None,
             );
         }
-
-        self.push_bound(completion, id.into());
 
         Some(Some(completion))
     }
@@ -601,7 +596,7 @@ where
             .map(|completion| completion.unwrap_or_else(|| self.push_block()))
     }
 
-    fn push_control_transfer(
+    pub(super) fn push_control_transfer(
         &mut self,
         id: BoundExpressionId,
         block: AnalysisBlockId,
@@ -1443,6 +1438,10 @@ mod tests {
                 SemanticSelection::Propagation(SelectedPropagation::Result {
                     boundary: SelectedPropagationBoundary::Callable,
                     result_type: error_type(),
+                    error: (
+                        crate::test_support::compiler_known_symbol("ResultVariant1Error"),
+                        crate::test_support::compiler_known_symbol("ResultVariant1ErrorError"),
+                    ),
                     success: (
                         crate::test_support::compiler_known_symbol("ResultVariant0Ok"),
                         crate::test_support::compiler_known_symbol("ResultVariant0OkValue"),

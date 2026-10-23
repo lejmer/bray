@@ -42,25 +42,26 @@ trusted internal func open_dynamic_library_system(
 }
 
 trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) -> Result<unit, std.ffi.ForeignError>
-    requires(blocking_execution())
+    requires(DynamicLibrary.complete(value = &library) || blocking_execution())
+    ensures(result matches Error(_) || DynamicLibrary.complete(value = &library))
+    when(DynamicLibrary.complete(value = &library))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
     uses(foreign_call)
 {
-    let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
-        library.handle_value,
-        owned = library.is_owned_value,
-    );
+    if !library.is_owned_value
+    {
+        return Ok(unit);
+    }
 
+    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_close(library.handle_value);
+
+    try internal std.ffi.checked_foreign_status(status);
     library.is_owned_value = false;
 
-    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_close(handle);
-
-    return internal std.ffi.checked_foreign_status(status);
-}
-
-trusted internal func dynamic_library_handle(pos library: &DynamicLibrary) -> u64
-    executes(pure, total)
-{
-    return library.handle_value;
+    return Ok(unit);
 }
 
 internal func load_policy_value(pos policy: LoadPolicy) -> u32

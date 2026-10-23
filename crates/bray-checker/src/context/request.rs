@@ -312,6 +312,13 @@ pub trait CheckerRequestContext: Sync {
         subject: NamedTypeSymbolId,
     ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeRepresentation>, Self::UpstreamError>;
 
+    /// Returns the element of an authoritatively recognized raw-buffer declaration.
+    fn raw_buffer_element(
+        &self,
+        definition: NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>, Self::UpstreamError>;
+
     /// Returns the target atomic representation selected for one concrete plain-storage type.
     fn plain_storage_atomic_representation(
         &self,
@@ -354,11 +361,11 @@ pub trait CheckerRequestContext: Sync {
         Self::UpstreamError,
     >;
 
-    /// Returns whether a declared type has whole-value finalization, destruction, or scoped behavior.
-    fn declared_type_has_lifecycle(
+    /// Returns the declared whole-value cleanup category before represented-part expansion.
+    fn declared_type_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<bool>, Self::UpstreamError>;
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::TypeLifecycle>, Self::UpstreamError>;
 
     /// Returns whether the enclosing static context establishes a copy contract for an open type.
     fn statically_establishes_copyability(

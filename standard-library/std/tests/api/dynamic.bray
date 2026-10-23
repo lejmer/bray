@@ -58,10 +58,27 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
         assert(missing_error.kind() matches std.ffi.ForeignErrorKind.UnavailableSymbol);
 
         let name: bytes = b"strlen";
-        let _: std.dynamic.DynamicSymbol<u8> = try trusted library.symbol<u8>(&name[..]);
+
+        let _: std.dynamic.DynamicSymbol<u8> = std.testing.assert_ok<
+            std.dynamic.DynamicSymbol<u8>,
+            std.ffi.ForeignError
+        >(trusted library.symbol<u8>(&name[..]));
     }
 
-    return library.close();
+    std.testing.assert_ok<unit, std.ffi.ForeignError>(library.close());
+    assert(library.is_complete());
+
+    let name: bytes = b"strlen";
+
+    let error = std.testing.assert_error<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError>(
+        trusted library.symbol<u8>(&name[..])
+    );
+
+    assert(error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
+    std.testing.assert_ok<unit, std.ffi.ForeignError>(library.close());
+    assert(library.is_complete());
+
+    return Ok(unit);
 }
 
 @test

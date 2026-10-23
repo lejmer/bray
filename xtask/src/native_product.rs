@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 
 use bray_compilation::{BuildConfiguration, Compilation, ProductEmissionInputs, SelectedTarget};
 use bray_emitter::{
@@ -10,6 +11,31 @@ use bray_linker::LinkSearchPath;
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{load_runtime_artifact, native_linker};
+
+pub(crate) fn compile_c_fixture(
+    compiler: &Path,
+    source: &Path,
+    object: &Path,
+    definitions: &[&str],
+) -> Result<(), String> {
+    let mut command = Command::new(compiler);
+
+    command.args(["-std=c11", "-O2", "-c"]);
+
+    command.args(
+        definitions
+            .iter()
+            .map(|definition| format!("-D{definition}")),
+    );
+
+    if !cfg!(windows) {
+        command.args(["-fPIC", "-pthread"]);
+    }
+
+    command.arg(source).arg("-o").arg(object);
+
+    crate::command::require_success(command, "compiling native C fixture").map(|_| ())
+}
 
 pub(crate) fn emit_executable(
     compilation: &Compilation,

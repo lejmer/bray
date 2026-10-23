@@ -18,7 +18,7 @@ trusted internal func advance(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         operation < 4,
-        operation != 3 || argument < 4,
+        operation != 3 || argument < 6,
     )
     ensures(
         trusted selected(cursor = &cursor),
@@ -26,39 +26,13 @@ trusted internal func advance(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
 {
-    let retaining = trusted lambda(
-        pos cursor: &mut Cursor,
-        pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
-        pos ready: bray.runtime.bootstrap.activation.callback.Ready,
-        pos operation: u32,
-        pos argument: usize,
-    ) -> (bray.runtime.bootstrap.activation.Progress, u32)
-        requires(
-            trusted selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.entry.native_entry(),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-            operation < 4,
-            operation != 3 || argument < 4,
-        )
-        ensures(
-            trusted selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.entry.native_entry(),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-            trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
-        )
-    {
-        let (progress, _, _, status, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(
-            cursor,
-            callback,
-            ready,
-            operation,
-            argument
-        );
-
-        return (progress, status);
-    };
-
-    let (progress, status) = trusted retaining(cursor, callback, ready, operation, argument);
+    let (progress, status) = trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(
+        cursor,
+        callback,
+        ready,
+        operation,
+        argument
+    );
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS
     {

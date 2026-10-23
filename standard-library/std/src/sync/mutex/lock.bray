@@ -83,7 +83,7 @@ struct Mutex<T>
             let next = observed & 65535;
             let serving = observed >> 16;
 
-            if((next + 65536 - serving) & 65535) == 65535
+            if ((next + 65536 - serving) & 65535) == 65535
             {
                 core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
                 observed = core.atomic.load<u32, 1>(&state.tickets);
@@ -109,7 +109,7 @@ struct Mutex<T>
 
         observed = core.atomic.load<u32, 1>(&state.tickets);
 
-        while(observed >> 16) != ticket
+        while (observed >> 16) != ticket
         {
             core.atomic.wait<u32, 1>(&state.tickets, expected = observed);
             observed = core.atomic.load<u32, 1>(&state.tickets);

@@ -96,13 +96,16 @@ fn async_analysis_respects_anonymous_callable_execution_modes() {
 
 #[test]
 fn opaque_future_parameters_do_not_imply_recovery() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "async func main(pending: Future<i32>) -> i32\n",
-        "{\n",
-        "    await pending\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+        module app;
+
+        async func main(pending: Future<i32>) -> i32
+        {
+            await pending
+        }
+    "#,
+    );
 
     let key = source_callable_body_key(&compilation);
 
@@ -110,8 +113,20 @@ fn opaque_future_parameters_do_not_imply_recovery() {
         .async_analysis(key)
         .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
 
-    let [suspension] = analysis.value().suspensions() else {
-        panic!("the direct await must publish one suspension point");
+    let awaits = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .filter(|point| {
+            matches!(
+                point.kind(),
+                bray_bound_tree::AsyncSuspensionKind::Await { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let [suspension] = awaits.as_slice() else {
+        panic!("the direct await must publish one await suspension point");
     };
 
     assert!(suspension.deferred_calls().is_empty());
@@ -120,13 +135,16 @@ fn opaque_future_parameters_do_not_imply_recovery() {
 
 #[test]
 fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "async func main(pending: Future<i32>) -> i32\n",
-        "{\n",
-        "    await pending\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+        module app;
+
+        async func main(pending: Future<i32>) -> i32
+        {
+            await pending
+        }
+    "#,
+    );
 
     let key = source_callable_body_key(&compilation);
 
@@ -138,8 +156,20 @@ fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
         .dependency_contracts(key)
         .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
 
-    let [suspension] = analysis.value().suspensions() else {
-        panic!("the direct await must publish one suspension point");
+    let awaits = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .filter(|point| {
+            matches!(
+                point.kind(),
+                bray_bound_tree::AsyncSuspensionKind::Await { .. }
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let [suspension] = awaits.as_slice() else {
+        panic!("the direct await must publish one await suspension point");
     };
 
     let contract = suspension
@@ -360,6 +390,315 @@ fn suspension_retains_unused_cleanup_owners_and_their_dependencies() {
                 .cleanup_retention()
                 .iter()
                 .all(|subject| suspension.retained_subjects().contains(subject))
+        );
+    }
+}
+
+#[test]
+fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
+    for execution in ["async ", ""] {
+        let application = compilation(&format!(
+            r#"
+                module app;
+
+                extern async func work(pos value: &u32);
+
+                async func main()
+                {{
+                    let value: u32 = 1;
+                    let pending = work(&value).start();
+                    let owner: Owner = {{ value = 1 }};
+                }}
+
+                struct Owner
+                {{
+                    value: u32;
+
+                    {execution}finalize()
+                    {{
+                    }}
+                }}
+            "#
+        ));
+
+        let key = crate::test_support::source_function_body_key(&application, "main");
+        let storage = application.storage_plan(key.clone()).unwrap();
+        let flow = application.storage_flow(key.clone()).unwrap();
+        let analysis = application.async_analysis(key).unwrap();
+
+        assert!(
+            !analysis.diagnostics().has_errors(),
+            "{:?}",
+            analysis.diagnostics()
+        );
+
+        let cleanup = analysis
+            .value()
+            .suspensions()
+            .iter()
+            .filter(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
+            .collect::<Vec<_>>();
+
+        if execution.is_empty() {
+            // The started future is already moved. Potential storage-flow cleanup
+            // points do not require a suspension after checked owner selection.
+            assert!(cleanup.is_empty());
+
+            continue;
+        }
+
+        assert!(!cleanup.is_empty());
+
+        for point in cleanup {
+            assert!(matches!(
+                point.occurrence(),
+                bray_bound_tree::BoundExecutionSite::Cleanup(_)
+            ));
+
+            assert_eq!(point.deferred_calls().len(), 1);
+            assert!(!point.is_recovered());
+
+            let state = flow.value().suspension(point.occurrence()).unwrap();
+
+            assert!(!state.cleanup_retention().is_empty());
+
+            for dependency in state.cleanup_retention() {
+                assert!(point.retained_subjects().contains(dependency));
+                assert!(analysis.value().frame_dependencies().contains(dependency));
+            }
+
+            for access in point.cancellation_broadcast() {
+                assert!(
+                    state
+                        .live()
+                        .contains(&storage.value().root_identity(*access).unwrap())
+                );
+            }
+
+            assert!(!point.cancellation_broadcast().is_empty());
+        }
+    }
+}
+
+#[test]
+fn implicit_cleanup_retains_the_pending_return_dependency() {
+    let application = compilation(
+        r#"
+        module app;
+
+        async func main(pos output: &u32) -> &u32
+        {
+            let owner: Owner = { value = 1 };
+            return output;
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+            }
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let liveness = application.liveness(key.clone()).unwrap();
+    let analysis = application.async_analysis(key).unwrap();
+
+    assert!(
+        !analysis.diagnostics().has_errors(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+
+    let point = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .find(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
+        .expect("ordinary owner finalization can suspend before returning");
+
+    let retained = liveness
+        .value()
+        .live_across_scopes()
+        .iter()
+        .filter(|entry| entry.exit() == point.occurrence().node())
+        .collect::<Vec<_>>();
+
+    assert!(!retained.is_empty());
+
+    for entry in retained {
+        assert!(
+            point.retained_subjects().contains(&entry.subject()),
+            "{point:?} misses {entry:?}"
+        );
+    }
+}
+
+#[test]
+fn moving_the_finalizer_owner_out_does_not_schedule_cleanup() {
+    let application = compilation(
+        r#"
+        module app;
+
+        async func main() -> Owner
+        {
+            let owner: Owner = { value = 1 };
+            return owner;
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+            }
+        }
+    "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let analysis = application.async_analysis(key).unwrap();
+
+    assert!(
+        !analysis.diagnostics().has_errors(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+
+    assert!(analysis.value().suspensions().is_empty());
+}
+
+#[test]
+fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
+    let application = compilation(
+        r#"
+        module app;
+        extern async func pause();
+        async func main()
+        {
+            let first: u32 = 1;
+            let second: u32 = 2;
+            let mut owner = Owner { value = &first };
+            owner = Owner { value = &second };
+        }
+        struct Owner
+        {
+            value: &u32;
+            async finalize()
+            {
+                await pause();
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+    let storage = application.storage_plan(key.clone()).unwrap();
+    let flow = application.storage_flow(key.clone()).unwrap();
+    let analysis = application.async_analysis(key).unwrap();
+
+    let replacement = analysis
+        .value()
+        .replacements()
+        .first()
+        .expect("fixture replaces an initialized owner");
+
+    let occurrence = bray_bound_tree::BoundExecutionSite::Cleanup(replacement.expression().into());
+
+    let point = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .find(|point| point.occurrence() == occurrence)
+        .unwrap();
+
+    let state = flow.value().suspension(occurrence).unwrap();
+
+    assert!(
+        state
+            .initialized()
+            .contains(&storage.value().root_identity(replacement.access()).unwrap())
+    );
+
+    // The old value is still in storage. The evaluated incoming value has moved
+    // into the assignment's pending inputs, whose dependencies liveness retains.
+    assert!(state.cleanup_retention().iter().any(|subject| matches!(
+        subject,
+        bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+    )));
+
+    assert!(
+        point
+            .retained_subjects()
+            .iter()
+            .filter(|subject| matches!(
+                subject,
+                bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+            ))
+            .count()
+            >= 2,
+        "old and incoming owners both retain their loans during replacement: {point:?}"
+    );
+
+    assert!(
+        state
+            .cleanup_retention()
+            .iter()
+            .all(|subject| point.retained_subjects().contains(subject))
+    );
+}
+
+#[test]
+fn input_cleanup_retains_borrowed_dependencies_before_acceptance() {
+    for invocation in [
+        "await accept(Owner { value = &value });",
+        "await accept(Owner { value = &value }, number = rejected());",
+        "await accept(Owner { value = &value }, number = { let input = rejected(); yield input; });",
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            extern async func pause();
+            func rejected() -> u32 {{ panic("input"); }}
+            struct Owner {{ value: &u32; async finalize() {{ await pause(); }} }}
+            async func accept(pos owner: Owner, number: u32 = rejected()) {{}}
+            async func main() {{ let value: u32 = 1; {invocation} }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        assert!(
+            !application.check_diagnostics().has_errors(),
+            "{:?}",
+            application.check_diagnostics()
+        );
+
+        let key = crate::test_support::source_function_body_key(&application, "main");
+        let analysis = application.async_analysis(key).unwrap();
+
+        assert!(
+            analysis.value().suspensions().iter().any(|point| {
+                point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup
+                    && point.retained_subjects().iter().any(|subject| {
+                        matches!(
+                            subject,
+                            bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+                        )
+                    })
+            }),
+            "pending input cleanup must retain its borrowed provider: {:?}",
+            analysis.value()
         );
     }
 }

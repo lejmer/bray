@@ -128,11 +128,6 @@ pub(super) fn with_execution<T>(
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
 pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecution) -> u32 {
-    let Some(current) = crate::context::current_task_execution_lane() else {
-        return NativeRuntimeStatus::NOT_INITIALIZED.code();
-    };
-
-    let execution = execution(snapshot);
     let task = current_native_task().expect("activation readiness retains its registered task");
 
     with_runtime(|runtime| {
@@ -142,6 +137,19 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
     })
     .expect("activation readiness retains its runtime")
     .expect("activation readiness retains its task");
+
+    bray_runtime_activation_action_readiness(snapshot)
+}
+
+/// Checks a synchronous action without replacing the enclosing run's continuation.
+pub extern "C" fn bray_runtime_activation_action_readiness(
+    snapshot: &NativeActivationExecution,
+) -> u32 {
+    let Some(current) = crate::context::current_task_execution_lane() else {
+        return synchronous_readiness(snapshot).code();
+    };
+
+    let execution = execution(snapshot);
 
     let required = match execution_lane(&execution) {
         Ok(required) => required,
@@ -155,6 +163,30 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
     }
 }
 
+// A foreign entry supplies no execution capabilities. Attachment identity can
+// establish origin affinity, but cannot grant workload or main-thread authority.
+fn synchronous_readiness(snapshot: &NativeActivationExecution) -> NativeRuntimeStatus {
+    if snapshot.requirements.lane_requirements() != NativeLaneRequirements::NONE {
+        return NativeRuntimeStatus::PENDING;
+    }
+
+    let allowed = match snapshot.requirements.affinity() {
+        bray_runtime_abi::NativeFrameAffinity::MOVABLE => true,
+        bray_runtime_abi::NativeFrameAffinity::ORIGIN_THREAD => {
+            crate::bootstrap::current_runtime_thread()
+                .is_some_and(|thread| thread.id().raw() == snapshot.origin)
+        }
+        bray_runtime_abi::NativeFrameAffinity::MAIN_THREAD => false,
+        affinity => panic!("activation supplies an invalid affinity {affinity:?}"),
+    };
+
+    if allowed {
+        NativeRuntimeStatus::SUCCESS
+    } else {
+        NativeRuntimeStatus::PENDING
+    }
+}
+
 // Composition checks capability before consuming the inactive owner. It need not
 // run the child on the current lane. The dispatcher selects that lane on entry.
 pub(in crate::native) extern "C" fn admission(snapshot: &NativeActivationExecution) -> u32 {
@@ -162,4 +194,55 @@ pub(in crate::native) extern "C" fn admission(snapshot: &NativeActivationExecuti
         |status| status.code(),
         |_| NativeRuntimeStatus::SUCCESS.code(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_abi::{
+        NativeActivationExecution, NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
+        NativeRuntimeStatus,
+    };
+
+    #[test]
+    fn synchronous_entry_does_not_grant_unestablished_execution_capabilities() {
+        for (affinity, requirements, expected) in [
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::NONE,
+                NativeRuntimeStatus::SUCCESS,
+            ),
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::BLOCKING,
+                NativeRuntimeStatus::PENDING,
+            ),
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::COMPUTE,
+                NativeRuntimeStatus::PENDING,
+            ),
+            (
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::MAIN_THREAD,
+                NativeRuntimeStatus::PENDING,
+            ),
+            (
+                NativeFrameAffinity::MAIN_THREAD,
+                NativeLaneRequirements::NONE,
+                NativeRuntimeStatus::PENDING,
+            ),
+            (
+                NativeFrameAffinity::ORIGIN_THREAD,
+                NativeLaneRequirements::NONE,
+                NativeRuntimeStatus::PENDING,
+            ),
+        ] {
+            let snapshot = NativeActivationExecution {
+                requirements: NativeFrameState::new(affinity, requirements),
+                ..NativeActivationExecution::default()
+            };
+
+            assert_eq!(super::synchronous_readiness(&snapshot), expected);
+        }
+    }
 }

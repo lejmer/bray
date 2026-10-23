@@ -353,7 +353,6 @@ mod tests {
                         };
                     }
 
-                    trusted static func destroy(pos storage: &mut Self) {}
                     trusted static func release(pos storage: Self) {}
                 }
             "#
@@ -447,7 +446,6 @@ mod tests {
                     static func borrow_mut(pos storage: &mut Self) -> &mut i32 {contract}
                     {{ {mutable} }}
 
-                    trusted static func destroy(pos storage: &mut Self) {{}}
                     trusted static func release(pos storage: Self) {{}}
                 }}
 

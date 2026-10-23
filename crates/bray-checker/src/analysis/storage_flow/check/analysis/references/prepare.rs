@@ -13,16 +13,19 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         let mut demands = super::entry::Demands::new();
 
         for ((ty, _), lifecycle) in &cleanup.lifecycles {
-            if self.lifecycle_references.contains_key(&lifecycle.callable) {
+            if self
+                .lifecycle_references
+                .contains_key(&lifecycle.call.callable)
+            {
                 continue;
             }
 
             let mut types = std::collections::BTreeMap::new();
 
             for subject in
-                dependencies.lifecycle_dependencies()[&lifecycle.callable].reference_subjects()
+                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
             {
-                let key = (lifecycle.callable, subject.clone());
+                let key = (lifecycle.call.callable, subject.clone());
 
                 if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver
                     || self.lifecycle_paths.contains_key(&key)
@@ -54,7 +57,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let mut references = Vec::new();
 
-            for relation in dependencies.lifecycle_dependencies()[&lifecycle.callable].borrows() {
+            for relation in
+                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows()
+            {
                 if let Some(ty) = types.get(relation.entry())
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
@@ -64,7 +69,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             }
 
             self.lifecycle_references
-                .insert(lifecycle.callable, references);
+                .insert(lifecycle.call.callable, references);
         }
 
         Ok(demands)

@@ -12,7 +12,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{AnyType, BasicTypeEnum, FunctionType, StructType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, StructValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue};
 
 pub(crate) fn symbol_function_type<'context>(
     context: &'context Context,
@@ -300,7 +300,7 @@ pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
     )
 }
 
-fn panic_field_type(context: &Context, field: RuntimeAbiType) -> BasicTypeEnum<'_> {
+pub(super) fn panic_field_type(context: &Context, field: RuntimeAbiType) -> BasicTypeEnum<'_> {
     match field {
         RuntimeAbiType::U32 => context.i32_type().into(),
         RuntimeAbiType::U64 | RuntimeAbiType::Usize => context.i64_type().into(),
@@ -398,57 +398,6 @@ pub(crate) fn identity_value(
         .const_array(&bytes.map(|byte| context.i8_type().const_int(u64::from(byte), false)))
 }
 
-pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
-    context.struct_type(
-        &std::array::from_fn::<_, 9, _>(|index| {
-            panic_field_type(context, NATIVE_PANIC_REPORT_FIELDS[index])
-        }),
-        false,
-    )
-}
-
-pub(crate) fn source_anchor_value(
-    context: &Context,
-    source: bray_runtime_abi::NativeSourceAnchor,
-) -> StructValue<'_> {
-    let namespace = source.namespace();
-
-    let [word0, word1, word2, word3] = [0, 8, 16, 24].map(|offset| {
-        let bytes = namespace[offset..offset + 8]
-            .try_into()
-            .expect("source namespace has four words");
-
-        context
-            .i64_type()
-            .const_int(u64::from_le_bytes(bytes), false)
-            .into()
-    });
-
-    source_anchor_type(context).const_named_struct(&[
-        context
-            .i32_type()
-            .const_int(u64::from(source.is_available()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.source()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.start()), false)
-            .into(),
-        context
-            .i32_type()
-            .const_int(u64::from(source.end()), false)
-            .into(),
-        context.i64_type().const_int(source.version(), false).into(),
-        word0,
-        word1,
-        word2,
-        word3,
-    ])
-}
-
 pub(crate) fn pointer_integer_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
@@ -511,7 +460,9 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::U32 => context.i32_type().into(),
         RuntimeAbiType::U64 => context.i64_type().into(),
         RuntimeAbiType::Usize => usize.into(),
-        RuntimeAbiType::Pointer => context.ptr_type(AddressSpace::default()).into(),
+        RuntimeAbiType::Pointer | RuntimeAbiType::PanicReportPointer => {
+            context.ptr_type(AddressSpace::default()).into()
+        }
         RuntimeAbiType::Configuration => runtime_configuration_type(context, target).into(),
         RuntimeAbiType::RootStart => root_start_type(context).into(),
         RuntimeAbiType::RunOutcome => run_outcome_type(context, target).into(),
@@ -601,7 +552,7 @@ mod tests {
             assert_eq!(data.get_store_size(&report), 136);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
-            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 64), (18, 128)] {
+            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 60), (11, 64), (19, 128)] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
         }

@@ -21,7 +21,7 @@ pub(in crate::lowering) enum CleanupDestination {
 enum CleanupEntry {
     Ordinary,
     Panic(MirOperand),
-    Cancellation,
+    Cancellation(MirOperand),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -137,13 +137,8 @@ impl Lowerer<'_> {
         scope_depth: usize,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let destination = match (catch, self.input.unit_kind().protected_frame()) {
-            (Some(catch), _) => CleanupDestination::Goto(catch),
-            (None, Some(_)) => CleanupDestination::Goto(
-                self.terminal_state_block(source, TerminalState::Panicked(report_type))?,
-            ),
-            (None, None) => CleanupDestination::PropagatePanic,
-        };
+        let destination =
+            catch.map_or(CleanupDestination::PropagatePanic, CleanupDestination::Goto);
 
         self.finish_cleanup(
             current,
@@ -161,20 +156,23 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
+        report: Option<MirOperand>,
     ) -> Result<(), LoweringError> {
-        let destination = if self.input.unit_kind().protected_frame().is_some() {
-            CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
-        } else {
-            CleanupDestination::PropagateCancellation
-        };
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
+
+        let report = report.unwrap_or(MirOperand::Immediate {
+            value: bray_ir::MirImmediateValue::EmptyPanicReport,
+            ty: report_type,
+        });
 
         self.finish_cleanup(
             current,
             source,
             0,
-            CleanupEntry::Cancellation,
-            destination,
-            None,
+            CleanupEntry::Cancellation(Self::retained_operand(&report)),
+            CleanupDestination::PropagateCancellation,
+            Some((report, report_type)),
             exit,
         )
     }
@@ -211,7 +209,18 @@ impl Lowerer<'_> {
 
                 MirTaskTerminalState::Panicked(MirOperand::Value(report))
             }
-            TerminalState::Cancelled => MirTaskTerminalState::Cancelled,
+            TerminalState::Cancelled => {
+                let report_type =
+                    self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
+
+                let report = self.builder.push_block_parameter(
+                    block,
+                    Self::retained_source(source),
+                    report_type,
+                )?;
+
+                MirTaskTerminalState::Cancelled(MirOperand::Value(report))
+            }
         };
 
         self.push_operation(
@@ -249,12 +258,28 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
+        if scope_depth < self.active_scopes.len()
+            && self.active_scopes.last().is_some_and(|scope| {
+                self.scope_cleanup_status(*scope, exit) == ScopeExitCleanupStatus::Unreachable
+            })
+        {
+            // Constant propagation can leave a syntactic branch with no checked exit.
+            // Consume that reachability result before requesting its cleanup plan.
+            self.set_terminator(
+                current,
+                Self::retained_source(source),
+                MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(());
+        }
+
         let plans = self.cleanup_plans(scope_depth, exit);
 
         let input_exit = match &entry {
             CleanupEntry::Ordinary => InputExit::Scope(scope_depth),
             CleanupEntry::Panic(_) => self.abnormal_input_exit(destination),
-            CleanupEntry::Cancellation => InputExit::All,
+            CleanupEntry::Cancellation(_) => InputExit::All,
         };
 
         if self.input_cleanup(input_exit).is_empty() && plans.iter().all(|plan| !plan.has_cleanup())
@@ -265,21 +290,21 @@ impl Lowerer<'_> {
         match entry {
             CleanupEntry::Panic(report) => {
                 return self.finish_abnormal_cleanup(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    MirCleanupPhase::TaskCancellation,
                     current,
                     source,
-                    Some(report),
+                    crate::cleanup_outcome::CleanupFailure::Panic(report),
                     destination,
                     &plans,
                     None,
                 );
             }
-            CleanupEntry::Cancellation => {
+            CleanupEntry::Cancellation(report) => {
                 return self.finish_abnormal_cleanup(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    MirCleanupPhase::TaskCancellation,
                     current,
                     source,
-                    None,
+                    crate::cleanup_outcome::CleanupFailure::Cancellation(Some(report)),
                     destination,
                     &plans,
                     None,
@@ -330,8 +355,12 @@ impl Lowerer<'_> {
         >,
     ) -> Result<MirBlockId, LoweringError> {
         let mut temporaries = temporaries.iter().rev().peekable();
+        let previous_occurrence = self.cleanup_occurrence;
 
         for plan in plans {
+            self.cleanup_occurrence =
+                Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()));
+
             self.cleanup_failure_targets = failures.get(&plan.scope()).cloned();
 
             if phase == MirCleanupPhase::LifecycleResolution
@@ -369,6 +398,7 @@ impl Lowerer<'_> {
 
         block = self.push_input_cleanup(block, phase, &mut temporaries, 0)?;
         self.cleanup_failure_targets = None;
+        self.cleanup_occurrence = previous_occurrence;
 
         Ok(block)
     }
@@ -391,7 +421,7 @@ impl Lowerer<'_> {
         clippy::too_many_arguments,
         reason = "cleanup construction requires the resolved place and its checked context"
     )]
-    pub(super) fn push_cleanup_place(
+    pub(in crate::lowering) fn push_cleanup_place(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
@@ -401,6 +431,22 @@ impl Lowerer<'_> {
         completed: bool,
         value: Option<(bray_ir::MirValueId, TypeId)>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        if phase == MirCleanupPhase::LifecycleResolution
+            && self.receiver_cleanup.as_ref().is_some_and(|receiver| {
+                receiver.mode.is_none()
+                    && self.storages.get(&receiver.identity) == Some(&place.storage())
+            })
+        {
+            assert!(
+                value.is_none(),
+                "implicit receiver cleanup has no pending expression result"
+            );
+
+            return self
+                .defer_receiver_cleanup(block, source, access, place, completed)
+                .map(|block| (block, None));
+        }
+
         let cleanup_source = self.cleanup_source(access);
         let state = self.initialization_guards.get(&place.storage());
         let guard = state.map(|state| Self::retained_place(&state.guard));
@@ -489,13 +535,8 @@ impl Lowerer<'_> {
             |lowerer, block, place, value| {
                 let owner = place.ty();
 
-                lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
-
-                let block = if let Some(outcome) = &lowerer.cleanup_outcome {
-                    outcome.check(&mut lowerer.builder, block, source)?
-                } else {
-                    lowerer.check_ordinary_cleanup(block, source, release.map(|_| owner), false)?
-                };
+                let block =
+                    lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
 
                 if release.is_some() {
                     lowerer.discharge_outgoing_owner(block, source, owner)?;
@@ -582,34 +623,6 @@ impl Lowerer<'_> {
         body(self, block, place, value)
     }
 
-    fn push_cleanup_action(
-        &mut self,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        phase: MirCleanupPhase,
-        place: bray_ir::MirPlace,
-        release: Option<bray_bound_tree::StorageProtocolCall>,
-        completed: bool,
-    ) -> Result<(), LoweringError> {
-        if let Some(release) = release {
-            self.set_storage_initialized(block, source, &place, false)?;
-            self.push_storage_protocol_call(block, source, &place, release, true)?;
-        } else {
-            self.push_operation(
-                block,
-                Self::retained_source(source),
-                if completed && phase == MirCleanupPhase::LifecycleResolution {
-                    MirOperationKind::Destroy(place)
-                } else {
-                    MirOperationKind::Cleanup { phase, place }
-                },
-                None,
-            )?;
-        }
-
-        Ok(())
-    }
-
     pub(in crate::lowering) fn cleanup_parameter(
         &mut self,
         block: MirBlockId,
@@ -637,7 +650,7 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary => {
                 self.set_destination(current, source, destination, value.map(|(value, _)| value))
             }
-            entry @ (CleanupEntry::Panic(_) | CleanupEntry::Cancellation) => {
+            entry @ (CleanupEntry::Panic(_) | CleanupEntry::Cancellation(_)) => {
                 let cancellation = self.builder.push_block(
                     Self::retained_source(source),
                     MirBlockKind::CleanupBroadcast,
@@ -679,7 +692,7 @@ impl Lowerer<'_> {
                         report,
                         cleanup: edge,
                     },
-                    CleanupEntry::Cancellation => {
+                    CleanupEntry::Cancellation(_) => {
                         MirTerminatorKind::CancelCurrentRun { cleanup: edge }
                     }
                     CleanupEntry::Ordinary => unreachable!(),
@@ -699,6 +712,28 @@ impl Lowerer<'_> {
         destination: CleanupDestination,
         value: Option<MirOperand>,
     ) -> Result<(), LoweringError> {
+        let destination = if self.input.unit_kind().protected_frame().is_some()
+            && self.builder.block_kind(block) != MirBlockKind::CleanupBroadcast
+        {
+            match destination {
+                CleanupDestination::PropagatePanic => {
+                    let report = self.representation_type(
+                        bray_compiler_known::RepresentationRole::PanicReport,
+                    )?;
+
+                    CleanupDestination::Goto(
+                        self.terminal_state_block(source, TerminalState::Panicked(report))?,
+                    )
+                }
+                CleanupDestination::PropagateCancellation => CleanupDestination::Goto(
+                    self.terminal_state_block(source, TerminalState::Cancelled)?,
+                ),
+                CleanupDestination::Goto(_) | CleanupDestination::Return => destination,
+            }
+        } else {
+            destination
+        };
+
         let terminator = match destination {
             CleanupDestination::Goto(target) => {
                 MirTerminatorKind::Goto(MirEdge::new(target, value))
@@ -713,7 +748,8 @@ impl Lowerer<'_> {
                 runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
             CleanupDestination::PropagateCancellation => MirTerminatorKind::PropagateCancellation {
-                runtime: self.runtime_reference(RuntimeAbiRole::CurrentRunCancellationPropagation),
+                report: value.expect("cancelled cleanup must retain its report"),
+                runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
         };
 

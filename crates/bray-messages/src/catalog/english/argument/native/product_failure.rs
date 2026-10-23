@@ -52,8 +52,6 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenInvalidInstance(_)
         | Kind::CodegenInvalidUnit(_)
         | Kind::CodegenUnitMismatch(_)
-        | Kind::CodegenMirCapacityExceeded
-        | Kind::CodegenMissingCallableImplementation { .. }
         | Kind::CodegenMissingRuntimeRole(_)
         | Kind::CodegenOpenConstantTerm(_)
         | Kind::CodegenInvalidArrayLength(_)
@@ -63,7 +61,8 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenInvalidAbiMapping(_)
         | Kind::CodegenMissingHelperInstance(_)
         | Kind::CodegenInvalidSymbolName => true,
-        Kind::CodegenBackendArtifactRead(_)
+        Kind::CodegenMirCapacityExceeded
+        | Kind::CodegenBackendArtifactRead(_)
         | Kind::CodegenBackendNotSelected
         | Kind::MissingProductRoot
         | Kind::InvalidEntryResult

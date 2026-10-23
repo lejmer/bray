@@ -263,7 +263,8 @@ where
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
             None,
         ),
-        bray_bound_tree::BoundExecutionSite::Node(_) => {
+        bray_bound_tree::BoundExecutionSite::Node(_)
+        | bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
             panic!("scoped contract requires its enter or exit occurrence");
         }
     };

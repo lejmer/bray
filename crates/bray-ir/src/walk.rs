@@ -118,11 +118,27 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
 }
 
 impl MirOperationKind {
+    /// Visits callback entries retained by this logical operation.
+    pub fn for_each_retained_block(&self, mut visit: impl FnMut(MirBlockId)) {
+        if let Some(retention) = self
+            .cleanup_collection()
+            .and_then(|collection| collection.retention())
+        {
+            visit(retention.broadcast());
+        }
+    }
+
     /// Visits evaluated operands, including storage selectors, in execution order.
     ///
     /// Addressed storage is not a value operand. Operations such as frame moves also have
     /// explicit storage effects that callers must handle independently.
     pub fn for_each_operand(&self, mut visit: impl FnMut(&MirOperand)) {
+        if let Some(collection) = self.cleanup_collection() {
+            for place in collection.places() {
+                visit_place_operands(place, &mut visit);
+            }
+        }
+
         match self {
             Self::Store {
                 destination, value, ..
@@ -131,9 +147,17 @@ impl MirOperationKind {
                 visit_operand(value, &mut visit);
             }
             Self::Borrow { place, .. }
-            | Self::Finalize(place)
-            | Self::Destroy(place)
+            | Self::Quiesce { place, .. }
             | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
+            Self::Destroy {
+                place, abandoned, ..
+            } => {
+                visit_place_operands(place, &mut visit);
+
+                if let Some(abandoned) = abandoned {
+                    visit_operand(abandoned, &mut visit);
+                }
+            }
             Self::Unary { operand, .. }
             | Self::Convert { operand, .. }
             | Self::NumericConversion { operand, .. } => visit_operand(operand, &mut visit),
@@ -154,19 +178,30 @@ impl MirOperationKind {
             Self::NullableQuery(query) => visit_operand(query.operand(), &mut visit),
             Self::PatternProjection { subject, .. } => visit_operand(subject, &mut visit),
             Self::Generator(operation) => match operation {
+                MirGeneratorOperation::Destroy {
+                    destination,
+                    abandoned,
+                    ..
+                } => {
+                    visit_place_operands(destination, &mut visit);
+                    visit_operand(abandoned, &mut visit);
+                }
                 MirGeneratorOperation::Push { destination, value } => {
                     visit_place_operands(destination, &mut visit);
                     visit_operand(value, &mut visit);
                 }
                 MirGeneratorOperation::Begin { destination, .. }
                 | MirGeneratorOperation::Finish { destination }
-                | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-                | MirGeneratorOperation::Destroy { destination, .. } => {
+                | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
                     visit_place_operands(destination, &mut visit);
                 }
             },
             Self::Call(call) => visit_call_operands(call, &mut visit),
             Self::Memory(operation) => {
+                if let Some(abandoned) = operation.abandoned_cleanup() {
+                    visit_operand(abandoned, &mut visit);
+                }
+
                 for operand in operation.operands() {
                     visit_operand(operand, &mut visit);
                 }
@@ -237,24 +272,37 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         }
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => visit_operand(frame, visit),
         MirAsyncOperation::StartTask { value, .. } => visit_operand(value, visit),
+        MirAsyncOperation::DestroyTerminalTask { task } => visit_operand(task, visit),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => visit_operand(task, visit),
+        | MirAsyncOperation::ResolveTask { task, .. } => visit_place_operands(task, visit),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 visit_operand(value, visit);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            visit_operand(incident, visit)
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, report, ..
+        } => {
+            visit_place_operands(incident, visit);
+            visit_place_operands(report, visit);
         }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
         | MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
+            visit_operand(frame, visit);
+        }
+    }
+}
+
+impl MirPlace {
+    /// Visits operands used to select this place's projections, in evaluation order.
+    pub fn for_each_operand(&self, mut visit: impl FnMut(&MirOperand)) {
+        visit_place_operands(self, &mut visit);
     }
 }
 
@@ -279,9 +327,9 @@ impl MirTerminatorKind {
                 }
             }
             Self::ForwardRunResult { result, .. } => visit_operand(result, &mut visit),
-            Self::Panic { report, .. } | Self::PropagatePanic { report, .. } => {
-                visit_operand(report, &mut visit)
-            }
+            Self::Panic { report, .. }
+            | Self::PropagatePanic { report, .. }
+            | Self::PropagateCancellation { report, .. } => visit_operand(report, &mut visit),
             Self::Iterate { cursor, .. } | Self::RangeIterate { cursor, .. } => {
                 visit_place_operands(cursor, &mut visit)
             }
@@ -290,7 +338,6 @@ impl MirTerminatorKind {
             | Self::CheckCallOutcome { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
-            | Self::PropagateCancellation { .. }
             | Self::CancelCurrentRun { .. } => {}
         }
     }
@@ -327,19 +374,36 @@ fn visit_place_operands(place: &MirPlace, visit: &mut impl FnMut(&MirOperand)) {
     }
 }
 
-pub(crate) fn for_each_operation_storage(
+/// Visits every storage retained by an operation, including destinations and projection operands.
+pub fn for_each_operation_storage(
     operation: &MirOperationKind,
     mut visit: impl FnMut(MirStorageId),
 ) {
     operation.for_each_operand(|operand| visit_operand_storage(operand, &mut visit));
+
+    if let Some(collection) = operation.cleanup_collection() {
+        for place in collection.places() {
+            visit(place.storage());
+        }
+
+        if let Some(retention) = collection.retention() {
+            for storage in retention.initialized_storages() {
+                visit(*storage);
+            }
+        }
+    }
 
     match operation {
         MirOperationKind::Store { destination, .. }
         | MirOperationKind::Borrow {
             place: destination, ..
         }
-        | MirOperationKind::Finalize(destination)
-        | MirOperationKind::Destroy(destination)
+        | MirOperationKind::Quiesce {
+            place: destination, ..
+        }
+        | MirOperationKind::Destroy {
+            place: destination, ..
+        }
         | MirOperationKind::Cleanup {
             place: destination, ..
         }
@@ -362,10 +426,32 @@ pub(crate) fn for_each_operation_storage(
             visit(destination.storage());
         }
         MirOperationKind::Async(MirAsyncOperation::ResumeFrame { storage, .. }) => visit(*storage),
+        MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame { composition, .. }) => {
+            if let Some(completion) = composition.completion() {
+                visit(completion);
+            }
+        }
+        MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion {
+            completion, ..
+        }) => {
+            if let Some(completion) = completion {
+                visit(*completion);
+            }
+        }
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            report,
+            ..
+        }) => {
+            visit_place_storage(incident, &mut visit);
+            visit_place_storage(report, &mut visit);
+        }
         MirOperationKind::Async(
-            MirAsyncOperation::ComposeAwaitedFrame { completion, .. }
-            | MirAsyncOperation::CommitAwaitedCompletion { completion, .. },
-        ) => visit(*completion),
+            MirAsyncOperation::ResolveTask { task: incident, .. }
+            | MirAsyncOperation::RequestTaskCancellation { task: incident, .. },
+        ) => {
+            visit_place_storage(incident, &mut visit);
+        }
         MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Convert { .. }
@@ -387,7 +473,8 @@ pub(crate) fn for_each_operation_storage(
     }
 }
 
-pub(crate) fn for_each_terminator_storage(
+/// Visits every storage retained by a terminator and its outgoing edge arguments.
+pub fn for_each_terminator_storage(
     terminator: &MirTerminatorKind,
     mut visit: impl FnMut(MirStorageId),
 ) {
@@ -446,7 +533,7 @@ pub(crate) fn for_each_terminator_storage(
         } => {
             visit_edge_storage(completed, &mut visit);
             visit_place_storage(panicked.report(), &mut visit);
-            visit_edge_storage(cancelled, &mut visit);
+            visit_place_storage(cancelled.report(), &mut visit);
         }
         MirTerminatorKind::BeginCleanup(cleanup)
         | MirTerminatorKind::ContinueCleanup(cleanup)
@@ -510,9 +597,9 @@ mod tests {
     }
 
     #[test]
-    fn call_panic_report_storage_includes_projection_selectors() {
+    fn call_failure_report_storage_includes_projection_selectors() {
         use crate::{
-            MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirPlace, MirProjection,
+            MirBlockId, MirCallFailureEdge, MirEdge, MirOperand, MirPlace, MirProjection,
             MirProjectionKind, MirStorageId, MirTerminatorKind, MirUnitId,
         };
 
@@ -533,15 +620,15 @@ mod tests {
 
         let terminator = MirTerminatorKind::CheckCallOutcome {
             completed: MirEdge::new(MirBlockId::from_slot(unit, 1), []),
-            panicked: MirCallPanicEdge::new(MirBlockId::from_slot(unit, 2), report),
-            cancelled: MirEdge::new(MirBlockId::from_slot(unit, 3), []),
+            panicked: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 2), report.clone()),
+            cancelled: MirCallFailureEdge::new(MirBlockId::from_slot(unit, 3), report),
         };
 
         let mut storages = Vec::new();
 
         super::for_each_terminator_storage(&terminator, |storage| storages.push(storage));
 
-        assert_eq!(storages, [root, selector]);
+        assert_eq!(storages, [root, selector, root, selector]);
     }
 
     #[test]

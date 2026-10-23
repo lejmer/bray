@@ -107,7 +107,20 @@ impl SemanticValueStore {
                         callable.dependency_contracts(),
                     )
                     .with_variadic(callable.is_variadic())
-                    .with_phase_behaviors(callable.phase_behaviors().clone()),
+                    .with_phase_behaviors(
+                        callable.phase_behaviors().clone().with_receiver_cleanup(
+                            callable
+                                .phase_behaviors()
+                                .deferred_execution()
+                                .unwrap_or_else(|| callable.phase_behaviors().invocation())
+                                .receiver_cleanup()
+                                .iter()
+                                .map(|ty| {
+                                    self.substitute_contextual_self(*ty, context, replacement)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ),
+                    ),
                 )
             }
         };

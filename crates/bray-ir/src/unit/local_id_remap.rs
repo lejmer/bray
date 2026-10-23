@@ -13,7 +13,15 @@ pub(crate) trait MirLocalIdMapping {
     fn storage(&self, old: MirStorageId) -> MirStorageId;
     fn value(&self, old: MirValueId) -> MirValueId;
 
+    fn storage_place(&self, _old: MirStorageId) -> Option<&crate::MirPlace> {
+        None
+    }
+
     fn ty(&self, old: TypeId) -> TypeId {
+        old
+    }
+
+    fn callable(&self, old: crate::MirCallableReference) -> crate::MirCallableReference {
         old
     }
 
@@ -36,6 +44,15 @@ pub(crate) fn remap_operand_ids(operand: &mut MirOperand, mappings: &impl MirLoc
 }
 
 pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl MirLocalIdMapping) {
+    if let Some(Some(collection)) = operation.cleanup_collection_slot() {
+        collection.state.remap_local_ids(mappings);
+        collection.report.remap_local_ids(mappings);
+
+        if let Some(retention) = &mut collection.retention {
+            Arc::make_mut(retention).remap_local_ids(mappings);
+        }
+    }
+
     match operation {
         MirOperationKind::Store {
             destination, value, ..
@@ -44,9 +61,17 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             value.remap_local_ids(mappings);
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => place.remap_local_ids(mappings),
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
+            place.remap_local_ids(mappings);
+
+            if let Some(abandoned) = abandoned {
+                abandoned.remap_local_ids(mappings);
+            }
+        }
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
@@ -73,6 +98,10 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::Generator(operation) => remap_generator_operation(operation, mappings),
         MirOperationKind::Call(call) => call.remap_local_ids(mappings),
         MirOperationKind::Memory(operation) => {
+            if let Some(abandoned) = &mut operation.abandoned_cleanup {
+                abandoned.remap_local_ids(mappings);
+            }
+
             for operand in Arc::make_mut(&mut operation.operands) {
                 operand.remap_local_ids(mappings);
             }
@@ -203,7 +232,8 @@ pub(super) fn remap_terminator(
             remap_edge(completed, mappings);
             panicked.target = mappings.block(panicked.target);
             panicked.report.remap_local_ids(mappings);
-            remap_edge(cancelled, mappings);
+            cancelled.target = mappings.block(cancelled.target);
+            cancelled.report.remap_local_ids(mappings);
         }
         MirTerminatorKind::BeginCleanup(cleanup)
         | MirTerminatorKind::ContinueCleanup(cleanup)
@@ -214,10 +244,11 @@ pub(super) fn remap_terminator(
             report.remap_local_ids(mappings);
             remap_cleanup_edge(cleanup, mappings);
         }
-        MirTerminatorKind::PropagatePanic { report, .. } => {
+        MirTerminatorKind::PropagatePanic { report, .. }
+        | MirTerminatorKind::PropagateCancellation { report, .. } => {
             report.remap_local_ids(mappings);
         }
-        MirTerminatorKind::Unreachable | MirTerminatorKind::PropagateCancellation { .. } => {}
+        MirTerminatorKind::Unreachable => {}
     }
 }
 
@@ -225,15 +256,29 @@ fn remap_generator_operation(
     operation: &mut MirGeneratorOperation,
     mappings: &impl MirLocalIdMapping,
 ) {
+    if let MirGeneratorOperation::CleanupBroadcast { collection, .. }
+    | MirGeneratorOperation::Destroy { collection, .. } = operation
+    {
+        collection.state.remap_local_ids(mappings);
+        collection.report.remap_local_ids(mappings);
+    }
+
     match operation {
+        MirGeneratorOperation::Destroy {
+            destination,
+            abandoned,
+            ..
+        } => {
+            destination.remap_local_ids(mappings);
+            abandoned.remap_local_ids(mappings);
+        }
         MirGeneratorOperation::Push { destination, value } => {
             destination.remap_local_ids(mappings);
             value.remap_local_ids(mappings);
         }
         MirGeneratorOperation::Begin { destination, .. }
         | MirGeneratorOperation::Finish { destination }
-        | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-        | MirGeneratorOperation::Destroy { destination, .. } => {
+        | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
             destination.remap_local_ids(mappings);
         }
     }
@@ -268,31 +313,38 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         }
         MirAsyncOperation::ResumeFrame { storage, .. } => *storage = mappings.storage(*storage),
         MirAsyncOperation::ComposeAwaitedFrame {
-            frame, completion, ..
+            frame, composition, ..
         } => {
             frame.remap_local_ids(mappings);
-            *completion = mappings.storage(*completion);
+
+            if let crate::MirFrameComposition::Completion(storage) = composition {
+                *storage = mappings.storage(*storage);
+            }
         }
         MirAsyncOperation::CommitAwaitedCompletion { completion, .. } => {
-            *completion = mappings.storage(*completion);
+            *completion = completion.map(|storage| mappings.storage(storage));
         }
         MirAsyncOperation::StartTask { value, .. } => value.remap_local_ids(mappings),
+        MirAsyncOperation::DestroyTerminalTask { task } => task.remap_local_ids(mappings),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => task.remap_local_ids(mappings),
+        | MirAsyncOperation::ResolveTask { task, .. } => task.remap_local_ids(mappings),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 value.remap_local_ids(mappings);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            incident, report, ..
+        } => {
             incident.remap_local_ids(mappings);
+            report.remap_local_ids(mappings);
         }
         MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => frame.remap_local_ids(mappings),
     }
 }
 

@@ -122,13 +122,15 @@ impl SemanticValueStore {
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                    DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                     DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
                         self.substitute_type_data(*ty, substitution)?,
                     ),
                     DependencyStorageEffect::Direct { subject, kind } => {
                         DependencyStorageEffect::Direct {
                             subject: self.substitute_dependency_subject(subject, substitution)?,
-                            kind: *kind,
+                            kind: kind
+                                .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
@@ -143,7 +145,8 @@ impl SemanticValueStore {
                                 self.substitute_dependency_projection(projection, substitution)
                             })
                             .collect::<Result<_, SemanticValueStoreError>>()?,
-                        kind: *kind,
+                        kind: kind
+                            .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
                     },
                 })
             })

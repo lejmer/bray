@@ -26,15 +26,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             ))
         }
         CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
-        CodegenPreparationError::MissingCallableImplementation {
-            callable, source, ..
-        } => {
-            // The diagnostic owns the failure-only declaration identity independently of the error.
-            Kind::CodegenMissingCallableImplementation {
-                callable: callable.clone(),
-                source: *source,
-            }
-        }
         CodegenPreparationError::InvalidInstance(cause) => {
             Kind::CodegenInvalidInstance(failure_detail(codegen_instance_failure(*cause), []))
         }
@@ -86,7 +77,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::UnsizedTypeByValue(ty) => Kind::CodegenUnsizedTypeByValue(
             identity_failure_detail("codegen_unsized_type_by_value", "semantic_type", ty),
         ),
-        CodegenPreparationError::InvalidAbiMapping => Kind::CodegenInvalidAbiMapping(None),
         CodegenPreparationError::UnsupportedType(ty) => Kind::CodegenUnsupportedType(
             identity_failure_detail("codegen_unsupported_type", "semantic_type", ty),
         ),

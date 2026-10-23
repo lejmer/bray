@@ -182,3 +182,105 @@ pub(crate) fn storage_descriptor<'context>(
         .get_global(mapping.name().as_str())
         .expect("concrete frame backing descriptor must have been declared")
 }
+
+/// Native callback outcomes provide the storage for their own cleanup collection.
+/// Their initialized empty report remains empty when no cleanup incident occurs.
+pub(crate) fn begin_collection<'context>(
+    module: &Module<'context>,
+    builder: &inkwell::builder::Builder<'context>,
+    outcome: inkwell::values::PointerValue<'context>,
+    types: &super::LlvmTypeMappings<'context, '_>,
+) -> Result<[inkwell::values::PointerValue<'context>; 2], bray_codegen::CodegenFailure> {
+    let shield = crate::native::declare_runtime_function(
+        module,
+        types.context(),
+        types.target(),
+        bray_runtime_interface::RuntimeAbiRole::CleanupShieldEnter,
+    )?;
+
+    builder
+        .build_call(shield, &[], "")
+        .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+    let ty = crate::native::run_outcome_type(types.context(), types.target());
+
+    let state = builder
+        .build_struct_gep(ty, outcome, 0, "cleanup.state")
+        .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+    let report = builder
+        .build_struct_gep(ty, outcome, 2, "cleanup.report")
+        .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+    Ok([state, report])
+}
+
+/// Converts the owning collection's internal state to its native completion state.
+/// The report stays in place, including a completed headless incident chain.
+pub(crate) fn publish_collection<'context>(
+    module: &Module<'context>,
+    builder: &inkwell::builder::Builder<'context>,
+    state: inkwell::values::PointerValue<'context>,
+    types: &super::LlvmTypeMappings<'context, '_>,
+) -> Result<(), bray_codegen::CodegenFailure> {
+    let context = types.context();
+
+    let shield = crate::native::declare_runtime_function(
+        module,
+        context,
+        types.target(),
+        bray_runtime_interface::RuntimeAbiRole::CleanupShieldLeave,
+    )?;
+
+    builder
+        .build_call(shield, &[], "")
+        .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+    let ty = context.i32_type();
+
+    let current = builder
+        .build_load(ty, state, "cleanup.collected")
+        .map_err(bray_codegen::CodegenFailure::backend_library)?
+        .into_int_value();
+
+    let mut native = ty.const_int(
+        u64::from(bray_runtime_abi::NativeRunState::COMPLETED.code()),
+        false,
+    );
+
+    for (collected, terminal) in [
+        (
+            bray_ir::MirCleanupState::Cancelled,
+            bray_runtime_abi::NativeRunState::CANCELLED,
+        ),
+        (
+            bray_ir::MirCleanupState::Panicked,
+            bray_runtime_abi::NativeRunState::PANICKED,
+        ),
+    ] {
+        let matches = builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                current,
+                ty.const_int(u64::from(collected.code()), false),
+                "cleanup.terminal",
+            )
+            .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+        native = builder
+            .build_select(
+                matches,
+                ty.const_int(u64::from(terminal.code()), false),
+                native,
+                "cleanup.native.state",
+            )
+            .map_err(bray_codegen::CodegenFailure::backend_library)?
+            .into_int_value();
+    }
+
+    builder
+        .build_store(state, native)
+        .map_err(bray_codegen::CodegenFailure::backend_library)?;
+
+    Ok(())
+}

@@ -95,9 +95,10 @@ impl StorageOperationDecision {
     }
 }
 
-/// Storage and borrow state immediately before one direct-await suspension.
+/// Reachability, storage and borrow state immediately before a suspension.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageSuspensionState {
+    reachable: bool,
     occurrence: crate::BoundExecutionSite,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
@@ -117,6 +118,7 @@ impl StorageSuspensionState {
         cleanup_retention: impl IntoIterator<Item = crate::BoundDependencySubject>,
     ) -> Self {
         Self {
+            reachable: true,
             occurrence: occurrence.into(),
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
@@ -126,11 +128,17 @@ impl StorageSuspensionState {
         }
     }
 
-    /// Returns the direct-await expression.
-    pub const fn expression(&self) -> BoundExpressionId {
-        self.occurrence
-            .expression()
-            .expect("suspension has an expression owner")
+    /// Records that correlated control flow cannot reach this suspension.
+    pub fn unreachable(occurrence: impl Into<crate::BoundExecutionSite>) -> Self {
+        Self {
+            reachable: false,
+            ..Self::new(occurrence, [], [], [], [], [])
+        }
+    }
+
+    /// Whether correlated control flow can reach this suspension.
+    pub const fn is_reachable(&self) -> bool {
+        self.reachable
     }
 
     /// Returns the exact suspension phase.
@@ -298,6 +306,7 @@ pub struct StorageFlow {
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     assignment_targets: std::collections::BTreeMap<BoundExpressionId, crate::StoragePath>,
     dependencies: bray_symbols::DependencyContractTemplateData,
+    receiver_cleanup: Arc<[bray_symbols::TypeId]>,
     cleanup_mutations:
         std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
@@ -335,7 +344,7 @@ impl StorageFlow {
                     .borrow()
                     .is_some_and(|borrow| borrow.unit() != unit)
         }) || suspensions.iter().any(|suspension| {
-            suspension.expression().unit() != unit
+            suspension.occurrence().node().unit() != unit
                 || suspension
                     .live()
                     .iter()
@@ -408,6 +417,7 @@ impl StorageFlow {
             checked_memory_operations: Arc::from([]),
             assignment_targets: std::collections::BTreeMap::new(),
             dependencies: bray_symbols::DependencyContractTemplateData::new([]),
+            receiver_cleanup: Arc::from([]),
             cleanup_mutations: Default::default(),
             completions: Default::default(),
             replacements: Arc::from([]),
@@ -430,9 +440,12 @@ impl StorageFlow {
         &self,
         mutation: crate::StorageMutation,
     ) -> &crate::StorageInvalidation {
-        self.cleanup_mutations
-            .get(&mutation)
-            .expect("selected cleanup has a published mutation")
+        self.cleanup_mutations.get(&mutation).unwrap_or_else(|| {
+            panic!(
+                "selected cleanup {mutation:?} in unit {:?} has no published mutation",
+                self.unit
+            )
+        })
     }
 
     /// Publishes checked reference observations and retained origins at normal completion.
@@ -452,6 +465,21 @@ impl StorageFlow {
         mutation: crate::StorageMutation,
     ) -> Option<&crate::StorageCompletion> {
         self.completions.get(&mutation)
+    }
+
+    /// Publishes represented owners that may remain in a consuming receiver's caller-owned tail.
+    pub fn with_receiver_cleanup(
+        mut self,
+        types: impl IntoIterator<Item = bray_symbols::TypeId>,
+    ) -> Self {
+        self.receiver_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns the checked residual receiver owners, including every reachable cleanup outcome.
+    pub fn receiver_cleanup(&self) -> &[bray_symbols::TypeId] {
+        &self.receiver_cleanup
     }
 
     /// Publishes carried dependencies, exact reference relations and possible mutations from this flow.
@@ -756,6 +784,29 @@ mod tests {
     }
 
     #[test]
+    fn unreachable_suspensions_remain_distinct_from_missing_results() {
+        let unit = BoundUnitId::new(4);
+        let unreachable = BoundExpressionId::from_slot(unit, 0);
+        let missing = BoundExpressionId::from_slot(unit, 1);
+
+        let flow = StorageFlow::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [StorageSuspensionState::unreachable(unreachable)],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap();
+
+        assert!(!flow.suspension(unreachable).unwrap().is_reachable());
+        assert!(flow.suspension(missing).is_none());
+        assert!(!flow.is_recovered());
+    }
+
+    #[test]
     fn recovered_flow_retains_requirements_without_establishing_authority() {
         use bray_symbols::{
             DependencyBorrowRelation, DependencyContractTemplateData, DependencyReferenceKind,
@@ -798,7 +849,10 @@ mod tests {
 
         assert_eq!(
             flow.dependencies().effects(),
-            &[DependencyStorageEffect::Unknown]
+            &[
+                DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Escape
+            ]
         );
     }
 

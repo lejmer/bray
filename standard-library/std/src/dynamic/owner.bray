@@ -58,8 +58,25 @@ struct DynamicLibrary
         open_system,
     }
 
+    /// Whether this owner has no unresolved resource obligation.
+    predicate complete(value: &DynamicLibrary) = !value.is_owned_value;
+
+    /// Reports whether the resource obligation has been resolved, including after an error.
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(result == DynamicLibrary.complete(value = &self))
+    {
+        return !self.is_owned_value;
+    }
+
     trusted finalize() -> Result<unit, std.ffi.ForeignError>
-        requires(blocking_execution())
+        requires(DynamicLibrary.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || DynamicLibrary.complete(value = &self))
+        when(DynamicLibrary.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted release_dynamic_library(&mut self);
     }
@@ -72,8 +89,14 @@ struct DynamicLibrary
         }
     }
 
-    consume mut func close() -> Result<unit, std.ffi.ForeignError>
-        requires(blocking_execution())
+    mut func close() -> Result<unit, std.ffi.ForeignError>
+        requires(DynamicLibrary.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || DynamicLibrary.complete(value = &self))
+        when(DynamicLibrary.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted release_dynamic_library(&mut self);
     }
@@ -98,14 +121,14 @@ struct DynamicLibrary
     /// returns no handle.
     trusted consume mut func into_handle() -> Result<u64, std.ffi.ForeignError>
     {
-        let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
-            self.handle_value,
-            owned = self.is_owned_value,
-        );
+        if !self.is_owned_value
+        {
+            return Error(internal std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.InvalidResource));
+        }
 
         self.is_owned_value = false;
 
-        return Ok(handle);
+        return Ok(self.handle_value);
     }
 }
 

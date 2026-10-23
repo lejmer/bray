@@ -7,11 +7,10 @@ use super::super::super::Compilation;
 use super::super::super::foreign::{AbiField, abi_type_matches};
 use crate::fact::{CancellationToken, FactQueryError};
 
-const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const PANIC_REPORT_FIELDS: [AbiField; 19] = {
+const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     let mut fields = [AbiField::RawPointer; NATIVE_PANIC_REPORT_FIELDS.len()];
     let mut index = 0;
 
@@ -20,7 +19,9 @@ const PANIC_REPORT_FIELDS: [AbiField; 19] = {
             RuntimeAbiType::U32 => U32,
             RuntimeAbiType::U64 => U64,
             RuntimeAbiType::Usize => USIZE,
-            RuntimeAbiType::Pointer => BYTE_POINTER,
+            // Source stores callback addresses as native words. Reconstructing a
+            // callable still requires the report's complete producer witness.
+            RuntimeAbiType::Pointer => USIZE,
             _ => panic!("panic report field has an unsupported native ABI type"),
         };
 
@@ -52,15 +53,14 @@ macro_rules! define_runtime_source_fields {
     };
     (@bootstrap () $native:tt) => { None };
     (@bootstrap ($name:literal) ([$($parameter:ident),*] -> $result:ident)) => {
-        Some((&[$(define_runtime_source_fields!(@parameter $parameter),)*], define_runtime_source_fields!(@result $result)))
+        Some((&[$(define_runtime_source_fields!(@field $parameter),)*], define_runtime_source_fields!(@result $result)))
     };
     (@field U8) => { AbiField::Scalar(RepresentationRole::ScalarU8) };
     (@field U32) => { U32 };
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };
     (@field Pointer) => { AbiField::RawPointer };
-    (@parameter PanicReport) => { AbiField::RawPointer };
-    (@parameter $kind:ident) => { define_runtime_source_fields!(@field $kind) };
+    (@field PanicReportPointer) => { AbiField::RawPointer };
     (@field PanicReport) => { PANIC_REPORT };
     (@result Void) => { None };
     (@result $kind:ident) => { Some(define_runtime_source_fields!(@field $kind)) };
@@ -385,6 +385,88 @@ mod tests {
     }
 
     #[test]
+    fn report_transfer_consumes_the_production_value_and_reporting_consumes_a_slot() {
+        for target in bray_target::NativeTarget::ALL {
+            let compilation =
+                crate::compilation::trusted_contracts::production_host_compilation_for_target(
+                    "module app;",
+                    crate::SelectedTarget::for_native(target),
+                );
+
+            let symbols = compilation.symbol_graph().unwrap();
+            let values = compilation.semantic_value_store().unwrap();
+
+            let definition = symbols
+                .structures()
+                .iter()
+                .find(|symbol| {
+                    symbols
+                        .member_name(symbol.id().into())
+                        .is_some_and(|name| name.as_str() == "PanicReportData")
+                })
+                .expect("the production runtime declares its report carrier");
+
+            let report = crate::compilation::substitution::named_type(
+                values,
+                bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
+            )
+            .unwrap();
+
+            let pointer = compilation
+                .available_compiler_known_symbols()
+                .unary_representation_type(values, RepresentationRole::RawPointer, report)
+                .unwrap()
+                .unwrap();
+
+            for (parameter, accepts_value) in [(report, true), (pointer, false)] {
+                let transfer = CodegenCallableSignature::new(
+                    [pointer, parameter].map(|ty| CodegenParameterMapping::direct(ty, None, [])),
+                    CodegenResultMapping::direct(report, None, []),
+                    CallableAbi::C,
+                    false,
+                );
+
+                let reporting = CodegenCallableSignature::new(
+                    [CodegenParameterMapping::direct(parameter, None, [])],
+                    CodegenResultMapping::direct(
+                        compilation
+                            .codegen_representation_type(RepresentationRole::ScalarU32)
+                            .unwrap(),
+                        None,
+                        [],
+                    ),
+                    CallableAbi::C,
+                    false,
+                );
+
+                assert_eq!(
+                    runtime_source_signature_matches(
+                        &compilation,
+                        RuntimeAbiRole::CleanupIncidentTransfer,
+                        &transfer,
+                        &CancellationToken::new()
+                    )
+                    .unwrap(),
+                    Some(accepts_value),
+                    "{target:?}"
+                );
+
+                assert_eq!(
+                    runtime_source_signature_matches(
+                        &compilation,
+                        RuntimeAbiRole::PanicReporting,
+                        &reporting,
+                        &CancellationToken::new()
+                    )
+                    .unwrap(),
+                    Some(!accepts_value),
+                    "{target:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn source_initialization_requires_native_abi_and_pointer_width_parameters() {
         let compilation = compilation("module app;\n");
 
@@ -471,7 +553,7 @@ mod tests {
             assert_eq!(
                 runtime_source_signature_matches(
                     &compilation,
-                    RuntimeAbiRole::ReportRecordPop,
+                    RuntimeAbiRole::ReportRecordAppend,
                     &signature,
                     &CancellationToken::new(),
                 )
@@ -498,6 +580,14 @@ mod tests {
                 "thread_storage_exit",
                 "attachment_destructor_address",
                 "finish_native_attachment",
+                "consume_report",
+                "consume_primary",
+                "retain_report",
+                "suppress_report",
+                "stored_primary",
+                "serialized_primary",
+                "panic_report_construction",
+                "allocation_failure",
             ] {
                 let checked = compilation
                     .lowered_unit(crate::test_support::source_function_body_key(

@@ -8,12 +8,44 @@ use crate::{Compilation, CompilationRequest};
 fn production_report_consumers_check_their_callback_protocol() {
     let compilation = production_host_compilation("module app;");
 
-    let sources = ["dispose", "begin", "number", "consume_segment", "install"].map(|name| {
-        source_function_body_key(&compilation, name)
-            .source()
-            .syntax()
-            .source_id()
-    });
+    let names = [
+        "dispose",
+        "retain",
+        "begin",
+        "number",
+        "consume_segment",
+        "install",
+        "compose",
+        "exchange_record",
+        "pop_record_value",
+        "retain_primary",
+        "accept_progress",
+        "transfer",
+        "retire",
+        "acquire",
+        "resolve",
+        "execute",
+        "invoke_retaining",
+        "retained_address",
+    ];
+
+    let symbols = compilation.symbol_graph().unwrap();
+
+    let sources = symbols
+        .functions()
+        .iter()
+        .filter_map(|function| {
+            let symbol = function.id().into();
+            let name = symbols.member_name(symbol)?;
+
+            names.contains(&name.as_str()).then(|| {
+                symbols
+                    .declaration_syntax_anchor(symbol)
+                    .expect("production source function has its declaration")
+                    .source_id()
+            })
+        })
+        .collect::<Vec<_>>();
 
     let diagnostics = compilation.check_diagnostics();
 
@@ -27,6 +59,60 @@ fn production_report_consumers_check_their_callback_protocol() {
         .collect::<Vec<_>>();
 
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
+    for (body, valid) in [
+        (
+            "let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            true,
+        ),
+        (
+            "other.message_length = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            true,
+        ),
+        (
+            "primary.release_message = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            false,
+        ),
+        (
+            "let mut forged = trusted bray.runtime.bootstrap.empty_primary(); forged.release_message = primary.release_message; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&forged);",
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+                pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+            )
+                requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+            {{
+                {body}
+            }}
+        "#,
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }
 
 #[test]
@@ -50,6 +136,71 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
         checked.diagnostics(),
         DiagnosticKind::CheckingTrustedObligationNotProven,
     );
+}
+
+#[test]
+fn retained_incident_values_require_the_exact_ownership_witness() {
+    for (body, valid) in [
+        (
+            "let value = trusted bray.runtime.bootstrap.report.incident.read_record(pointer);",
+            true,
+        ),
+        (
+            "let value = bray.runtime.bootstrap.ReportValue.Error(forged);",
+            false,
+        ),
+        (
+            r#"
+            let original = trusted bray.runtime.bootstrap.report.incident.read_record(pointer);
+            let value = match consume original
+            {
+                case Panic(primary) { yield bray.runtime.bootstrap.ReportValue.Panic(primary); }
+                case Error(record) { yield bray.runtime.bootstrap.ReportValue.Error(record); }
+            };
+            "#,
+            false,
+        ),
+    ] {
+        let compilation = production_host_compilation(&format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+            trusted func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.report.incident.Record>,
+                pos forged: bray.runtime.bootstrap.report.incident.Record,
+            ) -> u32
+                requires(
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.report.incident.owned(pointer = pointer),
+                )
+            {{
+                {body}
+                return trusted bray.runtime.bootstrap.consume_values(
+                    value,
+                    bray.runtime.bootstrap.empty_records(),
+                    0
+                );
+            }}
+            "#,
+        ));
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .expect("retained incident probe must lower");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{body}: {:?}",
+            checked.diagnostics(),
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }
 
 #[test]
@@ -683,7 +834,7 @@ fn production_report_pool_mutation_requires_protocol_authority() {
     for operation in [
         "let mut guard = trusted bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;",
         "let mut records: bray.runtime.bootstrap.ReportRecords = bray.runtime.bootstrap.empty_records(); let status = trusted bray.runtime.bootstrap.report_records_admit(1, std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records));",
-        "let mut records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let mut primary = trusted bray.runtime.bootstrap.empty_primary(); trusted bray.runtime.bootstrap.report_records_pop(std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records), std.memory.address_of_mut<bray.runtime.bootstrap.ReportPrimary>(&mut primary));",
+        "let records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let result = trusted bray.runtime.bootstrap.pop_record_value(records);",
     ] {
         let source = format!(
             r#"module app;
@@ -790,8 +941,6 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
         "take_attachment_exit",
         "select_attachment_slot",
         "finish_attachment",
-        "run_attachment_cleanup",
-        "complete_attachment_exit_locked",
     ] {
         let key = source_function_body_key(&compilation, name);
 
@@ -801,22 +950,6 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
 
         assert!(!checked.diagnostics().has_errors(), "{name}: {checked:#?}");
     }
-
-    let checked = compilation
-        .execution_properties(source_function_body_key(
-            &compilation,
-            "complete_attachment_exit_locked",
-        ))
-        .expect("production retirement must retain its execution proof");
-
-    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
-
-    assert!(
-        checked
-            .value()
-            .properties
-            .contains(&bray_symbols::ExecutionProperty::Total)
-    );
 }
 
 #[test]
@@ -1386,6 +1519,77 @@ fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
 }
 
 #[test]
+fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
+    for body in [
+        "return &mut values[index];",
+        "let mut result: (&mut u64)? = none; result = &mut values[index]; return result;",
+    ] {
+        let caller = format!(
+            r#"
+            module app;
+                        func production_probe(pos values: &mut [u64], pos index: usize) -> (&mut u64)?
+                            executes(total)
+                        {{
+                            let count = values.length();
+
+                            if index < count
+                            {{
+                                {body}
+                            }}
+
+                            return none;
+                        }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let checked = compilation
+            .execution_properties(source_function_body_key(&compilation, "production_probe"))
+            .expect("optional borrow initialization retains the selected bounds");
+
+        assert!(!checked.diagnostics().has_errors(), "{body}: {checked:#?}");
+    }
+}
+
+#[test]
+fn total_loop_bounds_keep_the_evaluated_condition_across_iterations() {
+    let compilation = production_host_compilation(
+        r#"
+        module app;
+
+        func production_probe(pos values: &mut [u64], pos wanted: u64) -> (&mut u64)?
+            executes(total)
+        {
+            let count = values.length();
+            let mut index: usize = 0;
+
+            while index < count
+            {
+                if values[index] != 0 && (values[index] == wanted || wanted == 0)
+                {
+                    let mut result: (&mut u64)? = none;
+
+                    result = &mut values[index];
+                    return result;
+                }
+
+                index += 1;
+            }
+
+            return none;
+        }
+        "#,
+    );
+
+    let checked = compilation
+        .execution_properties(source_function_body_key(&compilation, "production_probe"))
+        .expect("loop conditions retain their evaluated identities");
+
+    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+}
+
+#[test]
 fn total_record_scans_require_a_bounded_unaliased_counter() {
     for (guard, body, increment, valid) in [
         ("index < count", "", "index += 1;", true),
@@ -1555,6 +1759,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/activation/run/step.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/activation/inactive.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/composition.bray"),
         include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
@@ -2709,7 +2914,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                     trusted bray.runtime.bootstrap.entry.native_entry(),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
                     trusted bray.runtime.bootstrap.activation.composition.authorized(
-                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}
+                        parent = {parent}, token = {token}, state = {state}, origin = {origin}, destination = {destination}, disposition = {abandoning}
                     ),
                 )
             {{
@@ -2845,4 +3050,115 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
+    for (authority, valid) in [
+        ("", false),
+        ("trusted entry(token = pointer, outcome = outcome),", true),
+        ("trusted entry(token = other, outcome = outcome),", false),
+        (
+            "trusted entry(token = pointer, outcome = other_outcome),",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.activation.inactive;
+            using std.memory;
+
+            func production_probe(
+                pos pointer: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos other: RawPointer<bray.runtime.bootstrap.activation.Inactive>,
+                pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+                pos other_outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+            )
+                requires(
+                    {authority}
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+                    trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                    trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+                )
+            {{
+                let cursor = trusted acquire(pointer, outcome);
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn inactive_cleanup_retains_only_its_independent_native_destination() {
+    for (authority, valid) in [
+        ("", false),
+        ("trusted destination(output = outcome),", true),
+        ("trusted destination(output = other),", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.activation.inactive;
+            using std.memory;
+
+            func production_probe(
+                pos mut cursor: bray.runtime.bootstrap.activation.run.Cursor,
+                pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+                pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+                pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+                pos other: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+            )
+                requires(
+                    {authority}
+                    trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+                )
+            {{
+                let _ = trusted resolve(cursor, callback, ready, false, outcome);
+            }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&source);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
 }

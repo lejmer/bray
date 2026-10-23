@@ -7,6 +7,10 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
     PatternObservation(BoundPatternId),
+    Result {
+        expression: BoundExpressionId,
+        phase: AnalysisResultPhase,
+    },
     Call {
         invocation: bray_bound_tree::BoundExecutionSite,
         phase: AnalysisCallPhase,
@@ -29,6 +33,26 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    pub(crate) const fn is_normal_cleanup(self) -> bool {
+        matches!(
+            self,
+            Self::ScopeExit {
+                preserves_exit_value: true,
+                ..
+            } | Self::Bound(AnyBoundNodeId::Expression(_))
+                | Self::Result {
+                    phase: AnalysisResultPhase::Completion,
+                    ..
+                }
+                | Self::Call {
+                    invocation: bray_bound_tree::BoundExecutionSite::Node(
+                        AnyBoundNodeId::Expression(_)
+                    ),
+                    phase: AnalysisCallPhase::Completion,
+                }
+        )
+    }
+
     pub(crate) const fn occurrence(self) -> bray_bound_tree::BoundExecutionSite {
         match self {
             Self::Call { invocation, .. } => invocation,
@@ -43,10 +67,18 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
+            Self::TaskOperation { expression, .. } | Self::Result { expression, .. } => {
+                AnyBoundNodeId::Expression(expression)
+            }
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisResultPhase {
+    Begin,
+    Completion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -97,6 +129,7 @@ pub(crate) struct AnalysisOperation {
     kind: AnalysisOperationKind,
     before: ProgramPointId,
     after: ProgramPointId,
+    cleanup_suspension: bool,
 }
 
 impl AnalysisOperation {
@@ -111,6 +144,25 @@ impl AnalysisOperation {
             kind,
             before,
             after,
+            cleanup_suspension: false,
+        }
+    }
+
+    pub(crate) fn cleanup_suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
+        self.cleanup_suspension.then(|| {
+            let node = match self.kind {
+                AnalysisOperationKind::ScopeExit { exit, .. } => exit,
+                _ => self.kind.node(),
+            };
+
+            bray_bound_tree::BoundExecutionSite::Cleanup(node)
+        })
+    }
+
+    pub(crate) fn suspension(self) -> Option<bray_bound_tree::BoundExecutionSite> {
+        match self.kind {
+            AnalysisOperationKind::Suspension { occurrence, .. } => Some(occurrence),
+            _ => self.cleanup_suspension(),
         }
     }
 
@@ -155,6 +207,8 @@ pub(crate) enum AnalysisEdgeKind {
     Panic,
     Suspension,
     Resume,
+    /// Cancellation before an asynchronous body begins execution.
+    EntryCancellation,
     RunCancellation,
     ScopeExit,
     Yield,
@@ -170,10 +224,6 @@ pub(crate) enum AnalysisRefinement {
     PropagationOutcome {
         expression: BoundExpressionId,
         succeeded: bool,
-    },
-    NullablePresence {
-        expression: BoundExpressionId,
-        is_present: bool,
     },
     PatternOutcome {
         subject: BoundExpressionId,
@@ -330,6 +380,42 @@ pub(crate) struct ControlFlowGraph {
 }
 
 impl ControlFlowGraph {
+    pub(crate) fn select_cleanup_suspensions(
+        &mut self,
+        scopes: &std::collections::BTreeSet<bray_bound_tree::BoundBlockId>,
+        replacements: &std::collections::BTreeSet<BoundExpressionId>,
+        inputs: &std::collections::BTreeMap<
+            BoundExpressionId,
+            std::collections::BTreeSet<bray_bound_tree::BodyBehaviorCall>,
+        >,
+    ) {
+        for operation in &mut self.operations {
+            operation.cleanup_suspension = match operation.kind {
+                AnalysisOperationKind::ScopeExit {
+                    block,
+                    phase: AnalysisScopeExitPhase::LifecycleResolution,
+                    ..
+                } => scopes.contains(&block),
+                AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                    replacements.contains(&expression) || inputs.contains_key(&expression)
+                }
+                AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Attempt,
+                } => invocation
+                    .expression()
+                    .is_some_and(|expression| inputs.contains_key(&expression)),
+                AnalysisOperationKind::Call {
+                    invocation,
+                    phase: AnalysisCallPhase::Completion,
+                } => invocation
+                    .expression()
+                    .is_some_and(|expression| replacements.contains(&expression)),
+                _ => false,
+            };
+        }
+    }
+
     pub(crate) fn new(
         unit: BoundUnitId,
         entry: AnalysisBlockId,
@@ -510,7 +596,6 @@ impl ControlFlowGraph {
             }
             Some(
                 AnalysisRefinement::Condition { expression, .. }
-                | AnalysisRefinement::NullablePresence { expression, .. }
                 | AnalysisRefinement::PropagationOutcome { expression, .. }
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,

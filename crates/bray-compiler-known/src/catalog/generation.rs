@@ -636,7 +636,6 @@ mod tests {
             "StorageBorrow",
             "StorageBorrowMut",
             "StorageCreate",
-            "StorageDestroy",
             "StorageRelease",
             "Uninit",
             "UninitFrom",

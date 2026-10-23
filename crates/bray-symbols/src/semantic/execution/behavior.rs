@@ -62,6 +62,7 @@ pub struct CallablePhaseBehavior {
     trusted_capabilities: Arc<[TrustedCapabilityRequirement]>,
     execution_requirements: Arc<[CallableExecutionRequirement]>,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
+    receiver_cleanup: Arc<[crate::TypeId]>,
     dependency_contract: DependencyContractTemplateId,
     current_run_cancellation: CurrentRunCancellation,
     may_unwind: bool,
@@ -87,6 +88,7 @@ impl CallablePhaseBehavior {
             trusted_capabilities: sorted_unique_shared_slice(trusted_capabilities),
             execution_requirements: sorted_unique_shared_slice(execution_requirements),
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
+            receiver_cleanup: Arc::from([]),
             dependency_contract,
             current_run_cancellation,
             may_unwind: true,
@@ -161,6 +163,19 @@ impl CallablePhaseBehavior {
     /// Returns execution-lane requirements in canonical semantic order.
     pub fn execution_requirements(&self) -> &[CallableExecutionRequirement] {
         &self.execution_requirements
+    }
+
+    /// Retains the checked owners disposed by an implicit consuming-receiver tail.
+    /// The tail executes in the consuming caller rather than the synchronous source body.
+    pub fn with_receiver_cleanup(mut self, types: impl IntoIterator<Item = crate::TypeId>) -> Self {
+        self.receiver_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns the remaining receiver owners on any reachable cleanup outcome.
+    pub fn receiver_cleanup(&self) -> &[crate::TypeId] {
+        &self.receiver_cleanup
     }
 
     /// Returns lifecycle obligations in canonical semantic order.
@@ -294,6 +309,18 @@ impl CallablePhaseBehaviors {
     /// Returns behavior retained until deferred async execution.
     pub fn deferred_execution(&self) -> Option<&CallablePhaseBehavior> {
         self.deferred_execution.as_deref()
+    }
+
+    /// Replaces implicit receiver cleanup on the phase that executes the callable body.
+    pub fn with_receiver_cleanup(mut self, types: impl IntoIterator<Item = crate::TypeId>) -> Self {
+        let body = self
+            .deferred_execution
+            .as_mut()
+            .unwrap_or(&mut self.invocation);
+
+        Arc::make_mut(body).receiver_cleanup = sorted_unique_shared_slice(types);
+
+        self
     }
 
     /// Returns the callable execution mode implied by the phase shape.

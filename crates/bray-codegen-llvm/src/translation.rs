@@ -5,9 +5,9 @@ mod product;
 mod string;
 mod unit;
 
-pub(crate) use allocation::{allocate_temporary, reinterpret_value};
+pub(crate) use allocation::{allocate_aligned_temporary, allocate_temporary, reinterpret_value};
 pub(crate) use panic::{
-    branch_on_pending_outcome, merge_pending_outcomes, require_runtime_success,
+    branch_on_pending_outcome, collect_cleanup_outcome, require_runtime_success,
 };
 pub(crate) use string::{publish_string_global, string_constant_name};
 pub(crate) use unit::{

@@ -100,9 +100,13 @@ impl Compilation {
         let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
         match required {
-            ExecutionObligation::Property(property, _) => {
+            ExecutionObligation::Property(property, selected) => {
                 for domain in &*contract.domains {
-                    if !domain.properties.contains(&property) {
+                    if !domain.properties.contains(&property)
+                        || selected.is_some_and(|selected| {
+                            selected != ExecutionClauseId::Imported(domain.ordinal)
+                        })
+                    {
                         continue;
                     }
 

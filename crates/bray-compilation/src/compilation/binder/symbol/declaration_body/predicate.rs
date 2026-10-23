@@ -15,9 +15,9 @@ use bray_symbols::{
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
 use super::super::imported::{
-    imported_declaration_template, imported_predicate_definition_state, missing_imported_template,
+    imported_declaration_template, imported_predicate_definition_summary, missing_imported_template,
 };
-use super::shared::{checked_source_expression, syntax_diagnostics};
+use super::shared::{checked_source_predicate_sequence, syntax_diagnostics};
 use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::SymbolQueryCache;
 
@@ -98,7 +98,7 @@ fn predicate_definition(
     };
 
     let parser_diagnostics = syntax_diagnostics(context, key.source().syntax());
-    let checked = checked_source_expression(context, key)?;
+    let checked = checked_source_predicate_sequence(context, key)?;
 
     let diagnostics = bray_diagnostics::DiagnosticBag::merged_all([
         signature.diagnostics(),
@@ -106,12 +106,14 @@ fn predicate_definition(
         &parser_diagnostics,
     ]);
 
-    let state = if checked.is_recovered || diagnostics.has_errors() {
+    let state = if diagnostics.has_errors() {
         PredicateDefinitionState::Error(ErrorPredicateDefinition)
     } else {
-        PredicateDefinitionState::Defined(PredicateDefinition::new(PredicateSemanticSummary::new(
-            checked.dependency_contract,
-        )))
+        let [meaning] = checked.predicates.as_slice() else {
+            panic!("predicate definition must publish exactly one checked expression");
+        };
+
+        PredicateDefinitionState::Defined(PredicateDefinition::new(*meaning))
     };
 
     Ok(DiagnosticResult::new(state, diagnostics))
@@ -137,9 +139,9 @@ fn imported_predicate_definition(
     context: &CompilationBindingContext<'_>,
     address: bray_symbols::ImportedSemanticAddress,
 ) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
-    let state = imported_predicate_definition_state(context, address)?;
+    let state = imported_predicate_definition_summary(context, address)?;
 
-    match state.value() {
+    match state.value().0 {
         InterfacePredicateDefinitionState::Required => Ok(DiagnosticResult::new(
             PredicateDefinitionState::Required,
             state.diagnostics().clone(),
@@ -164,9 +166,10 @@ fn imported_predicate_definition(
 
             let diagnostics = state.diagnostics().merged(template_result.diagnostics());
 
-            let definition = PredicateDefinition::new(PredicateSemanticSummary::new(
-                template.template().behavior().dependency_contract(),
-            ));
+            let definition = PredicateDefinition::new(
+                PredicateSemanticSummary::new(template.template().behavior().dependency_contract())
+                    .with_condition(state.value().1, false),
+            );
 
             Ok(DiagnosticResult::new(
                 PredicateDefinitionState::Defined(definition),

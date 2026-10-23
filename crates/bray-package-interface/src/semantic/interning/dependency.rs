@@ -333,6 +333,7 @@ impl InternState {
             effects.push(match effect {
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                 DependencyStorageEffect::Cleanup(ty) => {
                     let Some(ty) = self.type_id(*ty) else {
                         return Ok(None);
@@ -347,7 +348,10 @@ impl InternState {
 
                     DependencyStorageEffect::Direct {
                         subject,
-                        kind: *kind,
+                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
+                            Ok(kind) => kind,
+                            Err(()) => return Ok(None),
+                        },
                     }
                 }
                 DependencyStorageEffect::Indirect {
@@ -365,7 +369,10 @@ impl InternState {
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections: projections.into(),
-                        kind: *kind,
+                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
+                            Ok(kind) => kind,
+                            Err(()) => return Ok(None),
+                        },
                     }
                 }
             });

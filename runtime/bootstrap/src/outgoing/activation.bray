@@ -105,7 +105,8 @@ trusted internal func retirement(
 
     trusted release_payload(lease, outcome);
 
-    if result.state == bray.runtime.bootstrap.RUN_PANICKED && result.report.reserved == 0
+    if result.state == bray.runtime.bootstrap.RUN_PANICKED && result.report.primary_present != 0 &&
+        result.report.reserved == 0
     {
         result.report.reserved = handle;
         trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);

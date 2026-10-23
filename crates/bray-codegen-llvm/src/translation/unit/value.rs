@@ -1,7 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::{insert_value, integer_constant, llvm, real_width, real_words};
 use bray_codegen::{CodegenConstantMapping, CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
-use bray_ir::{MirImmediateValue, MirOperand};
+use bray_ir::{MirImmediateValue, MirOperand, MirPlace};
 use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
@@ -29,9 +29,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             "checked MIR value translation violated an established compiler contract: {unexpected:?}"
                         ),
                     },
-                    MirImmediateValue::Unit | MirImmediateValue::NullableAbsent => {
-                        Ok(ty.const_zero())
-                    }
+                    MirImmediateValue::Unit
+                    | MirImmediateValue::NullableAbsent
+                    | MirImmediateValue::EmptyPanicReport => Ok(ty.const_zero()),
                 }
             }
             MirOperand::Copy(place) => {
@@ -74,6 +74,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return self.operand(operand);
         };
 
+        self.observed_place(place)
+    }
+
+    pub(super) fn observed_place(
+        &mut self,
+        place: &MirPlace,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let pointer = self.place(place)?;
 
         llvm(

@@ -7,6 +7,19 @@ use bray_symbols::{
 
 use super::SyntheticLoweringError;
 
+/// A checked source or imported destructor and its concrete receiver-tail substitution.
+/// The shared source body remains a separate callable. Only its selected cleanup graph is appended.
+#[derive(Debug, Hash)]
+pub struct DestructionBody {
+    /// Source-correlated checked executable template.
+    pub unit: bray_ir::MirUnit,
+    /// Concrete semantic types in this specialization.
+    pub types: std::collections::BTreeMap<TypeId, TypeId>,
+    /// Concrete protocol targets retained by the receiver tail.
+    pub callables:
+        std::collections::BTreeMap<bray_ir::MirCallableReference, bray_ir::MirCallableReference>,
+}
+
 /// Demanded semantic inputs for compiler-generated bodies. Implementations resolve queries only.
 pub trait SyntheticLoweringContext {
     /// Query failures retain their original cause alongside synthetic lowering failures.
@@ -39,9 +52,20 @@ pub trait SyntheticLoweringContext {
         &self,
         helper: MirStandardLibraryHelper,
     ) -> Result<CallableInstanceData, Self::Error>;
+
+    /// Demands the checked body and substitutions for a selected consuming source destructor.
+    fn destruction_body(
+        &self,
+        callable: CallableInstanceData,
+    ) -> Result<std::sync::Arc<DestructionBody>, Self::Error>;
 }
 
 pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Sized> {
     pub(crate) context: &'context C,
-    pub(crate) local_calls: Vec<bray_bound_tree::LifecycleCallable>,
+    // The current generated destructor's explicit invocation argument.
+    pub(crate) abandoned: Option<bray_ir::MirOperand>,
+    pub(crate) collection: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(crate) frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
+    pub(crate) frame_states: Vec<bray_ir::MirFrameState>,
+    pub(crate) continuation: Option<bray_ir::MirBlockId>,
 }

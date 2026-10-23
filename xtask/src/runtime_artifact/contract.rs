@@ -216,7 +216,7 @@ fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
 
     if matches!(ty, syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "NativePanicReport"))
     {
-        Ok(RuntimeAbiType::PanicReport)
+        Ok(RuntimeAbiType::PanicReportPointer)
     } else {
         Ok(RuntimeAbiType::Pointer)
     }
@@ -279,7 +279,15 @@ mod tests {
     }
 
     #[test]
-    fn output_storage_preserves_its_native_record_kind() {
+    fn report_values_and_slots_have_distinct_native_kinds() {
+        let value = syn::parse_str::<syn::Type>("bray_runtime_abi::NativePanicReport")
+            .expect("type parses");
+
+        assert_eq!(
+            native_type(&value),
+            Ok(bray_runtime_interface::RuntimeAbiType::PanicReport)
+        );
+
         for source in [
             "&mut NativePanicReport",
             "&mut std::mem::MaybeUninit<bray_runtime_abi::NativePanicReport>",
@@ -289,7 +297,7 @@ mod tests {
 
             assert_eq!(
                 native_type(&ty),
-                Ok(bray_runtime_interface::RuntimeAbiType::PanicReport),
+                Ok(bray_runtime_interface::RuntimeAbiType::PanicReportPointer),
                 "{source}",
             );
         }

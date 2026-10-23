@@ -109,7 +109,7 @@ trusted internal func reserve_records(
                 trusted internal std.memory.initialize_spare<ReportRecord>(
                     &mut slab,
                     {
-                        primary = trusted stored_primary(empty_primary()),
+                        value = trusted panic_record(trusted stored_primary(empty_primary())),
                         message = none,
                         next = head,
                         segment =
@@ -284,76 +284,33 @@ trusted internal func admit_record_values(
     }
 }
 
-@abi(c)
-trusted internal func report_records_pop(
-    pos chain: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportPrimary>
-)
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_read<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.initialized_as<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination)
-    )
-    ensures(
-        trusted native_primary_slot_callbacks(pointer = destination),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.initialized_as<ReportPrimary>(pointer = destination),
-        trusted core.memory.valid_read<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
-    uses(raw_memory, unchecked_init)
-{
-    let value: ReportRecords = trusted std.memory.read<ReportRecords>(chain);
-    let (remaining, primary) = trusted pop_record_value(value, chain, destination);
-
-    trusted std.memory.write<ReportPrimary>(destination, primary);
-    trusted std.memory.write<ReportRecords>(chain, remaining);
-}
-
-trusted internal func pop_record_value(
-    pos mut value: ReportRecords,
-    pos chain: RawPointer<ReportRecords>,
-    pos destination: RawPointer<ReportPrimary>
-) -> (ReportRecords, ReportPrimary)
-    requires(
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
-    ensures(
-        trusted core.memory.valid_write<ReportRecords>(pointer = chain, count = 1),
-        trusted core.memory.aligned_for<ReportRecords>(pointer = chain),
-        trusted core.memory.valid_write<ReportPrimary>(pointer = destination, count = 1),
-        trusted core.memory.aligned_for<ReportPrimary>(pointer = destination),
-    )
+trusted internal func pop_record_value(pos mut value: ReportRecords) -> (ReportRecords, ReportValue)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted retained_report_value(value = &result.1))
 {
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
     let handle: usize = trusted detach_record(pool, &mut value);
     let head: usize = pool.free;
 
-    let primary: ReportPrimary =
+    let payload: ReportValue =
     {
         let entry: &mut ReportRecord = trusted record(pool, handle);
 
-        let primary: StoredReportPrimary = trusted std.memory.replace_value<StoredReportPrimary>(
-            &mut entry.primary,
-            trusted stored_primary(empty_primary())
+        let payload = trusted std.memory.replace_value<ReportValue>(
+            &mut entry.value,
+            trusted panic_record(trusted stored_primary(empty_primary()))
         );
 
         entry.segment_count = 0;
         entry.segment_tail = 0;
         entry.next = head;
-        yield trusted serialized_primary(primary);
+
+        yield payload;
     };
 
     pool.free = handle;
     pool.available += 1;
-    return (value, primary);
+
+    return (value, payload);
 }

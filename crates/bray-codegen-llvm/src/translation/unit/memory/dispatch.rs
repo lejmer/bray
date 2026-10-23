@@ -123,7 +123,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     );
                 };
 
-                self.translate_raw_buffer_release(id, buffer, *buffer_type, element)?;
+                self.translate_raw_buffer_release(
+                    id,
+                    buffer,
+                    *buffer_type,
+                    element,
+                    memory.abandoned_cleanup(),
+                )?;
 
                 Ok(None)
             }
@@ -570,7 +576,7 @@ mod tests {
         TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirAggregate, MirAggregateKind, MirBlockKind, MirCallPanicEdge, MirCleanupPhase, MirEdge,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirCallFailureEdge, MirCleanupPhase, MirEdge,
         MirHelperReference, MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationKind,
         MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
         MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
@@ -1618,11 +1624,14 @@ mod tests {
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, []),
-                panicked: MirCallPanicEdge::new(
+                panicked: MirCallFailureEdge::new(
                     panicked,
                     MirPlace::new(report, [], types.allocation),
                 ),
-                cancelled: MirEdge::new(cancelled, []),
+                cancelled: MirCallFailureEdge::new(
+                    cancelled,
+                    MirPlace::new(report, [], types.allocation),
+                ),
             },
         );
 
@@ -2495,7 +2504,7 @@ mod tests {
             cleanup,
             MEMORY_VALUE_CLEANUP_HELPER_SYMBOL,
             CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(types.pointer, None, [])],
+                (0..3).map(|_| CodegenParameterMapping::direct(types.pointer, None, [])),
                 CodegenResultMapping::Void,
                 CallableAbi::Bray,
                 false,

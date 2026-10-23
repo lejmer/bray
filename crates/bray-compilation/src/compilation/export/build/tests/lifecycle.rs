@@ -202,63 +202,291 @@ fn imported_runtime_default_preserves_helper_static_access() {
 
 #[test]
 fn imported_finalizers_use_verified_entry_conditions() {
+    for execution in ["", "async "] {
+        let provider_source = r#"
+            module api;
+            struct Value<T>
+            {
+                mut ready: bool;
+                payload: T;
+
+                $EXECUTIONfinalize()
+                    when(self.ready) { executes(pure, total) }
+                {
+                    if !self.ready
+                    {
+                        panic("unfinished");
+                    }
+                }
+            }
+        "#
+        .replace("$EXECUTION", execution);
+
+        let provider = compilation(&provider_source);
+
+        for (condition, operation, completed) in [
+            ("value.ready", "", true),
+            ("!value.ready", "", false),
+            ("value.ready", "value.ready = false;", false),
+        ] {
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                module app;
+                using example.package.api;
+                async func root(pos mut value: example.package.api.Value<bool>)
+                    requires({condition})
+                {{
+                    {operation}
+                }}
+            "#
+                ),
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let selected = selected_cleanup(&consumer);
+
+            assert_eq!(!selected.is_empty(), completed);
+
+            let lowered = consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap();
+
+            assert!(lowered.value().as_ref().unwrap().mir().is_some());
+        }
+    }
+}
+
+#[test]
+fn imported_finalizers_preserve_known_successful_results() {
+    for execution in ["", "async "] {
+        for (result, completed) in [("Ok(unit)", true), ("Error(true)", false)] {
+            let provider = compilation(&format!(
+                r#"
+                module api;
+                struct Value
+                {{
+                    {execution}finalize() -> Result<unit, bool> executes(pure, total)
+                    {{
+                        return {result};
+                    }}
+                }}
+            "#
+            ));
+
+            assert!(
+                !provider.check_diagnostics().has_errors(),
+                "{:?}",
+                provider.check_diagnostics()
+            );
+
+            let consumer = execution_consumer(
+                &provider,
+                r#"
+                module app;
+                using example.package.api;
+                async func root(pos value: example.package.api.Value)
+                {
+                    panic("abnormal cleanup");
+                }
+            "#,
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let selected = selected_cleanup(&consumer);
+
+            assert_eq!(!selected.is_empty(), completed, "{execution}{result}");
+        }
+    }
+}
+
+#[test]
+fn imported_finalizer_postcondition_proves_infallibility_without_total() {
     let provider = compilation(
         r#"
         module api;
-        struct Value<T>
+        struct Value
         {
             ready: bool;
-            payload: T;
-
-            finalize()
-                when(self.ready) { executes(pure, total) }
+            finalize() -> Result<unit, bool>
+                when(self.ready) { ensures(result matches Ok(_)) }
             {
-                if !self.ready
+                if self.ready
                 {
-                    panic("unfinished");
+                    return Ok(unit);
                 }
+                return Error(true);
             }
         }
     "#,
     );
 
-    for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (condition, valid) in [("value.ready", true), ("!value.ready", false)] {
         let consumer = execution_consumer(
             &provider,
             &format!(
                 r#"
             module app;
             using example.package.api;
-            func root(pos value: example.package.api.Value<bool>)
-                requires({condition})
+            func root(pos value: example.package.api.Value) requires({condition})
             {{
             }}
         "#
             ),
         );
 
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            assert!(
+                selected_cleanup(&consumer).is_empty(),
+                "infallible invocation still executes"
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_finalizer_success_requires_its_certified_guarded_domain() {
+    for execution in ["", "async "] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            struct Value
+            {{
+                ready: bool;
+                {execution}finalize() -> Result<unit, bool>
+                    executes(pure, total)
+                    when(self.ready) {{ executes(pure, total) }}
+                {{
+                    if self.ready
+                    {{
+                        return Ok(unit);
+                    }}
+                    return Error(true);
+                }}
+            }}
+        "#
+        ));
+
         assert!(
-            !consumer.check_diagnostics().has_errors(),
+            !provider.check_diagnostics().has_errors(),
             "{:?}",
-            consumer.check_diagnostics()
+            provider.check_diagnostics()
         );
 
-        let key = source_function_body_key(&consumer, "root");
-        let cancellation = crate::CancellationToken::new();
+        for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                module app;
+                using example.package.api;
+                func root(pos value: example.package.api.Value) requires({condition})
+                {{
+                }}
+            "#
+                ),
+            );
 
-        let body = consumer
-            .body_semantics_with_cancellation(key.clone(), &cancellation)
-            .unwrap();
+            if completed {
+                assert!(
+                    !consumer.check_diagnostics().has_errors(),
+                    "{:?}",
+                    consumer.check_diagnostics()
+                );
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    consumer.check_diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization,
+                );
+            }
 
-        let selected = consumer
-            .completed_unit_cleanup(&key, body.result().value().asynchronous(), &cancellation)
-            .unwrap();
+            let selected = selected_cleanup(&consumer);
 
-        assert_eq!(!selected.is_empty(), completed);
+            assert_eq!(!selected.is_empty(), completed, "{execution}{condition}");
+        }
 
-        let lowered = consumer.lowered_unit(key).unwrap();
+        let original = export(&provider);
+        let mut removed = 0;
 
-        assert!(lowered.value().as_ref().unwrap().mir().is_some());
+        let contracts = original
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .map(|contract| {
+                let mut execution = contract.execution_contract().clone();
+
+                let evidence = execution
+                    .evidence
+                    .iter()
+                    .filter(|proof| {
+                        if matches!(
+                            proof.obligation,
+                            bray_symbols::CallableExecutionObligation::Postcondition(_)
+                        ) {
+                            removed += 1;
+
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                execution.evidence = evidence.into();
+
+                contract.clone().with_execution_contract(execution)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            removed > 0,
+            "provider must publish its checked result proof"
+        );
+
+        let semantics = original.semantics().clone().with_contracts(
+            original.semantics().constraints().iter().cloned(),
+            contracts,
+        );
+
+        assert!(
+            PackageInterfaceExportBundle::try_new(
+                original.surface().clone(),
+                semantics,
+                original.language_revision(),
+                original.implementation_configuration().clone()
+            )
+            .is_err(),
+            "a result condition without its checked evidence must not be accepted"
+        );
     }
 }
 
@@ -426,6 +654,7 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     }), "{analysis:?}");
 
     let lowered = consumer.lowered_unit(key).unwrap();
+
     let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { place, .. } if place.projections().iter().any(|projection| matches!(projection.kind(), MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } if ordinal.raw() == 1)))), "{mir:?}");
@@ -814,7 +1043,7 @@ fn imported_inherent_constructor_self_resolves_with_its_generic_subject() {
         let call = call.replacen("Value", "example.package.api.Value", 1);
         let caller_result = caller_result.replacen("Value", "example.package.api.Value", 1);
 
-        let consumer = super::fixtures::execution_consumer(
+        let consumer = execution_consumer(
             &provider,
             &format!(
                 r#"
@@ -1064,6 +1293,427 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
                     patterns.diagnostics()
                 );
             }
+        }
+    }
+}
+
+fn selected_cleanup(
+    consumer: &Compilation,
+) -> std::collections::BTreeSet<bray_bound_tree::CompletedFinalizer> {
+    let key = source_function_body_key(consumer, "root");
+    let cancellation = crate::CancellationToken::new();
+
+    consumer
+        .completed_unit_cleanup(&key, &cancellation)
+        .unwrap()
+        .result()
+        .value()
+        .clone()
+}
+
+#[test]
+fn imported_async_finalizers_compose_in_the_consuming_frame() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func pause();
+        struct Value
+        {
+            value: u32;
+            async finalize()
+            {
+                await pause();
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for body in ["return;", "panic(\"cleanup\");"] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            async func root(pos value: example.package.api.Value)
+            {{
+                {body}
+            }}
+        "#
+            ),
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        let lowered = consumer
+            .lowered_unit(source_function_body_key(&consumer, "root"))
+            .unwrap();
+
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        assert!(mir.is_valid());
+
+        assert!(
+            mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
+            )),
+            "{body}: imported async finalization must retain its execution contract"
+        );
+    }
+}
+
+#[test]
+fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value
+        {
+            count: u32;
+        }
+
+        async func make() -> Value
+        {
+            return Value { count = 3 };
+        }
+
+        async func discard()
+        {
+            let pending = make();
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        async func root()
+        {
+            let pending = example.package.api.make();
+            await example.package.api.discard();
+        }
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let lowered = consumer
+        .lowered_unit(source_function_body_key(&consumer, "root"))
+        .unwrap();
+
+    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+    assert!(mir.is_valid());
+
+    assert!(mir.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+            composition: bray_ir::MirFrameComposition::Abandon,
+            ..
+        })
+    )));
+
+    assert!(mir.operations().iter().any(|operation| matches!(
+        operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+            composition: bray_ir::MirFrameComposition::Completion(_),
+            ..
+        })
+    )));
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+    let mut abandoned = 0;
+
+    for template in bundle.executable_templates() {
+        let function = skeleton
+            .functions()
+            .iter()
+            .find(|function| {
+                function
+                    .imported_semantic_key()
+                    .is_some_and(|key| key.symbol() == template.owner())
+            })
+            .unwrap();
+
+        let symbol = skeleton
+            .imported_semantic_address(function.id().into())
+            .unwrap();
+
+        let address =
+            crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
+
+        let decoded = consumer
+            .imported_executable_template_with_cancellation(
+                address,
+                &crate::CancellationToken::new(),
+            )
+            .unwrap();
+
+        assert!(
+            !decoded.diagnostics().has_errors(),
+            "{:?}",
+            decoded.diagnostics()
+        );
+
+        let mir = decoded.value().as_deref().unwrap();
+
+        assert!(mir.is_valid());
+
+        abandoned += mir
+            .operations()
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                        composition: bray_ir::MirFrameComposition::Abandon,
+                        ..
+                    })
+                )
+            })
+            .count();
+    }
+
+    assert!(
+        abandoned > 0,
+        "imported executable templates retain inactive disposal"
+    );
+}
+
+#[test]
+fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Value
+        {
+            async finalize() -> Result<unit, u32>
+            {
+                return Error(7);
+            }
+        }
+
+        async func fail(pos value: Value)
+        {
+            panic("cleanup");
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = super::fixtures::execution_dependency(&provider)
+        .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        async func root(pos value: example.package.api.Value)
+        {
+            await example.package.api.fail(value);
+        }
+        "#,
+        [dependency],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = skeleton.value().as_deref().unwrap();
+
+    let function = skeleton
+        .functions()
+        .iter()
+        .find(|function| {
+            skeleton
+                .member_name(function.id().into())
+                .is_some_and(|name| name.as_str() == "fail")
+        })
+        .unwrap();
+
+    let symbol = skeleton
+        .imported_semantic_address(function.id().into())
+        .unwrap();
+
+    let template = bundle
+        .executable_templates()
+        .iter()
+        .find(|template| {
+            function
+                .imported_semantic_key()
+                .is_some_and(|key| key.symbol() == template.owner())
+        })
+        .unwrap();
+
+    let address = crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
+
+    let decoded = consumer
+        .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
+        .unwrap();
+
+    assert!(
+        !decoded.diagnostics().has_errors(),
+        "{:?}",
+        decoded.diagnostics()
+    );
+
+    let mir = decoded.value().as_deref().unwrap();
+
+    assert!(mir.is_valid());
+
+    let (mir, _) = bray_ir::reconstruct_reachable(mir).unwrap();
+
+    assert!(mir.is_valid());
+
+    let mut transferred = 0;
+
+    for operation in mir.operations() {
+        let MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            producer,
+            invocation,
+            ..
+        }) = operation.kind()
+        else {
+            continue;
+        };
+
+        let place = incident;
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Quiesce { place: quiescent, .. } if quiescent == place)));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+            }) if call.target() == &bray_ir::MirCallTarget::Direct(*producer) && call.result() == *invocation
+        )));
+
+        transferred += 1;
+    }
+
+    assert!(
+        transferred > 0,
+        "the exported cleanup retains its incident producer"
+    );
+}
+
+#[test]
+fn imported_generic_destructor_tails_retain_their_execution_context() {
+    let provider = compilation(
+        r#"
+        module api;
+        extern async func pause();
+        struct Child
+        {
+            async finalize()
+            {
+                await pause();
+            }
+        }
+        struct Owner<T>
+        {
+            child: T;
+            destruct()
+            {
+            }
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (execution, valid) in [("async ", true), ("", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            {execution}func root(pos owner: example.package.api.Owner<example.package.api.Child>)
+            {{
+            }}
+        "#
+            ),
+        );
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+
+            let lowered = consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap();
+
+            assert!(lowered.value().as_ref().unwrap().mir().unwrap().is_valid());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                consumer.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
         }
     }
 }

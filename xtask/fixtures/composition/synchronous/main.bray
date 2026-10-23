@@ -212,7 +212,7 @@ func nested_transfer(pos value: GuardPacket) -> Result<(PanickingGuard, Panickin
                 yield taken;
             };
 
-            yield(first, packet.guard);
+            yield (first, packet.guard);
         };
 
         return inner;

@@ -102,6 +102,11 @@ impl StructuralValueEncoder<'_, '_> {
 
                 return Ok(());
             }
+            DependencyStorageEffect::Escape => {
+                self.tag(5);
+
+                return Ok(());
+            }
             DependencyStorageEffect::Unknown => {
                 self.tag(0);
 
@@ -131,12 +136,19 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Consume => 2,
             DependencyMutationKind::Retire => 3,
             DependencyMutationKind::Atomic => 4,
+            DependencyMutationKind::Replace(_) => 5,
+            DependencyMutationKind::Clear => 6,
+            DependencyMutationKind::Escape => 7,
         });
+
+        if let DependencyMutationKind::Replace(ty) = kind {
+            self.ty(*ty)?;
+        }
 
         Ok(())
     }
 
-    fn unordered_identities(&mut self, mut identities: Vec<[u8; 32]>) {
+    pub(super) fn unordered_identities(&mut self, mut identities: Vec<[u8; 32]>) {
         identities.sort_unstable();
         self.length(identities.len());
 

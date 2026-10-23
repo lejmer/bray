@@ -685,6 +685,21 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn raw_buffer_element(
+        &self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>> {
+        self.binding_context
+            .compilation()
+            .raw_buffer_element(
+                definition,
+                substitution,
+                self.binding_context.cancellation(),
+            )
+            .map_err(checker_query_error)
+    }
+
     fn plain_storage_atomic_representation(
         &self,
         ty: TypeId,
@@ -744,10 +759,10 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
-    fn declared_type_has_lifecycle(
+    fn declared_type_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<bool>> {
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::TypeLifecycle>> {
         let surface = self
             .binding_context
             .compilation()
@@ -757,18 +772,23 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             )
             .map_err(checker_query_error)?;
 
-        let has_lifecycle = surface.value().lifecycle_members().iter().any(|member| {
-            matches!(
-                member.slot(),
-                bray_symbols::TypeAssociatedLifecycleSlot::Finalizer
-                    | bray_symbols::TypeAssociatedLifecycleSlot::Destructor
-                    | bray_symbols::TypeAssociatedLifecycleSlot::ScopeEnter
-                    | bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit
-            )
-        });
+        use bray_symbols::{TypeAssociatedLifecycleSlot, TypeLifecycle};
+
+        let lifecycle = surface.value().lifecycle_members().iter().fold(
+            TypeLifecycle::None,
+            |current, member| match member.slot() {
+                TypeAssociatedLifecycleSlot::Finalizer
+                | TypeAssociatedLifecycleSlot::ScopeEnter
+                | TypeAssociatedLifecycleSlot::ScopeExit => TypeLifecycle::Graceful,
+                TypeAssociatedLifecycleSlot::Destructor if current == TypeLifecycle::None => {
+                    TypeLifecycle::Destruction
+                }
+                _ => current,
+            },
+        );
 
         Ok(DiagnosticResult::new(
-            has_lifecycle,
+            lifecycle,
             surface.diagnostics().clone(),
         ))
     }

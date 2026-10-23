@@ -25,6 +25,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 pub(crate) struct OperationEffects {
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
+    iteration_definitions: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -108,7 +109,7 @@ impl OperationEffects {
         }
 
         effects.retain_owned_call_dependencies(request, storage);
-        effects.retain_invocation_input_dependencies(request.unit());
+        effects.retain_input_dependencies(request.unit());
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
@@ -140,6 +141,10 @@ impl OperationEffects {
 
             effects.universe.insert(subject);
 
+            if provenance.is_iteration_storage() {
+                effects.iteration_definitions.insert(subject);
+            }
+
             let Some(node) = provenance.definition_node() else {
                 continue;
             };
@@ -168,6 +173,14 @@ impl OperationEffects {
             effect.uses.insert(subject);
             effect.definitions.insert(subject);
             effects.universe.insert(subject);
+
+            if storage
+                .root_identity(plan.access())
+                .and_then(|identity| storage.identity(identity))
+                .is_some_and(bray_bound_tree::StorageIdentity::is_iteration_storage)
+            {
+                effects.iteration_definitions.insert(subject);
+            }
 
             let access = storage
                 .access(plan.access())
@@ -276,20 +289,28 @@ impl OperationEffects {
         effects
     }
 
-    pub(in crate::analysis::liveness) fn retain_invocation_input_dependencies(
-        &mut self,
-        unit: &BoundUnit,
-    ) {
+    pub(in crate::analysis::liveness) fn retain_input_dependencies(&mut self, unit: &BoundUnit) {
         let inputs = unit
             .tree()
             .expressions()
             .filter(|(_, node)| {
-                matches!(node, BoundExpression::Call(_) | BoundExpression::Await(_))
+                matches!(
+                    node,
+                    BoundExpression::Call(_)
+                        | BoundExpression::Await(_)
+                        | BoundExpression::Assignment(_)
+                )
             })
             .map(|(expression, node)| {
                 let subjects = node
                     .child_expressions()
-                    .flat_map(|input| self.subtree_subjects(unit, input))
+                    .flat_map(|input| {
+                        retained_subtree_subjects(
+                            &self.value_inputs,
+                            input,
+                            &self.owner_dependencies,
+                        )
+                    })
                     .collect::<BTreeSet<_>>();
 
                 (expression, subjects)
@@ -312,6 +333,25 @@ impl OperationEffects {
                 dependency_subjects(contracts.invocation().requirements(), storage);
 
             let mut returned = dependency_subjects(contracts.result().requirements(), storage);
+
+            if let Some(SemanticSelection::Call(call)) = occurrence
+                .expression()
+                .and_then(|expression| selections.expression(expression))
+                && let Some(receiver) = call.receiver()
+                && let Some(effect) = self.by_occurrence.get(&receiver.expression().into())
+            {
+                // The implicit receiver loan lasts through invocation, independently
+                // of the dependencies carried by the call's returned value.
+                invocation.extend(
+                    effect
+                        .definitions
+                        .iter()
+                        .filter(|subject| {
+                            matches!(subject, BoundDependencySubject::BorrowCapability(_))
+                        })
+                        .copied(),
+                );
+            }
 
             if occurrence.expression().is_some_and(|expression| {
                 matches!(selections.expression(expression), Some(SemanticSelection::Call(call))
@@ -391,23 +431,23 @@ impl OperationEffects {
         root: BoundExpressionId,
     ) -> BTreeSet<BoundDependencySubject> {
         let mut subjects = BTreeSet::new();
-        let mut pending = vec![root];
 
-        while let Some(expression) = pending.pop() {
-            let node = AnyBoundNodeId::Expression(expression);
-
-            if let Some(effect) = self.by_occurrence.get(&node.into()) {
+        let walked = bray_bound_tree::walk_bound_tree(unit.tree(), root, |event| {
+            if let bray_bound_tree::BoundWalkEvent::Enter(node) = event
+                && let Some(effect) = self.by_occurrence.get(&node.into())
+            {
                 subjects.extend(effect.uses.iter().copied());
                 subjects.extend(effect.definitions.iter().copied());
             }
 
-            let node = unit
-                .tree()
-                .expression(expression)
-                .expect("liveness subtree retains its bound expression");
+            bray_bound_tree::BoundWalkControl::Continue
+        });
 
-            pending.extend(node.child_expressions());
-        }
+        assert_eq!(
+            walked,
+            bray_bound_tree::BoundWalkOutcome::Completed,
+            "liveness retains its complete bound subtree"
+        );
 
         subjects
     }
@@ -426,7 +466,11 @@ impl OperationEffects {
         use crate::analysis::model::AnalysisSuspensionKind;
 
         let phase = match operation.kind() {
-            AnalysisOperationKind::ScopeExit { .. }
+            AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Begin,
+                ..
+            }
+            | AnalysisOperationKind::ScopeExit { .. }
             | AnalysisOperationKind::Suspension {
                 kind: AnalysisSuspensionKind::ScopedCall,
                 ..
@@ -440,6 +484,10 @@ impl OperationEffects {
                 ..
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Call { phase, .. } => Some(phase),
+            AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Completion,
+                ..
+            } => Some(AnalysisCallPhase::Completion),
             AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::TaskOperation { .. }
@@ -457,10 +505,15 @@ impl OperationEffects {
             _ => None,
         };
 
+        let iteration_definitions =
+            matches!(operation.kind(), AnalysisOperationKind::Result { .. })
+                .then_some(&self.iteration_definitions);
+
         Some(OperationEffectView {
             effect,
             phase,
             result_definitions,
+            iteration_definitions,
             recovered: self.recovered_nodes.contains(&operation.kind().node()),
         })
     }
@@ -484,6 +537,7 @@ pub(in crate::analysis::liveness) struct OperationEffectView<'a> {
     effect: &'a OperationEffect,
     phase: Option<AnalysisCallPhase>,
     result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
+    iteration_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
     recovered: bool,
 }
 
@@ -502,6 +556,10 @@ impl<'a> OperationEffectView<'a> {
         self,
     ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
         self.effect.definitions.iter().filter(move |subject| {
+            if let Some(protocol) = self.iteration_definitions {
+                return !protocol.contains(subject);
+            }
+
             let is_result = self
                 .result_definitions
                 .is_some_and(|definitions| definitions.contains(subject));

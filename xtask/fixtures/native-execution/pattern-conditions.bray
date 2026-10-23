@@ -195,7 +195,7 @@ func main() -> i32
         return 17;
     }
 
-    if(Probe
+    if (Probe
     {
         counter = &mut counter,
         value = 0

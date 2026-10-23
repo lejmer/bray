@@ -28,15 +28,6 @@ scope Ambient at ambient {
         surface { static func borrow_mut(pos storage: &mut Self) -> &mut T executes(pure, total); }
     }
 
-    declaration StorageDestroy {
-        owner Storage;
-
-        surface {
-            trusted static func destroy(pos storage: &mut Self)
-                uses(raw_memory, unchecked_init);
-        }
-    }
-
     declaration StorageRelease {
         owner Storage;
 

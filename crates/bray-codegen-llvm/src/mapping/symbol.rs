@@ -1321,7 +1321,12 @@ mod tests {
 
         builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            bray_ir::MirFrameRetention::new(entry, [], []),
+        );
+
         let version = RuntimeAbiVersion::new(1, 0);
 
         let Ok(descriptor) = MirFrameDescriptor::new(

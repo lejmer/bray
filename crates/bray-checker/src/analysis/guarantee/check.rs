@@ -37,7 +37,12 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let mut excluded = graph
         .edges()
         .iter()
-        .filter(|edge| property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
+        .filter(|edge| {
+            // Async guarantees describe execution after entry. Pre-entry abandonment
+            // remains part of ownership and unwind analysis, not this body proof.
+            edge.kind() == AnalysisEdgeKind::EntryCancellation
+                || (property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
+        })
         .map(|edge| edge.id())
         .collect();
 
@@ -172,6 +177,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             let node = operation.kind().node();
 
             let preserves = match operation.kind() {
+                AnalysisOperationKind::Result { .. } => true,
                 AnalysisOperationKind::ScopeExit {
                     block, exit, phase, ..
                 } => super::cleanup::check_scope_cleanup(
@@ -221,9 +227,9 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                 }
                 AnalysisOperationKind::Call {
                     invocation:
-                        bray_bound_tree::BoundExecutionSite::Node(
-                            bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                        ),
+                        bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
+                            expression,
+                        )),
                     ..
                 }
                 | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {

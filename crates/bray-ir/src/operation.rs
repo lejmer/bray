@@ -202,6 +202,8 @@ pub struct MirMemoryOperation {
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
     inline_assembly_symbols: Arc<[MirCallableReference]>,
+    pub(crate) abandoned_cleanup: Option<Box<MirOperand>>,
+    pub(crate) cleanup_collection: Option<Box<crate::MirCleanupCollection>>,
 }
 
 impl MirMemoryOperation {
@@ -218,7 +220,49 @@ impl MirMemoryOperation {
             operand_types: shared_slice(operand_types),
             result_type,
             inline_assembly_symbols: Arc::from([]),
+            abandoned_cleanup: None,
+            cleanup_collection: None,
         }
+    }
+
+    /// Carries inherited abandonment through compiler-owned buffer release.
+    pub fn with_abandoned_cleanup(mut self, value: MirOperand) -> Self {
+        assert!(
+            matches!(
+                self.kind,
+                CheckedMemoryOperationKind::RawBufferRelease { .. }
+            ),
+            "only buffer release carries inherited destruction"
+        );
+
+        self.abandoned_cleanup = Some(Box::new(value));
+
+        self
+    }
+
+    /// Borrows the enclosing collection while releasing represented buffer elements.
+    pub fn with_cleanup_collection(mut self, collection: crate::MirCleanupCollection) -> Self {
+        assert!(
+            matches!(
+                self.kind,
+                CheckedMemoryOperationKind::RawBufferRelease { .. }
+            ),
+            "only buffer release borrows a cleanup collection"
+        );
+
+        self.cleanup_collection = Some(Box::new(collection));
+
+        self
+    }
+
+    /// Returns the borrowed collection for represented buffer cleanup.
+    pub fn cleanup_collection(&self) -> Option<&crate::MirCleanupCollection> {
+        self.cleanup_collection.as_deref()
+    }
+
+    /// Returns the inherited destruction argument for buffer release.
+    pub fn abandoned_cleanup(&self) -> Option<&MirOperand> {
+        self.abandoned_cleanup.as_deref()
     }
 
     /// Retains closed callable symbols referenced by assembly operands in descriptor order.
@@ -245,6 +289,20 @@ impl MirMemoryOperation {
             }
             _ => None,
         }
+    }
+
+    /// Returns native runtime dependencies of the selected memory behavior.
+    pub fn runtime_roles(&self) -> impl Iterator<Item = bray_runtime_interface::RuntimeAbiRole> {
+        let suppression = matches!(
+            self.kind,
+            CheckedMemoryOperationKind::RawBufferRelease { .. }
+                | CheckedMemoryOperationKind::RawBufferReplace { .. }
+        )
+        .then_some(bray_runtime_interface::RuntimeAbiRole::PanicReportSuppression);
+
+        [self.atomic_word_runtime_role(), suppression]
+            .into_iter()
+            .flatten()
     }
 
     /// Returns the checked memory behavior.
@@ -307,6 +365,8 @@ pub enum MirGeneratorOperation {
         element: TypeId,
         /// Runtime operation that visits initialized elements without releasing storage.
         runtime: MirRuntimeReference,
+        /// Enclosing collection borrowed by every initialized element.
+        collection: Box<crate::MirCleanupCollection>,
     },
     /// Destroy initialized accumulated elements and release their storage.
     Destroy {
@@ -314,8 +374,12 @@ pub enum MirGeneratorOperation {
         destination: MirPlace,
         /// Checked yielded-element type whose lifecycle helpers are invoked.
         element: TypeId,
+        /// Whether inherited graceful cleanup has been abandoned.
+        abandoned: MirOperand,
         /// Runtime operation that visits elements in reverse and releases storage.
         runtime: MirRuntimeReference,
+        /// Enclosing collection borrowed by every initialized element.
+        collection: Box<crate::MirCleanupCollection>,
     },
 }
 
@@ -415,8 +479,8 @@ impl MirConstruction {
 pub enum MirTaskTerminalState {
     /// The task completed with a value.
     Completed(MirOperand),
-    /// The task observed current-run cancellation.
-    Cancelled,
+    /// The task observed cancellation and retains its cleanup incidents.
+    Cancelled(MirOperand),
     /// The task panicked with ownership of a panic report.
     Panicked(MirOperand),
 }
@@ -494,15 +558,16 @@ pub enum MirAsyncOperation {
         resume_state: MirFrameStateId,
         /// Inactive child frame value.
         frame: MirOperand,
-        /// Admitted parent storage receiving the child result before resumption.
-        completion: MirStorageId,
+        /// Whether completion, complete abandonment or retained quiescence owns the child.
+        composition: crate::MirFrameComposition,
     },
     /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
         /// Static or existential child frame representation.
         child: MirFrameReference,
         /// The same destination supplied when composing this child.
-        completion: MirStorageId,
+        /// Absence consumes only the abandoned child's cleanup outcome.
+        completion: Option<MirStorageId>,
     },
     /// Transfer an inactive frame into a newly started task.
     StartTask {
@@ -515,10 +580,10 @@ pub enum MirAsyncOperation {
         /// Selected private task-start ABI role.
         start: MirRuntimeReference,
     },
-    /// Request cancellation of an owned task.
+    /// Request cancellation without consuming the task or its result.
     RequestTaskCancellation {
-        /// Owned task control state.
-        task: MirOperand,
+        /// Task storage retained for resolution and terminal destruction.
+        task: MirPlace,
         /// Selected private cancellation ABI role.
         runtime: MirRuntimeReference,
     },
@@ -529,10 +594,10 @@ pub enum MirAsyncOperation {
         /// Selected private cancellation-observation ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Register and resolve terminal task observation.
+    /// Resolve the task result while retaining its terminal control state.
     ResolveTask {
-        /// Owned task control state.
-        task: MirOperand,
+        /// Task storage retained until terminal destruction.
+        task: MirPlace,
         /// Exact compiler-known variants used to form the terminal result.
         variants: crate::MirRunResultVariants,
         /// Selected private terminal-resolution ABI role.
@@ -545,24 +610,30 @@ pub enum MirAsyncOperation {
         /// Selected private publication ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Execute phase-one cancellation broadcast for a protected frame.
-    ExecuteCleanupBroadcast {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+    /// Broadcast cancellation through an inactive computation's captured owners.
+    BroadcastInactiveFrame {
+        /// Retained inactive owner whose captures receive cancellation.
+        frame: MirOperand,
         /// Selected private broadcast ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Execute phase-two lifecycle resolution for a protected frame.
-    ExecuteLifecycleResolution {
-        /// Stable frame representation.
-        frame: ProtectedAsyncFrameId,
+    /// Destroy quiescent captures and release their inactive computation's storage.
+    DestroyInactiveFrame {
+        /// Quiescent owner consumed exactly once.
+        frame: MirOperand,
         /// Selected private lifecycle ABI role.
         runtime: MirRuntimeReference,
     },
     /// Transfer ownership of a cleanup incident.
     TransferCleanupIncident {
-        /// Incident value being transferred.
-        incident: MirOperand,
+        /// Initialized quiescent payload whose ownership transfers to the incident chain.
+        incident: MirPlace,
+        /// Initialized enclosing report that retains the transferred incident.
+        report: MirPlace,
+        /// Selected finalizer or scope exit whose admission backs this payload.
+        producer: crate::MirCallableReference,
+        /// Exact invocation shape used to admit the producer's cleanup backing.
+        invocation: bray_bound_tree::BoundCallResult,
         /// Selected private transfer ABI role.
         runtime: MirRuntimeReference,
     },
@@ -750,16 +821,31 @@ pub enum MirOperationKind {
         /// Runtime discharge boundary.
         runtime: MirRuntimeReference,
     },
-    /// Run checked finalization for a storage place.
-    Finalize(MirPlace),
+    /// Resolve child runs without finalizing or destroying the retained incident payload.
+    Quiesce {
+        /// Owner whose current child graph is resolved.
+        place: MirPlace,
+        /// Enclosing collection, or a collection owned by this call boundary.
+        collection: Option<Box<crate::MirCleanupCollection>>,
+    },
     /// Destroy a storage place after its value is no longer live.
-    Destroy(MirPlace),
+    Destroy {
+        /// Storage whose initialized remainder is destroyed.
+        place: MirPlace,
+        /// Enclosing collection, or a collection owned by this call boundary.
+        collection: Option<Box<crate::MirCleanupCollection>>,
+        /// Whether inherited graceful cleanup has been abandoned. None selects ordinary cleanup.
+        /// This applies only to the implicit represented tail, not explicit operations or locals.
+        abandoned: Option<MirOperand>,
+    },
     /// Perform one checked cleanup phase for a storage place.
     Cleanup {
         /// Exact cleanup phase selected by checking.
         phase: MirCleanupPhase,
         /// Storage whose checked cleanup obligation is executed.
         place: MirPlace,
+        /// Enclosing collection, or a collection owned by this call boundary.
+        collection: Option<Box<crate::MirCleanupCollection>>,
     },
     /// Perform a protected-frame or task operation.
     Async(MirAsyncOperation),
@@ -794,7 +880,7 @@ impl MirOperationCommit {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirOperation {
     source: MirSourceAnchor,
-    kind: MirOperationKind,
+    pub(crate) kind: MirOperationKind,
     result: Option<MirValueId>,
 }
 
@@ -828,6 +914,72 @@ impl MirOperation {
 }
 
 impl MirOperationKind {
+    /// Whether this operation introduces an owning cleanup boundary, including retained incident destruction.
+    pub fn owns_cleanup_collection(&self) -> bool {
+        match self {
+            Self::Async(MirAsyncOperation::TransferCleanupIncident { .. }) => true,
+            Self::Quiesce { collection, .. }
+            | Self::Destroy { collection, .. }
+            | Self::Cleanup { collection, .. } => collection.is_none(),
+            Self::Memory(memory) => {
+                memory.cleanup_collection.is_none()
+                    && matches!(
+                        memory.kind(),
+                        CheckedMemoryOperationKind::RawBufferRelease { .. }
+                            | CheckedMemoryOperationKind::RawBufferReplace { .. }
+                    )
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns the enclosing collection borrowed by structural cleanup.
+    pub fn cleanup_collection(&self) -> Option<&crate::MirCleanupCollection> {
+        match self {
+            Self::Quiesce { collection, .. }
+            | Self::Destroy { collection, .. }
+            | Self::Cleanup { collection, .. } => collection.as_deref(),
+            Self::Memory(memory) => memory.cleanup_collection.as_deref(),
+            Self::Generator(
+                MirGeneratorOperation::CleanupBroadcast { collection, .. }
+                | MirGeneratorOperation::Destroy { collection, .. },
+            ) => Some(collection),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn cleanup_collection_slot(
+        &mut self,
+    ) -> Option<&mut Option<Box<crate::MirCleanupCollection>>> {
+        match self {
+            Self::Quiesce { collection, .. }
+            | Self::Destroy { collection, .. }
+            | Self::Cleanup { collection, .. } => Some(collection),
+            Self::Memory(memory)
+                if matches!(
+                    memory.kind(),
+                    CheckedMemoryOperationKind::RawBufferRelease { .. }
+                ) =>
+            {
+                Some(&mut memory.cleanup_collection)
+            }
+            _ => None,
+        }
+    }
+
+    /// Makes a structural cleanup operation borrow an existing collection.
+    /// Returns false for source invocations and other operations whose failures need collection.
+    pub fn borrow_cleanup_collection(&mut self, collection: &crate::MirCleanupCollection) -> bool {
+        let Some(slot) = self.cleanup_collection_slot() else {
+            return false;
+        };
+
+        // The operation retains the caller's immutable storage paths.
+        *slot = Some(Box::new(collection.clone()));
+
+        true
+    }
+
     /// Returns whether specialization must supply a local outgoing-record requirement.
     pub fn requires_outgoing_capacity(&self) -> bool {
         match self {

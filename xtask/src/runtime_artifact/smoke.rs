@@ -13,7 +13,10 @@ const EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
 const SYNC_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-sync-smoke.rs");
-const BOOTSTRAP_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-bootstrap-smoke.c");
+const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
+    include_str!("../../fixtures/runtime-allocation-probe.c"),
+    include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
+);
 
 pub(super) fn smoke_test(
     package: &Package,

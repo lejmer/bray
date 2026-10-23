@@ -1,29 +1,17 @@
 # BRA-619 remaining work
 
-Recorded on 2026-10-10. This is an implementation handoff, not a change to the language contract.
+## Active sequence and baseline
 
-Updated on 2026-10-11: use the [current stack completion plan](stack-completion.md) for work order and status.
-This document retains BRA-619's evidence and acceptance details. The earlier boundary before BRA-553 is retired.
-
-## Current delivery, 2026-10-15
-
-The user authorized squash-merging #607 as the reviewed Steps 1-4 foundation. It includes #602's selected-scope
-implementation. Keep the original branches. BRA-619 remains unfinished and must not be closed by that merge.
-Finish its remaining native incident transfer and acceptance in a dedicated issue PR after BRA-502, BRA-554 and
-BRA-558 land through their own PRs. Start from updated develop without replaying the old implementation.
-The missing-role regression remains enabled. Its typed incident, pending-outcome and provider/backing lifetime
-contracts constrain prerequisite design. Follow [the execution guide](runtime-stack-linear-execution.md).
-
-## Original issue and stack checkpoint
-
-- [BRA-619](https://linear.app/bray-lang/issue/BRA-619/implement-selected-scope-enter-and-exit-invocation): implement selected scope enter and exit invocation.
-- [PR #602](https://github.com/lejmer/bray/pull/602), draft at this original checkpoint. Linear remains In Progress.
-- Branch: `feature/bra-619-implement-selected-scope-enter-and-exit-invocation`.
-- Head: `3f6e93090ec11968a6df225f927353d444f6239e`.
-- Base: BRA-609 branch at `a96404055a81bfa7e9d0db2ba35d8df893f5fe21`.
-- Later stack entries are BRA-620 / PR #604 and BRA-621 / PR #605. The inspected worktree is on BRA-621 at `b4f6a587291d692cd8fe9874522558075a58d471`.
-
-These branch heads describe the original investigation. Revalidate live heads before editing and preserve dependent changes.
+Complete [BRA-505](https://linear.app/bray-lang/issue/BRA-505) in PR #612, then
+[BRA-619](https://linear.app/bray-lang/issue/BRA-619) in a dependent PR.
+Use [the active prerequisite record](BRA-505-retained-incidents.md) until it is complete.
+The selected-scope implementation from #602 is included through merged #607.
+The recovery branch `feature/bra-619-complete-selected-scope-native-cleanup` at `6bbcb4a3`
+preserves subsequent admission and rollback work. Inspect its diff against the completed
+BRA-505 branch and retain only work still needed. Do not replay old prerequisites.
+BRA-502/554/558 are merged and BRA-561 is reviewed. BRA-505 must supply retained-error
+quiescence, abandoned destruction and admitted payload transfer before this consumer connects them.
+The native missing-role regression stays enabled and must pass before completion.
 
 ## What is implemented
 
@@ -57,7 +45,7 @@ The native regression `scoped_selected_calls_emit_native_artifacts` exercises or
 | `crates/bray-runtime-abi/src/catalog/execution.rs` | `CleanupIncidentTransfer` currently has no native binding and is marked compiler-owned. |
 | `crates/bray-codegen/src/mapping/demand.rs` and `mapping/model/validation.rs` | Demand and validate the transfer mapping. |
 | `crates/bray-codegen-llvm/src/translation/unit/effect/body.rs` | Translates the incident operand and invokes its runtime mapping. |
-| `runtime/bootstrap/src/outgoing.bray`, `records.bray`, and `record-pool.bray` | Existing outgoing report admission, record ownership, transfer, and retirement mechanisms to examine for reuse. |
+| `runtime/bootstrap/src/outgoing/` and `report/` | Existing outgoing report admission, record ownership, transfer, and retirement mechanisms to examine for reuse. |
 | `crates/bray-compilation/src/compilation/lowering/tests/lifecycle.rs` | Existing source/MIR lifecycle coverage. |
 | `crates/bray-compilation/src/compilation/product/codegen/implementation/tests/lifecycle.rs` | Native artifact regression and related cleanup coverage. |
 
@@ -65,13 +53,15 @@ Build one coherent compiler-to-runtime transfer path. Trace the actual error typ
 
 Search structurally equivalent finalizer and cleanup-incident paths before choosing the implementation. Reuse existing lifecycle and reporting machinery. Keep established compiler phase invariants, and do not hide the missing role through fallback behavior or weaker validation.
 
-## Scope and dependencies
+## Transfer constraints
 
-The earlier Linear checkpoint identifies [BRA-502](https://linear.app/bray-lang/issue/BRA-502) and [BRA-558](https://linear.app/bray-lang/issue/BRA-558) as active owners of admission/report consumption work that overlaps this path. Their host work depends on BRA-553. Re-read those issues before deciding where the missing transfer belongs.
-
-The [subsequent dependency investigation](BRA-619-native-transfer-dependency.md) established that the existing transport lacks the physical typed backing and consumer contract. BRA-502 and BRA-558 own those prerequisites, with BRA-554 preceding BRA-558. BRA-553 has since completed implementation and review. Follow the shared completion plan and do not claim BRA-619 complete merely by deferring its native acceptance case.
-
-BRA-621 repaired physical report storage and callback ownership. At its head, the full normal native API audit passed 159 tests across seven plans and the outcome audit passed all 24 expected outcomes. Those suites do not cover the missing scoped-incident binding and do not clear this gap.
+Retain the exact error payload, physical backing and provider/attachment dependencies until
+run-boundary consumption. Reuse the existing report chain, concrete callbacks and outgoing
+allowances. Admit size, alignment and callback obligations before failure. Preserve separate
+reporting, destruction and release outcomes, including failures in each operation. Resolve child
+runs and inactive captures before retaining an incident without replaying graceful finalizers.
+No second arena, Rust payload registry, borrowed stack pointer, immediate disposal, allocation
+on failure or weakened role validation satisfies this ownership contract.
 
 ## Validation and review
 
@@ -86,4 +76,6 @@ Add meaningful native execution coverage for successful entry/exit, failed entry
 
 Read AGENTS.md and the coding/debug/language skills before implementation. Reuse the configured shared Cargo and LLVM storage. After Rust changes run the mutating `cargo xtask style`, and finish with `cargo xtask format`. Run affected suites and native API/outcome audits when changes to shared transport warrant them. Do not repeat unchanged broad checks just to start review.
 
-PR #602 had no published reviews at the original checkpoint. Once implementation and validation are complete, prepare the behavior review matrix and follow the [Bray issue workflow](../../.agents/skills/work-on-bray-issues/SKILL.md) for review, readiness and Linear status. Use the shared completion plan for sequencing.
+Follow the [Bray issue workflow](../../.agents/skills/work-on-bray-issues/SKILL.md) for
+independent review, readiness and Linear status. Remove this handoff after implementation,
+acceptance, review and any fixes are pushed. Keep durable behavior in specifications and tests.

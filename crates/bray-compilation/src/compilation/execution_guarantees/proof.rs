@@ -134,7 +134,7 @@ impl Compilation {
                     body,
                     callable,
                     declaration,
-                    property,
+                    required,
                     evidence,
                     cancellation,
                 )?;
@@ -176,7 +176,7 @@ impl Compilation {
                 &owner,
                 callable,
                 declaration,
-                property,
+                ExecutionObligation::Property(property, None),
                 evidence,
                 cancellation,
             )? == Some(None)

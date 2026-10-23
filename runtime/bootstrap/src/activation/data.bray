@@ -67,7 +67,7 @@ internal struct Header
     mut outgoing: bray.runtime.bootstrap.ReportRecords;
     mut destination: usize;
     mut incoming: Progress;
-    mut abandoned: u32;
+    mut disposition: u32;
 }
 
 internal const INACTIVE: u32 = 0;
@@ -83,6 +83,9 @@ internal const COMMITTED: u32 = 4;
 // Lifecycle resolution has suspended. Resume its checked continuation without
 // replacing the source outcome retained in progress.
 internal const RESOLVING: u32 = 5;
+
+// Child work is terminal, while the original future still owns its captures and lease.
+internal const RETAINED: u32 = 6;
 
 internal func empty_progress() -> Progress
     executes(pure, total)

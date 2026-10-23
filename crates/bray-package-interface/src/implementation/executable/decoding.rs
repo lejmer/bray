@@ -178,6 +178,7 @@ pub fn decode_executable_template(
     }
 
     let frame = decoder.frame_descriptor()?;
+    let cleanup_continuation = decoder.cleanup_continuation()?;
 
     let mut seen_parameters = decoder.derived_items(values.len())?;
 
@@ -195,84 +196,15 @@ pub fn decode_executable_template(
     validate_block_parameters(&block_records, &values, seen_parameters)?;
 
     let operation_owners = operation_owners(&block_records, operation_owner_slots)?;
-    let mut next_operation = 0;
 
-    for (value_slot, value) in values.iter().enumerate() {
-        match value.origin {
-            ValueRecordOrigin::Block(block_slot) => {
-                let block = item(&blocks, block_slot)?;
-
-                let id = builder
-                    .push_block_parameter(block, source.clone(), value.ty)
-                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
-
-                require_slot(id.slot(), value_slot)?;
-            }
-            ValueRecordOrigin::Operation(operation_slot) => {
-                let operation_index = index(operation_slot)?;
-
-                while next_operation < operation_index {
-                    push_operation(
-                        &mut builder,
-                        source.clone(),
-                        &blocks,
-                        &operation_owners,
-                        &operations,
-                        next_operation,
-                        None,
-                    )?;
-
-                    next_operation += 1;
-                }
-
-                if operation_index != next_operation
-                    || operations
-                        .get(operation_index)
-                        .and_then(|operation| operation.result)
-                        != Some(
-                            u32::try_from(value_slot)
-                                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
-                        )
-                {
-                    return Err(ExecutableTemplateDecodeError::Malformed);
-                }
-
-                let commit = push_operation(
-                    &mut builder,
-                    source.clone(),
-                    &blocks,
-                    &operation_owners,
-                    &operations,
-                    next_operation,
-                    Some(value.ty),
-                )?;
-
-                require_slot(
-                    commit
-                        .result()
-                        .ok_or(ExecutableTemplateDecodeError::Malformed)?
-                        .slot(),
-                    value_slot,
-                )?;
-
-                next_operation += 1;
-            }
-        }
-    }
-
-    while next_operation < operations.len() {
-        push_operation(
-            &mut builder,
-            source.clone(),
-            &blocks,
-            &operation_owners,
-            &operations,
-            next_operation,
-            None,
-        )?;
-
-        next_operation += 1;
-    }
+    push_values_and_operations(
+        &mut builder,
+        &source,
+        &blocks,
+        &operation_owners,
+        &operations,
+        &values,
+    )?;
 
     for ((block, terminator), record) in blocks.iter().copied().zip(terminators).zip(&block_records)
     {
@@ -289,6 +221,10 @@ pub fn decode_executable_template(
         }
 
         builder.set_frame_descriptor(frame);
+    }
+
+    if let Some(continuation) = cleanup_continuation {
+        builder.set_cleanup_continuation(continuation);
     }
 
     let entry = item(&blocks, entry_slot)?;
@@ -467,6 +403,97 @@ fn validate_block_parameters(
         .any(|(value, seen)| matches!(value.origin, ValueRecordOrigin::Block(_)) != seen)
     {
         return Err(ExecutableTemplateDecodeError::Malformed);
+    }
+
+    Ok(())
+}
+
+// Values and operations share construction order because SSA definitions can be block inputs.
+fn push_values_and_operations(
+    builder: &mut MirUnitBuilder,
+    source: &MirSourceAnchor,
+    blocks: &[MirBlockId],
+    operation_owners: &[u32],
+    operations: &[OperationRecord],
+    values: &[ValueRecord],
+) -> Result<(), ExecutableTemplateDecodeError> {
+    let mut next_operation = 0;
+
+    for (value_slot, value) in values.iter().enumerate() {
+        match value.origin {
+            ValueRecordOrigin::Block(block_slot) => {
+                let block = item(blocks, block_slot)?;
+
+                let id = builder
+                    .push_block_parameter(block, source.clone(), value.ty)
+                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
+
+                require_slot(id.slot(), value_slot)?;
+            }
+            ValueRecordOrigin::Operation(operation_slot) => {
+                let operation_index = index(operation_slot)?;
+
+                while next_operation < operation_index {
+                    push_operation(
+                        builder,
+                        source.clone(),
+                        blocks,
+                        operation_owners,
+                        operations,
+                        next_operation,
+                        None,
+                    )?;
+
+                    next_operation += 1;
+                }
+
+                if operation_index != next_operation
+                    || operations
+                        .get(operation_index)
+                        .and_then(|operation| operation.result)
+                        != Some(
+                            u32::try_from(value_slot)
+                                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
+                        )
+                {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                }
+
+                let commit = push_operation(
+                    builder,
+                    source.clone(),
+                    blocks,
+                    operation_owners,
+                    operations,
+                    next_operation,
+                    Some(value.ty),
+                )?;
+
+                require_slot(
+                    commit
+                        .result()
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?
+                        .slot(),
+                    value_slot,
+                )?;
+
+                next_operation += 1;
+            }
+        }
+    }
+
+    while next_operation < operations.len() {
+        push_operation(
+            builder,
+            source.clone(),
+            blocks,
+            operation_owners,
+            operations,
+            next_operation,
+            None,
+        )?;
+
+        next_operation += 1;
     }
 
     Ok(())
@@ -654,11 +681,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
-            15 => Ok(MirOperationKind::Finalize(self.place()?)),
-            16 => Ok(MirOperationKind::Destroy(self.place()?)),
+            25 => Ok(MirOperationKind::Quiesce {
+                place: self.place()?,
+                collection: self.cleanup_collection()?.map(Box::new),
+            }),
+            16 => Ok(MirOperationKind::Destroy {
+                place: self.place()?,
+                abandoned: self.optional_operand()?,
+                collection: self.cleanup_collection()?.map(Box::new),
+            }),
             17 => Ok(MirOperationKind::Cleanup {
                 phase: self.cleanup_phase()?,
                 place: self.place()?,
+                collection: self.cleanup_collection()?.map(Box::new),
             }),
             18 => Ok(MirOperationKind::Async(self.async_operation()?)),
             19 => Ok(MirOperationKind::DeclaredCallable(
@@ -742,6 +777,64 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         Ok(operands)
     }
 
+    fn frame_retention(
+        &mut self,
+    ) -> Result<bray_ir::MirFrameRetention, ExecutableTemplateDecodeError> {
+        let broadcast = self.block_id()?;
+
+        let affinity =
+            bray_runtime_interface::ProtectedFrameAffinity::from_code(read_u32(&mut self.reader)?)
+                .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+        let completion_cleanup = match read_u32(&mut self.reader)? {
+            0 => false,
+            1 => true,
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
+        let mut requirements = [Vec::new(), Vec::new(), Vec::new()];
+
+        for lanes in &mut requirements {
+            let lane_count = self.count()?;
+
+            *lanes = self.items(lane_count)?;
+
+            for _ in 0..lane_count {
+                lanes.push(self.execution_lane()?);
+            }
+        }
+
+        let storage_count = self.count()?;
+        let mut storages = self.items(storage_count)?;
+
+        for _ in 0..storage_count {
+            storages.push(self.storage_id()?);
+        }
+
+        Ok(bray_ir::MirFrameRetention::new(broadcast, [], storages)
+            .with_operation_requirements(requirements)
+            .with_affinity(affinity)
+            .with_completion_cleanup(completion_cleanup))
+    }
+
+    fn cleanup_collection(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCleanupCollection>, ExecutableTemplateDecodeError> {
+        if read_bool(&mut self.reader)? {
+            let collection = bray_ir::MirCleanupCollection::new(self.place()?, self.place()?);
+
+            let retention = if read_bool(&mut self.reader)? {
+                Some(std::sync::Arc::new(self.frame_retention()?))
+            } else {
+                None
+            };
+
+            Ok(Some(collection.with_retention(retention)))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn optional_operand(&mut self) -> Result<Option<MirOperand>, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             0 => Ok(None),
@@ -816,6 +909,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirImmediateValue::Boolean(true)),
             2 => Ok(MirImmediateValue::Unit),
             3 => Ok(MirImmediateValue::NullableAbsent),
+            4 => Ok(MirImmediateValue::EmptyPanicReport),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1074,6 +1168,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
+        let count = self.count()?;
+        let mut receiver_cleanup = self.items(count)?;
+
+        for _ in 0..count {
+            receiver_cleanup.push(self.ty()?);
+        }
+
         Ok(CallablePhaseBehavior::new(
             effects,
             capabilities,
@@ -1082,7 +1183,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             lifecycle_obligations,
             dependency_contract,
             cancellation,
-        ))
+        )
+        .with_receiver_cleanup(receiver_cleanup))
     }
 
     fn outgoing_owner(
@@ -1283,11 +1385,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 destination: self.place()?,
                 element: self.ty()?,
                 runtime: self.runtime_reference()?,
+                collection: Box::new(
+                    self.cleanup_collection()?
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
+                ),
             }),
             4 => Ok(MirGeneratorOperation::Destroy {
                 destination: self.place()?,
                 element: self.ty()?,
+                abandoned: self.operand()?,
                 runtime: self.runtime_reference()?,
+                collection: Box::new(
+                    self.cleanup_collection()?
+                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
+                ),
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1320,10 +1431,26 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.semantics)?;
         validate_decoded_atomic_result(kind, result_type, self.semantics)?;
 
-        Ok(
-            MirMemoryOperation::new(kind, operands, operand_types, result_type)
-                .with_inline_assembly_symbols(self.callable_references()?),
-        )
+        let mut operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
+            .with_inline_assembly_symbols(self.callable_references()?);
+
+        if let Some(abandoned) = self.optional_operand()? {
+            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
+                return Err(ExecutableTemplateDecodeError::Malformed);
+            }
+
+            operation = operation.with_abandoned_cleanup(abandoned);
+        }
+
+        if let Some(collection) = self.cleanup_collection()? {
+            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
+                return Err(ExecutableTemplateDecodeError::Malformed);
+            }
+
+            operation = operation.with_cleanup_collection(collection);
+        }
+
+        Ok(operation)
     }
 
     fn memory_kind(&mut self) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {
@@ -1848,11 +1975,17 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 child: self.frame_reference()?,
                 resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                 frame: self.operand()?,
-                completion: self.storage_id()?,
+                composition: match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirFrameComposition::Completion(self.storage_id()?),
+                    1 => bray_ir::MirFrameComposition::Abandon,
+                    2 => bray_ir::MirFrameComposition::Quiesce,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
             }),
             4 => Ok(Operation::CommitAwaitedCompletion {
                 child: self.frame_reference()?,
-                completion: self.storage_id()?,
+                completion: read_optional(&mut self.reader, read_u32)?
+                    .map(|slot| MirStorageId::from_slot(self.unit, slot)),
             }),
             5 => Ok(Operation::StartTask {
                 frame: self.frame_reference()?,
@@ -1861,21 +1994,21 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 start: self.runtime_reference()?,
             }),
             6 => Ok(Operation::RequestTaskCancellation {
-                task: self.operand()?,
+                task: self.place()?,
                 runtime: self.runtime_reference()?,
             }),
             7 => Ok(Operation::ObserveCurrentRunCancellation {
                 runtime: self.runtime_reference()?,
             }),
             8 => Ok(Operation::ResolveTask {
-                task: self.operand()?,
+                task: self.place()?,
                 variants: self.run_result_variants()?,
                 runtime: self.runtime_reference()?,
             }),
             9 => {
                 let state = match read_u32(&mut self.reader)? {
                     0 => bray_ir::MirTaskTerminalState::Completed(self.operand()?),
-                    1 => bray_ir::MirTaskTerminalState::Cancelled,
+                    1 => bray_ir::MirTaskTerminalState::Cancelled(self.operand()?),
                     2 => bray_ir::MirTaskTerminalState::Panicked(self.operand()?),
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
@@ -1885,16 +2018,22 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     runtime: self.runtime_reference()?,
                 })
             }
-            10 => Ok(Operation::ExecuteCleanupBroadcast {
-                frame: self.frame_id()?,
+            10 => Ok(Operation::BroadcastInactiveFrame {
+                frame: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
-            11 => Ok(Operation::ExecuteLifecycleResolution {
-                frame: self.frame_id()?,
+            11 => Ok(Operation::DestroyInactiveFrame {
+                frame: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
             12 => Ok(Operation::TransferCleanupIncident {
-                incident: self.operand()?,
+                incident: self.place()?,
+                report: self.place()?,
+                producer: MirCallableReference::new(
+                    self.callable_instance()?,
+                    self.callable_abi()?,
+                ),
+                invocation: self.call_result()?,
                 runtime: self.runtime_reference()?,
             }),
             13 => Ok(Operation::DestroyTerminalTask {
@@ -2002,6 +2141,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 runtime: self.runtime_reference()?,
             }),
             13 => Ok(MirTerminatorKind::PropagateCancellation {
+                report: self.operand()?,
                 runtime: self.runtime_reference()?,
             }),
             14 => Ok(MirTerminatorKind::CancelCurrentRun {
@@ -2047,8 +2187,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             17 => Ok(MirTerminatorKind::CheckCallOutcome {
                 completed: self.edge()?,
-                panicked: bray_ir::MirCallPanicEdge::new(self.block_id()?, self.place()?),
-                cancelled: self.edge()?,
+                panicked: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
+                cancelled: bray_ir::MirCallFailureEdge::new(self.block_id()?, self.place()?),
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -2123,6 +2263,41 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
+    fn cleanup_continuation(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirCleanupContinuation>, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(None),
+            1 => {
+                let context = self.storage_id()?;
+                let selector = self.place()?;
+                let count = self.count()?;
+                let mut entries = self.items(count)?;
+
+                for _ in 0..count {
+                    let handoff = self.block_id()?;
+                    let ordinary = self.block_id()?;
+                    let abandoned = self.block_id()?;
+
+                    let initial = match read_u32(&mut self.reader)? {
+                        0 => false,
+                        1 => true,
+                        _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                    };
+
+                    entries.push(bray_ir::MirCleanupEntry::new(
+                        handoff, ordinary, abandoned, initial,
+                    ));
+                }
+
+                Ok(Some(bray_ir::MirCleanupContinuation::new(
+                    context, selector, entries,
+                )))
+            }
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
     fn frame_descriptor(
         &mut self,
     ) -> Result<Option<MirFrameDescriptor>, ExecutableTemplateDecodeError> {
@@ -2153,55 +2328,34 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
+                let capture_cleanup = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some((
+                        bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
+                        bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
+                    )),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
                 let state_count = self.count()?;
                 let mut states = self.items(state_count)?;
 
                 for _ in 0..state_count {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
-                    let broadcast = self.block_id()?;
 
-                    let affinity = bray_runtime_interface::ProtectedFrameAffinity::from_code(
-                        read_u32(&mut self.reader)?,
-                    )
-                    .ok_or(ExecutableTemplateDecodeError::Malformed)?;
-
-                    let completion_cleanup = match read_u32(&mut self.reader)? {
-                        0 => false,
-                        1 => true,
-                        _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                    };
-
-                    let mut requirements = [Vec::new(), Vec::new(), Vec::new()];
-
-                    for lanes in &mut requirements {
-                        let lane_count = self.count()?;
-
-                        *lanes = self.items(lane_count)?;
-
-                        for _ in 0..lane_count {
-                            lanes.push(self.execution_lane()?);
-                        }
-                    }
-
-                    let storage_count = self.count()?;
-                    let mut storages = self.items(storage_count)?;
-
-                    for _ in 0..storage_count {
-                        storages.push(self.storage_id()?);
-                    }
-
-                    states.push(
-                        MirFrameState::new(state, entry, broadcast, [], storages)
-                            .with_operation_requirements(requirements)
-                            .with_affinity(affinity)
-                            .with_completion_cleanup(completion_cleanup),
-                    );
+                    states.push(MirFrameState::new(state, entry, self.frame_retention()?));
                 }
 
                 let mut entries = BTreeSet::new();
 
                 if states.is_empty()
+                    || capture_cleanup.is_some_and(|(quiescence, destruction)| {
+                        quiescence == destruction
+                            || [quiescence, destruction]
+                                .into_iter()
+                                .any(|entry| !states.iter().any(|state| state.state() == entry))
+                    })
                     || completion_state.is_some_and(|completion| {
                         !states.iter().any(|state| state.state() == completion)
                     })
@@ -2221,7 +2375,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     completion_state,
                     states,
                 )
-                .map(Some)
+                .map(|descriptor| Some(descriptor.with_capture_cleanup(capture_cleanup)))
                 .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),

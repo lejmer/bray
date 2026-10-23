@@ -77,18 +77,6 @@ impl OutgoingRecords {
         provider::bray_runtime_report_records_append(&mut self.0, &mut other.0);
     }
 
-    pub(crate) fn pop(&mut self) -> Option<NativePanicPrimary> {
-        if self.len() == 0 {
-            return None;
-        }
-
-        let mut primary = NativePanicPrimary::empty();
-
-        provider::bray_runtime_report_records_pop(&mut self.0, &mut primary);
-
-        Some(primary)
-    }
-
     pub(crate) fn pop_incident(&mut self) -> Option<crate::shutdown::CleanupIncident> {
         if self.len() == 0 {
             return None;
@@ -108,8 +96,13 @@ impl OutgoingRecords {
 
 impl Drop for OutgoingRecords {
     fn drop(&mut self) {
-        while let Some(primary) = self.pop() {
-            drop(primary);
+        let records = std::mem::take(&mut self.0);
+
+        if records.count != 0 {
+            drop(bray_runtime_abi::NativePanicReport::from_records(
+                records,
+                provider::bray_runtime_report_consumer,
+            ));
         }
     }
 }

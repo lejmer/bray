@@ -5,8 +5,7 @@ Agreed semantic derivation, 2026-10-13. Baseline: `e3f56424` on `feature/bra-620
 The user approved the semantic interpretation and authorized specification and shared-analysis implementation. This argument examines the existing language rules before choosing more
 compiler machinery. It adds no syntax or runtime representation. The normative specification records the agreed semantic rules. The
 earlier [replacement plan](runtime-stack-rule-coverage.md) supplies candidate mechanisms, not proof premises. Its
-implementation sequence remains subject to this review. Historical results stay in [BRA-620 remaining
-work](BRA-620-remaining-work.md).
+implementation sequence remains subject to this review. Completed implementation evidence remains in PR #607 and Git history.
 
 The design hypothesis is that ownership, dependency validity and contract evidence admit one compositional transition
 semantics. The expected simplification is removal of competing interpretations of those transitions, not removal of

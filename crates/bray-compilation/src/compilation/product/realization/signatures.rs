@@ -17,7 +17,7 @@ use super::super::specialization::ConcreteCodegenInstance;
 use super::contextual_self::{codegen_instance_contextual_self, substitute_contextual_self};
 use super::support::{
     callable_type_signature, codegen_checker_error, invocation_signature, is_void_result,
-    receiver_codegen_type, void_signature,
+    void_signature,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -174,7 +174,7 @@ impl Compilation {
             .into());
         };
 
-        let receiver = signature
+        let mut receiver = signature
             .receiver()
             .map(|receiver| {
                 let receiver_ty = self.concrete_codegen_type(
@@ -184,12 +184,15 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                receiver_codegen_type(values, receiver_ty, receiver.mode())
+                receiver
+                    .mode()
+                    .input_type(values, receiver_ty)
+                    .map_err(FactQueryError::SemanticValueStore)
                     .map_err(CodegenPreparationError::from)
             })
             .transpose()?;
 
-        let parameter_types = signature
+        let mut parameter_types = signature
             .parameters()
             .iter()
             .map(|parameter| {
@@ -201,6 +204,17 @@ impl Compilation {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        if definition.callable_symbol().kind() == bray_symbols::SymbolKind::Destructor {
+            let (consumed, context) = self.destructor_input_types(
+                instance,
+                receiver.expect("a checked destructor has its consuming receiver"),
+                cancellation,
+            )?;
+
+            receiver = Some(consumed);
+            parameter_types.extend(context);
+        }
 
         let parameters = receiver
             .into_iter()
@@ -250,6 +264,46 @@ impl Compilation {
         ))
     }
 
+    fn destructor_input_types(
+        &self,
+        instance: &ConcreteCodegenInstance,
+        receiver: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<(TypeId, Option<TypeId>), CodegenPreparationError> {
+        let receiver = self
+            .semantic_value_store()?
+            .intern_type(TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Mutable,
+                target: receiver,
+            })
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        let unit = self.codegen_mir_for_plan(
+            instance.key(),
+            bray_ir::MirUnitId::new(0),
+            None,
+            cancellation,
+        )?;
+
+        let context = unit
+            .cleanup_continuation()
+            .map(|continuation| {
+                let context = unit
+                    .storage(continuation.context())
+                    .expect("checked destructor context exists");
+
+                self.concrete_codegen_type(
+                    context.ty(),
+                    instance.substitution(),
+                    Some(instance),
+                    cancellation,
+                )
+            })
+            .transpose()?;
+
+        Ok((receiver, context))
+    }
+
     pub(super) fn codegen_static_initializer_signature(
         &self,
         instance: &ConcreteCodegenInstance,
@@ -271,11 +325,15 @@ impl Compilation {
             cancellation,
         )?;
 
-        Ok(CodegenCallableSignature::new(
-            [],
-            CodegenResultMapping::direct(ty, None, []),
-            CallableAbi::Bray,
-            false,
+        Ok(invocation_signature(
+            CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::direct(ty, None, []),
+                CallableAbi::Bray,
+                false,
+            ),
+            bray_symbols::CallableInvocation::Bray,
+            CallableExecution::Synchronous,
         ))
     }
 
@@ -382,10 +440,11 @@ impl Compilation {
             CodegenResultMapping::direct(result, None, [])
         };
 
-        Ok(
-            CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false)
-                .with_panic_report_context(),
-        )
+        Ok(invocation_signature(
+            CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false),
+            bray_symbols::CallableInvocation::Bray,
+            CallableExecution::Synchronous,
+        ))
     }
 
     pub(super) fn codegen_runtime_default_input_type(
@@ -477,7 +536,10 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                receiver_codegen_type(values, ty, receiver.mode())
+                receiver
+                    .mode()
+                    .input_type(values, ty)
+                    .map_err(FactQueryError::SemanticValueStore)
                     .map_err(CodegenPreparationError::from)
             })
             .transpose()?;

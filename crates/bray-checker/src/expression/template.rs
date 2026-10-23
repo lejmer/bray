@@ -1,15 +1,13 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{
-    BoundCallResult, BoundCallableTarget, BoundFutureConstruction, BoundResolvedCall,
-};
+use bray_bound_tree::{BoundCallResult, BoundCallableTarget, BoundResolvedCall};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
-    CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
-    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    CallableAbi, CallableConstness, CallableDependencyContracts, CallableInstanceData,
+    CallableParameterData, CallableParameterMode, CallablePosition, CallableSignature,
+    CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
     PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
 };
 
@@ -533,25 +531,13 @@ pub fn call_result<C>(
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
-    match callable.execution() {
-        CallableExecution::Synchronous => BoundCallResult::Immediate(result),
-        CallableExecution::Asynchronous => BoundCallResult::LazyFuture(
-            BoundFutureConstruction::new(result, future_type(request, result)),
-        ),
-    }
-}
-
-fn future_type<C>(request: crate::CheckerUnitView<'_, C>, completion: TypeId) -> TypeId
-where
-    C: crate::CheckerRequestContext + ?Sized,
-{
-    request
-        .available_compiler_known_symbols()
-        .unary_representation_type(
-            request.semantic_values(),
-            RepresentationRole::Future,
-            completion,
-        ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in future_type: {error:?}")).unwrap_or_else(|| panic!("compiler-known Future type must be available for async call selection"))
+    BoundCallResult::from_execution(
+        request.semantic_values(),
+        request.available_compiler_known_symbols(),
+        callable.execution(),
+        result,
+    )
+    .expect("checked callable invocation retains its semantic result representation")
 }
 
 pub(super) const fn candidate_state(

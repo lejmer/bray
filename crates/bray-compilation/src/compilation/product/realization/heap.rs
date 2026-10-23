@@ -17,30 +17,26 @@ impl Compilation {
     pub(in crate::compilation::product) fn compiler_provided_heap_method(
         &self,
         definition: CallableDefinitionId,
-    ) -> Result<Option<HeapStorageMethod>, CodegenPreparationError> {
+    ) -> Option<HeapStorageMethod> {
         for (name, method) in [
             ("HeapStorageCreate", HeapStorageMethod::Create),
             ("HeapStorageBorrow", HeapStorageMethod::Borrow),
             ("HeapStorageBorrowMut", HeapStorageMethod::BorrowMut),
-            ("HeapStorageDestroy", HeapStorageMethod::Destroy),
             ("HeapStorageRelease", HeapStorageMethod::Release),
         ] {
-            let key = CompilerKnownDeclarationKey::try_new(name).ok_or_else(|| {
-                ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                    key: name.to_owned(),
-                }
-            })?;
+            let key = CompilerKnownDeclarationKey::try_new(name)
+                .expect("heap storage operation has a valid compiler-known identity");
 
             if self
                 .available_compiler_known_symbols()
                 .declaration_symbol::<TraitCallableFulfillmentSymbolId>(&key)
                 .is_some_and(|symbol| definition.callable_symbol() == symbol.into())
             {
-                return Ok(Some(method));
+                return Some(method);
             }
         }
 
-        Ok(None)
+        None
     }
 
     pub(in crate::compilation::product) fn codegen_heap_method_mir(
@@ -56,7 +52,7 @@ impl Compilation {
         };
 
         let method = self
-            .compiler_provided_heap_method(definition)?
+            .compiler_provided_heap_method(definition)
             .ok_or_else(|| missing(ProductDataKind::CallableFulfillment))?;
 
         let callable = instance
@@ -69,11 +65,8 @@ impl Compilation {
 
         let binding = self.binding_context(cancellation)?;
 
-        let storage_key = CompilerKnownDeclarationKey::try_new("Storage").ok_or_else(|| {
-            ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                key: "Storage".to_owned(),
-            }
-        })?;
+        let storage_key = CompilerKnownDeclarationKey::try_new("Storage")
+            .expect("Storage has a valid compiler-known identity");
 
         let storage_definition = self
             .available_compiler_known_symbols()
@@ -151,7 +144,7 @@ impl Compilation {
         };
 
         let context =
-            super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)?;
+            super::synthetic::CompilationSyntheticLoweringContext::new(self, None, cancellation)?;
 
         bray_lowering::lower_heap_storage(
             &context,
@@ -251,7 +244,6 @@ mod tests {
                         return &mut storage.value;
                     }}
 
-                    trusted static func destroy(pos storage: &mut Self) {{ loop {{}} }}
                     trusted static func release(pos storage: Self) {{ loop {{}} }}
                 }}
 
@@ -378,7 +370,6 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             "StorageCreate",
             "StorageBorrow",
             "StorageBorrowMut",
-            "StorageDestroy",
             "StorageRelease",
         ] {
             let selected = selected_storage_callable(
@@ -424,7 +415,13 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
                 if block.operations().iter().any(|id| {
                     matches!(
                         mir.operation(*id).map(|operation| operation.kind()),
-                        Some(MirOperationKind::Destroy(_) | MirOperationKind::Cleanup { .. })
+                        Some(
+                            MirOperationKind::Destroy { .. }
+                                | MirOperationKind::Cleanup {
+                                    collection: None,
+                                    ..
+                                }
+                        )
                     )
                 }) {
                     assert!(
@@ -438,6 +435,14 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             }
 
             if member == "StorageCreate" {
+                assert!(mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Cleanup {
+                        collection: Some(_),
+                        ..
+                    }
+                )));
+
                 assert!(mir.blocks().iter().any(|block| matches!(
                     block.terminator().kind(),
                     MirTerminatorKind::CheckCallOutcome { .. }
@@ -445,8 +450,7 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
 
                 assert!(mir.operations().iter().any(
                     |operation| matches!(operation.kind(), MirOperationKind::Cleanup {
-                    phase: MirCleanupPhase::LifecycleResolution, place,
-                } if place.ty() == element)
+                    phase: MirCleanupPhase::LifecycleResolution, place, .. } if place.ty() == element)
                 ));
 
                 assert!(

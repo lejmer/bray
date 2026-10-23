@@ -354,6 +354,21 @@ fn check_candidate_applicability<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    if matches!(
+        candidate.resolution().target(),
+        BoundCallableTarget::Predicate(_)
+    ) && !matches!(
+        request.semantic_context(),
+        crate::SemanticUnitContext::PredicateDefinition(_)
+            | crate::SemanticUnitContext::Constraint(_)
+            | crate::SemanticUnitContext::ContractClause(_)
+            | crate::SemanticUnitContext::TargetGate(_)
+    ) {
+        return CandidateApplicability::Incompatible(
+            SelectionCandidateRejectionReason::PredicateOutsideContract,
+        );
+    }
+
     let callable_type = callable_type(request, candidate.callable_type());
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {

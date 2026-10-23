@@ -29,7 +29,6 @@ pub enum DiagnosticDependencySubjectKind {
     ProductStatic,
     ExactThreadStatic,
     LifecycleObligation,
-    SuspensionState,
 }
 
 impl DiagnosticDependencySubjectKind {
@@ -43,7 +42,6 @@ impl DiagnosticDependencySubjectKind {
             Self::ProductStatic => "product_static",
             Self::ExactThreadStatic => "exact_thread_static",
             Self::LifecycleObligation => "lifecycle_obligation",
-            Self::SuspensionState => "suspension_state",
         }
     }
 }
@@ -62,7 +60,6 @@ pub enum DiagnosticDependencyRequirementKind {
     FinalizationAttached,
     CancellationAttached,
     JoiningAttached,
-    SuspensionStateAvailable,
 }
 
 impl DiagnosticDependencyRequirementKind {
@@ -79,7 +76,6 @@ impl DiagnosticDependencyRequirementKind {
             Self::FinalizationAttached => "finalization_attached",
             Self::CancellationAttached => "cancellation_attached",
             Self::JoiningAttached => "joining_attached",
-            Self::SuspensionStateAvailable => "suspension_state_available",
         }
     }
 }

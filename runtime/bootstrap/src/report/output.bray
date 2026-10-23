@@ -178,23 +178,24 @@ trusted internal func segment(pos value: &bray.runtime.bootstrap.ReportSegment) 
     return first_failure(&statuses[..]);
 }
 
-trusted internal func typed(pos value: &bray.runtime.bootstrap.report.incident.Record) -> u32
+trusted internal func typed(pos source: bray.runtime.bootstrap.report.incident.Source, pos identity: bytes<32>) -> u32
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let mut description = bray.runtime.bootstrap.empty_primary();
 
-    description.source_present = value.source.present;
-    description.source_identity = value.source.identity;
-    description.source_start = value.source.start;
-    description.source_end = value.source.end;
-    description.source_version = value.source.version;
-    description.source_namespace_word_0 = value.source.namespace[0];
-    description.source_namespace_word_1 = value.source.namespace[1];
-    description.source_namespace_word_2 = value.source.namespace[2];
-    description.source_namespace_word_3 = value.source.namespace[3];
+    description.source_present = source.present;
+    description.source_identity = source.identity;
+    description.source_start = source.start;
+    description.source_end = source.end;
+    description.source_version = source.version;
+    description.source_namespace_word_0 = source.namespace[0];
+    description.source_namespace_word_1 = source.namespace[1];
+    description.source_namespace_word_2 = source.namespace[2];
+    description.source_namespace_word_3 = source.namespace[3];
     description.cause = 5;
+    description.primary_present = 1;
 
-    let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(2, &description, &value.type_identity);
+    let observed = trusted bray.runtime.bootstrap.entry.bridge.observe(2, &description, &identity);
 
     if observed != bray.runtime.bootstrap.STATUS_NOT_INITIALIZED
     {
@@ -203,13 +204,13 @@ trusted internal func typed(pos value: &bray.runtime.bootstrap.report.incident.R
 
     let statuses: [u32; 9] = [
         trusted write(&b"cleanup_error type="[..]),
-        trusted digest(&value.type_identity),
+        trusted digest(&identity),
         trusted write(&b" source="[..]),
-        trusted number(value.source.identity as u64),
+        trusted number(source.identity as u64),
         trusted write(&b":"[..]),
-        trusted number(value.source.start as u64),
+        trusted number(source.start as u64),
         trusted write(&b".."[..]),
-        trusted number(value.source.end as u64),
+        trusted number(source.end as u64),
         trusted write(&b"\n"[..])
     ];
 

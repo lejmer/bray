@@ -185,7 +185,7 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
     for body in [
         "trusted touch_word(core.memory.address_of<u32>(&owner.value));",
         "trusted touch_marker(core.memory.address_of<Marker>(&owner.marker));",
-        "let address = core.memory.address_of<Marker>(&owner.marker); trusted opaque();",
+        "let address = core.memory.address_of<Marker>(&owner.marker); trusted touch_marker(address); trusted opaque();",
     ] {
         let source = format!(
             r#"
@@ -685,6 +685,102 @@ fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() 
             compilation.check_diagnostics()
         );
     }
+}
+
+#[test]
+fn cursor_witness_survives_observation_and_independent_loop_counters() {
+    let source = r#"
+        trusted module app;
+        struct Cursor
+        {
+            first: RawPointer<u8>;
+            limit: usize;
+            mut current: RawPointer<u8>;
+            mut remaining: usize;
+        }
+        trusted predicate valid(cursor: &Cursor);
+        trusted func observe(pos cursor: &Cursor) -> (RawPointer<u8>, usize)
+            requires(trusted valid(cursor = cursor))
+            ensures(
+                trusted valid(cursor = cursor),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.valid_read<u8>(pointer = result.0, count = result.1 + 1),
+                core.memory.is_null<u8>(result.0) || trusted core.memory.initialized_range_as<u8>(pointer = result.0, count = result.1 + 1),
+            )
+        {
+            return (cursor.current, cursor.remaining);
+        }
+        trusted func advance(pos cursor: &mut Cursor)
+            requires(trusted valid(cursor = &cursor))
+            ensures(trusted valid(cursor = &cursor))
+        {
+            cursor.remaining -= 1;
+        }
+        trusted func caller(pos mut cursor: Cursor) -> usize
+            requires(trusted valid(cursor = &cursor))
+        {
+            let mut total: usize = 0;
+            let mut length: usize = 0;
+
+            loop
+            {
+                let observed: (RawPointer<u8>, usize) = trusted observe(&cursor);
+
+                if core.memory.is_null<u8>(observed.0)
+                {
+                    break;
+                }
+
+                if total > 1000 - observed.1 - 1
+                {
+                    panic("too large");
+                }
+
+                total += observed.1 + 1;
+                length += 1;
+                trusted advance(&mut cursor);
+            }
+
+            return total + length;
+        }
+    "#;
+
+    let mut results = Vec::new();
+
+    for observe in [false, true] {
+        for advance in [false, true] {
+            let mut source = source.to_owned();
+
+            if !observe {
+                source = source
+                    .replace("trusted func observe", "extern trusted func observe")
+                    .replace(
+                        "{\n            return (cursor.current, cursor.remaining);\n        }",
+                        ";",
+                    );
+            }
+
+            if !advance {
+                source = source
+                    .replace("trusted func advance", "extern trusted func advance")
+                    .replace("{\n            cursor.remaining -= 1;\n        }", ";");
+            }
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            results.push((observe, advance, !diagnostics.has_errors()));
+        }
+    }
+
+    assert_eq!(
+        results,
+        vec![
+            (false, false, true),
+            (false, true, true),
+            (true, false, true),
+            (true, true, true)
+        ]
+    );
 }
 
 #[test]
@@ -3337,7 +3433,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
         ("", true, true),
         ("", false, false),
         (
-            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer);",
+            "let escaped = core.memory.address_of_mut<RawPointer<u8>>(&mut pointer); publish(escaped);",
             true,
             false,
         ),
@@ -3352,6 +3448,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
             r#"
             trusted module app;
             trusted extern func renew(pos value: RawPointer<u8>) {postcondition};
+            extern func publish(pos pointer: RawPointer<RawPointer<u8>>);
             trusted func run(pos input: RawPointer<u8>) uses(raw_memory, unchecked_init)
             {{
                 let mut pointer = input;
@@ -3422,7 +3519,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
         ("u64", "", "pos owner: &mut Owner", "&mut owner", false),
         (
             "u64",
-            "let escaped = core.memory.address_of_mut<Owner>(&mut owner);",
+            "let escaped = core.memory.address_of_mut<Owner>(&mut owner); publish(escaped);",
             "",
             "",
             false,
@@ -3432,12 +3529,6 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
         ("core.memory.Uninit<u64>", "", "", "", false),
         ("core.atomic.Atomic<u64>", "", "", "", false),
     ] {
-        let capabilities = if exposure.is_empty() {
-            ""
-        } else {
-            "uses(raw_memory)"
-        };
-
         let source = format!(
             r#"
             trusted module app;
@@ -3445,8 +3536,9 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             trusted predicate acquired(owner: &Owner);
             trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
             extern func opaque({parameter});
+            extern func publish(pos pointer: RawPointer<Owner>);
             func inspect(pos owner: &Owner) requires(trusted acquired(owner)) executes(pure, total) {{}}
-            trusted func run() {capabilities} {{
+            trusted func run() {{
                 let mut owner = trusted acquire();
                 {exposure}
                 opaque({argument});
@@ -3671,4 +3763,160 @@ fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
             );
         }
     }
+}
+
+#[test]
+fn yielded_owners_preserve_only_common_witnesses() {
+    for (expression, intervening, valid) in [
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "",
+            true,
+        ),
+        (
+            "if flag { let (owner, _) = produce(1); yield (owner, 0); } else { let (owner, _) = produce(2); yield (owner, 0); }",
+            "",
+            true,
+        ),
+        (
+            "{ yield if flag { yield produce(1); } else { yield produce(2); }; }",
+            "",
+            true,
+        ),
+        (
+            "loop { if flag { break produce(1); } break produce(2); }",
+            "",
+            true,
+        ),
+        (
+            "match flag { case true { yield produce(1); } case false { yield produce(2); } }",
+            "",
+            true,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield (Owner { value = 2 }, 0); }",
+            "",
+            false,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "owner.value = 3;",
+            false,
+        ),
+        (
+            "if flag { yield produce(1); } else { yield produce(2); }",
+            "let forged = Owner { value = owner.value }; observe(&forged);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ mut value: u32; }}
+            trusted predicate live(owner: &Owner);
+            trusted func produce(pos value: u32) -> (Owner, u32)
+                ensures(trusted live(owner = &result.0))
+            {{
+                return (Owner {{ value = value }}, 0);
+            }}
+            func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {{}}
+            func caller(pos flag: bool) {{
+                let (mut owner, _) = {expression};
+                {intervening}
+                observe(&owner);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn yielded_pairs_do_not_combine_unrelated_owner_authority() {
+    for (alternative, valid) in [
+        ("yield produce(2);", true),
+        (
+            "let (left, _) = produce(2); let (_, right) = produce(3); yield (left, right);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Owner {{ value: u32; }}
+            trusted predicate paired(left: &Owner, right: &Owner);
+            trusted func produce(pos value: u32) -> (Owner, Owner)
+                ensures(trusted paired(left = &result.0, right = &result.1))
+            {{
+                return (Owner {{ value = value }}, Owner {{ value = value }});
+            }}
+            func observe(pos left: &Owner, pos right: &Owner)
+                requires(trusted paired(left = left, right = right)) {{}}
+            func caller(pos flag: bool) {{
+                let (left, right) = if flag {{ yield produce(1); }} else {{ {alternative} }};
+                observe(&left, &right);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn yielded_generic_ownership_does_not_destroy_the_returned_value() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+        struct Owner { mut value: u32; }
+        trusted predicate live(owner: &Owner);
+        func take<T>(pos pending: T?) -> T {
+            return match consume pending {
+                case ?value { yield value; }
+                case none { panic("empty pending value"); }
+            };
+        }
+        func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {}
+        func caller<T>(pos pending: T?, pos owner: &Owner) -> T
+            requires(trusted live(owner = owner))
+        {
+            let value = take<T>(pending);
+            observe(owner);
+            return value;
+        }
+    "#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 }

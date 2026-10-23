@@ -87,8 +87,9 @@ native_adapter! {
         frame: NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
+        abandoning: u8,
     ) {
-        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination)
+        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination, abandoning)
     }
 }
 
@@ -165,5 +166,13 @@ native_adapter! {
         destination: &mut bray_runtime_abi::NativeReportRecords,
     ) -> u32 {
         implementation::bray_runtime_activation_callback_admission(count, destination)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_activation_action_readiness(
+        execution: &bray_runtime_abi::NativeActivationExecution,
+    ) -> u32 {
+        implementation::bray_runtime_activation_action_readiness(execution)
     }
 }

@@ -500,19 +500,19 @@ mod tests {
                 if contract.expressions().len() == 5 && contract.capabilities().len() == 2
         ));
 
-        let storage_destroy = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageDestroy");
+        let storage_create = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageCreate");
 
-        let storage_destroy_contract = resolved_query(
+        let storage_create_contract = resolved_query(
             &binding_context,
-            SymbolQueryRequest::<CallableContractsQuery>::new(storage_destroy.into()),
+            SymbolQueryRequest::<CallableContractsQuery>::new(storage_create.into()),
         );
 
-        let trusted_capabilities = storage_destroy_contract
+        let trusted_capabilities = storage_create_contract
             .value()
             .invocation_behavior()
             .trusted_capabilities();
 
-        assert_eq!(trusted_capabilities.len(), 2);
+        assert_eq!(trusted_capabilities.len(), 3);
         assert_eq!(trusted_capabilities[0].ordinal(), SymbolOrdinal::new(0));
         assert_eq!(trusted_capabilities[1].ordinal(), SymbolOrdinal::new(1));
 

@@ -196,10 +196,11 @@ impl Lowerer<'_> {
                 destination: place,
                 ..
             })
-            | MirOperationKind::Destroy(place)
+            | MirOperationKind::Destroy { place, .. }
             | MirOperationKind::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
                 place,
+                ..
             } => {
                 self.set_storage_initialized(block, &source, place, false)?;
             }

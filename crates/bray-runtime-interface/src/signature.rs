@@ -19,8 +19,10 @@ pub enum RuntimeAbiType {
     Configuration,
     /// Root-start status and root handle.
     RootStart,
-    /// Movable panic primary and detached outgoing ownership. Parameters transfer through a pointer.
+    /// Movable panic primary and detached outgoing ownership.
     PanicReport,
+    /// Address of a panic report slot consumed or updated by the callee.
+    PanicReportPointer,
     /// Terminal run state and payload.
     RunOutcome,
     /// Task allocation status and task handle.
@@ -36,7 +38,7 @@ pub enum RuntimeAbiType {
 }
 
 /// Native field order shared by panic report type realization and source binding checks.
-pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 19] = [
+pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 20] = [
     RuntimeAbiType::U32,
     RuntimeAbiType::U32,
     RuntimeAbiType::U32,
@@ -46,6 +48,7 @@ pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 19] = [
     RuntimeAbiType::U64,
     RuntimeAbiType::U64,
     RuntimeAbiType::U64,
+    RuntimeAbiType::U32,
     RuntimeAbiType::U32,
     RuntimeAbiType::Usize,
     RuntimeAbiType::Usize,

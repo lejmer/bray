@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundAssignmentOperator, BoundBlockItem, BoundExpression, BoundExpressionId,
-    BoundOperator, BoundStructuredExpressionKind, OperatorTarget, SelectedOperation,
-    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
+    BoundAssignmentOperator, BoundBlockItem, BoundExpression, BoundExpressionId, BoundOperator,
+    BoundStructuredExpressionKind, OperatorTarget, SelectedOperation, SemanticSelection,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 
 use super::super::id::AnalysisBlockId;
@@ -27,8 +27,10 @@ pub(super) fn bounded_loop_headers<C: CheckerRequestContext + ?Sized>(
                 .iter()
                 .filter_map(|id| graph.operation(*id))
                 .find_map(|operation| {
-                    let AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(id)) =
-                        operation.kind()
+                    let AnalysisOperationKind::Result {
+                        expression: id,
+                        phase: super::super::model::AnalysisResultPhase::Begin,
+                    } = operation.kind()
                     else {
                         return None;
                     };

@@ -1,15 +1,15 @@
 //! Internal implementation surface consumed by link-isolated native adapters.
 
 pub use super::activation::{
-    bray_runtime_activation_callback, bray_runtime_activation_callback_admission,
+    bray_runtime_activation_action_readiness, bray_runtime_activation_callback,
+    bray_runtime_activation_callback_admission,
 };
 pub use super::callback::bray_runtime_native_thread_execution;
 pub use super::export::{
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,
     bray_runtime_cleanup_shield_enter, bray_runtime_cleanup_shield_leave,
     bray_runtime_compatible_lane_selection, bray_runtime_current_run_cancellation_observation,
-    bray_runtime_current_run_cancellation_propagation, bray_runtime_event,
-    bray_runtime_join_registration, bray_runtime_main_thread_lane_drive,
+    bray_runtime_event, bray_runtime_join_registration, bray_runtime_main_thread_lane_drive,
     bray_runtime_main_thread_lane_startup, bray_runtime_panic_propagation,
     bray_runtime_product_host_control, bray_runtime_root_cancellation_request,
     bray_runtime_root_completion_resolution, bray_runtime_root_execution,

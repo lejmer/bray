@@ -289,8 +289,16 @@ fn remap_dependency_contract(
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
+        if let DependencyStorageEffect::Direct { kind, .. }
+        | DependencyStorageEffect::Indirect { kind, .. } = effect
+        {
+            *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
+        }
+
         match effect {
-            DependencyStorageEffect::Atomic | DependencyStorageEffect::Unknown => {}
+            DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Unknown
+            | DependencyStorageEffect::Escape => {}
             DependencyStorageEffect::Cleanup(ty) => {
                 *ty = maps.type_id(*ty)?;
             }
@@ -419,6 +427,14 @@ fn remap_behavior(
     behavior: &mut crate::InterfaceCallablePhaseBehavior,
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
+    behavior.receiver_cleanup = bray_base::sorted_unique_shared_slice(
+        behavior
+            .receiver_cleanup
+            .iter()
+            .map(|ty| maps.type_id(*ty))
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+
     for predicates in [
         &mut behavior.predicate_requirements,
         &mut behavior.predicate_guarantees,

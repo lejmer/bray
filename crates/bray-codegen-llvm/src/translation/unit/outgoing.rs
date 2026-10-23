@@ -1,6 +1,8 @@
 use super::core::UnitTranslator;
 use bray_codegen::{CodegenCleanupRequirement, CodegenFailure};
-use bray_ir::{MirOperationId, MirRuntimeReference};
+use bray_ir::{
+    MirGeneratedLifecycleRole, MirOperand, MirOperationId, MirPlace, MirRuntimeReference,
+};
 use bray_runtime_interface::RuntimeAbiRole;
 use inkwell::values::{BasicValueEnum, PointerValue};
 
@@ -176,6 +178,100 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ),
             &[record, lease.into(), context.into()],
         )?;
+
+        Ok(())
+    }
+
+    pub(super) fn transfer_cleanup_incident(
+        &mut self,
+        operation: MirOperationId,
+        incident: &MirPlace,
+        destination: &MirPlace,
+        runtime: MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let mapping = self
+            .request
+            .mappings()
+            .operation(self.instance.key(), operation)
+            .expect("typed incident transfer has its concrete operation mapping");
+
+        let identity = mapping
+            .incident_type_identity()
+            .expect("typed incident transfer has its concrete payload identity");
+
+        let [requirement] = self.outgoing_requirements(operation) else {
+            panic!("typed incident transfer must retain one selected producer requirement");
+        };
+
+        let storage = crate::mapping::incident::claim_storage(
+            self.module,
+            &self.builder,
+            requirement,
+            self.types,
+        )?;
+
+        // The operation and move bookkeeping share the immutable storage path.
+        let payload = self.operand(&MirOperand::Move(incident.clone()))?;
+
+        self.builder
+            .build_store(storage.1, payload)
+            .map_err(CodegenFailure::backend_library)?;
+
+        let [helper] = mapping.helpers() else {
+            panic!("typed incident transfer has one selected destruction helper");
+        };
+
+        let cleanup = helper.symbol().map(|key| {
+            (
+                self.request
+                    .mappings()
+                    .symbol(key)
+                    .expect("typed incident destruction has its concrete symbol"),
+                MirGeneratedLifecycleRole::from_reference(helper.reference())
+                    .expect("incident destruction has a selected lifecycle role"),
+            )
+        });
+
+        let destroy =
+            crate::mapping::incident::declare_destroyer(self.module, cleanup, self.types)?;
+
+        let reporter = crate::mapping::incident::declare_reporter(self.module, self.types)?;
+        let source = self.native_source_anchor(operation)?.into_struct_value();
+
+        let record = crate::mapping::incident::record_value(
+            &self.builder,
+            identity,
+            source,
+            storage,
+            reporter,
+            destroy,
+            self.types,
+        )?;
+
+        let address = self.allocate_temporary(record.get_type(), "incident.transfer")?;
+
+        self.builder
+            .build_store(address, record)
+            .map_err(CodegenFailure::backend_library)?;
+
+        let destination = self.place(destination)?;
+
+        let current = self
+            .builder
+            .build_load(
+                crate::native::panic_report_type(self.types.context()),
+                destination,
+                "incident.collection",
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
+        let report = self
+            .invoke_native_runtime(runtime, &[address.into(), current])?
+            .expect("incident retention returns the owned report");
+
+        self.builder
+            .build_store(destination, report)
+            .map_err(CodegenFailure::backend_library)?;
 
         Ok(())
     }

@@ -423,6 +423,10 @@ define_diagnostic_kinds! {
     CheckingUseOfMovedStorage,
     /// A partially moved value still requires its whole-value lifecycle at an ownership exit.
     CheckingIncompleteLifecycleStorage,
+    /// An operation may introduce graceful ownership through a destructor receiver.
+    CheckingDestructorOwnershipIntroduction,
+    /// A destructor operation has no proof of preservation on every outcome.
+    CheckingUnprovedDestructorEffects,
     /// An operation conflicts with an active overlapping borrow.
     CheckingConflictingBorrow,
     /// An operation requires mutation authority that is not available.
@@ -479,6 +483,10 @@ define_diagnostic_kinds! {
     CheckingUnknownExecutionProperty,
     /// A body or selected dependency cannot establish an execution promise.
     CheckingExecutionGuaranteeNotProven,
+    /// Normal ownership end retains a possibly fallible finalization obligation.
+    CheckingUnresolvedFinalization,
+    /// Remaining implicit finalization requires asynchronous execution.
+    CheckingAsyncFinalizationOutsideAsyncCallable,
     /// A termination proof depends on itself.
     CheckingCircularExecutionGuarantee,
     /// A callable reaches its end without supplying its required result.
@@ -879,6 +887,8 @@ impl DiagnosticKind {
             Self::CheckingRefinementCapacityExceeded => 7033,
             Self::CheckingUseOfMovedStorage => 7035,
             Self::CheckingIncompleteLifecycleStorage => 7116,
+            Self::CheckingDestructorOwnershipIntroduction => 7127,
+            Self::CheckingUnprovedDestructorEffects => 7128,
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingMissingStorageOwnership => 7039,
@@ -906,6 +916,8 @@ impl DiagnosticKind {
             Self::CheckingExecutionGuaranteeUnsupported => 7117,
             Self::CheckingUnknownExecutionProperty => 7118,
             Self::CheckingExecutionGuaranteeNotProven => 7119,
+            Self::CheckingUnresolvedFinalization => 7125,
+            Self::CheckingAsyncFinalizationOutsideAsyncCallable => 7126,
             Self::CheckingCircularExecutionGuarantee => 7120,
             Self::CheckingCallableResultRequired => 7121,
             Self::CheckingCallableAddressTypeUnsupported => 7105,
@@ -1295,6 +1307,10 @@ impl DiagnosticKind {
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
             Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",
             Self::CheckingIncompleteLifecycleStorage => "checking_incomplete_lifecycle_storage",
+            Self::CheckingDestructorOwnershipIntroduction => {
+                "checking_destructor_ownership_introduction"
+            }
+            Self::CheckingUnprovedDestructorEffects => "checking_unproved_destructor_effects",
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
             Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",
@@ -1349,6 +1365,10 @@ impl DiagnosticKind {
             }
             Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
             Self::CheckingExecutionGuaranteeNotProven => "checking_execution_guarantee_not_proven",
+            Self::CheckingUnresolvedFinalization => "checking_unresolved_finalization",
+            Self::CheckingAsyncFinalizationOutsideAsyncCallable => {
+                "checking_async_finalization_outside_async_callable"
+            }
             Self::CheckingCircularExecutionGuarantee => "checking_circular_execution_guarantee",
             Self::CheckingCallableResultRequired => "checking_callable_result_required",
             Self::CheckingExecutionGuaranteeUnsupported => {

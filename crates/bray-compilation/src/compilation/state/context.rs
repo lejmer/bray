@@ -184,6 +184,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) unwind_behavior: UnitQueryCache<bool>,
     pub(in crate::compilation) execution_candidates:
         UnitQueryCache<bray_checker::ExecutionCandidates>,
+    pub(in crate::compilation) cleanup_completion:
+        UnitQueryCache<crate::compilation::execution_guarantees::CompletedCleanup>,
     pub(in crate::compilation) certified_execution:
         UnitQueryCache<bray_checker::ExecutionCertification>,
     pub(in crate::compilation) selected_body_behavior:
@@ -211,7 +213,11 @@ pub(in crate::compilation) struct CompilationState {
         FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,
     pub(in crate::compilation) generated_lifecycle: FactCellMap<
         (bray_codegen::CodegenInstanceKey, bray_ir::MirUnitId),
-        Result<Arc<bray_lowering::LoweredLifecycle>, crate::compilation::CodegenPreparationError>,
+        Result<Arc<bray_ir::MirUnit>, crate::compilation::CodegenPreparationError>,
+    >,
+    pub(in crate::compilation) destruction_bodies: FactCellMap<
+        bray_codegen::CodegenInstanceKey,
+        Result<Arc<bray_lowering::DestructionBody>, crate::compilation::CodegenPreparationError>,
     >,
     pub(in crate::compilation) optimized_mir: FactCellMap<
         crate::fact::OptimizedMirQueryKey,

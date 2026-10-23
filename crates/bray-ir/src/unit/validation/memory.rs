@@ -14,6 +14,17 @@ pub(super) fn validate_memory_operation(
         return None;
     }
 
+    if let Some(abandoned) = memory.abandoned_cleanup() {
+        if !matches!(
+            memory.kind(),
+            CheckedMemoryOperationKind::RawBufferRelease { .. }
+        ) {
+            return None;
+        }
+
+        validate_operand(unit, abandoned, block, Some(operation))?;
+    }
+
     let expected = memory.kind().operand_count();
 
     if memory.operands().len() != expected || memory.operand_types().len() != expected {

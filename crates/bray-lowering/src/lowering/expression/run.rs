@@ -1,4 +1,4 @@
-use bray_bound_tree::{AsyncSuspensionKind, BoundExpressionId, SelectedArgument, SelectedCall};
+use bray_bound_tree::{BoundExpressionId, SelectedArgument, SelectedCall};
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirEdge, MirFrameState, MirOperationKind,
@@ -60,7 +60,7 @@ impl Lowerer<'_> {
                 )))
             }
             Some(ImplementationHook::CurrentRunCancellationPropagation) => {
-                self.finish_cancellation(current, &source, expression.into())?;
+                self.finish_cancellation(current, &source, expression.into(), None)?;
 
                 Ok(Some(LoweredExpression::terminated(source)))
             }
@@ -133,20 +133,8 @@ impl Lowerer<'_> {
                 // Suspension and dispatch retain the same immutable cleanup edge.
                 self.branch_frame_cancellation(dispatch, &source, resume, cancellation.clone())?;
 
-                let broadcast = self.frame_broadcast(&source, expression.into(), false)?;
+                let retention = self.frame_retention(&source, expression.into())?;
                 let state = self.next_frame_state()?;
-
-                let suspension = self
-                    .input
-                    .suspension(expression)
-                    .filter(|suspension| suspension.kind() == AsyncSuspensionKind::Yield)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "lowering contract violation: MissingSuspensionPoint {value:?}",
-                            value = expression
-                        )
-                    });
 
                 self.set_terminator(
                     current,
@@ -167,20 +155,8 @@ impl Lowerer<'_> {
                     },
                 )?;
 
-                let initialized_storages =
-                    self.retained_storages(suspension.retained_subjects())?;
-
-                self.frame_states.push(
-                    MirFrameState::new(
-                        state,
-                        dispatch,
-                        broadcast,
-                        self.execution_lane_requirements(),
-                        initialized_storages,
-                    )
-                    .with_affinity(self.frame_affinity())
-                    .with_completion_cleanup(self.completion_cleanup.is_some()),
-                );
+                self.frame_states
+                    .push(MirFrameState::new(state, dispatch, retention));
 
                 let ty = self.expression_type(expression);
                 let value = self.unit_operand(ty);

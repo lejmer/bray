@@ -171,25 +171,32 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Finalize(place) => {
+            MirOperationKind::Quiesce { place, .. } => {
                 self.translate_lifecycle_helper(
                     id,
-                    MirHelperReference::Finalize(place.ty()),
+                    MirHelperReference::Quiesce(place.ty()),
                     place,
+                    None,
                 )?;
 
                 None
             }
-            MirOperationKind::Destroy(place) => {
+            MirOperationKind::Destroy {
+                place, abandoned, ..
+            } => {
                 self.translate_lifecycle_helper(
                     id,
-                    MirHelperReference::Destroy(place.ty()),
+                    MirHelperReference::Destroy(
+                        place.ty(),
+                        bray_ir::MirDestructionDisposition::from_argument(abandoned.as_ref()),
+                    ),
                     place,
+                    abandoned.as_ref(),
                 )?;
 
                 None
             }
-            MirOperationKind::Cleanup { phase, place } => {
+            MirOperationKind::Cleanup { phase, place, .. } => {
                 self.translate_lifecycle_helper(
                     id,
                     MirHelperReference::Cleanup {
@@ -197,6 +204,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         ty: place.ty(),
                     },
                     place,
+                    None,
                 )?;
 
                 None
@@ -415,7 +423,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: bray_ir::MirOperationId,
         expected: MirHelperReference,
         place: &MirPlace,
-    ) -> Result<(), CodegenFailure> {
+        abandoned: Option<&bray_ir::MirOperand>,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let helpers = self.operation_helpers(operation)?;
 
         let [helper] = helpers.as_slice() else {
@@ -426,14 +435,80 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR effect translation violated an established compiler contract");
         }
 
-        let place = self.place(place)?.into();
-        let result = self.invoke_operation_helper(operation, helper, &[place])?;
+        if helper.symbol().is_none() {
+            if self.checked_call_operations.contains(&operation) {
+                let context = self.checked_call_panic_report_context()?;
 
-        if result.is_some() {
-            panic!("checked MIR effect translation violated an established compiler contract");
+                self.set_pending_call_context(context)?;
+            }
+
+            return Ok(None);
         }
 
-        Ok(())
+        let mut arguments = vec![self.place(place)?.into()];
+
+        if matches!(
+            expected,
+            MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+        ) {
+            arguments.push(match abandoned {
+                Some(value) => self.operand(value)?,
+                None => self.types.context().bool_type().const_zero().into(),
+            });
+        }
+
+        let collection = self
+            .unit
+            .operation(operation)
+            .expect("translated cleanup operation exists")
+            .kind()
+            .cleanup_collection();
+
+        let owned = if collection.is_none() {
+            Some(self.checked_call_panic_report_context()?)
+        } else {
+            None
+        };
+
+        let slots = if let Some(collection) = collection {
+            [
+                self.place(collection.state())?,
+                self.place(collection.report())?,
+            ]
+        } else {
+            crate::mapping::cleanup::begin_collection(
+                self.module,
+                &self.builder,
+                owned.expect("local collection has its outcome"),
+                self.types,
+            )?
+        };
+
+        arguments.extend(slots.map(BasicValueEnum::from));
+
+        let result = self.invoke_helper(helper, &arguments)?;
+
+        if let Some(outcome) = owned {
+            crate::mapping::cleanup::publish_collection(
+                self.module,
+                &self.builder,
+                slots[0],
+                self.types,
+            )?;
+
+            if self.checked_call_operations.contains(&operation) {
+                self.set_pending_call_context(outcome)?;
+            } else {
+                self.propagate_boundary_call_panic(outcome)?;
+            }
+        }
+
+        assert!(
+            result.is_none(),
+            "lifecycle disposal does not return a value"
+        );
+
+        Ok(None)
     }
 
     pub(super) fn translate_async_operation(
@@ -476,31 +551,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 child,
                 resume_state,
                 frame,
-                completion,
+                composition,
                 ..
             } => {
-                let frame = self.native_inactive_frame(frame)?;
-
-                let runtime = self.operation_runtime_helper(
-                    operation_id,
-                    MirHelperReference::ComposeAwaitedFrame(*child),
-                )?;
-
-                let state = self
-                    .types
-                    .context()
-                    .i32_type()
-                    .const_int(u64::from(resume_state.raw()), false);
-
-                let destination = self.storage(*completion)?;
-
-                let address = llvm(self.builder.build_ptr_to_int(
-                    destination,
-                    self.pointer_integer_type(),
-                    "awaited.destination",
-                ))?;
-
-                self.invoke_native_runtime(runtime, &[frame, state.into(), address.into()])
+                self.compose_awaited_frame(operation_id, *child, *resume_state, frame, *composition)
             }
             MirAsyncOperation::CommitAwaitedCompletion { child, completion } => {
                 let runtime = self.operation_runtime_helper(
@@ -522,6 +576,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_native_runtime(runtime, &[header.into(), outcome.into()])?;
 
                 self.set_pending_call_context(outcome)?;
+
+                let Some(completion) = completion else {
+                    return Ok(None);
+                };
 
                 let outcome_type =
                     crate::native::run_outcome_type(self.types.context(), self.request.target());
@@ -579,7 +637,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(Some(task.into()))
             }
             MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
-                let task = self.operand(task)?;
+                let task = self.observed_place(task)?;
 
                 let status = self.invoke_runtime(*runtime, &[task])?.expect(
                     "checked MIR effect translation requires an established mapping or value",
@@ -600,7 +658,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 variants,
                 runtime,
             } => {
-                let task = int_value(self.operand(task)?).expect(
+                let task = int_value(self.observed_place(task)?).expect(
                     "checked MIR effect translation requires an established mapping or value",
                 );
 
@@ -623,25 +681,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 nonzero_integer(&self.builder, value, "run.cancelled")
                     .map(|value| Some(value.into()))
             }
-            MirAsyncOperation::PublishTerminalState { state, runtime } => {
-                if self.frame_context.is_some() {
-                    self.translate_frame_terminal_state(state)?;
+            MirAsyncOperation::PublishTerminalState { state, .. } => {
+                self.translate_frame_terminal_state(state)?;
 
-                    return Ok(None);
-                }
-
-                let arguments = self.terminal_state_arguments(*runtime, state)?;
-
-                self.invoke_runtime(*runtime, &arguments)
+                Ok(None)
             }
-            MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
-            | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {
-                self.invoke_runtime(*runtime, &[])
-            }
-            MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
-                let incident = self.operand(incident)?;
+            MirAsyncOperation::BroadcastInactiveFrame { frame, runtime }
+            | MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
+                self.cleanup_inactive_frame(frame, *runtime)?;
 
-                self.invoke_runtime(*runtime, &[incident])
+                Ok(None)
+            }
+            MirAsyncOperation::TransferCleanupIncident {
+                incident,
+                report,
+                runtime,
+                ..
+            } => {
+                self.transfer_cleanup_incident(operation_id, incident, report, *runtime)?;
+
+                Ok(None)
             }
             MirAsyncOperation::DestroyTerminalTask { task } => {
                 let task = self.operand(task)?;
@@ -688,7 +747,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.invoke_helper(helper, arguments)
     }
 
-    fn operation_runtime_helper(
+    pub(super) fn operation_runtime_helper(
         &self,
         operation: bray_ir::MirOperationId,
         expected: MirHelperReference,

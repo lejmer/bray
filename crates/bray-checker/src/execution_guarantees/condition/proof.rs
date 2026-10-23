@@ -43,7 +43,10 @@ impl ExecutionCondition {
         // Test exact evidence once per Boolean node. Recursively proving its entire
         // subtree at each level makes a chain of clauses require quadratic work.
         for value in [true, false] {
-            if trusted.contains(&(self.clone(), value)) && !self.contains_unknown() {
+            if (trusted.contains(&(self.clone(), value))
+                || (ordinary.contains(&(self.clone(), value)) && !self.contains_trusted()))
+                && !self.contains_unknown()
+            {
                 return Some(value);
             }
         }

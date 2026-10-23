@@ -2,7 +2,7 @@ use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 use crate::{MirBlockId, MirOperationId, MirPlace, MirSourceAnchor};
 
-/// A scalar value represented directly in MIR without semantic interning.
+/// A compiler-owned value represented directly in MIR without semantic interning.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirImmediateValue {
     /// A scalar boolean value.
@@ -11,6 +11,8 @@ pub enum MirImmediateValue {
     Unit,
     /// The absent value of a nullable type.
     NullableAbsent,
+    /// An empty owned report with no primary, incidents or reserved backing.
+    EmptyPanicReport,
 }
 
 /// How one MIR value is defined.

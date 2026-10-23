@@ -121,12 +121,12 @@ func main() -> i32
         return 5;
     }
 
-    if(yielded_value()).is_absent()
+    if (yielded_value()).is_absent()
     {
         return 6;
     }
 
-    if(broken_value()).is_absent()
+    if (broken_value()).is_absent()
     {
         return 7;
     }

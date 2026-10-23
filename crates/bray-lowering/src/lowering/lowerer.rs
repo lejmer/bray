@@ -73,10 +73,13 @@ pub(super) struct Lowerer<'unit> {
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
-    pub(super) completion_cleanup: Option<bray_symbols::TypeId>,
+    pub(super) completion_cleanup: Option<bray_ir::MirPlace>,
     pub(super) initial_broadcast: Option<MirBlockId>,
+    pub(super) capture_cleanup: Option<(MirFrameStateId, MirFrameStateId)>,
     pub(super) broadcast_outcome: Option<(crate::cleanup_outcome::CleanupOutcome, MirBlockId)>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) receiver_cleanup: Option<super::receiver::ReceiverCleanup>,
+    pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
     pub(super) terminal_state_blocks:
@@ -117,8 +120,11 @@ impl<'unit> Lowerer<'unit> {
             frame_states: Vec::new(),
             completion_cleanup: None,
             initial_broadcast: None,
+            capture_cleanup: None,
             broadcast_outcome: None,
             cleanup_outcome: None,
+            receiver_cleanup: None,
+            cleanup_occurrence: None,
             cleanup_failure_targets: None,
             abnormal_cleanup_machine: None,
             terminal_state_blocks: std::collections::HashMap::new(),
@@ -133,6 +139,8 @@ impl<'unit> Lowerer<'unit> {
         let entry = self
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        self.initialize_receiver_cleanup(&source)?;
 
         self.initialize_cleanup_guards(entry, &source)?;
 
@@ -255,24 +263,11 @@ impl<'unit> Lowerer<'unit> {
                     )
                 });
 
-            let initial_storages = self.storages.iter().filter_map(|(identity, storage)| {
-                self.input
-                    .storage_plan()
-                    .identity(*identity)
-                    .expect("lowered storage retains its checked identity")
-                    .is_initialized_at_entry()
-                    .then_some(*storage)
-            });
-
             let initial = MirFrameState::new(
                 MirFrameStateId::new(0),
                 entry,
-                self.initial_broadcast
-                    .expect("protected source frame retains its capture broadcast"),
-                self.execution_lane_requirements(),
-                initial_storages,
-            )
-            .with_affinity(self.frame_affinity());
+                self.initial_frame_retention(),
+            );
 
             let runtime_abi = self.input.target().runtime_abi();
 
@@ -285,10 +280,19 @@ impl<'unit> Lowerer<'unit> {
                 std::iter::once(initial).chain(self.frame_states),
             )?;
 
-            self.builder.set_frame_descriptor(descriptor);
+            self.builder
+                .set_frame_descriptor(descriptor.with_capture_cleanup(self.capture_cleanup));
         }
 
-        Ok(self.builder.finish(entry))
+        let receiver_cleanup = self.receiver_cleanup.take();
+        let unit = self.builder.finish(entry);
+
+        super::receiver::finish_receiver_cleanup(
+            &self.input,
+            unit,
+            receiver_cleanup,
+            &self.storages,
+        )
     }
 
     pub(in crate::lowering) fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {
@@ -296,6 +300,11 @@ impl<'unit> Lowerer<'unit> {
             self.abnormal_cleanup_machine
                 .iter()
                 .flat_map(move |machine| machine.pending_successors(block))
+                .chain(
+                    self.receiver_cleanup
+                        .iter()
+                        .flat_map(move |receiver| receiver.pending_successors(block)),
+                )
         })
     }
 
@@ -657,7 +666,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 first,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -669,7 +678,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 different,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::Return,
                 &[],
                 Some(&different_place),
@@ -681,7 +690,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 second,
                 &source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -693,7 +702,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 different_occurrence,
                 &different_source,
-                None,
+                crate::cleanup_outcome::CleanupFailure::Cancellation(None),
                 crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
                 &[],
                 Some(&shared_place),
@@ -705,7 +714,7 @@ mod tests {
                 bray_ir::MirCleanupPhase::TaskCancellation,
                 panicking,
                 &source,
-                Some(bray_ir::MirOperand::Move(report)),
+                crate::cleanup_outcome::CleanupFailure::Panic(bray_ir::MirOperand::Move(report)),
                 crate::lowering::cleanup::CleanupDestination::PropagatePanic,
                 &[],
                 Some(&shared_place),
@@ -768,7 +777,17 @@ mod tests {
             .blocks()
             .iter()
             .find_map(|block| match block.terminator().kind() {
-                MirTerminatorKind::Switch { cases, .. } if cases.len() == 2 => Some(cases),
+                MirTerminatorKind::Switch { cases, .. }
+                    if cases.len() == 2
+                        && cases.iter().any(|case| {
+                            matches!(
+                                mir.block(case.edge().target()).unwrap().terminator().kind(),
+                                MirTerminatorKind::Return(Some(_))
+                            )
+                        }) =>
+                {
+                    Some(cases)
+                }
                 _ => None,
             })
             .expect("cancellation dispatcher must retain both destinations");
@@ -783,16 +802,23 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(
-            destinations
-                .iter()
-                .any(|destination| matches!(destination, MirTerminatorKind::Return(None)))
-        );
+        let returned_report = destinations
+            .iter()
+            .find_map(|destination| match destination {
+                MirTerminatorKind::Return(Some(report)) => Some(report),
+                _ => None,
+            })
+            .expect("return route must transfer the collected report");
 
-        assert!(destinations.iter().any(|destination| matches!(
-            destination,
-            MirTerminatorKind::PropagateCancellation { .. }
-        )));
+        let propagated_report = destinations
+            .iter()
+            .find_map(|destination| match destination {
+                MirTerminatorKind::PropagateCancellation { report, .. } => Some(report),
+                _ => None,
+            })
+            .expect("cancellation route must transfer the collected report");
+
+        assert_eq!(returned_report, propagated_report);
     }
 
     #[test]

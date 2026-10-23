@@ -51,6 +51,7 @@ enum DiagnosticSelectionRejectionReasonJson {
         mismatch: DiagnosticConstructionInputRejectionJson,
     },
     ExpressionForm,
+    PredicateOutsideContract,
     RequiredImplementation,
     RequiredLanguageOperation,
 }
@@ -188,6 +189,7 @@ impl DiagnosticSelectionRejectionReasonJson {
                 mismatch: DiagnosticConstructionInputRejectionJson::from_reason(reason),
             },
             Reason::ExpressionForm => Self::ExpressionForm,
+            Reason::PredicateOutsideContract => Self::PredicateOutsideContract,
             Reason::RequiredImplementation => Self::RequiredImplementation,
             Reason::RequiredLanguageOperation => Self::RequiredLanguageOperation,
         }

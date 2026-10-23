@@ -230,7 +230,7 @@ impl<'a> ScalarAnalysis<'a> {
         if let Some(frame) = self.unit.frame_descriptor() {
             for state in frame.states() {
                 self.enter_root(state.entry());
-                self.enter_root(state.broadcast());
+                self.enter_root(state.retention().broadcast());
             }
         }
 
@@ -296,6 +296,12 @@ impl<'a> ScalarAnalysis<'a> {
                 .expect("valid MIR operation");
 
             let kind = operation.kind();
+
+            kind.for_each_retained_block(|entry| {
+                if !self.blocks[slot(entry.slot())].executable {
+                    self.enter_root(entry);
+                }
+            });
 
             if let MirOperationKind::Store {
                 destination, value, ..

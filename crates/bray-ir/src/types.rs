@@ -45,6 +45,12 @@ impl MirUnit {
 }
 
 fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<TypeId>) {
+    if let Some(collection) = operation.cleanup_collection() {
+        for place in collection.places() {
+            collect_place_types(place, types);
+        }
+    }
+
     match operation {
         MirOperationKind::AdmitOutgoing { owner, .. }
         | MirOperationKind::DischargeOutgoing { owner, .. } => match owner {
@@ -53,11 +59,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
                 types.insert(*ty);
             }
             crate::MirOutgoingOwner::Invocation { result, .. } => {
-                types.insert(result.ty());
-
-                if let bray_bound_tree::BoundCallResult::LazyFuture(future) = result {
-                    types.insert(future.completion_type());
-                }
+                collect_call_result_types(*result, types);
             }
         },
         MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
@@ -68,9 +70,17 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_operand_types(value, types);
         }
         MirOperationKind::Borrow { place, .. }
-        | MirOperationKind::Finalize(place)
-        | MirOperationKind::Destroy(place)
+        | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
+        MirOperationKind::Destroy {
+            place, abandoned, ..
+        } => {
+            collect_place_types(place, types);
+
+            if let Some(abandoned) = abandoned {
+                collect_operand_types(abandoned, types);
+            }
+        }
         MirOperationKind::Unary { operand, .. } => collect_operand_types(operand, types),
         MirOperationKind::Binary { left, right, .. } => {
             collect_operand_types(left, types);
@@ -109,6 +119,10 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Generator(operation) => collect_generator_types(operation, types),
         MirOperationKind::Call(call) => collect_call_types(call, types),
         MirOperationKind::Memory(memory) => {
+            if let Some(abandoned) = memory.abandoned_cleanup() {
+                collect_operand_types(abandoned, types);
+            }
+
             collect_operands_types(memory.operands(), types);
             collect_memory_types(memory.kind(), types);
         }
@@ -315,7 +329,7 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             cancelled,
         } => {
             collect_edge_types(completed, types);
-            collect_edge_types(cancelled, types);
+            collect_place_types(cancelled.report(), types);
             collect_place_types(panicked.report(), types);
         }
         MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
@@ -325,10 +339,10 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             collect_operand_types(report, types);
             collect_cleanup_edge_types(cleanup, types);
         }
-        MirTerminatorKind::PropagatePanic { report, .. } => {
+        MirTerminatorKind::PropagatePanic { report, .. }
+        | MirTerminatorKind::PropagateCancellation { report, .. } => {
             collect_operand_types(report, types);
         }
-        MirTerminatorKind::PropagateCancellation { .. } => {}
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
             collect_cleanup_edge_types(cleanup, types);
         }
@@ -336,6 +350,10 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
 }
 
 fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeSet<TypeId>) {
+    if let MirGeneratorOperation::Destroy { abandoned, .. } = operation {
+        collect_operand_types(abandoned, types);
+    }
+
     match operation {
         MirGeneratorOperation::Begin {
             destination,
@@ -383,26 +401,36 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::CommitAwaitedCompletion { .. }
         | MirAsyncOperation::ObserveFrameCancellation
-        | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
-        | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
-        | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
+        | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
+        MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
+            collect_operand_types(frame, types);
+        }
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
         | MirAsyncOperation::StartTask { value: frame, .. } => {
             collect_operand_types(frame, types);
         }
-        MirAsyncOperation::RequestTaskCancellation { task, .. }
-        | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => {
+        MirAsyncOperation::DestroyTerminalTask { task } => {
             collect_operand_types(task, types);
         }
+        MirAsyncOperation::RequestTaskCancellation { task, .. }
+        | MirAsyncOperation::ResolveTask { task, .. } => collect_place_types(task, types),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            MirTaskTerminalState::Completed(value)
+            | MirTaskTerminalState::Panicked(value)
+            | MirTaskTerminalState::Cancelled(value) => {
                 collect_operand_types(value, types);
             }
-            MirTaskTerminalState::Cancelled => {}
         },
-        MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
-            collect_operand_types(incident, types);
+        MirAsyncOperation::TransferCleanupIncident {
+            incident,
+            report,
+            invocation,
+            ..
+        } => {
+            collect_place_types(incident, types);
+            collect_place_types(report, types);
+            collect_call_result_types(*invocation, types);
         }
     }
 }
@@ -426,6 +454,17 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
         | MirHostOperation::BeginStaticCleanup
         | MirHostOperation::ReportCleanupIncidents { .. }
         | MirHostOperation::StructuredShutdown { .. } => {}
+    }
+}
+
+fn collect_call_result_types(
+    result: bray_bound_tree::BoundCallResult,
+    types: &mut BTreeSet<TypeId>,
+) {
+    types.insert(result.ty());
+
+    if let bray_bound_tree::BoundCallResult::LazyFuture(future) = result {
+        types.insert(future.completion_type());
     }
 }
 

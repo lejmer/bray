@@ -52,14 +52,33 @@ struct Directory
         );
     }
 
+    /// Whether this owner has no unresolved resource obligation.
+    predicate complete(value: &Directory) = !value.is_open;
+
+    /// Reports whether the resource obligation has been resolved, including after an error.
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(result == Directory.complete(value = &self))
+    {
+        return !self.is_open;
+    }
+
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(Directory.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || Directory.complete(value = &self))
+        when(Directory.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_directory(&mut self);
     }
 
     trusted destruct()
     {
+        let state = self.state;
+
         if self.is_open
         {
             trusted platform_directory_discard(handle = self.handle);
@@ -88,30 +107,44 @@ struct Directory
         return self.next();
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+    mut func close() -> Result<unit, std.io.IoError>
+        requires(Directory.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || Directory.complete(value = &self))
+        when(Directory.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_directory(&mut self);
     }
 
-    consume mut async func close_async() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+    mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(Directory.complete(value = &self) || blocking_execution())
+        ensures(result matches Error(_) || Directory.complete(value = &self))
+        when(Directory.complete(value = &self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return self.close();
     }
 }
 
 trusted internal func close_directory(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
-    requires(blocking_execution())
+    requires(Directory.complete(value = &directory) || blocking_execution())
+    ensures(result matches Error(_) || Directory.complete(value = &directory))
+    when(Directory.complete(value = &directory))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
 {
     if !directory.is_open
     {
         return Ok(unit);
     }
 
-    try trusted platform_directory_close(handle = directory.handle);
-
-    directory.is_open = false;
-
-    return Ok(unit);
+    return trusted platform_directory_close(directory);
 }

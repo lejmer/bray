@@ -5,6 +5,106 @@ use bray_ir::{MirFrameInitializer, MirHelperReference, MirRunResultVariants};
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn compose_awaited_frame(
+        &mut self,
+        operation: bray_ir::MirOperationId,
+        child: bray_ir::MirFrameReference,
+        resume_state: bray_ir::MirFrameStateId,
+        frame: &bray_ir::MirOperand,
+        composition: bray_ir::MirFrameComposition,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let frame = self.native_inactive_frame(frame)?;
+
+        let runtime = self
+            .operation_runtime_helper(operation, MirHelperReference::ComposeAwaitedFrame(child))?;
+
+        let state = self
+            .types
+            .context()
+            .i32_type()
+            .const_int(u64::from(resume_state.raw()), false);
+
+        let address = match composition.completion() {
+            Some(completion) => {
+                let destination = self.storage(completion)?;
+
+                llvm(self.builder.build_ptr_to_int(
+                    destination,
+                    self.pointer_integer_type(),
+                    "awaited.destination",
+                ))?
+            }
+            None => self.pointer_integer_type().const_zero(),
+        };
+
+        let disposition = match composition {
+            bray_ir::MirFrameComposition::Completion(_) => {
+                bray_runtime_abi::NativeFrameComposition::Completion
+            }
+            bray_ir::MirFrameComposition::Abandon => {
+                bray_runtime_abi::NativeFrameComposition::Abandon
+            }
+            bray_ir::MirFrameComposition::Quiesce => {
+                bray_runtime_abi::NativeFrameComposition::Quiesce
+            }
+        };
+
+        let disposition = self
+            .types
+            .context()
+            .i8_type()
+            .const_int(u64::from(disposition.code()), false);
+
+        self.invoke_native_runtime(
+            runtime,
+            &[frame, state.into(), address.into(), disposition.into()],
+        )
+    }
+
+    pub(super) fn cleanup_inactive_frame(
+        &mut self,
+        frame: &bray_ir::MirOperand,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let token = self.native_inactive_frame(frame)?;
+        let storage = self.allocate_temporary(token.get_type(), "inactive.token")?;
+
+        llvm(self.builder.build_store(storage, token))?;
+
+        let callback = crate::native::declare_runtime_function(
+            self.module,
+            self.types.context(),
+            self.request.target(),
+            bray_runtime_interface::RuntimeAbiRole::ActivationCallback,
+        )?
+        .as_global_value()
+        .as_pointer_value();
+
+        let ready = crate::native::declare_runtime_function(
+            self.module,
+            self.types.context(),
+            self.request.target(),
+            bray_runtime_interface::RuntimeAbiRole::ActivationActionReadiness,
+        )?
+        .as_global_value()
+        .as_pointer_value();
+
+        // Native disposal owns a fresh empty destination, independent of an incoming outcome.
+        let outcome = self.allocate_panic_report_context()?;
+
+        self.invoke_native_runtime(
+            runtime,
+            &[
+                storage.into(),
+                callback.into(),
+                ready.into(),
+                outcome.into(),
+            ],
+        )?;
+
+        self.set_pending_call_context(outcome)
+    }
+
     pub(super) fn allocate_native_task(
         &mut self,
         runtime: bray_ir::MirRuntimeReference,

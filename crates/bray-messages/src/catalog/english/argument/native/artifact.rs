@@ -290,18 +290,12 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendArtifactRead(_) => "native artifact storage could not be read",
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
         Kind::CodegenMirUnavailable(_) => "the program is not ready for native code generation",
-        Kind::CodegenMissingCallableImplementation { callable, .. } => {
-            return format!(
-                "callable {} has no executable implementation or native import",
-                super::super::interface::format_english_interface_symbol_identity(callable)
-            );
-        }
         Kind::CodegenMissingEntrypoint => "the product has no selected entrypoint",
         Kind::CodegenInvalidInstance(_) => "a compiled program item is invalid",
         Kind::CodegenInvalidUnit(_) => "a native-code work item is invalid",
         Kind::CodegenUnitMismatch(_) => "a native-code work item differs from its original request",
         Kind::CodegenMirCapacityExceeded => {
-            "generated executable code exceeded the MIR identity capacity"
+            "generated executable code exceeded the compiler implementation capacity"
         }
         Kind::CodegenMissingRuntimeRole(_) => "a required runtime ABI role has no selected binding",
         Kind::CodegenOpenConstantTerm(_) => {
@@ -516,7 +510,6 @@ mod tests {
 
         let failures = [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
-            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
         ];
 
@@ -529,6 +522,7 @@ mod tests {
         }
 
         for failure in [
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenTargetUnsupportedProfile,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendUnsupportedTarget,

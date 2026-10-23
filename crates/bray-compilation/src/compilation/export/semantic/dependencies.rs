@@ -81,13 +81,14 @@ impl<'a> SemanticExporter<'a> {
                 Ok(match effect {
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
+                    DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
                     DependencyStorageEffect::Cleanup(ty) => {
                         DependencyStorageEffect::Cleanup(self.type_id(*ty)?)
                     }
                     DependencyStorageEffect::Direct { subject, kind } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
-                            kind: *kind,
+                            kind: kind.try_map_type(|ty| self.type_id(ty))?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
@@ -100,7 +101,7 @@ impl<'a> SemanticExporter<'a> {
                             .iter()
                             .map(|projection| self.dependency_projection(projection))
                             .collect::<Result<_, PackageInterfaceExportError>>()?,
-                        kind: *kind,
+                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
                     },
                 })
             })

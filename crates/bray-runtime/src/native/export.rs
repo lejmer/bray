@@ -11,7 +11,6 @@ use bray_runtime_abi::{
 };
 
 use crate::current_run_cancellation_requested;
-use crate::root::propagate_current_run_cancellation;
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
@@ -198,8 +197,12 @@ native_export! {
         frame: NativeInactiveFrame,
         resume_state: u32,
         destination: usize,
+        composition: u8,
     ) {
-        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination))
+        let composition = bray_runtime_abi::NativeFrameComposition::from_code(composition)
+            .expect("frame composition requires a valid ownership disposition");
+
+        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination, composition))
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
@@ -347,14 +350,6 @@ native_export! {
     #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_cleanup_shield_leave() {
         crate::context::leave_current_run_cleanup_shield();
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation() -> ! {
-        propagate_current_run_cancellation()
     }
 }
 
@@ -2009,6 +2004,141 @@ mod tests {
     }
 
     #[test]
+    fn inactive_composition_resolves_captures_without_entering_the_body() {
+        static BODY_ENTRIES: AtomicUsize = AtomicUsize::new(0);
+        static RESUMES: AtomicUsize = AtomicUsize::new(0);
+        static RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
+        static DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn child_state(_: usize, _: u32, operation: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(
+                NativeFrameAffinity::MOVABLE,
+                if operation == 0 {
+                    NativeLaneRequirements::COMPUTE
+                } else {
+                    NativeLaneRequirements::NONE
+                },
+            )
+        }
+
+        extern "C-unwind" fn forbidden_body(_: &mut NativeFrameProgress, _: usize) {
+            BODY_ENTRIES.fetch_add(1, Ordering::Relaxed);
+            panic!("inactive capture cleanup must not enter the source body");
+        }
+
+        extern "C-unwind" fn resolve(
+            _: &mut NativeFrameProgress,
+            failing: usize,
+            _: NativeFrameExit,
+        ) {
+            RESOLUTIONS.fetch_add(1, Ordering::Relaxed);
+
+            if failing != 0 {
+                panic!("inactive captured owner failed during cleanup");
+            }
+        }
+
+        extern "C-unwind" fn destroy(_: usize) {
+            DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        extern "C-unwind" fn parent(progress: &mut NativeFrameProgress, failing: usize) {
+            if RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
+                let child = super::super::fixtures::admit(
+                    failing,
+                    bray_runtime_abi::NativeActivationDescriptor {
+                        storage: bray_runtime_abi::NativeCleanupStorageShape::new([91; 32], 8, 8),
+                        header: 0,
+                        completion: 0,
+                        completion_bytes: 8,
+                        completion_align: 8,
+                        states: 1,
+                        state: child_state,
+                        resume: forbidden_body,
+                        cancel: forbidden_body,
+                        broadcast: ignore_broadcast,
+                        resolve,
+                        move_completion: ignore_completion_move,
+                        destroy,
+                    },
+                );
+
+                let denial = crate::outgoing::tests::reject_admission();
+
+                super::bray_runtime_awaited_frame_composition(child, 1, 0, 1);
+
+                drop(denial);
+                *progress = bray_runtime_suspension_registration(1);
+                return;
+            }
+
+            let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+
+            super::super::fixtures::take_completion(&mut outcome);
+
+            assert_eq!(
+                outcome.state(),
+                if failing == 0 {
+                    NativeRunState::CANCELLED
+                } else {
+                    NativeRunState::PANICKED
+                }
+            );
+
+            if failing != 0 {
+                assert_eq!(
+                    outcome.take_report().consume(false),
+                    NativeRuntimeStatus::SUCCESS
+                );
+            }
+
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 1, 0);
+        }
+
+        for failing in [0, 1] {
+            RESUMES.store(0, Ordering::Relaxed);
+            RESOLUTIONS.store(0, Ordering::Relaxed);
+            DESTRUCTIONS.store(0, Ordering::Relaxed);
+
+            let root = execute_test_root(
+                protected_frame_with_context(
+                    failing,
+                    8,
+                    movable_blocking_frame_state,
+                    parent,
+                    ignore_completion_move,
+                    ignore_action,
+                ),
+                NativeRuntimeConfiguration::new(2, 1),
+            )
+            .root()
+            .expect(
+                "parent admits capture cleanup without the child's incompatible body requirements",
+            );
+
+            assert_eq!(
+                bray_runtime_root_terminal_observation(root).state(),
+                NativeRunState::COMPLETED
+            );
+
+            assert_eq!(BODY_ENTRIES.load(Ordering::Relaxed), 0);
+            assert_eq!(RESUMES.load(Ordering::Relaxed), 2);
+            assert_eq!(RESOLUTIONS.load(Ordering::Relaxed), 1);
+            assert_eq!(DESTRUCTIONS.load(Ordering::Relaxed), 1);
+
+            assert_eq!(
+                bray_runtime_root_completion_resolution(root),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(
+                bray_runtime_structured_shutdown(),
+                NativeRuntimeStatus::SUCCESS
+            );
+        }
+    }
+
+    #[test]
     fn conflicting_composition_preserves_the_child_for_independent_start() {
         CONFLICTING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
@@ -2404,7 +2534,12 @@ mod tests {
         let child = move_conflicting_child(0);
 
         let status = super::with_runtime(|runtime| {
-            runtime.compose_awaited(&child, 1, super::super::fixtures::destination())
+            runtime.compose_awaited(
+                &child,
+                1,
+                super::super::fixtures::destination(),
+                bray_runtime_abi::NativeFrameComposition::Completion,
+            )
         })
         .unwrap();
 
@@ -2469,7 +2604,12 @@ mod tests {
         let rejection = crate::outgoing::tests::reject_admission();
 
         let rejected = super::with_runtime(|runtime| {
-            runtime.compose_awaited(&child, u32::MAX, super::super::fixtures::destination())
+            runtime.compose_awaited(
+                &child,
+                u32::MAX,
+                super::super::fixtures::destination(),
+                bray_runtime_abi::NativeFrameComposition::Completion,
+            )
         })
         .unwrap();
 
@@ -2478,7 +2618,12 @@ mod tests {
         assert_eq!(REJECTED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
         let accepted = super::with_runtime(|runtime| {
-            runtime.compose_awaited(&child, 1, super::super::fixtures::destination())
+            runtime.compose_awaited(
+                &child,
+                1,
+                super::super::fixtures::destination(),
+                bray_runtime_abi::NativeFrameComposition::Completion,
+            )
         })
         .unwrap();
 

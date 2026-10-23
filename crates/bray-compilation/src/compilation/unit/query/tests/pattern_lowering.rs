@@ -213,3 +213,321 @@ fn cleanup_mutation_does_not_fold_branches_using_old_contents() {
         compilation.check_diagnostics()
     );
 }
+
+#[test]
+fn literal_string_cleanup_publishes_its_proven_empty_effect() {
+    let compilation = compilation(
+        r#"
+        module example;
+        func main()
+        {
+            let value = "retained literal";
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "main");
+    let flow = compilation.storage_flow(key.clone()).unwrap();
+    let cleanup = compilation.async_analysis(key).unwrap();
+    let mut checked = 0;
+
+    for plan in cleanup.value().scope_exits() {
+        for access in plan.lifecycle_resolution() {
+            let mutation = bray_bound_tree::StorageMutation::Cleanup {
+                occurrence: bray_bound_tree::BoundExecutionSite::Node(plan.scope().into()),
+                access: *access,
+                part: 0,
+            };
+
+            assert!(matches!(
+                flow.value().cleanup_mutation(mutation),
+                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if accesses.is_empty()
+            ));
+
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "literal cleanup must publish a selected transition"
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn moved_destination_reinitialization_has_no_old_finalizer_transition() {
+    for body in [
+        "take(value); value = Value { value = false };",
+        "value = identity(value);",
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            module example;
+            struct Value
+            {{
+                value: bool;
+                finalize()
+                    executes(pure, total)
+                {{}}
+            }}
+            func take(pos value: Value)
+            {{}}
+            func identity(pos value: Value) -> Value
+            {{
+                return value;
+            }}
+            func main()
+            {{
+                let mut value: Value = {{ value = true }};
+                {body}
+            }}
+            "#,
+        ));
+
+        let key = source_function_body_key(&compilation, "main");
+        let flow = compilation.storage_flow(key.clone()).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{body}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        assert_eq!(flow.value().replacements().len(), 1, "{body}: {flow:?}");
+
+        assert_eq!(
+            flow.value().replacements()[0].state(),
+            bray_bound_tree::StorageReplacementState::Absent
+        );
+
+        assert!(
+            compilation
+                .lowered_unit(key)
+                .unwrap()
+                .value()
+                .as_ref()
+                .unwrap()
+                .mir()
+                .unwrap()
+                .is_valid()
+        );
+    }
+}
+
+#[test]
+fn replacement_cleanup_retains_the_previous_nullable_presence() {
+    for initializer in ["none", "Value { value = true }"] {
+        let compilation = compilation(&format!(
+            r#"
+            module example;
+            struct Value
+            {{
+                value: bool;
+                finalize()
+                    executes(pure, total)
+                {{}}
+            }}
+            func main() -> Value?
+            {{
+                let mut value: Value? = {initializer};
+                value = Value {{ value = false }};
+                return value;
+            }}
+            "#,
+        ));
+
+        let key = source_function_body_key(&compilation, "main");
+        let flow = compilation.storage_flow(key.clone()).unwrap();
+        let decisions = flow.value().replacements();
+
+        assert_eq!(decisions.len(), 1);
+
+        assert_eq!(
+            decisions[0].definitely_absent().is_empty(),
+            initializer != "none"
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{initializer}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        assert!(
+            compilation
+                .lowered_unit(key)
+                .unwrap()
+                .value()
+                .as_ref()
+                .unwrap()
+                .mir()
+                .unwrap()
+                .is_valid()
+        );
+    }
+}
+
+#[test]
+fn replacement_cleanup_retains_the_previous_union_variant() {
+    let compilation = compilation(
+        r#"
+        module example;
+        struct Value
+        {
+            value: bool;
+            finalize()
+                executes(pure, total)
+            {}
+        }
+        union Choice
+        {
+            Empty;
+            Item(pos value: Value);
+        }
+        func main() -> Choice
+        {
+            let mut value: Choice = Empty;
+            match value
+            {
+                case Empty
+                {
+                    value = Choice.Item(Value { value = false });
+                }
+                case Item(_) {}
+            }
+            return value;
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "main");
+    let flow = compilation.storage_flow(key.clone()).unwrap();
+    let decisions = flow.value().replacements();
+
+    assert_eq!(decisions.len(), 1);
+    assert!(!decisions[0].definitely_absent().is_empty());
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    assert!(
+        compilation
+            .lowered_unit(key)
+            .unwrap()
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .is_valid()
+    );
+}
+
+#[test]
+fn compound_assignment_publishes_replacement_after_the_operation_completes() {
+    let compilation = compilation(
+        r#"
+        module example;
+        func main() -> i32
+        {
+            let mut value: i32 = 0;
+            value += 1;
+            return value;
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "main");
+    let flow = compilation.storage_flow(key.clone()).unwrap();
+
+    assert_eq!(flow.value().replacements().len(), 1);
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    assert!(
+        compilation
+            .lowered_unit(key)
+            .unwrap()
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .is_valid()
+    );
+}
+
+#[test]
+fn compound_assignment_retains_its_async_replacement_cleanup() {
+    let compilation = compilation(
+        r#"
+        module example;
+        extern async func pause();
+        struct Value
+        {
+            value: u32;
+            async finalize()
+            {
+                await pause();
+            }
+        }
+        impl ValueAdd = Value(Add<Value>)
+        {
+            type Output = Value;
+            func add(pos rhs: &Value) -> Value
+            {
+                return Value { value = self.value + rhs.value };
+            }
+        }
+        async func main()
+        {
+            let mut value = Value { value = 1 };
+            let increment = Value { value = 2 };
+            value += increment;
+        }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&compilation, "main");
+    let flow = compilation.storage_flow(key.clone()).unwrap();
+    let replacement = flow.value().replacements()[0].expression();
+
+    assert!(
+        flow.value()
+            .suspensions()
+            .iter()
+            .any(|snapshot| snapshot.occurrence()
+                == bray_bound_tree::BoundExecutionSite::Cleanup(replacement.into()))
+    );
+
+    assert!(
+        compilation
+            .lowered_unit(key)
+            .unwrap()
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .is_valid()
+    );
+}

@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.report.incident;
 using std.memory;
 using internal bray.runtime.bootstrap;
 
+@copy
 @layout(c)
 internal struct Source
 {
@@ -21,8 +22,8 @@ internal struct Record
     payload: usize;
     type_identity: bytes<32>;
     source: Source;
-    report: RawPointer<u8>;
-    destroy: RawPointer<u8>;
+    report: Reporter;
+    destroy: Destroyer;
     backing: bray.runtime.bootstrap.storage.Lease;
 }
 
@@ -30,8 +31,6 @@ internal struct Record
 // concrete payload, backing, provider and attachment until this call returns.
 // Its C callbacks contain failures in initialized outcomes, never native unwind.
 trusted internal predicate owned(pointer: RawPointer<Record>);
-
-trusted internal predicate callbacks(record: &Record);
 
 trusted internal predicate returned(pointer: RawPointer<bray.runtime.bootstrap.ReportOutcome>);
 
@@ -118,6 +117,12 @@ trusted internal func prepare(pos pointer: RawPointer<bray.runtime.bootstrap.Rep
 {
     let (state, report) = trusted parts(pointer);
 
+    return trusted prepare_value(state, report);
+}
+
+trusted internal func prepare_value(pos state: u32, pos report: bray.runtime.bootstrap.PanicReportData) -> StoredOutcome
+    requires(trusted bray.runtime.bootstrap.native_report_callbacks(report = &report))
+{
     let remaining: bray.runtime.bootstrap.ReportRecords =
     {
         head = report.outgoing_head,
@@ -161,34 +166,30 @@ trusted internal func prepare_first(
     return trusted prepare(pointer);
 }
 
-trusted internal func consume_outcome(pos value: StoredOutcome, pos reporting: u32) -> u32
+trusted internal func retain_outcome(pos value: StoredOutcome) -> (u32, bray.runtime.bootstrap.ReportRecords)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
     uses(intrinsic)
 {
-    if value.state == bray.runtime.bootstrap.RUN_COMPLETED
-    {
-        return bray.runtime.bootstrap.STATUS_SUCCESS;
-    }
-
-    if value.state != bray.runtime.bootstrap.RUN_PANICKED
+    if value.state != bray.runtime.bootstrap.RUN_COMPLETED && value.state != bray.runtime.bootstrap.RUN_PANICKED
     {
         trusted core.target.abort();
     }
 
-    let primary = trusted bray.runtime.bootstrap.serialized_primary(value.primary);
-    let status = trusted bray.runtime.bootstrap.consume_primary(primary, value.remaining, value.reserved, reporting);
-
-    if status != bray.runtime.bootstrap.STATUS_SUCCESS
+    let status = if value.state == bray.runtime.bootstrap.RUN_PANICKED
     {
-        return status;
+        yield bray.runtime.bootstrap.STATUS_PANICKED;
     }
+    else
+    {
+        yield bray.runtime.bootstrap.STATUS_SUCCESS;
+    };
 
-    return bray.runtime.bootstrap.STATUS_PANICKED;
+    return (status, trusted bray.runtime.bootstrap.retain_primary(value.primary, value.remaining, value.reserved));
 }
 
-trusted internal func read_record(pos pointer: RawPointer<Record>) -> Record
+trusted internal func read_record(pos pointer: RawPointer<Record>) -> bray.runtime.bootstrap.ReportValue
     requires(trusted owned(pointer = pointer))
-    ensures(trusted callbacks(record = &result))
+    ensures(trusted bray.runtime.bootstrap.retained_report_value(value = &result))
     uses(raw_memory)
 {
     let readable = trusted lambda(pos pointer: RawPointer<Record>) -> RawPointer<Record>
@@ -203,27 +204,7 @@ trusted internal func read_record(pos pointer: RawPointer<Record>) -> Record
         return pointer;
     };
 
-    return trusted std.memory.read<Record>(trusted readable(pointer));
-}
-
-trusted internal func reporter(pos record: &Record) -> RawPointer<Reporter>
-    requires(trusted callbacks(record = record))
-    ensures(trusted callbacks(record = record), trusted core.memory.callable_address_valid<Reporter>(pointer = result))
-    uses(intrinsic)
-{
-    return trusted core.target.from_exposed_address<Reporter>(
-        address = trusted core.target.expose_address<u8>(record.report)
-    );
-}
-
-trusted internal func destroyer(pos record: &Record) -> RawPointer<Destroyer>
-    requires(trusted callbacks(record = record))
-    ensures(trusted callbacks(record = record), trusted core.memory.callable_address_valid<Destroyer>(pointer = result))
-    uses(intrinsic)
-{
-    return trusted core.target.from_exposed_address<Destroyer>(
-        address = trusted core.target.expose_address<u8>(record.destroy)
-    );
+    return bray.runtime.bootstrap.ReportValue.Error(trusted std.memory.read<Record>(trusted readable(pointer)));
 }
 
 // Two simultaneous exclusive borrows establish distinct live outcome slots.
@@ -252,93 +233,161 @@ trusted internal func destinations(
 }
 
 @abi(c)
+trusted internal func retain(
+    pos pointer: RawPointer<Record>,
+    pos mut report: bray.runtime.bootstrap.PanicReportData
+) -> bray.runtime.bootstrap.PanicReportData
+    requires(
+        trusted owned(pointer = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &report)
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
+{
+    let value = trusted read_record(pointer);
+
+    let mut records: bray.runtime.bootstrap.ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool = guard.get();
+    let handle = trusted bray.runtime.bootstrap.activate_record(pool);
+    let entry = trusted bray.runtime.bootstrap.record(pool, handle);
+
+    entry.value = value;
+    trusted bray.runtime.bootstrap.append_record(pool, &mut records, handle);
+    report.outgoing_head = records.head;
+    report.outgoing_tail = records.tail;
+    report.outgoing_count = records.count;
+
+    if report.consumer == 0
+    {
+        report.consumer = trusted bray.runtime.bootstrap.consume_address();
+    }
+
+    return report;
+}
+
+@abi(c)
 trusted internal func dispose(pos pointer: RawPointer<Record>, pos reporting: u32) -> u32
     requires(trusted owned(pointer = pointer), trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(layout_reinterpret)
 {
+    let value = trusted read_record(pointer);
 
-    let mut record = trusted read_record(pointer);
-    let report = trusted std.memory.callable_from_pointer<Reporter>(trusted reporter(&record));
-    let destroy = trusted std.memory.callable_from_pointer<Destroyer>(trusted destroyer(&record));
+    return trusted bray.runtime.bootstrap.consume_values(value, bray.runtime.bootstrap.empty_records(), reporting);
+}
 
-    let mut formatted: bray.runtime.bootstrap.ReportOutcome =
+trusted internal func dispose_value(
+    pos mut value: bray.runtime.bootstrap.ReportValue,
+    pos reporting: u32
+) -> (u32, bray.runtime.bootstrap.ReportRecords)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.retained_report_value(value = &value)
+    )
+{
+    match value
     {
-        state = bray.runtime.bootstrap.RUN_COMPLETED,
-        payload = 0,
-        report = bray.runtime.bootstrap.empty_panic_report()
-    };
-
-    let mut destroyed: bray.runtime.bootstrap.ReportOutcome =
-    {
-        state = bray.runtime.bootstrap.RUN_COMPLETED,
-        payload = 0,
-        report = bray.runtime.bootstrap.empty_panic_report()
-    };
-
-    let mut released: bray.runtime.bootstrap.ReportOutcome =
-    {
-        state = bray.runtime.bootstrap.RUN_COMPLETED,
-        payload = 0,
-        report = bray.runtime.bootstrap.empty_panic_report()
-    };
-
-    let mut status: u32 = bray.runtime.bootstrap.STATUS_SUCCESS;
-
-    let formatted_value: StoredOutcome = match reporting
-    {
-        case 0
+        case Panic(primary) { return trusted bray.runtime.bootstrap.consume_panic(&primary, reporting); }
+        case Error(record)
         {
-            yield StoredOutcome
+            let report = record.report;
+            let destroy = record.destroy;
+
+            let mut formatted: bray.runtime.bootstrap.ReportOutcome =
             {
                 state = bray.runtime.bootstrap.RUN_COMPLETED,
-                primary = trusted bray.runtime.bootstrap.stored_primary(bray.runtime.bootstrap.empty_primary()),
-                remaining = bray.runtime.bootstrap.empty_records(),
-                reserved = 0
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
             };
-        }
-        case _
-        {
-            status = trusted bray.runtime.bootstrap.report.output.typed(&record);
 
-            let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut formatted);
-            let found = trusted report(record.payload, output);
-
-            if status == bray.runtime.bootstrap.STATUS_SUCCESS
+            let mut destroyed: bray.runtime.bootstrap.ReportOutcome =
             {
-                status = found;
+                state = bray.runtime.bootstrap.RUN_COMPLETED,
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+
+            let mut released: bray.runtime.bootstrap.ReportOutcome =
+            {
+                state = bray.runtime.bootstrap.RUN_COMPLETED,
+                payload = 0,
+                report = bray.runtime.bootstrap.empty_panic_report()
+            };
+
+            let mut status: u32 = bray.runtime.bootstrap.STATUS_SUCCESS;
+
+            let formatted_value: StoredOutcome = match reporting
+            {
+                case 0
+                {
+                    yield StoredOutcome
+                    {
+                        state = bray.runtime.bootstrap.RUN_COMPLETED,
+                        primary = trusted bray.runtime.bootstrap.stored_primary(bray.runtime.bootstrap.empty_primary()),
+                        remaining = bray.runtime.bootstrap.empty_records(),
+                        reserved = 0
+                    };
+                }
+                case _
+                {
+                    status = trusted bray.runtime.bootstrap.report.output.typed(record.source, record.type_identity);
+
+                    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut formatted);
+                    let found = trusted report(record.payload, output);
+
+                    if status == bray.runtime.bootstrap.STATUS_SUCCESS
+                    {
+                        status = found;
+                    }
+
+                    yield trusted prepare(output);
+                }
+            };
+
+            let (destruction, release) = trusted destinations(&mut destroyed, &mut released);
+
+            trusted destroy(std.memory.address_of_mut<Record>(&mut record), destruction, release);
+
+            let destroyed_value = trusted prepare_first(destruction, release);
+            let released_value = trusted prepare(release);
+
+            // Detach callback outcomes before consuming any newly produced reports.
+            let (formatting_status, mut records) = trusted retain_outcome(formatted_value);
+
+            let (destruction_status, mut destruction_records) = trusted retain_outcome(destroyed_value);
+            let (release_status, mut release_records) = trusted retain_outcome(released_value);
+
+            trusted bray.runtime.bootstrap.report_records_append(
+                std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records),
+                std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut destruction_records)
+            );
+
+            trusted bray.runtime.bootstrap.report_records_append(
+                std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records),
+                std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut release_records)
+            );
+
+            if status != bray.runtime.bootstrap.STATUS_SUCCESS
+            {
+                return (status, records);
             }
 
-            yield trusted prepare(output);
+            if formatting_status != bray.runtime.bootstrap.STATUS_SUCCESS
+            {
+                return (formatting_status, records);
+            }
+
+            if destruction_status != bray.runtime.bootstrap.STATUS_SUCCESS
+            {
+                return (destruction_status, records);
+            }
+
+            return (release_status, records);
         }
     };
-
-    let (destruction, release) = trusted destinations(&mut destroyed, &mut released);
-
-    trusted destroy(std.memory.address_of_mut<Record>(&mut record), destruction, release);
-
-    let destroyed_value = trusted prepare_first(destruction, release);
-    let released_value = trusted prepare(release);
-
-    // Every callback has returned before any callback-produced report is consumed.
-    let formatting_status = trusted consume_outcome(formatted_value, reporting);
-
-    let destruction_status = trusted consume_outcome(destroyed_value, reporting);
-    let release_status = trusted consume_outcome(released_value, reporting);
-
-    if status != bray.runtime.bootstrap.STATUS_SUCCESS
-    {
-        return status;
-    }
-
-    if formatting_status != bray.runtime.bootstrap.STATUS_SUCCESS
-    {
-        return formatting_status;
-    }
-
-    if destruction_status != bray.runtime.bootstrap.STATUS_SUCCESS
-    {
-        return destruction_status;
-    }
-
-    return release_status;
 }

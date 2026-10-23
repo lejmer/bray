@@ -30,38 +30,12 @@ trusted internal func read(
 {
     let descriptor = trusted bray.runtime.bootstrap.activation.description(token);
 
-    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 6)
     {
         return none;
     }
 
-    let locate = trusted lambda(
-        pos token: &bray.runtime.bootstrap.activation.Inactive,
-        pos descriptor: &bray.runtime.bootstrap.activation.Descriptor,
-    ) -> usize
-        requires(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted inactive_owner(token = token),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-        )
-        ensures(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted inactive_owner(token = token),
-        )
-    {
-        // The lookup reads the registered inactive phase. It cannot consume the
-        // token or invoke its provider, and the caller retains the attachment.
-        let mut guard = trusted bray.runtime.bootstrap.pool.lock();
-
-        return trusted bray.runtime.bootstrap.activation.resident_address(
-            guard.get(),
-            token,
-            descriptor,
-            dispatch = false
-        );
-    };
-
-    let address = trusted locate(token, &descriptor);
+    let address = trusted bray.runtime.bootstrap.activation.retained_address(token, &descriptor);
 
     if address == 0
     {

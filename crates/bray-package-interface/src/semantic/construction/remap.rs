@@ -59,6 +59,11 @@ pub(super) fn commit_fragment(
     }
 
     for predicate in Arc::make_mut(&mut fragment.predicate_definitions) {
+        predicate.condition = predicate
+            .condition
+            .map(|term| remap.constant_term(term))
+            .transpose()?;
+
         for (_, _, ty) in Arc::make_mut(&mut predicate.parameters) {
             *ty = remap.ty(*ty)?;
         }
@@ -247,6 +252,14 @@ fn remap_callable_behavior(
             remap_predicate(predicate, remap)?;
         }
     }
+
+    behavior.receiver_cleanup = bray_base::sorted_unique_shared_slice(
+        behavior
+            .receiver_cleanup
+            .iter()
+            .map(|ty| remap.ty(*ty))
+            .collect::<Result<Vec<_>, _>>()?,
+    );
 
     behavior.dependency_contract = remap.dependency_contract(behavior.dependency_contract)?;
 

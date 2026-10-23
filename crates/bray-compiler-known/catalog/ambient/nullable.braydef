@@ -9,13 +9,13 @@ scope Ambient at ambient {
         owner NullableSurface;
         implementation NullableIsPresent;
 
-        surface { const func is_present() -> bool {} }
+        surface { const func is_present() -> bool executes(pure, total) {} }
     }
 
     declaration NullableIsAbsent {
         owner NullableSurface;
         implementation NullableIsAbsent;
 
-        surface { const func is_absent() -> bool {} }
+        surface { const func is_absent() -> bool executes(pure, total) {} }
     }
 }

@@ -129,11 +129,6 @@ unsafe extern "C" {
         source: &mut NativeReportRecords,
     );
 
-    pub(crate) safe fn bray_runtime_report_records_pop(
-        chain: &mut NativeReportRecords,
-        primary: &mut NativePanicPrimary,
-    );
-
     pub(crate) safe fn bray_runtime_report_segment_take(
         chain: &mut NativeReportRecords,
         metadata: &mut NativeReportSegment,

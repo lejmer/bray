@@ -66,15 +66,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
-            ReportRecordPop {
-                "Detach a primary and recycle its record.", "report_records_pop",
-                native: (REPORT_RECORDS_POP_SYMBOL = "bray_runtime_report_records_pop", [Pointer, Pointer] -> Void),
-                call_hook: (),
-                compiler: C [Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: ("report_records_pop"), host_control: false,
-                capabilities: [],
-                effects: [TransferCleanupIncident]
-            }
             ReportSegmentMark {
                 "Attach cleanup context to an exclusively owned report segment.", "report_segment_mark",
                 native: (REPORT_SEGMENT_MARK_SYMBOL = "bray_runtime_report_segment_mark", [Pointer, Pointer] -> Void),
@@ -278,7 +269,7 @@ macro_rules! runtime_role_catalog {
             }
             NativeThreadExecution {
                 "Execute one Bray-owned native-thread root behind its runtime boundary.", "native_thread_execution",
-                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PanicReport] -> U32),
+                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (NativeThreadExecution),
                 compiler: C [Pointer, Usize, Pointer, Usize, Pointer] -> U32,
@@ -490,16 +481,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ObserveCancellation]
             }
-            CurrentRunCancellationPropagation {
-                "Transfer current-run cancellation to the nearest run boundary.", "current_run_cancellation_propagation",
-                native: (CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL = "bray_runtime_current_run_cancellation_propagation", [] -> Never),
-                service: Host,
-                call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [PropagateCancellation]
-            }
             CleanupShieldEnter {
                 "Defer cancellation delivery during current-run cleanup.", "cleanup_shield_enter",
                 native: (CLEANUP_SHIELD_ENTER_SYMBOL = "bray_runtime_cleanup_shield_enter", [] -> Void),
@@ -581,10 +562,10 @@ macro_rules! runtime_role_catalog {
             }
             CleanupIncidentTransfer {
                 "Transfer ownership of one cleanup incident.", "cleanup_incident_transfer",
-                native: (),
+                native: (CLEANUP_INCIDENT_TRANSFER_SYMBOL = "bray_runtime_cleanup_incident_transfer", [Pointer, PanicReport] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("report.incident.retain"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
@@ -640,7 +621,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReporting {
                 "Report and resolve one root panic payload.", "panic_reporting",
-                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [PanicReport] -> U32),
+                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (NativeThreadPanicReporting),
                 compiler: Bray [PanicReport] -> U32,
@@ -650,7 +631,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportDestruction {
                 "Destroy one handled panic report without reporting it.", "panic_report_destruction",
-                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [PanicReport] -> U32),
+                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [PanicReportPointer] -> U32),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> U32,
@@ -766,7 +747,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportSuppression {
                 "Attach an owned cleanup incident to the primary panic report.", "panic_report_suppression",
-                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [PanicReport, PanicReport] -> PanicReport),
+                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [PanicReportPointer, PanicReportPointer] -> PanicReport),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport, PanicReport] -> PanicReport,
@@ -869,7 +850,7 @@ macro_rules! runtime_role_catalog {
                 "Broadcast task cleanup through initialized generator elements.", "generator_cleanup_broadcast",
                 native: (),
                 call_hook: (),
-                compiler: Bray [Pointer, Pointer] -> Void,
+                compiler: Bray [Pointer, Pointer, Pointer, Pointer] -> Void,
                 owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [BroadcastGeneratorCleanup]
@@ -878,7 +859,7 @@ macro_rules! runtime_role_catalog {
                 "Destroy initialized generator elements and release accumulation storage.", "generator_destruction",
                 native: (),
                 call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer] -> Void,
+                compiler: Bray [Pointer, Pointer, Pointer, Bool, Pointer, Pointer] -> Void,
                 owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [DestroyGenerator]
@@ -893,8 +874,8 @@ macro_rules! runtime_role_catalog {
                 effects: [ConstructPanicReport]
             }
             PanicPropagation {
-                "Propagate one owned panic report to the nearest native run boundary.", "panic_propagation",
-                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [PanicReport] -> Never),
+                "Report and terminate an uncaught native-boundary failure.", "panic_propagation",
+                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [PanicReportPointer] -> Never),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> Void,
@@ -999,9 +980,30 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            ActivationActionReadiness {
+                "Check a synchronous described action against its retained caller execution context.", "activation_action_readiness",
+                native: (ACTIVATION_ACTION_READINESS_SYMBOL = "bray_runtime_activation_action_readiness", [Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            InactiveFrameBroadcast {
+                "Broadcast cancellation to an inactive computation's captured owners.", "inactive_frame_broadcast",
+                native: (INACTIVE_FRAME_BROADCAST_SYMBOL = "bray_runtime_inactive_frame_broadcast", [Pointer, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.inactive.broadcast"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            InactiveFrameDestruction {
+                "Destroy quiescent captures and consume their inactive computation's backing.", "inactive_frame_destruction",
+                native: (INACTIVE_FRAME_DESTRUCTION_SYMBOL = "bray_runtime_inactive_frame_destruction", [Pointer, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.inactive.destroy"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
-                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize] -> Void),
+                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U32, Usize, U8] -> Void),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,

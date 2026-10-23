@@ -443,6 +443,35 @@ impl NativeFrameProgress {
     }
 }
 
+/// Ownership disposition selected before a child enters its enclosing run.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NativeFrameComposition {
+    /// Transfer the produced result and retire the child.
+    Completion = 0,
+    /// Resolve captures and retire the child without entering its body.
+    Abandon = 1,
+    /// Resolve child work while retaining capture storage for destruction.
+    Quiesce = 2,
+}
+
+impl NativeFrameComposition {
+    /// Decodes the composition boundary's ownership disposition.
+    pub const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Completion),
+            1 => Some(Self::Abandon),
+            2 => Some(Self::Quiesce),
+            _ => None,
+        }
+    }
+
+    /// Returns the native boundary code.
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+}
+
 /// ABI-safe protected-frame lifecycle exit category.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -457,6 +486,10 @@ impl NativeFrameExit {
     pub const PANICKED: Self = Self(2);
     /// Runtime infrastructure could not continue execution.
     pub const RUNTIME_FAILURE: Self = Self(3);
+    /// Resolve child work without executing or destroying inactive captures.
+    pub const QUIESCENCE: Self = Self(4);
+    /// Synchronously destroy captures whose child work has already quiesced.
+    pub const RETAINED_DESTRUCTION: Self = Self(5);
 }
 
 /// Requirements for one continuation and callback operation, using activation's

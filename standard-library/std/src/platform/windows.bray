@@ -996,14 +996,14 @@ trusted internal func prepare_handle_write(
 internal func handle_request_length(pos length: u64) -> u32
     executes(pure, total)
 {
-    return if length > 4_294_967_295
+    if length > 4_294_967_295
     {
-        yield 4_294_967_295;
+        return 4_294_967_295;
     }
     else
     {
-        yield std.numeric.truncate_to<u32>(length);
-    };
+        return std.numeric.truncate_to<u32>(length);
+    }
 }
 
 trusted internal func handle_transfer_status(pos succeeded: i32) -> PlatformStatus

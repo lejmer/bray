@@ -23,7 +23,7 @@ internal struct Snapshot
     retained_lanes: u32;
     broadcasted: u32;
     destination: usize;
-    abandoned: u32;
+    disposition: u32;
     kind: u32;
 }
 
@@ -56,7 +56,7 @@ trusted internal func read(
         retained_lanes = header.retained_lanes,
         broadcasted = header.broadcasted,
         destination = header.destination,
-        abandoned = header.abandoned,
+        disposition = header.disposition,
         kind = header.progress.kind,
     };
 }

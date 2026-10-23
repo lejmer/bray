@@ -37,9 +37,47 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
+    /// Returns whole-value and represented-part finalizers selected for this body.
+    pub fn finalizers(
+        &self,
+    ) -> impl Iterator<Item = (TypeId, bray_bound_tree::LifecycleCallable)> + '_ {
+        self.cleanup
+            .lifecycles
+            .iter()
+            .filter_map(|((ty, slot), lifecycle)| {
+                (*slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+                    .then_some((*ty, lifecycle.call))
+            })
+    }
+
     /// Returns selected implicit lifecycle callees required by this body's summary component.
     pub fn lifecycle_callees(&self) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
         self.cleanup.callees()
+    }
+
+    /// Returns whether selected consuming-receiver cleanup can execute without suspension.
+    /// Completion certification comes from its owning execution-guarantee analysis.
+    pub fn destruction_is_synchronous<C, F>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        ty: TypeId,
+        completed: &mut F,
+    ) -> Result<bray_diagnostics::DiagnosticResult<bool>, crate::CheckerQueryError<C::UpstreamError>>
+    where
+        C: CheckerRequestContext
+            + crate::CheckerSemanticQueryProvider<bray_symbols::CallableContractsQuery>
+            + ?Sized,
+        F: FnMut(
+            bray_bound_tree::LifecycleCallable,
+        ) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>>,
+    {
+        let mut resolver = self.cleanup_shapes(request);
+        let synchronous = resolver.destruction_is_synchronous(ty, completed)?;
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            synchronous,
+            resolver.diagnostics,
+        ))
     }
 
     pub(crate) const fn kind(&self) -> BoundUnitKind {
@@ -79,7 +117,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
 
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
 
-    let graph = match build_storage_control_flow_graph(
+    let mut graph = match build_storage_control_flow_graph(
         &mut cleanup_shapes,
         request,
         storage,
@@ -94,20 +132,31 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let cleanup =
-        match super::guarantee::CleanupPlan::prepare(&mut cleanup_shapes, request, storage) {
-            Ok(result) => {
-                let (cleanup, diagnostics) = result.into_parts();
+    let cleanup = match super::guarantee::CleanupPlan::prepare(
+        &mut cleanup_shapes,
+        request,
+        storage,
+        expressions,
+        &graph,
+    ) {
+        Ok(result) => {
+            let (cleanup, diagnostics) = result.into_parts();
 
-                cleanup_shapes.diagnostics.add_range(diagnostics);
+            cleanup_shapes.diagnostics.add_range(diagnostics);
 
-                cleanup
-            }
-            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(crate::CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+            cleanup
+        }
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
+
+    graph.select_cleanup_suspensions(
+        &cleanup.asynchronous_scopes(storage),
+        &cleanup.asynchronous_replacements(storage),
+        &cleanup.input_cleanup_calls,
+    );
 
     let Some(values) =
         super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, &request)
@@ -168,6 +217,14 @@ impl PreparedBodyAnalysis {
                     BoundControlTransferKind::Yield | BoundControlTransferKind::Break
                 )
                 && let Some(target) = transfer.target()
+            {
+                yields.push((expression, target));
+            }
+
+            if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
+                semantics.selections().expression(expression)
+                && let Some(bray_bound_tree::SelectedPropagationBoundary::YieldRegion(target)) =
+                    selection.boundary()
             {
                 yields.push((expression, target));
             }

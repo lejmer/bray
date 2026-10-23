@@ -2,12 +2,9 @@ use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenRes
 use bray_compiler_known::RepresentationRole;
 use bray_ir::MirHelperReference;
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{
-    BorrowKind, CallableAbi, CallableExecution, TypeAssociatedLifecycleSlot, TypeData,
-};
+use bray_symbols::{BorrowKind, CallableAbi, TypeAssociatedLifecycleSlot, TypeData};
 
 use super::super::super::{CodegenPreparationError, Compilation};
-use super::super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::support::is_void_result;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -30,9 +27,7 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
-            let Some(bray_bound_tree::LifecycleCallable {
-                result, execution, ..
-            }) =
+            let Some(bray_bound_tree::LifecycleCallable { result, .. }) =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
             else {
                 return Ok(CodegenCallableSignature::new(
@@ -43,26 +38,7 @@ impl Compilation {
                 ));
             };
 
-            let result = if execution == CallableExecution::Asynchronous {
-                self.available_compiler_known_symbols()
-                    .unary_representation_type(
-                        self.semantic_value_store()?,
-                        RepresentationRole::Future,
-                        result,
-                    )
-                    .map_err(FactQueryError::SemanticValueStore)?
-                    .ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::UnaryRepresentation {
-                                role: RepresentationRole::Future,
-                                argument: result,
-                            },
-                            ProductDataKind::CompilerKnownRepresentation,
-                        )
-                    })?
-            } else {
-                result
-            };
+            let result = result.ty();
 
             if is_void_result(self, result)? {
                 CodegenResultMapping::Void
@@ -73,14 +49,47 @@ impl Compilation {
             CodegenResultMapping::Void
         };
 
-        let signature = CodegenCallableSignature::new(
-            [CodegenParameterMapping::direct(pointer, None, [])],
-            result,
-            CallableAbi::Bray,
-            false,
-        );
+        let mut parameters = vec![CodegenParameterMapping::direct(pointer, None, [])];
 
-        Ok(signature.with_panic_report_context())
+        if matches!(
+            reference,
+            MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+        ) {
+            parameters.push(CodegenParameterMapping::direct(
+                self.codegen_representation_type(RepresentationRole::ScalarBool)?,
+                None,
+                [],
+            ));
+        }
+
+        if !matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            for role in [
+                RepresentationRole::ScalarU32,
+                RepresentationRole::PanicReport,
+            ] {
+                let target = self.codegen_representation_type(role)?;
+
+                let pointer = self
+                    .semantic_value_store()?
+                    .intern_type(TypeData::Borrow {
+                        kind: BorrowKind::Mutable,
+                        target,
+                    })
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                parameters.push(CodegenParameterMapping::direct(pointer, None, []));
+            }
+        }
+
+        let signature = CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false);
+
+        Ok(
+            if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+                signature.with_panic_report_context()
+            } else {
+                signature
+            },
+        )
     }
 }
 

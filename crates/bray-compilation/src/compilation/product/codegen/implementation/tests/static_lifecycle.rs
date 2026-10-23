@@ -11,7 +11,7 @@ use super::support::runtime::{
 use crate::compilation::product::codegen::NativeProductPlanningError;
 use crate::{CancellationToken, SelectedTarget};
 use bray_codegen::CodegenLinkage;
-use bray_ir::{MirHelperReference, MirUnitKey};
+use bray_ir::MirUnitKey;
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeCapability};
 use bray_symbols::{ProductKind, StaticStorageDuration};
 use bray_target::NativeTarget;
@@ -511,17 +511,6 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
     let (backend, plan) = runtime_native_plan(source);
 
     assert!(
-        !plan
-            .units()
-            .iter()
-            .flat_map(bray_codegen::CodegenUnit::mir_units)
-            .any(|mir| matches!(
-                mir.source(),
-                bray_ir::MirSourceOrigin::GeneratedLifecycle(MirHelperReference::Finalize(_))
-            ))
-    );
-
-    assert!(
         plan.executable_host()
             .unwrap()
             .requirements()
@@ -658,5 +647,98 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+}
+
+#[test]
+fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() {
+    for destructor in ["", "panic(\"destruction failed\");"] {
+        let source = r#"
+            module app;
+
+            struct Failure {
+                value: u8;
+                destruct() {
+                    DESTRUCTOR
+                }
+            }
+
+            struct Resource {
+                value: i32;
+                finalize() -> Result<unit, Failure> {
+                    return Error(Failure { value = 7 });
+                }
+                destruct() {}
+            }
+
+            static RESOURCE: Resource = { value = 42 };
+            static SECOND: Resource = { value = 43 };
+            func main() {}
+        "#
+        .replace("DESTRUCTOR", destructor);
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        let artifacts = generated_artifacts_of_kind(
+            &backend,
+            &plan,
+            bray_codegen::BackendArtifactKind::BackendIr,
+        );
+
+        for artifact in &artifacts {
+            let ir = String::from_utf8_lossy(artifact);
+
+            for name in [".incident.destroy", "__bray_incident_report_identity"] {
+                let definitions = ir
+                    .lines()
+                    .filter(|line| line.starts_with("define ") && line.contains(name))
+                    .count();
+
+                assert!(
+                    definitions <= 1,
+                    "owners with the same cleanup share {name}: {ir}"
+                );
+            }
+        }
+
+        let ir = artifacts
+            .iter()
+            .map(|artifact| String::from_utf8_lossy(artifact))
+            .collect::<String>();
+
+        let callback = ir
+            .split("\ndefine ")
+            .find(|body| {
+                body.lines()
+                    .next()
+                    .is_some_and(|header| header.contains(".incident.destroy"))
+            })
+            .expect("fallible static cleanup emits its incident destroyer")
+            .split_once("\n}")
+            .expect("LLVM function has a closing brace")
+            .0;
+
+        let (_, body) = callback
+            .split_once("{\n")
+            .expect("LLVM callback has a body");
+
+        let (before_cleanup, _) = body
+            .split_once("@bray_lifecycle_")
+            .expect("incident destructor invokes the selected cleanup");
+
+        let outcome_size = std::mem::size_of::<bray_runtime_abi::NativeRunOutcome>();
+
+        for destination in ["%1", "%2"] {
+            assert!(
+                before_cleanup.lines().any(|line| {
+                    (line.trim_start().starts_with("store ")
+                        && line.contains("zeroinitializer")
+                        && line.contains(&format!("ptr {destination},")))
+                        || (line.contains("@llvm.memset.")
+                            && line.contains(&format!("{destination}, i8 0, i64 {outcome_size},")))
+                }),
+                "{destructor:?}, {destination}: {callback}"
+            );
+        }
     }
 }

@@ -50,7 +50,7 @@ trusted internal func invoke(
             pointer = cursor.pointer,
             address = argument
         )) || (operation == 5 && trusted retiring(pointer = cursor.pointer))),
-        operation != 3 || argument < 4,
+        operation != 3 || argument < 6,
     )
     ensures(
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
@@ -147,6 +147,15 @@ trusted internal func invoke(
             trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.2.report)
         )
     {
+        let (incidents, progress) = if operation == 5
+        {
+            yield trusted take_terminal(cursor);
+        }
+        else
+        {
+            yield (bray.runtime.bootstrap.empty_records(), bray.runtime.bootstrap.activation.empty_progress());
+        };
+
         let resident = trusted access(cursor);
 
         let records = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
@@ -154,27 +163,7 @@ trusted internal func invoke(
             bray.runtime.bootstrap.empty_records()
         );
 
-        if operation == 5
-        {
-            let incidents = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
-                &mut resident.incidents,
-                bray.runtime.bootstrap.empty_records()
-            );
-
-            let progress = std.memory.replace_value<bray.runtime.bootstrap.activation.Progress>(
-                &mut resident.progress,
-                bray.runtime.bootstrap.activation.empty_progress()
-            );
-
-            if resident.incoming.kind != 0
-            {
-                trusted core.target.abort();
-            }
-
-            return (records, incidents, progress);
-        }
-
-        return (records, bray.runtime.bootstrap.empty_records(), bray.runtime.bootstrap.activation.empty_progress());
+        return (records, incidents, progress);
     };
 
     let (mut records, incidents, retired) = trusted prepare(cursor, operation);
@@ -331,6 +320,33 @@ trusted internal func invoke(
     return (progress, remaining, incidents, bray.runtime.bootstrap.STATUS_SUCCESS, retired);
 }
 
+// Retaining callbacks leave the dispatch claim and their returned report live.
+trusted internal func invoke_retaining(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+    pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+    pos ready: bray.runtime.bootstrap.activation.callback.Ready,
+    pos operation: u32,
+    pos argument: usize,
+) -> (bray.runtime.bootstrap.activation.Progress, u32)
+    requires(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        operation < 4,
+        operation != 3 || argument < 6,
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
+    )
+{
+    let (progress, _, _, status, _) = trusted invoke(cursor, callback, ready, operation, argument);
+
+    return (progress, status);
+}
+
 // The native caller retains these distinct writable slots independently of the
 // dispatched frame and every provider callback, including consuming retirement.
 trusted internal predicate destinations(
@@ -370,7 +386,7 @@ trusted internal func execute(
 
     let admission = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
 
-    if operation >= 6 || (operation == 3 && argument >= 4)
+    if operation >= 6 || (operation == 3 && argument >= 6)
     {
         return 3;
     }
@@ -400,7 +416,7 @@ trusted internal func execute(
             trusted bray.runtime.bootstrap.entry.native_entry(),
             trusted destinations(pointer = pointer, output = output, records = records, incidents = incidents),
             operation < 6,
-            operation != 3 || argument < 4,
+            operation != 3 || argument < 6,
         )
         ensures(
             trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),

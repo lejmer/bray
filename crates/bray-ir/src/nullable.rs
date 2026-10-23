@@ -27,6 +27,9 @@ impl MirNullableQuery {
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
         self.operand.remap_local_ids(mappings);
+        self.operand_type = mappings.ty(self.operand_type);
+        self.nullable_type = mappings.ty(self.nullable_type);
+        self.result_type = mappings.ty(self.result_type);
     }
 
     /// Creates one checked nullable state query.

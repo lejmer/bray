@@ -1,7 +1,6 @@
 use super::super::core::UnitTranslator;
 use super::super::support::parameter_type;
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenResultMapping, CodegenSymbolKey};
-use bray_ir::MirTaskTerminalState;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
@@ -190,29 +189,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR call translation requires an established mapping or value");
 
         parameter_type(symbol.signature(), parameter)
-    }
-
-    pub(in crate::translation::unit) fn terminal_state_arguments(
-        &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-        state: &MirTaskTerminalState,
-    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
-        let tag = match state {
-            MirTaskTerminalState::Completed(_) => 0,
-            MirTaskTerminalState::Cancelled => 1,
-            MirTaskTerminalState::Panicked(_) => 2,
-        };
-
-        let mut arguments = vec![self.runtime_integer_argument(runtime, 0, tag)?];
-
-        match state {
-            MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
-                arguments.push(self.operand(value)?);
-            }
-            MirTaskTerminalState::Cancelled => {}
-        }
-
-        Ok(arguments)
     }
 
     pub(in crate::translation::unit) fn invoke_helper(

@@ -584,9 +584,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 (1, payload.into())
             }
-            bray_ir::MirTaskTerminalState::Cancelled => {
-                (2, self.types.context().i64_type().const_zero().into())
-            }
+            bray_ir::MirTaskTerminalState::Cancelled(report) => (2, self.operand(report)?),
             bray_ir::MirTaskTerminalState::Panicked(value) => (3, self.operand(value)?),
         };
 

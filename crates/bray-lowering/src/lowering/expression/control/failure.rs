@@ -2,7 +2,7 @@ use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpression, ConstructionInputId, ConstructionTarget,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCallPanicEdge, MirConstruction, MirConstructionInput, MirEdge,
+    MirBlockId, MirBlockKind, MirCallFailureEdge, MirConstruction, MirConstructionInput, MirEdge,
     MirOperand, MirOperationKind, MirPanicCause, MirTerminatorKind,
 };
 use bray_symbols::TypeId;
@@ -396,8 +396,8 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [Self::retained_operand(value)]),
-                panicked: MirCallPanicEdge::new(panicked, Self::retained_place(&report)),
-                cancelled: MirEdge::new(cancelled, []),
+                panicked: MirCallFailureEdge::new(panicked, Self::retained_place(&report)),
+                cancelled: MirCallFailureEdge::new(cancelled, Self::retained_place(&report)),
             },
         )?;
 
@@ -411,11 +411,16 @@ impl Lowerer<'_> {
             expression,
             panicked,
             source,
-            MirOperand::Move(report),
+            MirOperand::Move(Self::retained_place(&report)),
             report_type,
         )?;
 
-        self.finish_cancellation(cancelled, source, expression.into())?;
+        self.finish_cancellation(
+            cancelled,
+            source,
+            expression.into(),
+            Some(MirOperand::Move(report)),
+        )?;
 
         Ok((completed, MirOperand::Value(result)))
     }

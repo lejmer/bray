@@ -406,6 +406,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::ExecutionCandidates(key.clone())
     });
 
+    reuse!(cleanup_completion, |key| {
+        CompilationFactKey::CleanupCompletion(key.clone())
+    });
+
     reuse!(certified_execution, |key| {
         CompilationFactKey::CertifiedExecution(key.clone())
     });

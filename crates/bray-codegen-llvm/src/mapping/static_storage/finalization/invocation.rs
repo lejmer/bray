@@ -10,12 +10,8 @@ use inkwell::{AddressSpace, IntPredicate};
 
 use super::super::boundary::{branch_on_static_failure, static_outcome};
 use super::super::host::StaticFinalizerCallbacks;
-use super::super::storage::declare_static_callback_with_type;
 use crate::mapping::LlvmTypeMappings;
-
-use super::incident::{
-    declare_static_incident_destroyer, declare_static_incident_reporter, static_incident_value,
-};
+use crate::native::declare_callback;
 
 pub(in crate::mapping::static_storage) fn declare_static_finalizer<'context>(
     module: &Module<'context>,
@@ -64,7 +60,7 @@ fn declare_static_finalizer_start<'context>(
     let context = types.context();
     let usize = crate::native::pointer_integer_type(context, types.target());
 
-    let callback = declare_static_callback_with_type(
+    let callback = declare_callback(
         module,
         &name,
         "static.finalize",
@@ -75,7 +71,7 @@ fn declare_static_finalizer_start<'context>(
             ],
             false,
         ),
-        types,
+        types.target(),
     );
 
     let builder = context.create_builder();
@@ -215,7 +211,7 @@ fn declare_static_finalizer_resolver<'context>(
     let context = types.context();
     let usize = crate::native::pointer_integer_type(context, types.target());
 
-    let callback = declare_static_callback_with_type(
+    let callback = declare_callback(
         module,
         &name,
         "static.finalize.resolve",
@@ -227,7 +223,7 @@ fn declare_static_finalizer_resolver<'context>(
             ],
             false,
         ),
-        types,
+        types.target(),
     );
 
     let builder = context.create_builder();
@@ -347,8 +343,18 @@ fn declare_static_finalizer_resolver<'context>(
 
     let pointer = context.ptr_type(AddressSpace::default());
 
+    let selected = finalization
+        .selected()
+        .expect("fallible finalization has a selected callable");
+
+    let requirement = mapping
+        .outgoing_requirements()
+        .iter()
+        .find(|requirement| requirement.callable() == selected)
+        .expect("fallible finalization has its admitted requirement");
+
     let (backing, payload) =
-        super::incident::claim_storage(module, &builder, mapping, finalization, types)?;
+        crate::mapping::incident::claim_storage(module, &builder, requirement, types)?;
 
     let error_pointer = builder
         .build_int_to_ptr(error_address, pointer, "static.finalize.error.pointer")
@@ -369,24 +375,45 @@ fn declare_static_finalizer_resolver<'context>(
         )
         .map_err(CodegenFailure::backend_library)?;
 
-    let report = declare_static_incident_reporter(module, mapping, types)?;
+    let report = crate::mapping::incident::declare_reporter(module, types)?;
 
-    let destroy = declare_static_incident_destroyer(module, mappings, mapping, types)?;
+    let cleanup = finalization
+        .incident_cleanup()
+        .and_then(|key| mappings.instance_symbol(key))
+        .expect("fallible finalization has its concrete incident cleanup");
 
-    let incident = static_incident_value(
+    let destroy = crate::mapping::incident::declare_destroyer(
+        module,
+        Some((
+            cleanup,
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                bray_ir::MirCleanupPhase::LifecycleResolution,
+            ),
+        )),
+        types,
+    )?;
+
+    let identity = finalization
+        .error_type_identity()
+        .expect("fallible finalization has its concrete error identity");
+
+    let namespace = mappings
+        .unit()
+        .compatibility(mapping.owner())
+        .expect("static storage has a partition compatibility")
+        .source_namespace();
+
+    let source = crate::native::mir_source_anchor_value(context, namespace, finalization.source());
+
+    let incident = crate::mapping::incident::record_value(
         &builder,
-        mapping,
-        finalization,
-        payload,
+        identity,
+        source,
+        (backing, payload),
         report,
         destroy,
         types,
     )?;
-
-    let incident = builder
-        .build_insert_value(incident, backing, 5, "incident.owned.backing")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
 
     let incident_destination = builder
         .build_int_to_ptr(

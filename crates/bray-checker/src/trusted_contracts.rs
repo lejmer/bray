@@ -16,6 +16,8 @@ pub struct TrustedContractInputs {
     pub statics: std::collections::BTreeSet<bray_symbols::StaticReferenceSelection>,
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    /// Checked ordinary predicate bodies in positional argument form.
+    pub predicates: BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::ConstantTermId>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.

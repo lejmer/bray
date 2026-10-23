@@ -92,7 +92,7 @@ fn construction_inputs_survive_a_later_await() {
                 .states()
                 .iter()
                 .skip(1)
-                .any(|state| state.initialized_storages().contains(&first)),
+                .any(|state| state.retention().initialized_storages().contains(&first)),
             "the initialized {input_type} input must survive the later await"
         );
     }
@@ -120,7 +120,13 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
 
     assert_eq!(frame.states().len(), 2);
     assert!(frame.completion_state().is_none());
-    assert!(!frame.states()[1].initialized_storages().is_empty());
+
+    assert!(
+        !frame.states()[1]
+            .retention()
+            .initialized_storages()
+            .is_empty()
+    );
 
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
@@ -155,7 +161,7 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
-            state: bray_ir::MirTaskTerminalState::Cancelled,
+            state: bray_ir::MirTaskTerminalState::Cancelled(_),
             ..
         })
     )));
@@ -196,10 +202,27 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         )
         .unwrap();
 
+    let initialized_at_entry = mir
+        .block(mir.entry())
+        .unwrap()
+        .operations()
+        .iter()
+        .filter_map(|id| match mir.operation(*id).unwrap().kind() {
+            MirOperationKind::Store {
+                kind: bray_ir::MirStoreKind::Initialize,
+                destination,
+                ..
+            } => Some(destination.storage()),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
     let guards = mir
         .storages_with_ids()
         .filter_map(|(id, storage)| {
-            if storage.kind() != &bray_ir::MirStorageKind::Local {
+            if storage.kind() != &bray_ir::MirStorageKind::Local
+                || !initialized_at_entry.contains(&id)
+            {
                 return None;
             }
 
@@ -229,24 +252,40 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         "nested array flags must remain represented: {mir:?}"
     );
 
-    assert!(frame.states().len() > 1);
+    let resumptions = mir
+        .blocks()
+        .iter()
+        .filter_map(|block| match block.terminator().kind() {
+            MirTerminatorKind::Suspend { resume_state, .. } => Some(*resume_state),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
 
-    for state in frame.states().iter().skip(1) {
+    assert!(!resumptions.is_empty());
+
+    for state in frame
+        .states()
+        .iter()
+        .filter(|state| resumptions.contains(&state.state()))
+    {
         assert!(
             guards
                 .iter()
-                .all(|(guard, _)| state.initialized_storages().contains(guard)),
+                .all(|(guard, _)| state.retention().initialized_storages().contains(guard)),
             "all entry-initialized flags must survive suspension: {frame:?}"
         );
     }
 
-    assert!(
-        mir.blocks()
-            .iter()
-            .filter(|block| block.kind() != bray_ir::MirBlockKind::Ordinary)
-            .all(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. })),
-        "cleanup array loops must not suspend with an unretained counter: {mir:?}"
-    );
+    for block in mir.blocks().iter().filter(|block| {
+        block.kind() != bray_ir::MirBlockKind::Ordinary
+            && matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. })
+    }) {
+        assert!(block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                frame: MirOperand::Move(place), composition: bray_ir::MirFrameComposition::Abandon, ..
+            }) if mir.storage(place.storage()).unwrap().kind() == &bray_ir::MirStorageKind::Parameter(2))),
+            "only pending-future disposal may suspend, not the array cleanup loop: {mir:?}");
+    }
 }
 
 #[test]
@@ -267,12 +306,9 @@ fn async_callable_frames_retain_declared_execution_lanes() {
         .frame_descriptor()
         .unwrap_or_else(|| panic!("async callable must publish a frame descriptor"));
 
-    assert!(
-        frame
-            .states()
-            .iter()
-            .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
-    );
+    assert!(frame.states().iter().all(|state| {
+        state.retention().lane_requirements() == [ExecutionLaneRequirement::Blocking]
+    }));
 }
 
 #[test]
@@ -411,7 +447,7 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
 
         disposes_result |= block.operations().iter().any(|id| matches!(
             mir.operation(*id).unwrap().kind(),
-            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+            MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. }
                 if place.storage() == result
         ));
 
@@ -471,7 +507,7 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         .find(|entry| entry.state() == state)
         .unwrap();
 
-    let [storage] = completion.initialized_storages() else {
+    let [storage] = completion.retention().initialized_storages() else {
         panic!("completion owns just its result");
     };
 
@@ -480,7 +516,12 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         bray_ir::MirStorageKind::FrameCompletion
     ));
 
-    assert!(!frame.states()[0].initialized_storages().contains(storage));
+    assert!(
+        !frame.states()[0]
+            .retention()
+            .initialized_storages()
+            .contains(storage)
+    );
 
     assert!(
         matches!(mir.block(completion.entry()).unwrap().terminator().kind(),
@@ -491,7 +532,7 @@ fn completed_frame_result_has_its_own_cleanup_state() {
         mir.operations()
             .iter()
             .any(|operation| matches!(operation.kind(),
-        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place }
+        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. }
             if place.storage() == *storage))
     );
 }
@@ -530,7 +571,7 @@ fn completed_result_cleanup_retains_its_separate_execution_phase() {
     let frame = lowered_mir(&result).frame_descriptor().unwrap();
     let completion = frame.completion_state().unwrap();
 
-    assert!(frame.states()[0].lane_requirements().is_empty());
+    assert!(frame.states()[0].retention().lane_requirements().is_empty());
 
     let cleanup = frame
         .states()
@@ -538,10 +579,10 @@ fn completed_result_cleanup_retains_its_separate_execution_phase() {
         .find(|state| state.state() == completion)
         .unwrap();
 
-    assert!(cleanup.is_completion_cleanup());
+    assert!(cleanup.retention().is_completion_cleanup());
 
     assert!(
-        cleanup.lane_requirements().is_empty(),
+        cleanup.retention().lane_requirements().is_empty(),
         "concrete lifecycle realization owns this requirement"
     );
 }

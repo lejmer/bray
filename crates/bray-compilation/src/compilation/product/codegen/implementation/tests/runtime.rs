@@ -701,7 +701,18 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
 
         typedef struct
         {{
-            _Alignas({report_align}) unsigned char data[{report_size}];
+            _Alignas({report_align}) unsigned char source[{source_size}];
+            uint32_t cause;
+            uint32_t primary_present;
+            uintptr_t message;
+            uintptr_t message_length;
+            void* copy_message;
+            void* release_message;
+            uintptr_t head;
+            uintptr_t tail;
+            uintptr_t count;
+            uintptr_t reserved;
+            void* consume;
         }} Report;
 
         typedef struct
@@ -750,18 +761,13 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             --shield_depth;
         }}
 
-        void {propagate_panic}(Report report)
+        void {propagate_panic}(Report* report)
         {{
             (void)report;
             _Exit(11);
         }}
 
-        void {propagate_cancellation}(void)
-        {{
-            _Exit(12);
-        }}
-
-        Report {suppress}(Report first, Report second)
+        Report {suppress}(Report* first, Report* second)
         {{
             (void)first;
             (void)second;
@@ -828,11 +834,12 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             uintptr_t length)
         {{
             Report report = {{0}};
+            report.primary_present = 1;
 
             return report;
         }}
 
-        unsigned {report}(Report value)
+        unsigned {report}(Report* value)
         {{
             (void)value;
             ++reports;
@@ -922,9 +929,6 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
         propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
-        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
-            .native_symbol()
-            .unwrap(),
         construction = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
             .unwrap(),
@@ -936,7 +940,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
         unrepresented = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
         report_align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
-        report_size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        source_size = std::mem::size_of::<bray_runtime_abi::NativeSourceAnchor>(),
         boundary = RuntimeAbiRole::ForeignCallbackExecution
             .native_symbol()
             .unwrap(),
@@ -1087,7 +1091,18 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
 
         typedef struct
         {{
-            _Alignas({align}) unsigned char data[{size}];
+            _Alignas({align}) unsigned char source[{source_size}];
+            uint32_t cause;
+            uint32_t primary_present;
+            uintptr_t message;
+            uintptr_t message_length;
+            void* copy_message;
+            void* release_message;
+            uintptr_t head;
+            uintptr_t tail;
+            uintptr_t count;
+            uintptr_t reserved;
+            void* consume;
         }} Report;
 
         typedef struct
@@ -1118,11 +1133,6 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             _Exit(9);
         }}
 
-        void {propagate_cancellation}(void)
-        {{
-            _Exit(10);
-        }}
-
         Report {construct}(uint32_t cause,
             uint32_t present,
             uint32_t identity,
@@ -1137,14 +1147,15 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             uintptr_t length)
         {{
             Report result = {{0}};
-            result.data[0] = 22;
+            result.source[0] = 22;
+            result.primary_present = 1;
 
             return result;
         }}
 
-        unsigned {report}(Report value)
+        unsigned {report}(Report* value)
         {{
-            if (value.data[0] != 22)
+            if (value->source[0] != 22)
                 _Exit(1);
 
             ++reported;
@@ -1154,13 +1165,14 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
 
         Report {suppress}(Report* first, Report* second)
         {{
-            if (first->data[0] != 11 || second->data[0] != 22)
+            if (first->source[0] != 11 || second->source[0] != 22)
                 _Exit(2);
 
-            Report result = *first;
+            Report result = first->primary_present ? *first : *second;
+            result.count = first->count;
             *first = (Report){{0}};
             *second = (Report){{0}};
-            result.data[1] = 22;
+            result.source[1] = 22;
             ++merged;
 
             return result;
@@ -1179,27 +1191,36 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
                 return 4;
 
             Outcome panicked = {{{panicked}, 0, {{0}}}};
-            panicked.report.data[0] = 11;
+            panicked.report.source[0] = 11;
+            panicked.report.primary_present = 1;
 
             if ({entry}(0, 0, 0, &panicked) != {represented})
                 return 5;
 
-            if (panicked.state != {panicked} || panicked.report.data[0] != 11 ||
-                panicked.report.data[1] != 22)
+            if (panicked.state != {panicked} || panicked.report.source[0] != 11 ||
+                panicked.report.source[1] != 22)
                 return 6;
 
-            return reported == 1 && merged == 1 && shield_depth == 0 ? 0 : 7;
+            Outcome cancelled = {{{cancelled}, 0, {{0}}}};
+            cancelled.report.source[0] = 11;
+            cancelled.report.count = 1;
+
+            if ({entry}(0, 0, 0, &cancelled) != {represented})
+                return 11;
+
+            if (cancelled.state != {panicked} || cancelled.report.source[0] != 22 ||
+                cancelled.report.count != 1 || !cancelled.report.primary_present)
+                return 12;
+
+            return reported == 1 && merged == 2 && shield_depth == 0 ? 0 : 7;
         }}
 
     "#,
         shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
         shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
         propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
-        propagate_cancellation = RuntimeAbiRole::CurrentRunCancellationPropagation
-            .native_symbol()
-            .unwrap(),
         align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
-        size = std::mem::size_of::<bray_runtime_abi::NativePanicReport>(),
+        source_size = std::mem::size_of::<bray_runtime_abi::NativeSourceAnchor>(),
         construct = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
             .unwrap(),
@@ -1210,6 +1231,7 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         entry = role.native_symbol().unwrap(),
         represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
         panicked = bray_runtime_abi::NativeRunState::PANICKED.code(),
+        cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),
     );
 
     super::support::linker::run_native_caller(&backend, &plan, &caller);

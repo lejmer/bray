@@ -48,6 +48,9 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Attempt,
                 ..
+            } | AnalysisOperationKind::Result {
+                phase: crate::analysis::AnalysisResultPhase::Begin,
+                ..
             } | AnalysisOperationKind::ScopeExit { .. }
                 | AnalysisOperationKind::Suspension { .. }
         ) {

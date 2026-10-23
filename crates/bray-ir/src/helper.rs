@@ -9,6 +9,99 @@ use crate::{
     MirFrameReference, MirGeneratorOperation, MirOperationKind,
 };
 
+/// Destruction choice established before a lifecycle helper is realized.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirDestructionDisposition {
+    /// An erased callback's caller selects the disposition at invocation.
+    Dynamic,
+    /// Graceful represented-part obligations remain eligible.
+    Ordinary,
+    /// Graceful obligations have already been abandoned.
+    Abandoned,
+}
+
+impl MirDestructionDisposition {
+    /// Retains a known MIR disposition before helper realization.
+    pub fn from_argument(argument: Option<&crate::MirOperand>) -> Self {
+        match argument {
+            None
+            | Some(crate::MirOperand::Immediate {
+                value: crate::MirImmediateValue::Boolean(false),
+                ..
+            }) => Self::Ordinary,
+            Some(crate::MirOperand::Immediate {
+                value: crate::MirImmediateValue::Boolean(true),
+                ..
+            }) => Self::Abandoned,
+            Some(_) => Self::Dynamic,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MirDestructionDisposition, MirHelperReference};
+    use crate::{
+        MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirImmediateValue, MirOperand,
+        MirPlace, MirStorageId, MirUnitId,
+    };
+
+    #[test]
+    fn destruction_identity_retains_known_and_erased_dispositions() {
+        let ty = crate::test_support::test_type();
+
+        let dynamic = MirOperand::Copy(MirPlace::new(
+            MirStorageId::from_slot(MirUnitId::new(0), 0),
+            [],
+            ty,
+        ));
+
+        let literal = |value| MirOperand::Immediate {
+            value: MirImmediateValue::Boolean(value),
+            ty,
+        };
+
+        assert_eq!(
+            MirDestructionDisposition::from_argument(None),
+            MirDestructionDisposition::Ordinary
+        );
+
+        assert_eq!(
+            MirDestructionDisposition::from_argument(Some(&literal(false))),
+            MirDestructionDisposition::Ordinary
+        );
+
+        assert_eq!(
+            MirDestructionDisposition::from_argument(Some(&literal(true))),
+            MirDestructionDisposition::Abandoned
+        );
+
+        assert_eq!(
+            MirDestructionDisposition::from_argument(Some(&dynamic)),
+            MirDestructionDisposition::Dynamic
+        );
+
+        let keys = [
+            MirDestructionDisposition::Dynamic,
+            MirDestructionDisposition::Ordinary,
+            MirDestructionDisposition::Abandoned,
+        ]
+        .map(|disposition| {
+            let reference = MirHelperReference::Destroy(ty, disposition);
+            let role = MirGeneratedLifecycleRole::from_reference(&reference).unwrap();
+
+            MirGeneratedLifecycleKey::new(role, [7; 32])
+        });
+
+        assert_eq!(
+            keys.into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            3
+        );
+    }
+}
+
 /// Exact semantic role of one callable helper required to realize MIR.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirHelperReference {
@@ -32,12 +125,12 @@ pub enum MirHelperReference {
     PanicReport,
     /// Invoke one compiler-recognized standard-library implementation.
     StandardLibrary(MirStandardLibraryHelper),
-    /// Run checked finalization for a value of the retained type.
-    Finalize(TypeId),
+    /// Resolve child runs while retaining the initialized incident representation.
+    Quiesce(TypeId),
     /// Invoke one static finalizer and preserve its completion value.
     StaticFinalize(TypeId),
     /// Destroy a value of the retained type.
-    Destroy(TypeId),
+    Destroy(TypeId, MirDestructionDisposition),
     /// Run one checked cleanup phase for a value of the retained type.
     Cleanup {
         /// Cleanup phase being executed.
@@ -69,9 +162,9 @@ impl MirHelperReference {
             | Self::FinishGenerator
             | Self::PanicReport
             | Self::StandardLibrary(_)
-            | Self::Finalize(_)
+            | Self::Quiesce(_)
             | Self::StaticFinalize(_)
-            | Self::Destroy(_)
+            | Self::Destroy(_, _)
             | Self::Cleanup { .. }
             | Self::CreateFrame(_)
             | Self::ComposeAwaitedFrame(_)
@@ -83,9 +176,9 @@ impl MirHelperReference {
     /// Returns the semantic value type retained by a lifecycle helper.
     pub const fn lifecycle_type(&self) -> Option<TypeId> {
         match self {
-            Self::Finalize(ty)
+            Self::Quiesce(ty)
             | Self::StaticFinalize(ty)
-            | Self::Destroy(ty)
+            | Self::Destroy(ty, _)
             | Self::Cleanup { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
@@ -120,9 +213,9 @@ impl MirHelperReference {
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::StandardLibrary(_)
-            | Self::Finalize(_)
+            | Self::Quiesce(_)
             | Self::StaticFinalize(_)
-            | Self::Destroy(_)
+            | Self::Destroy(_, _)
             | Self::Cleanup { .. }
             | Self::CreateFrame(_) => None,
         }
@@ -166,8 +259,15 @@ impl MirOperationKind {
                     });
                 }
                 MirGeneratorOperation::Destroy { element, .. } => {
-                    helpers.push(MirHelperReference::Finalize(*element));
-                    helpers.push(MirHelperReference::Destroy(*element));
+                    helpers.push(MirHelperReference::Cleanup {
+                        phase: MirCleanupPhase::LifecycleResolution,
+                        ty: *element,
+                    });
+
+                    helpers.push(MirHelperReference::Destroy(
+                        *element,
+                        crate::MirDestructionDisposition::Dynamic,
+                    ));
                 }
             },
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
@@ -178,9 +278,14 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::DefaultValue(*provider));
                 }
             }
-            Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
-            Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
-            Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
+            Self::Quiesce { place, .. } => helpers.push(MirHelperReference::Quiesce(place.ty())),
+            Self::Destroy {
+                place, abandoned, ..
+            } => helpers.push(MirHelperReference::Destroy(
+                place.ty(),
+                MirDestructionDisposition::from_argument(abandoned.as_ref()),
+            )),
+            Self::Cleanup { phase, place, .. } => helpers.push(MirHelperReference::Cleanup {
                 phase: *phase,
                 ty: place.ty(),
             }),
@@ -206,14 +311,22 @@ impl MirOperationKind {
             Self::Async(MirAsyncOperation::CommitAwaitedCompletion { child, .. }) => {
                 helpers.push(MirHelperReference::CommitAwaitedCompletion(*child));
             }
+            Self::Async(MirAsyncOperation::TransferCleanupIncident { incident, .. }) => {
+                helpers.push(MirHelperReference::Destroy(
+                    incident.ty(),
+                    MirDestructionDisposition::Abandoned,
+                ));
+            }
             Self::Async(MirAsyncOperation::DestroyTerminalTask { .. }) => {
                 helpers.push(MirHelperReference::DestroyTerminalTask);
             }
             Self::Host(crate::MirHostOperation::ResolveRootTerminal {
                 error: Some(error), ..
             }) => {
-                helpers.push(MirHelperReference::Finalize(*error));
-                helpers.push(MirHelperReference::Destroy(*error));
+                helpers.push(MirHelperReference::Cleanup {
+                    phase: MirCleanupPhase::LifecycleResolution,
+                    ty: *error,
+                });
             }
             Self::Store { .. }
             | Self::Borrow { .. }
@@ -261,6 +374,13 @@ fn collect_memory_helpers(
             phase: MirCleanupPhase::LifecycleResolution,
             ty: element,
         });
+
+        if memory.abandoned_cleanup().is_some() {
+            helpers.push(MirHelperReference::Destroy(
+                element,
+                crate::MirDestructionDisposition::Dynamic,
+            ));
+        }
 
         helpers.push(MirHelperReference::StandardLibrary(
             MirStandardLibraryHelper::MemoryDeallocate,

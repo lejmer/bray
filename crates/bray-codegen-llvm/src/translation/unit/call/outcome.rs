@@ -1,7 +1,7 @@
 use super::super::core::UnitTranslator;
 use super::super::support::llvm;
 use bray_codegen::{CodegenCallableSignature, CodegenFailure, CodegenHelperMapping};
-use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn boundary_panic_report_context(
@@ -37,7 +37,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(context)
     }
 
-    pub(super) fn propagate_boundary_call_panic(
+    pub(in crate::translation::unit) fn propagate_boundary_call_panic(
         &mut self,
         context: PointerValue<'context>,
     ) -> Result<(), CodegenFailure> {
@@ -55,20 +55,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.unit.target().runtime_abi(),
         );
 
-        self.invoke_runtime(runtime, &[report.into()])?;
-        llvm(self.builder.build_unreachable())?;
+        self.propagate_failure(bray_runtime_abi::NativeRunState::PANICKED, report, runtime)?;
 
         self.builder.position_at_end(cancelled);
 
-        self.invoke_runtime(
-            bray_ir::MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-                self.unit.target().runtime_abi(),
-            ),
-            &[],
-        )?;
-
-        llvm(self.builder.build_unreachable())?;
+        self.propagate_failure(bray_runtime_abi::NativeRunState::CANCELLED, report, runtime)?;
 
         self.builder.position_at_end(continued);
 
@@ -82,17 +73,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         name: &str,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let pointee = self.types.map(pointee)?;
-        let storage = self.allocate_temporary(pointee, name)?;
-
         let alignment = crate::conversion::target_value(alignment, "allocation_alignment")?;
 
-        storage
-            .as_instruction_value()
-            .expect("checked MIR call translation requires an established mapping or value")
-            .set_alignment(alignment)
-            .map_err(CodegenFailure::unsupported_target_report)?;
-
-        Ok(storage)
+        crate::translation::allocate_aligned_temporary(
+            self.types.context(),
+            &self.builder,
+            pointee,
+            alignment,
+            name,
+        )
     }
     pub(in crate::translation::unit) fn invoke_operation_helper(
         &mut self,

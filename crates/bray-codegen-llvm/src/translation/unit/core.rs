@@ -391,7 +391,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .iter()
             .map(|state| {
                 if frame_broadcast {
-                    state.broadcast()
+                    state.retention().broadcast()
                 } else {
                     state.entry()
                 }
@@ -513,7 +513,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         for state in descriptor.states() {
             let entry = self.block(if self.frame_broadcast {
-                state.broadcast()
+                state.retention().broadcast()
             } else {
                 state.entry()
             });

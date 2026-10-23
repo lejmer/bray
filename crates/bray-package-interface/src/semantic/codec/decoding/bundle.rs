@@ -829,6 +829,88 @@ mod tests {
     }
 
     #[test]
+    fn selective_decoding_retains_and_remaps_replacement_types() {
+        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let base = bundle.semantics();
+        let mut types = base.types().to_vec();
+
+        types.push(InterfaceType::Tuple([].into()));
+
+        let replacement = InterfaceTypeId::new(u32::try_from(types.len()).unwrap());
+
+        types.push(InterfaceType::Tuple(
+            [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),
+        ));
+
+        let subject = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            [],
+        );
+
+        let contract = InterfaceDependencyContract::new([]).with_effects([
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Replace(replacement),
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject,
+                projections: [].into(),
+                kind: DependencyMutationKind::Replace(replacement),
+            },
+        ]);
+
+        let semantics = base.clone().with_values(
+            [contract],
+            types,
+            base.constant_values().iter().cloned(),
+            base.constant_terms().iter().cloned(),
+        );
+
+        let sections = semantic_sections(&semantics, surface);
+
+        let InterfaceSymbolReference::Local(callable) =
+            local_by_kind(surface, SymbolKind::Function)
+        else {
+            panic!("test callable must be local");
+        };
+
+        let decoded = decode_semantic_graph(
+            &owned_section_views(&sections),
+            surface,
+            callable,
+            InterfaceSemanticRecordKind::CallableSignature,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap();
+
+        for effect in &*decoded.dependency_contracts[0].effects {
+            let (DependencyStorageEffect::Direct {
+                kind: DependencyMutationKind::Replace(ty),
+                ..
+            }
+            | DependencyStorageEffect::Indirect {
+                kind: DependencyMutationKind::Replace(ty),
+                ..
+            }) = effect
+            else {
+                panic!("test contract must retain both replacement effects");
+            };
+
+            assert_ne!(
+                *ty, replacement,
+                "unselected intervening type must be removed"
+            );
+
+            assert!(
+                matches!(&decoded.types()[ty.raw() as usize], InterfaceType::Tuple(elements) if elements.len() == 2)
+            );
+        }
+    }
+
+    #[test]
     fn callable_signature_decoding_ignores_corrupt_unrelated_contract_records() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();

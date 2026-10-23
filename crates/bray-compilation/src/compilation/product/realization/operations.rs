@@ -79,9 +79,34 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let incident_type_identity =
+                    if let MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+                        incident,
+                        ..
+                    }) = data.kind()
+                    {
+                        let ty = self.concrete_codegen_type(
+                            incident.ty(),
+                            realization.substitution(),
+                            Some(realization),
+                            cancellation,
+                        )?;
+
+                        let binding = self.binding_context(cancellation)?;
+
+                        Some(super::super::structural_type_identity(
+                            self.semantic_value_store()?,
+                            &binding,
+                            ty,
+                        )?)
+                    } else {
+                        None
+                    };
+
                 mappings.push(
                     CodegenOperationMapping::new(instance.key().clone(), operation, helpers)
-                        .with_outgoing_requirements(outgoing),
+                        .with_outgoing_requirements(outgoing)
+                        .with_incident_type_identity(incident_type_identity),
                 );
             }
         }
@@ -237,9 +262,9 @@ impl Compilation {
             MirHelperReference::StandardLibrary(helper) => {
                 self.concrete_standard_library_helper(*helper, target, cancellation)?
             }
-            MirHelperReference::Finalize(_)
+            MirHelperReference::Quiesce(_)
             | MirHelperReference::StaticFinalize(_)
-            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Destroy(_, _)
             | MirHelperReference::Cleanup { .. } => {
                 if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
                     return Ok(None);
@@ -269,14 +294,15 @@ impl Compilation {
         let substitution = owner.substitution();
 
         Ok(match reference {
-            MirHelperReference::Finalize(ty) => MirHelperReference::Finalize(
+            MirHelperReference::Quiesce(ty) => MirHelperReference::Quiesce(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),
             MirHelperReference::StaticFinalize(ty) => MirHelperReference::StaticFinalize(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             ),
-            MirHelperReference::Destroy(ty) => MirHelperReference::Destroy(
+            MirHelperReference::Destroy(ty, disposition) => MirHelperReference::Destroy(
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+                *disposition,
             ),
             MirHelperReference::Cleanup { phase, ty } => MirHelperReference::Cleanup {
                 phase: *phase,
@@ -325,7 +351,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         self.codegen_generated_lifecycle(instance, reference, unit, cancellation)
-            .map(|lowered| lowered.mir().clone())
+            .map(|mir| mir.as_ref().clone())
     }
 
     pub(super) fn codegen_generated_lifecycle(
@@ -334,7 +360,7 @@ impl Compilation {
         reference: &MirHelperReference,
         unit: MirUnitId,
         cancellation: &CancellationToken,
-    ) -> Result<std::sync::Arc<bray_lowering::LoweredLifecycle>, CodegenPreparationError> {
+    ) -> Result<std::sync::Arc<MirUnit>, CodegenPreparationError> {
         let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
             return Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.clone()),
@@ -362,19 +388,21 @@ impl Compilation {
             crate::fact::CompilationFactKey::GeneratedLifecycle(query.0, query.1),
             cancellation,
             |cancellation| {
-                Ok(
-                    super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)
-                        .and_then(|context| {
-                            bray_lowering::lower_lifecycle(
-                                &context,
-                                instance.template().clone(),
-                                reference,
-                                unit,
-                                instance.target(),
-                            )
-                        })
-                        .map(std::sync::Arc::new),
+                Ok(super::synthetic::CompilationSyntheticLoweringContext::new(
+                    self,
+                    None,
+                    cancellation,
                 )
+                .and_then(|context| {
+                    bray_lowering::lower_lifecycle(
+                        &context,
+                        instance.template().clone(),
+                        reference,
+                        unit,
+                        instance.target(),
+                    )
+                })
+                .map(std::sync::Arc::new))
             },
         )?;
 

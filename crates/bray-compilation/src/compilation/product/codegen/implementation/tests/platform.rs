@@ -630,6 +630,102 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
 }
 
 #[test]
+fn native_platform_cleanup_terminates_uncaught_panic() {
+    assert_native_platform_cleanup_emits(
+        r#"
+            destruct()
+            {
+                panic("native provider cleanup");
+            }
+        "#,
+    );
+}
+
+#[test]
+fn native_platform_cleanup_terminates_uncaught_cancellation() {
+    assert_native_platform_cleanup_emits(
+        r#"
+            finalize()
+            {
+                let outcome: RunResult<unit> = Cancelled;
+                try outcome;
+            }
+        "#,
+    );
+}
+
+fn assert_native_platform_cleanup_emits(cleanup: &str) {
+    let source = format!(
+        r#"
+            trusted module app;
+
+            @layout(c)
+            internal struct PlatformStatus
+            {{
+                category: u32;
+                reserved: u32;
+                native_code: i64;
+            }}
+
+            struct Owner
+            {{
+                {cleanup}
+            }}
+
+            @abi(c)
+            trusted internal func flush() -> PlatformStatus
+            {{
+                let owner = Owner {{}};
+                return {{ category = 0, reserved = 0, native_code = 0 }};
+            }}
+        "#,
+    );
+
+    let binding =
+        PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
+            .expect("platform service binding must validate");
+
+    let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+        &[&source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        &[],
+        [binding],
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let implementation = artifacts
+        .iter()
+        .find_map(|artifact| {
+            let ir = std::str::from_utf8(artifact).expect("LLVM IR is UTF-8");
+
+            let start = ir.lines().position(|line| {
+                line.starts_with("define ")
+                    && line.contains("@bray_platform_standard_output_flush(")
+            })?;
+
+            Some(
+                ir.lines()
+                    .skip(start)
+                    .take_while(|line| *line != "}")
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        })
+        .expect("the selected platform service must have an emitted definition");
+
+    assert!(
+        implementation.lines().any(|line| {
+            line.contains("call ") && line.contains("@bray_runtime_panic_propagation(")
+        }),
+        "{implementation}"
+    );
+
+    assert!(!implementation.contains("@bray_runtime_current_run_cancellation_propagation("));
+}
+
+#[test]
 fn bray_platform_service_implementations_are_native_fallbacks() {
     let source = concat!(
         "trusted module app;\n",

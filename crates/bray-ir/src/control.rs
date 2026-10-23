@@ -7,6 +7,53 @@ use crate::{
     MirBlockId, MirCallableReference, MirFrameStateId, MirOperand, MirPlace, MirSourceAnchor,
 };
 
+/// Borrowed storage for the enclosing cleanup sequence's state and owned report.
+/// Structural cleanup updates this collection without dispatching or shielding it again.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirCleanupCollection {
+    pub(crate) state: MirPlace,
+    pub(crate) report: MirPlace,
+    pub(crate) retention: Option<Arc<crate::MirFrameRetention>>,
+}
+
+impl MirCleanupCollection {
+    /// Names the collection retained by the caller across this cleanup operation.
+    pub const fn new(state: MirPlace, report: MirPlace) -> Self {
+        Self {
+            state,
+            report,
+            retention: None,
+        }
+    }
+
+    /// Preserves checked enclosing state until concrete cleanup is expanded.
+    pub fn with_retention(mut self, retention: Option<Arc<crate::MirFrameRetention>>) -> Self {
+        self.retention = retention;
+
+        self
+    }
+
+    /// Returns the enclosing continuation contract for cleanup that may suspend.
+    pub fn retention(&self) -> Option<&Arc<crate::MirFrameRetention>> {
+        self.retention.as_ref()
+    }
+
+    /// Returns the four-way cleanup state slot.
+    pub const fn state(&self) -> &MirPlace {
+        &self.state
+    }
+
+    /// Returns the report slot, initialized whenever the state is not Normal.
+    pub const fn report(&self) -> &MirPlace {
+        &self.report
+    }
+
+    /// Visits both borrowed storage identities in parameter order.
+    pub fn places(&self) -> [&MirPlace; 2] {
+        [&self.state, &self.report]
+    }
+}
+
 /// Trusted inline assembly whose checked labels may leave the ordinary control-flow path.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirInlineAssemblyTerminator {
@@ -154,6 +201,31 @@ pub enum MirCleanupPhase {
     LifecycleResolution,
 }
 
+/// Control and report ownership of one enclosing cleanup collection.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirCleanupState {
+    /// No failure or incident has initialized the collection's report.
+    Normal,
+    /// Cleanup retains incidents without changing the original control outcome.
+    Incidents,
+    /// Cancellation owns the report, including any retained incidents.
+    Cancelled,
+    /// A primary panic owns the report, including later cleanup incidents.
+    Panicked,
+}
+
+impl MirCleanupState {
+    /// Returns the compiler-owned discriminant stored in the collection.
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Normal => 0,
+            Self::Incidents => 1,
+            Self::Cancelled => 2,
+            Self::Panicked => 3,
+        }
+    }
+}
+
 /// A control-flow edge whose target performs one checked cleanup phase.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCleanupEdge {
@@ -161,15 +233,15 @@ pub struct MirCleanupEdge {
     pub(crate) edge: MirEdge,
 }
 
-/// Panic successor of one synchronous Bray call.
+/// Failure successor of one synchronous Bray call, retaining its report ownership.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MirCallPanicEdge {
+pub struct MirCallFailureEdge {
     pub(crate) target: MirBlockId,
     pub(crate) report: MirPlace,
 }
 
-impl MirCallPanicEdge {
-    /// Creates a panic successor that stores the propagated report before transfer.
+impl MirCallFailureEdge {
+    /// Creates a failure successor that stores the propagated report before transfer.
     pub const fn new(target: MirBlockId, report: MirPlace) -> Self {
         Self { target, report }
     }
@@ -438,9 +510,9 @@ pub enum MirTerminatorKind {
         /// Normal continuation after the call completed.
         completed: MirEdge,
         /// Abnormal continuation receiving the propagated panic report.
-        panicked: MirCallPanicEdge,
+        panicked: MirCallFailureEdge,
         /// Cancellation continuation after ownership transferred into the call.
-        cancelled: MirEdge,
+        cancelled: MirCallFailureEdge,
     },
     /// Enter phase-one cleanup.
     BeginCleanup(MirCleanupEdge),
@@ -453,16 +525,18 @@ pub enum MirTerminatorKind {
         /// Cleanup entered before propagation.
         cleanup: MirCleanupEdge,
     },
-    /// Transfer an already-cleaned panic report to the nearest native run boundary.
+    /// Forward an already-cleaned panic report, terminating if the native caller has no outcome destination.
     PropagatePanic {
         /// Owned panic report being propagated.
         report: MirOperand,
-        /// Selected private panic-propagation ABI role.
+        /// Terminal report consumer for a caller without an outcome destination.
         runtime: crate::MirRuntimeReference,
     },
-    /// Transfer cancellation to the nearest native run boundary.
+    /// Forward cancellation, terminating if the native caller has no outcome destination.
     PropagateCancellation {
-        /// Selected private cancellation-entry ABI role.
+        /// Owned cleanup incidents retained during cancellation.
+        report: MirOperand,
+        /// Terminal report consumer for a caller without an outcome destination.
         runtime: crate::MirRuntimeReference,
     },
     /// Abandon normal continuation because the current run was cancelled.
@@ -544,14 +618,7 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallOutcome {
-                completed,
-                cancelled,
-                ..
-            } => {
-                visit(completed)?;
-                visit(cancelled)?;
-            }
+            Self::CheckCallOutcome { completed, .. } => visit(completed)?,
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }

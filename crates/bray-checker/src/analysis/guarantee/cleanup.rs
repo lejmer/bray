@@ -1,4 +1,5 @@
 mod check;
+mod inputs;
 mod plan;
 mod transition;
 

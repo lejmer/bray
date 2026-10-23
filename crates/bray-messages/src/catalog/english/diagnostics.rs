@@ -1987,6 +1987,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::AwaitDependencyUnavailable
         | DiagnosticNoteKind::ReportCompilerDefect => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::ReturnRequiredResult => RenderedDiagnosticNoteKind::Help,
+        DiagnosticNoteKind::ResolveFinalization => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::DocumentFailureLocation => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
@@ -2393,6 +2394,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingUseOfMovedStorage => {
             MessageTemplate::new(CHECKING_USE_OF_MOVED_STORAGE)
         }
+        DiagnosticKind::CheckingDestructorOwnershipIntroduction => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this operation may install a value of type "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(
+                " through the destructor receiver, introducing graceful cleanup after destruction has begun",
+            ),
+        ]),
+        DiagnosticKind::CheckingUnprovedDestructorEffects => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this operation may change the destructor receiver or its dependencies without preserving terminal ownership on every outcome",
+            )])
+        }
         DiagnosticKind::CheckingIncompleteLifecycleStorage => {
             MessageTemplate::new(CHECKING_INCOMPLETE_LIFECYCLE_STORAGE)
         }
@@ -2476,6 +2489,16 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplatePart::Text("this callable cannot establish its "),
             MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
             MessageTemplatePart::Text(" execution guarantee"),
+        ]),
+        DiagnosticKind::CheckingUnresolvedFinalization => MessageTemplate::new(&[
+            MessageTemplatePart::Text("ownership of "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" ends while its finalization can still return an error"),
+        ]),
+        DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable => MessageTemplate::new(&[
+            MessageTemplatePart::Text("finalization of "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" requires asynchronous execution in a synchronous scope"),
         ]),
         DiagnosticKind::CheckingCallableResultRequired => MessageTemplate::new(&[
             MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
@@ -3140,6 +3163,11 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::RebuildRetainedProduct => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "build the selected product again before requesting a no-build run",
+            )])
+        }
+        DiagnosticNoteKind::ResolveFinalization => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "Complete or transfer this finalization obligation before ownership ends.",
             )])
         }
         DiagnosticNoteKind::ReturnRequiredResult => {

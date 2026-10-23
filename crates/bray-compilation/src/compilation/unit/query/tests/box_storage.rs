@@ -246,7 +246,14 @@ fn borrowed_box_patterns_do_not_grant_target_ownership() {
     let (declarations, _) = source.split_once("func main").unwrap();
 
     let source = format!(
-        "{declarations}\nfunc invalid_borrow_move(pos pair: &box[PairStorage] Pair) {{ let box(value) = pair; consume_pair(value); }}"
+        r#"{declarations}
+        func invalid_borrow_move(pos pair: &box[InlineStorage<Pair>] Pair)
+        {{
+            let box(value) = pair;
+
+            consume_pair(value);
+        }}
+        "#
     );
 
     let compilation = compilation(&source);

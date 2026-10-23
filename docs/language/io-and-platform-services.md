@@ -424,6 +424,11 @@ Malformed data, denied access, missing paths, exhausted process capacity, interr
 and entropy failure do not permit the compiler or standard library to panic. A panic is reserved for a violated language
 or trusted-boundary invariant.
 
+Private native service bindings with a fixed C result contain uncaught panic and cancellation at that boundary.
+After local cleanup, they consume and report retained incidents and terminate. They do not unwind through the native
+caller or return an ordinary result after abnormal completion. Expected operational failures still use the declared
+status result. A service that supports cancellation as an ordinary outcome must represent it in its declared protocol.
+
 ## Target Availability
 
 The following compiler-known boolean target properties describe platform-service availability:

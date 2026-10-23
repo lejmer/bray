@@ -86,16 +86,65 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
 }
 
 impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
+    pub(super) fn push_result(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: BoundExpressionId,
+        phase: super::model::AnalysisResultPhase,
+    ) {
+        if self.view().node_is_recovered(expression.into()) == Some(false) {
+            self.storage.push_operation(
+                block,
+                super::model::AnalysisOperationKind::Result { expression, phase },
+            );
+        } else {
+            self.push_recovery(block, expression.into());
+        }
+    }
+
     pub(super) fn build_expression(
         &mut self,
         id: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
+        let result_region = self.view().expression(id).is_some_and(|expression| {
+            matches!(
+                expression,
+                bray_bound_tree::BoundExpression::Block(_)
+                    | bray_bound_tree::BoundExpression::Match(_)
+                    | bray_bound_tree::BoundExpression::For(_)
+            ) || matches!(expression,
+                bray_bound_tree::BoundExpression::Structured(operation)
+                    if matches!(operation.kind(),
+                        bray_bound_tree::BoundStructuredExpressionKind::Conditional
+                            | bray_bound_tree::BoundStructuredExpressionKind::While
+                            | bray_bound_tree::BoundStructuredExpressionKind::Loop
+                            | bray_bound_tree::BoundStructuredExpressionKind::With
+                            | bray_bound_tree::BoundStructuredExpressionKind::Catch
+                    )
+            )
+        });
+
+        let loop_header = matches!(self.view().expression(id),
+            Some(bray_bound_tree::BoundExpression::Structured(operation))
+                if matches!(operation.kind(),
+                    bray_bound_tree::BoundStructuredExpressionKind::While
+                        | bray_bound_tree::BoundStructuredExpressionKind::Loop)
+        );
+
+        if result_region && !loop_header {
+            self.push_result(current, id, super::model::AnalysisResultPhase::Begin);
+        }
+
         let completion = self.build_expression_inner(id, current)?;
 
         let Some(current) = completion else {
             return Some(None);
         };
+
+        if result_region {
+            self.push_result(current, id, super::model::AnalysisResultPhase::Completion);
+        }
 
         if let Some(ty) = self
             .completion_semantics

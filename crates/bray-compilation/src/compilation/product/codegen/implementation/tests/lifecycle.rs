@@ -64,6 +64,124 @@ fn nested_cleanup_native_fixture_emits() {
 }
 
 #[test]
+fn custom_storage_cleanup_native_fixture_emits() {
+    let (backend, plan) = runtime_native_plan(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+    )));
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
+    let source = r#"
+        module std.test;
+        using internal std.memory;
+
+        struct Resource
+        {
+            value: i32;
+
+            finalize() {}
+            destruct() {}
+        }
+
+        func dispose(pos buffer: std.memory.RawBuffer<Resource>) {}
+        func dispose_bytes(pos buffer: std.memory.RawBuffer<u8>) {}
+    "#;
+
+    let (backend, codegen) = super::support::compilation::codegen_configuration();
+
+    let package = bray_symbols::PackageIdentity::try_new("std").unwrap();
+
+    let request = crate::CompilationRequest::with_options(
+        package.clone(),
+        [
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/std.bray"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../standard-library/std/src/memory.bray"
+            )),
+            crate::test_support::RUNTIME_MEMORY_SOURCE,
+            crate::test_support::RUNTIME_TEXT_SOURCE,
+            source,
+        ]
+        .iter()
+        .enumerate()
+        .map(|(index, source)| {
+            crate::test_support::source_input(source, u32::try_from(index).unwrap())
+        })
+        .collect(),
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    )
+    .with_standard_library_source_authority();
+
+    let compilation = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+    let runtime = super::support::runtime::runtime_artifact(&compilation, archive.path());
+    let product = bray_symbols::ProductIdentity::try_new(package, "buffer").unwrap();
+
+    let plan = compilation
+        .native_product_plan(
+            product,
+            crate::BuildConfiguration::Development,
+            Some(runtime),
+            [],
+            None,
+        )
+        .unwrap();
+
+    let mut observed = 0;
+
+    for mir in plan
+        .units()
+        .iter()
+        .flat_map(bray_codegen::CodegenUnit::mir_units)
+    {
+        for operation in mir.operations() {
+            let MirOperationKind::Memory(memory) = operation.kind() else {
+                continue;
+            };
+
+            let bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element } =
+                memory.kind()
+            else {
+                continue;
+            };
+
+            assert!(memory.abandoned_cleanup().is_some());
+
+            assert!(operation.kind().helper_references().contains(
+                &bray_ir::MirHelperReference::Destroy(
+                    element,
+                    bray_ir::MirDestructionDisposition::Dynamic
+                )
+            ));
+
+            observed += 1;
+        }
+    }
+
+    assert_eq!(observed, 2);
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
 fn replacement_cleanup_helpers_emit_checked_outcomes() {
     for lifecycle in ["destruct() {}", "finalize() {} destruct() {}"] {
         let source = format!(
@@ -104,11 +222,32 @@ fn replacement_cleanup_helpers_emit_checked_outcomes() {
             .iter()
             .flat_map(bray_codegen::CodegenMappings::symbols)
         {
-            if matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Instance(instance)
-                    if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)))
-            {
-                assert!(symbol.signature().has_panic_report_context());
-            }
+            let bray_codegen::CodegenSymbolKey::Instance(instance) = symbol.key() else {
+                continue;
+            };
+
+            let MirUnitKey::GeneratedLifecycle(lifecycle) = instance.template() else {
+                continue;
+            };
+
+            let signature = symbol.signature();
+
+            assert!(!signature.has_panic_report_context());
+
+            assert_eq!(
+                signature.parameters().len(),
+                if matches!(
+                    lifecycle.role(),
+                    bray_ir::MirGeneratedLifecycleRole::Destroy(
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    )
+                ) {
+                    4
+                } else {
+                    3
+                },
+                "structural cleanup borrows the enclosing state and report"
+            );
         }
 
         assert!(!generated_artifacts(&backend, &plan).is_empty());
@@ -157,6 +296,192 @@ fn synchronous_finalizer_can_propagate_run_result_cancellation() {
             [],
             configuration,
         );
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+}
+
+#[test]
+fn ordinary_async_finalizers_emit_admitted_frame_composition() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+        async func record()
+        {
+            let previous = core.atomic.load<usize, 1>(&COUNT);
+            core.atomic.store<usize, 4>(&COUNT, previous + 1);
+        }
+        struct Owner
+        {
+            value: usize;
+            async finalize()
+            {
+                await record();
+            }
+        }
+        func rejected() -> usize { panic("later input"); }
+        async func accept(pos owner: Owner, number: usize = rejected()) {}
+        async func completed() -> Owner { return Owner { value = 3 }; }
+        async func main()
+        {
+            let mut owner = Owner { value = 1 };
+            owner = Owner { value = 2 };
+            let result = await completed();
+            let failure = catch { await accept(Owner { value = 4 }); yield unit; };
+        }
+    "#,
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn inactive_future_cleanup_emits_without_entering_child_body() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        struct Large
+        {
+            values: [u64; 1024];
+        }
+
+        struct Owner
+        {
+            value: u32;
+
+            async finalize()
+            {
+                await release();
+            }
+        }
+
+        async func release() {}
+
+        async func child(pos owner: Owner) -> Large
+        {
+            panic("inactive body entered");
+        }
+
+        async func main()
+        {
+            let mut pending = child(Owner { value = 1 });
+            pending = child(Owner { value = 2 });
+            child(Owner { value = 3 });
+        }
+    "#,
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn retained_finalizer_errors_with_inactive_futures_emit_native_artifacts() {
+    let source = r#"
+        module app;
+
+        struct Capture
+        {
+            destruct()
+            {
+            }
+        }
+
+        async func body(pos capture: Capture)
+        {
+            panic("inactive body entered");
+        }
+
+        struct Failure
+        {
+            pending: Future<unit>;
+
+            finalize()
+            {
+                panic("retained error must abandon finalization");
+            }
+
+            destruct()
+            {
+            }
+        }
+
+        struct Owner
+        {
+            async finalize() -> Result<unit, Failure>
+            {
+                return Error(Failure { pending = body(Capture {}) });
+            }
+
+            destruct()
+            {
+            }
+        }
+
+        async func main()
+        {
+            let owner = Owner {};
+
+            panic("original failure");
+        }
+        "#;
+
+    let (backend, plan) = runtime_native_plan(source);
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+fn source_destructor_parts_reuse_the_owner_cleanup_continuation() {
+    for (execution, finalizer) in [
+        ("", "finalize() {}"),
+        ("async ", "async finalize() { await pause(); }"),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            async func pause()
+            {{
+            }}
+
+            struct Child
+            {{
+                value: u32;
+
+                {finalizer}
+            }}
+
+            struct Owner
+            {{
+                child: Child;
+
+                destruct()
+                {{
+                }}
+            }}
+
+            {execution}func main()
+            {{
+                let owner = Owner
+                {{
+                    child = Child {{ value = 1 }}
+                }};
+            }}
+            "#,
+        );
+
+        let (backend, plan) = runtime_native_plan(&source);
+
+        if execution.is_empty() {
+            assert!(
+                plan.units()
+                    .iter()
+                    .flat_map(|unit| unit.instances())
+                    .all(|instance| instance.mir().frame_descriptor().is_none()),
+                "synchronous destructor parts do not add an async frame"
+            );
+        }
 
         assert!(!generated_artifacts(&backend, &plan).is_empty());
     }

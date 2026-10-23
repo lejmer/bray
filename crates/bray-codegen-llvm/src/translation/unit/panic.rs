@@ -1,5 +1,5 @@
 use bray_codegen::{CodegenCallableSignature, CodegenFailure, CodegenResultMapping};
-use bray_ir::{MirEdge, MirOperand, MirOperation, MirSourceAnchor};
+use bray_ir::{MirEdge, MirOperand, MirOperation};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::core::UnitTranslator;
@@ -40,41 +40,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("translated instance must have a package compatibility")
             .source_namespace();
 
-        let source = match source {
-            MirSourceAnchor::Source(origin) => {
-                let anchor = origin.source_anchor();
-                let syntax = anchor.syntax();
-                let range = syntax.full_range();
-
-                bray_runtime_abi::NativeSourceAnchor::new(
-                    namespace,
-                    syntax.source_id().raw(),
-                    range.start().bytes(),
-                    range.end().bytes(),
-                    anchor.source_version().raw(),
-                )
-            }
-            MirSourceAnchor::ImportedSource {
-                namespace,
-                span,
-                version,
-                ..
-            } => bray_runtime_abi::NativeSourceAnchor::new(
-                *namespace,
-                span.source_id().raw(),
-                span.start().bytes(),
-                span.end().bytes(),
-                version.raw(),
-            ),
-            MirSourceAnchor::ExecutableHost(_)
-            | MirSourceAnchor::GeneratedLifecycle(_)
-            | MirSourceAnchor::CompilerProvidedCallable(_)
-            | MirSourceAnchor::ImportedExecutable(_) => {
-                bray_runtime_abi::NativeSourceAnchor::unavailable()
-            }
-        };
-
-        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
+        Ok(
+            crate::native::mir_source_anchor_value(self.types.context(), namespace, Some(source))
+                .into(),
+        )
     }
 
     pub(super) fn translate_panic_propagation(
@@ -86,69 +55,56 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.clear_moved_places()?;
 
-        if self.frame_broadcast {
-            self.return_broadcast_outcome(
-                bray_runtime_abi::NativeFrameProgressKind::PANICKED,
-                report,
-            )?;
-        } else if self.signature.has_panic_report_context() {
-            let context = self
-                .panic_report_context
-                .expect("checked MIR translation requires an established mapping or value");
-
-            let outcome = native_run_outcome_value(
-                self.types.context(),
-                &self.builder,
-                self.request.target(),
-                NativeRunState::PANICKED,
-                report,
-            )?;
-
-            llvm(self.builder.build_store(context, outcome))?;
-
-            self.return_propagated_outcome()?;
-        } else {
-            self.invoke_runtime(runtime, &[report.into()])?;
-
-            llvm(self.builder.build_unreachable())?;
-        }
-
-        Ok(())
+        self.propagate_failure(NativeRunState::PANICKED, report, runtime)
     }
 
     pub(super) fn translate_cancellation_propagation(
         &mut self,
-        runtime: bray_ir::MirRuntimeReference,
+        report: &MirOperand,
     ) -> Result<(), CodegenFailure> {
+        let report = self.operand(report)?;
+
         self.clear_moved_places()?;
 
+        self.propagate_failure(
+            NativeRunState::CANCELLED,
+            report,
+            bray_ir::MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+                self.unit.target().runtime_abi(),
+            ),
+        )
+    }
+
+    pub(in crate::translation::unit) fn propagate_failure(
+        &mut self,
+        state: NativeRunState,
+        report: BasicValueEnum<'context>,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let progress = match state {
+            NativeRunState::PANICKED => bray_runtime_abi::NativeFrameProgressKind::PANICKED,
+            NativeRunState::CANCELLED => bray_runtime_abi::NativeFrameProgressKind::CANCELLED,
+            _ => panic!("failure propagation requires panic or cancellation, got {state:?}"),
+        };
+
         if self.frame_broadcast {
-            self.return_broadcast_outcome(
-                bray_runtime_abi::NativeFrameProgressKind::CANCELLED,
-                self.types.context().i64_type().const_zero().into(),
-            )?;
-        } else if self.signature.has_panic_report_context() {
-            let context = self
-                .panic_report_context
-                .expect("checked MIR translation requires an established mapping or value");
-
-            let ty =
-                crate::native::pointer_integer_type(self.types.context(), self.request.target());
-
+            self.return_broadcast_outcome(progress, report)?;
+        } else if let Some(context) = self.panic_report_context {
             let outcome = native_run_outcome_value(
                 self.types.context(),
                 &self.builder,
                 self.request.target(),
-                NativeRunState::CANCELLED,
-                ty.const_zero().into(),
+                state,
+                report,
             )?;
 
             llvm(self.builder.build_store(context, outcome))?;
-
             self.return_propagated_outcome()?;
         } else {
-            self.invoke_runtime(runtime, &[])?;
-
+            // A fixed native result cannot carry abnormal completion. Consume the report
+            // and terminate instead of returning a value or unwinding through its caller.
+            self.invoke_runtime(runtime, &[report.into()])?;
             llvm(self.builder.build_unreachable())?;
         }
 
@@ -159,8 +115,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         block: bray_ir::MirBlockId,
         completed: &MirEdge,
-        panicked: &bray_ir::MirCallPanicEdge,
-        cancelled_edge: &MirEdge,
+        panicked: &bray_ir::MirCallFailureEdge,
+        cancelled_edge: &bray_ir::MirCallFailureEdge,
     ) -> Result<(), CodegenFailure> {
         let admission = self
             .unit
@@ -185,7 +141,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let context = self
             .pending_call_panic_report_context
             .take()
-            .expect("checked MIR translation requires an established mapping or value");
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked call outcome in {:?} block {block:?} has no preceding call context",
+                    self.unit.key()
+                )
+            });
 
         if let Some(incoming) = self.panic_report_context {
             assert_eq!(
@@ -242,8 +203,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (_, pending_moves) = self.take_control_source()?;
 
-        let cancellation_route =
-            self.route_call_cancellation(cancelled_edge, context, &pending_moves)?;
+        let cancellation_route = self.route_call_failure(
+            cancelled_edge,
+            context,
+            NativeRunState::CANCELLED,
+            &pending_moves,
+        )?;
 
         self.builder.position_at_end(propagate_cancellation);
         llvm(self.builder.build_unconditional_branch(cancellation_route))?;
@@ -262,7 +227,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
 
         let panicked_route =
-            self.route_call_panic(panicked, context, "call.panicked", &pending_moves)?;
+            self.route_call_failure(panicked, context, NativeRunState::PANICKED, &pending_moves)?;
 
         self.builder.position_at_end(source);
 

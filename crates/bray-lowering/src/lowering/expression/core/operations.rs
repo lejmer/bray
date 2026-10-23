@@ -1520,7 +1520,11 @@ impl Lowerer<'_> {
 
                 let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
 
-                if identity.is_borrowed_provider_input(self.input.unit().key().kind())
+                if (identity.is_borrowed_provider_input(self.input.unit().key().kind())
+                    || self
+                        .receiver_cleanup
+                        .as_ref()
+                        .is_some_and(|receiver| receiver.identity == id))
                     && let MirStorageKind::Parameter(position) = kind
                 {
                     kind = MirStorageKind::BorrowedParameter(position);

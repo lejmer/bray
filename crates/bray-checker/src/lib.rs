@@ -62,7 +62,7 @@ pub use context::{
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
-    ExecutionCertification, ExecutionClauseId, ExecutionCompletionContract,
+    ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
     ExecutionDomain, ExecutionObligation, ExecutionPlace, ExecutionProperty,
     check_execution_guarantees, declared_execution_properties, execution_condition_from_term,
@@ -72,8 +72,8 @@ pub use execution_guarantees::{
 };
 pub use expression::{NestedCallableEvidence, call_result, check_generic_arguments};
 pub use lifecycle::{
-    LifecycleSelectionContext, LifecycleSelectionError, invocation_execution_requirements,
-    select_lifecycle_action,
+    FinalizerCompletion, LifecycleSelectionContext, check_implicit_finalization,
+    invocation_execution_requirements, select_lifecycle_action,
 };
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{

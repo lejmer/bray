@@ -104,7 +104,7 @@ trusted internal func release() -> bool
             pool.free = 0;
             pool.available = 0;
             pool.total = 0;
-            yield(slabs, storage);
+            yield (slabs, storage);
         };
     }
 

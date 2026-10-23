@@ -65,12 +65,6 @@ trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platfo
 
 @abi(c)
 trusted internal func platform_process_pipe_close(pos handle: u64) -> std.platform.PlatformStatus
-    uses(foreign_call)
 {
-    if trusted std.os.windows.close_handle(trusted internal std.platform.handle_pointer(handle)) == 0
-    {
-        return trusted internal std.platform.windows_error_status();
-    }
-
-    return internal std.platform.success_status();
+    return (trusted internal std.platform.resource.close(handle)).0;
 }

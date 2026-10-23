@@ -12,6 +12,7 @@ enum Observation {
     Address,
     Identity,
     Discriminant,
+    Reference(TypeId),
 }
 
 struct Shape {
@@ -63,6 +64,7 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
 
 pub(crate) struct Footprint {
     pub(crate) atomic: StorageInvalidation,
+    pub(crate) references: Vec<(StoragePath, TypeId)>,
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) borrowed_identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
@@ -76,6 +78,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
     let mut accesses = BTreeMap::new();
+    let mut references = Vec::new();
     let mut shapes = BTreeMap::new();
     let mut stable_descriptors = BTreeSet::new();
     let mut identities = BTreeMap::new();
@@ -172,6 +175,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 match observation {
+                    Observation::Reference(ty) => {
+                        references.push((path, *ty));
+
+                        None
+                    }
                     Observation::Identity => {
                         if shared.is_some() {
                             borrowed_identities
@@ -222,6 +230,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(Footprint {
+        references,
         atomic: StorageInvalidation::Observed {
             accesses,
             snapshots: BTreeMap::new(),
@@ -236,6 +245,24 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 }
 
 fn paths<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    visiting: &mut BTreeSet<NamedTypeSymbolId>,
+) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
+    let mut shape = value_paths(request, ty, visiting)?;
+
+    // Record the slot even when its referent has no observable fields. Terminal
+    // ownership includes retained dependencies that the body never names.
+    if crate::representation::reference_kind(request, ty).is_some() {
+        shape
+            .observations
+            .push((Vec::new(), Observation::Reference(ty)));
+    }
+
+    Ok(shape)
+}
+
+fn value_paths<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     visiting: &mut BTreeSet<NamedTypeSymbolId>,

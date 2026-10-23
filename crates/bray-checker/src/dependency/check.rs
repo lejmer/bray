@@ -73,6 +73,9 @@ where
             scoped @ (bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
             | bray_bound_tree::BoundExecutionSite::ScopedExit(_)) => scoped,
             bray_bound_tree::BoundExecutionSite::Node(_) => operation.expression().into(),
+            bray_bound_tree::BoundExecutionSite::Cleanup(_) => {
+                panic!("cleanup suspension is not a source access operation")
+            }
         };
 
         expression_requirements
@@ -242,14 +245,19 @@ where
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    let variants =
-        match super::projection::prepare_variants(request, &contracts, storage, value_inputs) {
-            Ok(variants) => variants,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let variants = match super::projection::prepare_variants(
+        request,
+        &contracts,
+        storage,
+        value_inputs,
+        selections,
+    ) {
+        Ok(variants) => variants,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     CheckerOutcome::Complete(DiagnosticResult::new(
         contracts.with_projection_variants(variants),

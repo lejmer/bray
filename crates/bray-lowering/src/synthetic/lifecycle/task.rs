@@ -51,7 +51,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 block,
                 source.clone(),
                 MirOperationKind::Async(MirAsyncOperation::ResolveTask {
-                    task: MirOperand::Move(task),
+                    task,
                     variants,
                     runtime: MirRuntimeReference::new(RuntimeAbiRole::TaskResolution, runtime_abi),
                 }),
@@ -85,10 +85,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 builder,
                 block,
                 source,
-                [
-                    MirOperationKind::Finalize(place.clone()),
-                    MirOperationKind::Destroy(place),
-                ],
+                [MirOperationKind::Cleanup {
+                    collection: None,
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    place,
+                }],
             )
             .map_err(|cause| self.capacity_error(cause))
     }

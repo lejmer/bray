@@ -171,7 +171,8 @@ impl NativeProductHostOperation {
 pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 
 /// Compiler-generated callback cleaning one initialized static instance.
-pub type NativeStaticCleanupCallback = extern "C-unwind" fn(&mut crate::NativeRunOutcome);
+/// The first argument is one when inherited graceful cleanup was abandoned, otherwise zero.
+pub type NativeStaticCleanupCallback = extern "C-unwind" fn(u32, &mut crate::NativeRunOutcome);
 
 /// Starts finalization with a caller-owned result or incident destination.
 pub type NativeStaticFinalizerStartCallback =
@@ -182,7 +183,7 @@ pub type NativeCleanupIncidentReportCallback =
     extern "C" fn(usize, &mut crate::NativeRunOutcome) -> NativeRuntimeStatus;
 
 /// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
-/// The destinations retain destruction and backing-release outcomes independently.
+/// Initializes both destinations, preserving destruction and backing-release outcomes independently.
 pub type NativeCleanupIncidentDestroyCallback = extern "C" fn(
     &mut NativeCleanupIncident,
     &mut crate::NativeRunOutcome,

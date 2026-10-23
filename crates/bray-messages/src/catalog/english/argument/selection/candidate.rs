@@ -108,6 +108,9 @@ fn format_english_selection_rejection_reason(
                 .join(", ")
         ),
         Reason::ConstructionInput(reason) => format_english_construction_input_rejection(reason),
+        Reason::PredicateOutsideContract => {
+            "a predicate can only be called in a contract expression".to_owned()
+        }
         Reason::ExpressionForm => "the operation does not match this expression form".to_owned(),
         Reason::RequiredImplementation => {
             "a required implementation is unavailable for the supplied types".to_owned()

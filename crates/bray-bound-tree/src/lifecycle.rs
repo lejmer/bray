@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallableAbi, CallableExecution, CallableInstanceData, ConstantTermId, TypeId,
-    UnionVariantSymbolId,
+    CallableAbi, CallableInstanceData, ConstantTermId, TypeId, UnionVariantSymbolId,
 };
 
 /// The ownership operation whose implementation is selected by checking.
@@ -10,12 +9,28 @@ use bray_symbols::{
 pub enum LifecyclePhase {
     /// Invoke whole-value graceful finalization.
     Finalize,
+    /// Resolve child runs while retaining an error for later incident destruction.
+    Quiesce,
     /// Destroy the remaining represented value.
     Destroy,
     /// Broadcast cancellation before resolving owners.
     Cancel,
     /// Finalize and destroy an owner.
     Resolve,
+}
+
+/// The receiver identity for which pure, total, successful finalization was proved.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompletedFinalizer {
+    /// Every valid value of this type completes without running its finalizer.
+    Type(TypeId),
+    /// This stored value completes at the specified ownership end.
+    Storage {
+        /// Ownership-end occurrence carrying the proof.
+        exit: crate::AnyBoundNodeId,
+        /// Receiver storage whose current state satisfies the proof.
+        access: crate::StorageAccessId,
+    },
 }
 
 /// One selected lifecycle invocation with its substituted signature.
@@ -27,10 +42,40 @@ pub struct LifecycleCallable {
     pub abi: CallableAbi,
     /// Receiver argument type, including its borrow mode.
     pub receiver: TypeId,
-    /// Completion type of the invocation.
-    pub result: TypeId,
-    /// Whether invoking the implementation creates an inactive future.
-    pub execution: CallableExecution,
+    /// Checked immediate result or inactive future produced by the invocation.
+    pub result: crate::BoundCallResult,
+}
+
+impl LifecycleCallable {
+    /// Retains a checked lifecycle selection without resolving its signature again.
+    pub fn from_signature(
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+        callable: CallableInstanceData,
+        signature: &bray_symbols::CallableSignature,
+    ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
+        let data = values.type_data(signature.callable_type());
+
+        let bray_symbols::TypeData::Callable(selected) = data.as_ref() else {
+            panic!("checked lifecycle signature retains its callable type");
+        };
+
+        let receiver = signature
+            .receiver()
+            .expect("checked lifecycle signature retains its receiver");
+
+        Ok(Self {
+            callable,
+            abi: selected.abi(),
+            receiver: receiver.mode().input_type(values, receiver.ty())?,
+            result: crate::BoundCallResult::from_execution(
+                values,
+                symbols,
+                selected.execution(),
+                signature.result(),
+            )?,
+        })
+    }
 }
 
 /// The selected local action for one type and lifecycle phase.
@@ -64,12 +109,12 @@ pub enum LifecycleAction {
         target: TypeId,
         /// Selected mutable projection of the initialized target.
         borrow: LifecycleCallable,
-        /// Selected target destruction and storage release, in that order.
-        teardown: Option<[LifecycleCallable; 2]>,
+        /// Selected storage release after compiler-owned target destruction.
+        release: Option<LifecycleCallable>,
     },
     /// Resolve the initialized prefix of a generator.
     Generator(TypeId),
-    /// Release an imported raw buffer through its recognized representation.
+    /// Visit a raw buffer's initialized prefix or release its recognized representation.
     RawBuffer(TypeId),
     /// Release retained string bytes.
     ReleaseString,
@@ -77,4 +122,33 @@ pub enum LifecycleAction {
     DestroyReport,
     /// Resolve a task using the operation selected by the requested phase.
     Task,
+    /// Resolve an inactive computation through its described captured state.
+    Future,
+}
+
+impl LifecycleAction {
+    /// Returns local invocations in execution order, preserving repeated calls.
+    /// Structural children retain their own selected actions and cleanup allowances.
+    pub fn local_calls(&self) -> impl Iterator<Item = LifecycleCallable> {
+        let calls = match self {
+            Self::Call(callable) => [Some(*callable), None],
+            Self::Owned {
+                borrow, release, ..
+            } => [Some(*borrow), *release],
+            Self::None
+            | Self::Resolve
+            | Self::Members(_)
+            | Self::Alternatives(_)
+            | Self::Nullable(_)
+            | Self::Array { .. }
+            | Self::Generator(_)
+            | Self::RawBuffer(_)
+            | Self::ReleaseString
+            | Self::DestroyReport
+            | Self::Task
+            | Self::Future => [None; 2],
+        };
+
+        calls.into_iter().flatten()
+    }
 }

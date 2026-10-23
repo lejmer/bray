@@ -2,7 +2,7 @@ use bray_bound_tree::{
     BoundExpression, CheckedSemanticSelections, SelectedPropagation, SelectedPropagationBoundary,
     SemanticSelection,
 };
-use bray_symbols::{DependencyProjection, UnionPayloadFieldSymbolId};
+use bray_symbols::DependencyProjection;
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
@@ -46,6 +46,7 @@ impl super::ValueInputs {
             let SemanticSelection::Propagation(SelectedPropagation::Result {
                 boundary,
                 error_conversion,
+                error: (_, field),
                 ..
             }) = entry.selection()
             else {
@@ -56,21 +57,7 @@ impl super::ValueInputs {
                 continue;
             }
 
-            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
-                "ResultVariant1ErrorError",
-            )
-            .unwrap_or_else(|| {
-                panic!("collect_propagation requires compiler-known declaration key")
-            });
-
-            let field = request
-                .available_compiler_known_symbols()
-                .declaration_symbol::<UnionPayloadFieldSymbolId>(&key)
-                .unwrap_or_else(|| {
-                    panic!("collect_propagation requires compiler-known declaration symbol")
-                });
-
-            let projection = DependencyProjection::UnionPayloadField(field);
+            let projection = DependencyProjection::UnionPayloadField(*field);
 
             self.error_exits
                 .insert(entry.expression(), (operand, projection));

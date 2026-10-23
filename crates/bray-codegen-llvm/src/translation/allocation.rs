@@ -70,6 +70,26 @@ pub(crate) fn allocate_temporary<'context>(
         .map_err(CodegenFailure::backend_library)
 }
 
+pub(crate) fn allocate_aligned_temporary<'context>(
+    context: &'context Context,
+    builder: &Builder<'context>,
+    ty: impl BasicType<'context>,
+    alignment: u32,
+    name: &str,
+) -> Result<PointerValue<'context>, CodegenFailure> {
+    use inkwell::values::BasicValue;
+
+    let storage = allocate_temporary(context, builder, ty, name)?;
+
+    storage
+        .as_instruction_value()
+        .expect("temporary storage is an alloca instruction")
+        .set_alignment(alignment)
+        .map_err(CodegenFailure::unsupported_target_report)?;
+
+    Ok(storage)
+}
+
 #[cfg(test)]
 mod tests {
     use inkwell::context::Context;
