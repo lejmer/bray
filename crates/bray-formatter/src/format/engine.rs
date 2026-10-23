@@ -22,7 +22,7 @@ use super::syntax::{
     is_close_delimiter, is_declaration_clause_keyword, is_open_delimiter,
 };
 use super::writer::FormatWriter;
-use crate::{FormatterConfiguration, FormatterRule};
+use crate::{FormatterConfiguration, FormatterDecision, FormatterRule};
 
 /// Parses and formats one UTF-8 Bray source text.
 pub fn format_text(
@@ -205,10 +205,14 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             .flatten();
 
         if node.kind() == SyntaxKind::MatchArm
-            && self
-                .configuration
-                .is_enabled(FormatterRule::MatchArmBodyLayout)
-            && self.configuration.is_enabled(FormatterRule::BlockBraces)
+            && self.configuration.applies_to(
+                FormatterRule::MatchArmBodyLayout,
+                FormatterDecision::BracePlacement,
+            )
+            && FormatterRule::MatchArmBodyLayout.preferred_for(
+                FormatterRule::BlockBraces,
+                FormatterDecision::BracePlacement,
+            ) == FormatterRule::MatchArmBodyLayout
             && let Some(empty) = compact_match_arm
         {
             if self.previous_token == Some(SyntaxKind::CloseBraceToken) {
@@ -457,16 +461,18 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                     .is_enabled(FormatterRule::MatchCaseSpacing));
 
         let trailing_comma_layout = !matches!(self.previous_token, Some(SyntaxKind::CommaToken))
-            || self
-                .configuration
-                .is_enabled(FormatterRule::TrailingCommaLayout);
+            || self.configuration.applies_to(
+                FormatterRule::TrailingCommaLayout,
+                FormatterDecision::TrailingComma,
+            );
 
         if is_close_delimiter(kind)
             && list_delimiter
             && matches!(self.previous_token, Some(SyntaxKind::CommaToken))
-            && self
-                .configuration
-                .is_enabled(FormatterRule::TrailingCommaLayout)
+            && self.configuration.applies_to(
+                FormatterRule::TrailingCommaLayout,
+                FormatterDecision::TrailingComma,
+            )
             && !matches!(
                 self.nodes.last(),
                 Some(SyntaxKind::TupleExpression | SyntaxKind::TypeExpression)
@@ -716,8 +722,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     }
 
     fn enabled_list_layout(&self, parent: Option<SyntaxKind>) -> bool {
-        self.configuration.is_enabled(FormatterRule::LineWrapping)
-            && list_layout_rule(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
+        list_layout_rule(parent).is_some_and(|(rule, decision)| {
+            self.configuration.applies_to(rule, decision)
+        })
     }
 
     fn close_callable_header_group(&mut self) {

@@ -1,6 +1,6 @@
 use bray_syntax::SyntaxKind;
 
-use crate::FormatterRule;
+use crate::{FormatterDecision, FormatterRule};
 
 #[derive(Clone, Copy)]
 pub(super) struct TokenSpacing {
@@ -28,84 +28,83 @@ pub(super) fn token_spacing(
 ) -> Option<TokenSpacing> {
     let previous = previous?;
 
-    if current_is_generic_delimiter {
-        return Some(no_space(FormatterRule::GenericDelimiterSpacing));
-    }
-
-    if previous_was_generic_delimiter {
-        return Some(TokenSpacing {
+    let generic =
+        (current_is_generic_delimiter || previous_was_generic_delimiter).then_some(TokenSpacing {
             rule: FormatterRule::GenericDelimiterSpacing,
-            uses_space: is_operator(current),
+            uses_space: !current_is_generic_delimiter && is_operator(current),
         });
-    }
 
-    if previous == SyntaxKind::DotDotToken
-        && matches!(current, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
-    {
-        return Some(TokenSpacing {
+    let range = (previous == SyntaxKind::DotDotToken || current == SyntaxKind::DotDotToken)
+        .then_some(TokenSpacing {
             rule: FormatterRule::RangeSpacing,
-            uses_space: true,
+            uses_space: previous == SyntaxKind::DotDotToken
+                && matches!(current, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+                || previous == SyntaxKind::SemicolonToken,
         });
-    }
 
-    if previous == SyntaxKind::SemicolonToken && current == SyntaxKind::DotDotToken {
-        return Some(space(FormatterRule::RangeSpacing));
-    }
-
-    if previous == SyntaxKind::DotDotToken || current == SyntaxKind::DotDotToken {
-        return Some(no_space(FormatterRule::RangeSpacing));
-    }
-
-    if matches!(previous, SyntaxKind::DotToken) || matches!(current, SyntaxKind::DotToken) {
+    let member = (previous == SyntaxKind::DotToken || current == SyntaxKind::DotToken).then_some(
         if current == SyntaxKind::DotToken
             && matches!(
                 previous,
                 SyntaxKind::CaseKeyword | SyntaxKind::LetKeyword | SyntaxKind::MatchesKeyword
             )
         {
-            return Some(space(FormatterRule::WordSpacing));
+            space(FormatterRule::WordSpacing)
+        } else {
+            no_space(FormatterRule::MemberAccessSpacing)
+        },
+    );
+
+    let directive = (previous == SyntaxKind::AtToken)
+        .then_some(no_space(FormatterRule::DirectiveMarkerSpacing));
+
+    let previous_operator = is_operator(previous).then_some(TokenSpacing {
+        rule: if previous_operator_was_prefix {
+            FormatterRule::PrefixOperatorSpacing
+        } else {
+            FormatterRule::OperatorSpacing
+        },
+        uses_space: !previous_operator_was_prefix,
+    });
+
+    let uses_space = !current_operator_is_prefix
+        || is_word(previous)
+        || (is_operator(previous) && !previous_operator_was_prefix);
+
+    let current_operator = is_operator(current).then_some(TokenSpacing {
+        rule: if current_operator_is_prefix && !uses_space {
+            FormatterRule::PrefixOperatorSpacing
+        } else {
+            FormatterRule::OperatorSpacing
+        },
+        uses_space,
+    });
+
+    let word = (is_word(previous) || closes_delimiter(previous))
+        .then_some(space(FormatterRule::WordSpacing));
+
+    [
+        generic,
+        range,
+        member,
+        directive,
+        previous_operator,
+        punctuation_spacing(previous, current),
+        current_operator,
+        word,
+    ]
+    .into_iter()
+    .flatten()
+    .reduce(|left, right| {
+        if left
+            .rule
+            .preferred_for(right.rule, FormatterDecision::TokenSpacing)
+            == left.rule
+        {
+            left
+        } else {
+            right
         }
-
-        return Some(no_space(FormatterRule::MemberAccessSpacing));
-    }
-
-    if matches!(previous, SyntaxKind::AtToken) {
-        return Some(no_space(FormatterRule::DirectiveMarkerSpacing));
-    }
-
-    if is_operator(previous) {
-        return Some(TokenSpacing {
-            rule: if previous_operator_was_prefix {
-                FormatterRule::PrefixOperatorSpacing
-            } else {
-                FormatterRule::OperatorSpacing
-            },
-            uses_space: !previous_operator_was_prefix,
-        });
-    }
-
-    if let Some(spacing) = punctuation_spacing(previous, current) {
-        return Some(spacing);
-    }
-
-    if is_operator(current) {
-        let uses_space = !current_operator_is_prefix
-            || is_word(previous)
-            || (is_operator(previous) && !previous_operator_was_prefix);
-
-        return Some(TokenSpacing {
-            rule: if current_operator_is_prefix && !uses_space {
-                FormatterRule::PrefixOperatorSpacing
-            } else {
-                FormatterRule::OperatorSpacing
-            },
-            uses_space,
-        });
-    }
-
-    (is_word(previous) || closes_delimiter(previous)).then_some(TokenSpacing {
-        rule: FormatterRule::WordSpacing,
-        uses_space: true,
     })
 }
 
@@ -140,7 +139,9 @@ pub(super) const fn comma_layout_rule(parent: Option<SyntaxKind>) -> Option<Form
     }
 }
 
-pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<FormatterRule> {
+pub(super) const fn list_layout_rule(
+    parent: Option<SyntaxKind>,
+) -> Option<(FormatterRule, FormatterDecision)> {
     match parent {
         Some(
             SyntaxKind::DirectiveArgumentList
@@ -158,36 +159,36 @@ pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<Forma
             | SyntaxKind::BooleanFoldExpression
             | SyntaxKind::TupleExpression
             | SyntaxKind::TypeExpression,
-        ) => Some(FormatterRule::ParenthesizedListLayout),
+        ) => Some((FormatterRule::ParenthesizedListLayout, FormatterDecision::ParenthesizedListBreaks)),
         Some(
             SyntaxKind::ArrayExpression
             | SyntaxKind::ElementIndexOperation
             | SyntaxKind::SliceIndexOperation,
-        ) => Some(FormatterRule::BracketedListLayout),
+        ) => Some((FormatterRule::BracketedListLayout, FormatterDecision::BracketedListBreaks)),
         Some(
             SyntaxKind::GenericParameterList
             | SyntaxKind::GenericArgumentList
             | SyntaxKind::TypeFormArgumentList,
-        ) => Some(FormatterRule::GenericListLayout),
+        ) => Some((FormatterRule::GenericListLayout, FormatterDecision::GenericListBreaks)),
         _ => None,
     }
 }
 
 pub(super) const fn is_list_delimiter(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
     match list_layout_rule(parent) {
-        Some(FormatterRule::ParenthesizedListLayout) => {
+        Some((FormatterRule::ParenthesizedListLayout, _)) => {
             matches!(
                 kind,
                 SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken
             )
         }
-        Some(FormatterRule::BracketedListLayout) => {
+        Some((FormatterRule::BracketedListLayout, _)) => {
             matches!(
                 kind,
                 SyntaxKind::OpenBracketToken | SyntaxKind::CloseBracketToken
             )
         }
-        Some(FormatterRule::GenericListLayout) => {
+        Some((FormatterRule::GenericListLayout, _)) => {
             matches!(kind, SyntaxKind::LessToken | SyntaxKind::GreaterToken)
         }
         _ => false,

@@ -243,16 +243,25 @@ where
         .spawn()
         .unwrap_or_else(|error| panic!("brayfmt command should start: {error:?}"));
 
-    child
+    let input_result = child
         .stdin
         .as_mut()
         .unwrap_or_else(|| panic!("brayfmt stdin should be piped"))
-        .write_all(stdin)
-        .unwrap_or_else(|error| panic!("brayfmt stdin should accept test bytes: {error:?}"));
+        .write_all(stdin);
 
-    child
+    let output = child
         .wait_with_output()
-        .unwrap_or_else(|error| panic!("brayfmt command should finish: {error:?}"))
+        .unwrap_or_else(|error| panic!("brayfmt command should finish: {error:?}"));
+
+    // Invalid configuration can terminate the command before it reads stdin.
+    if let Err(error) = input_result {
+        assert!(
+            error.kind() == std::io::ErrorKind::BrokenPipe && !output.status.success(),
+            "brayfmt stdin should accept test bytes: {error:?}, {output:?}",
+        );
+    }
+
+    output
 }
 
 fn read(path: &std::path::Path) -> Vec<u8> {
