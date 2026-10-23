@@ -57,6 +57,7 @@ uint32_t bray_allocation_probe_begin(void)
 {
     unsigned attempts = atomic_load(&allocation_attempts);
     atomic_store(&reject_allocations, 1);
+
     return attempts;
 }
 
@@ -98,8 +99,10 @@ static void* allocate_report_memory(size_t bytes, size_t alignment)
     if (alignment == 0 || (alignment & (alignment - 1)) != 0)
         abort();
 
-    if (alignment - 1 > SIZE_MAX - sizeof(ReportAllocation) ||
-        bytes > SIZE_MAX - sizeof(ReportAllocation) - (alignment - 1))
+    if (
+        alignment - 1 > SIZE_MAX - sizeof(ReportAllocation) ||
+        bytes > SIZE_MAX - sizeof(ReportAllocation) - (alignment - 1)
+    )
         return NULL;
 
     ReportAllocation* allocation = malloc(sizeof(*allocation) + alignment - 1 + bytes);
