@@ -68,10 +68,13 @@ pub(crate) fn checked_substituted_type<C: crate::CheckerRequestContext + ?Sized>
         .map(|ty| request.semantic_values().substitute_type(ty, substitution))
         .transpose().unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in checked_substituted_type: {error:?}"));
 
-    Ok(bray_diagnostics::DiagnosticResult::new(
-        ty,
-        constants.into_parts().1,
-    ))
+    let mut diagnostics = constants.into_parts().1;
+
+    let ty = ty
+        .map(|ty| crate::normalize_type_valued_members(request.context(), ty, &mut diagnostics))
+        .transpose()?;
+
+    Ok(bray_diagnostics::DiagnosticResult::new(ty, diagnostics))
 }
 
 /// Resolves a type template whose embedded constant expressions have been checked.

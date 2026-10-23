@@ -111,6 +111,27 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn generic_constraint_scope(
+        &self,
+        context: &SemanticUnitContext,
+        owner: GenericOwnerId,
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<crate::GenericConstraintScope>,
+        Self::UpstreamError,
+    > {
+        let scope = if context.key().kind() == bray_bound_tree::BoundUnitKind::Constraint
+            && self.symbols().symbol_key(owner.symbol()) == Some(context.key().declared_owner())
+        {
+            crate::GenericConstraintScope::TypeHeader
+        } else {
+            crate::GenericConstraintScope::Complete
+        };
+
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            scope,
+        ))
+    }
+
     fn inherited_callable_substitution(
         &self,
         instance: bray_symbols::CallableInstanceData,
@@ -245,6 +266,15 @@ impl CheckerRequestContext for TestCheckerContext {
         panic!(
             "Canonical semantic value construction or lookup failed without an available store cause. in checked_constant_expression"
         )
+    }
+
+    fn normalize_array_length(
+        &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            term,
+        ))
     }
 
     fn generic_constraints(

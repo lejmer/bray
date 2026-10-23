@@ -4,10 +4,7 @@ use bray_bound_tree::{
     BoundWalkOutcome, walk_bound_unit_view,
 };
 use bray_checker::NestedCallableEvidence;
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    SeverityKind,
-};
+use bray_diagnostics::DiagnosticBag;
 use bray_source::SourceSpan;
 use bray_symbols::{
     CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
@@ -84,23 +81,7 @@ impl Compilation {
         let mut diagnostics = satisfaction.diagnostics().merged(constraints.diagnostics());
 
         if *satisfaction.value() != ProofOutcome::Proven {
-            let mut diagnostic = Diagnostic::new(
-                DiagnosticId::new(source.map_or(0, |span| span.start().bytes())),
-                DiagnosticKind::CheckingStaticConstraintUnsatisfied,
-                SeverityKind::Error,
-            );
-
-            if let Some(span) = source {
-                diagnostic =
-                    diagnostic
-                        .with_primary_span(span)
-                        .with_label(DiagnosticLabel::primary(
-                            DiagnosticLabelKind::InvalidConstantExpression,
-                            span,
-                        ));
-            }
-
-            diagnostics.add(diagnostic);
+            diagnostics.add(super::reference::static_constraint_diagnostic(source));
         }
 
         let values = binding_context.semantic_values();

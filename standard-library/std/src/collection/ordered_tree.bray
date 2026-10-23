@@ -1,7 +1,7 @@
 module std.collection;
 
-using core.memory;
 using std.memory;
+using internal std.collection.slot;
 
 union Bound<Value>
 {
@@ -30,7 +30,6 @@ internal struct OrderedTreeNode
     mut left: usize?;
     mut right: usize?;
     mut height: usize;
-    mut occupied: bool;
     mut next_free: usize?;
 }
 
@@ -45,7 +44,7 @@ internal struct OrderedTreeSearch
 internal struct OrderedTree<Item>
 {
     mut nodes: std.memory.RawBuffer<OrderedTreeNode>;
-    mut items: std.memory.RawBuffer<Uninit<Item>>;
+    mut items: std.memory.RawBuffer<(Item?)>;
     mut root: usize?;
     mut free: usize?;
     mut count: usize;
@@ -54,7 +53,7 @@ internal struct OrderedTree<Item>
     {
         let nodes: std.memory.RawBuffer<OrderedTreeNode> = try trusted ordered_tree_nodes(capacity);
 
-        let items: std.memory.RawBuffer<Uninit<Item>> = try trusted internal std.memory.uninit_buffer<Item>(
+        let items: std.memory.RawBuffer<(Item?)> = try trusted internal std.memory.nullable_buffer<Item>(
             capacity = capacity
         );
 
@@ -88,7 +87,6 @@ internal func ordered_tree_empty_node() -> OrderedTreeNode
         left = none,
         right = none,
         height = 0,
-        occupied = false,
         next_free = none,
     };
 }
@@ -137,112 +135,13 @@ trusted internal func ordered_tree_node<Item>(pos tree: &OrderedTree<Item>, inde
 }
 
 trusted internal func ordered_tree_item<Item>(pos tree: &OrderedTree<Item>, index: usize) -> &Item
-    uses(raw_memory, unchecked_alias)
 {
-    let pointer: DataPointer<Item> = trusted ordered_tree_item_pointer(tree, index = index);
-
-    return trusted std.memory.borrow_from<Item, OrderedTree<Item>>(tree, pointer);
+    return trusted internal std.collection.slot.get<Item>(&tree.items, index = index);
 }
 
 trusted internal func ordered_tree_item_mut<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> &mut Item
-    uses(raw_memory, unchecked_alias)
 {
-    let pointer: DataPointer<Item> = trusted ordered_tree_item_pointer_mut(tree, index = index);
-
-    return trusted std.memory.borrow_mut_from<Item, OrderedTree<Item>>(tree, pointer);
-}
-
-trusted internal func ordered_tree_item_pointer<Item>(pos tree: &OrderedTree<Item>, index: usize) -> DataPointer<Item>
-    ensures(
-        trusted core.memory.valid_read<Item>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<Item>(pointer = result),
-        trusted core.memory.initialized_as<Item>(pointer = result),
-        trusted core.memory.shared_alias_valid<Item>(pointer = result),
-        trusted core.memory.epoch_current<Item>(pointer = result),
-        trusted core.memory.synchronized_access<Item>(pointer = result),
-        trusted core.memory.movement_stable<Item>(pointer = result),
-        trusted core.memory.finalization_pending<Item>(pointer = result),
-    )
-    uses(raw_memory)
-{
-    if !ordered_tree_node<Item>(tree, index = index).occupied
-    {
-        panic("ordered-tree item slot is empty");
-    }
-
-    let slots: &[Uninit<Item>] = trusted std.memory.initialized_slice<Uninit<Item>>(&tree.items);
-
-    return std.memory.uninit_pointer<Item>(&slots[index]);
-}
-
-trusted internal func ordered_tree_item_pointer_mut<Item>(
-    pos tree: &mut OrderedTree<Item>,
-    index: usize
-) -> DataPointer<Item>
-    ensures(
-        trusted core.memory.valid_write<Item>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<Item>(pointer = result),
-        trusted core.memory.initialized_as<Item>(pointer = result),
-        trusted core.memory.exclusive_alias_valid<Item>(pointer = result),
-        trusted core.memory.epoch_current<Item>(pointer = result),
-        trusted core.memory.synchronized_access<Item>(pointer = result),
-        trusted core.memory.movement_stable<Item>(pointer = result),
-        trusted core.memory.finalization_pending<Item>(pointer = result),
-    )
-{
-    let slot: &mut Uninit<Item> = trusted ordered_tree_initialized_slot(&tree.nodes, &mut tree.items, index = index);
-
-    return std.memory.uninit_pointer_mut<Item>(slot);
-}
-
-trusted internal func ordered_tree_initialized_slot<Item>(
-    pos nodes: &std.memory.RawBuffer<OrderedTreeNode>,
-    pos items: &mut std.memory.RawBuffer<Uninit<Item>>,
-    index: usize
-) -> &mut Uninit<Item>
-    ensures(trusted core.memory.uninit_initialized<Item>(storage = &result))
-    uses(raw_memory)
-{
-    let entries = trusted std.memory.initialized_slice<OrderedTreeNode>(nodes);
-
-    if !entries[index].occupied
-    {
-        panic("ordered-tree item slot is empty");
-    }
-
-    let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(items);
-
-    return &mut slots[index];
-}
-
-trusted internal func ordered_tree_write_item<Item>(pos tree: &mut OrderedTree<Item>, pos item: Item, index: usize)
-    uses(raw_memory)
-{
-    if ordered_tree_node<Item>(&tree, index = index).occupied
-    {
-        panic("ordered-tree item slot is occupied");
-    }
-
-    let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(&mut tree.items);
-    let _: &mut Item = std.memory.uninit_write<Item>(&mut slots[index], item);
-    let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
-
-    nodes[index].occupied = true;
-}
-
-trusted internal func ordered_tree_take_item<Item>(
-    pos nodes: &mut std.memory.RawBuffer<OrderedTreeNode>,
-    pos items: &mut std.memory.RawBuffer<Uninit<Item>>,
-    index: usize
-) -> Item
-    uses(raw_memory, unchecked_init)
-{
-    let slot: &mut Uninit<Item> = trusted ordered_tree_initialized_slot(&nodes, items, index = index);
-    let item: Item = trusted std.memory.move_initialized<Item>(slot);
-    let entries: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(nodes);
-
-    entries[index].occupied = false;
-    return item;
+    return trusted internal std.collection.slot.get_mut<Item>(&mut tree.items, index = index);
 }
 
 trusted internal func ordered_tree_swap_items<Item>(pos tree: &mut OrderedTree<Item>, left: usize, right: usize)
@@ -252,14 +151,9 @@ trusted internal func ordered_tree_swap_items<Item>(pos tree: &mut OrderedTree<I
         return unit;
     }
 
-    if !ordered_tree_node<Item>(&tree, index = left).occupied || !ordered_tree_node<Item>(&tree, index = right).occupied
-    {
-        panic("ordered-tree swap requires two occupied slots");
-    }
+    let left_item: Item = trusted internal std.collection.slot.take<Item>(&mut tree.items, index = left);
+    let right_item: Item = trusted internal std.collection.slot.take<Item>(&mut tree.items, index = right);
 
-    let left_item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = left);
-    let right_item: Item = trusted ordered_tree_take_item(&mut tree.nodes, &mut tree.items, index = right);
-
-    trusted ordered_tree_write_item(tree, right_item, index = left);
-    trusted ordered_tree_write_item(tree, left_item, index = right);
+    trusted internal std.collection.slot.write<Item>(&mut tree.items, right_item, index = left);
+    trusted internal std.collection.slot.write<Item>(&mut tree.items, left_item, index = right);
 }

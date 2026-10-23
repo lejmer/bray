@@ -28,7 +28,7 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
 
         for binding in bindings.iter() {
             let CheckedTemplateOperation::LoopValue { initial } =
-                self.template.nodes()[template_index(binding.raw())].operation()
+                self.template().nodes()[template_index(binding.raw())].operation()
             else {
                 panic!("checked loop binding retains its initial value");
             };

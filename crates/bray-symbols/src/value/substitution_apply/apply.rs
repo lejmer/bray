@@ -1,3 +1,5 @@
+use super::context::Substitution;
+
 use std::collections::BTreeMap;
 
 use super::super::{
@@ -20,7 +22,7 @@ impl SemanticValueStore {
     ) -> Result<TypeId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_type_data(ty, &substitution)
+        self.substitute_type_data(ty, &Substitution::Generic(&substitution))
     }
 
     /// Applies one generic substitution throughout a canonical constant term.
@@ -31,7 +33,7 @@ impl SemanticValueStore {
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_constant_term_data(term, &substitution)
+        self.substitute_constant_term_data(term, &Substitution::Generic(&substitution))
     }
 
     /// Applies one generic substitution throughout a materializable constant value.
@@ -43,7 +45,11 @@ impl SemanticValueStore {
         let substitution = self.generic_substitution_data(substitution);
         let mut substituted = BTreeMap::new();
 
-        self.substitute_constant_value_data(value, &substitution, &mut substituted)
+        self.substitute_constant_value_data(
+            value,
+            &Substitution::Generic(&substitution),
+            &mut substituted,
+        )
     }
 
     /// Applies one generic substitution throughout another generic substitution.
@@ -54,7 +60,7 @@ impl SemanticValueStore {
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_generic_substitution_data(nested, &substitution)
+        self.substitute_generic_substitution_data(nested, &Substitution::Generic(&substitution))
     }
 
     /// Applies one generic substitution to an exact callable instance.
@@ -65,7 +71,7 @@ impl SemanticValueStore {
     ) -> Result<super::super::CallableInstanceId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_callable_instance_data(callable, &substitution)
+        self.substitute_callable_instance_data(callable, &Substitution::Generic(&substitution))
     }
 
     /// Applies one generic substitution to an exact implementation witness.
@@ -76,7 +82,10 @@ impl SemanticValueStore {
     ) -> Result<super::super::ImplementationInstanceId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_implementation_instance_data(implementation, &substitution)
+        self.substitute_implementation_instance_data(
+            implementation,
+            &Substitution::Generic(&substitution),
+        )
     }
 
     /// Applies one generic substitution throughout a trait application.
@@ -87,13 +96,13 @@ impl SemanticValueStore {
     ) -> Result<super::super::TraitApplicationId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_trait_application_data(application, &substitution)
+        self.substitute_trait_application_data(application, &Substitution::Generic(&substitution))
     }
 
     pub(super) fn substitute_trait_application_data(
         &self,
         application: super::super::TraitApplicationId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<super::super::TraitApplicationId, SemanticValueStoreError> {
         let application = self.trait_application_data(application);
 
@@ -106,8 +115,14 @@ impl SemanticValueStore {
     pub(super) fn substitute_type_data(
         &self,
         ty: TypeId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<TypeId, SemanticValueStoreError> {
+        if let Some(replacement) = substitution.type_replacement(ty)
+            && replacement != ty
+        {
+            return Ok(replacement);
+        }
+
         let data = self.type_data(ty);
 
         if let TypeData::TypeParameter(parameter) = data.as_ref()
@@ -119,14 +134,17 @@ impl SemanticValueStore {
 
         let substituted = match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
+                let Some(generic) = substitution.generic() else {
+                    return Ok(ty);
+                };
+
                 let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
                     return Ok(ty);
                 };
 
                 TypeData::Named {
                     definition: *definition,
-                    substitution: self
-                        .intern_generic_substitution(substitution.with_owner(owner))?,
+                    substitution: self.intern_generic_substitution(generic.with_owner(owner))?,
                 }
             }
             TypeData::ExactInteger { .. }
@@ -224,46 +242,12 @@ impl SemanticValueStore {
                     })
                     .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-                let dependencies = self.substitute_callable_dependency_contracts(
-                    callable.dependency_contracts(),
+                let phase_behaviors = self.substitute_callable_phase_behaviors(
+                    callable.phase_behaviors(),
                     substitution,
                 )?;
 
-                let phase_behaviors = callable
-                    .phase_behaviors()
-                    .try_with_dependency_contracts(dependencies)
-                    .expect("substitution preserves callable phase contracts");
-
-                let body = callable
-                    .phase_behaviors()
-                    .deferred_execution()
-                    .unwrap_or_else(|| callable.phase_behaviors().invocation());
-
-                let substitute_predicate = |predicate: &crate::PredicateSemanticSummary| -> Result<_, SemanticValueStoreError> {
-                    Ok(crate::PredicateSemanticSummary::new(self.substitute_dependency_contract_data(predicate.dependency_contract(), substitution)?)
-                        .with_condition(predicate.condition().map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?, predicate.domain()))
-                };
-
-                let phase_behaviors = phase_behaviors.with_receiver_cleanup(
-                    body.receiver_cleanup()
-                        .iter()
-                        .map(|ty| self.substitute_type_data(*ty, substitution))
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-
-                let phase_behaviors = phase_behaviors.with_predicates(
-                    callable
-                        .phase_behaviors()
-                        .invocation()
-                        .predicate_requirements()
-                        .iter()
-                        .map(substitute_predicate)
-                        .collect::<Result<Vec<_>, _>>()?,
-                    body.predicate_guarantees()
-                        .iter()
-                        .map(substitute_predicate)
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
+                let dependencies = phase_behaviors.dependency_contracts();
 
                 TypeData::Callable(
                     CallableTypeData::new(
@@ -280,13 +264,15 @@ impl SemanticValueStore {
             }
         };
 
-        self.intern_type(substituted)
+        let ty = self.intern_type(substituted)?;
+
+        Ok(substitution.type_replacement(ty).unwrap_or(ty))
     }
 
     fn substitute_generic_substitution_data(
         &self,
         nested: GenericSubstitutionId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let nested = self.generic_substitution_data(nested);
 
@@ -316,7 +302,7 @@ impl SemanticValueStore {
     pub(super) fn substitute_constant_term_data(
         &self,
         term: ConstantTermId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let data = self.constant_term_data(term);
 
@@ -463,7 +449,7 @@ impl SemanticValueStore {
     fn substitute_constant_value_data(
         &self,
         value: ConstantValueId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
         substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
         if let Some(value) = substituted.get(&value) {
@@ -533,7 +519,7 @@ impl SemanticValueStore {
     fn substitute_constant_fields<I>(
         &self,
         fields: &[ConstantField<I, ConstantValueId>],
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
         substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
     ) -> Result<Vec<ConstantField<I, ConstantValueId>>, SemanticValueStoreError>
     where
@@ -553,7 +539,7 @@ impl SemanticValueStore {
     fn substitute_static_reference(
         &self,
         selection: &StaticReferenceSelection,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<StaticReferenceSelection, SemanticValueStoreError> {
         let StaticReferenceSelection::Open {
             template,
@@ -592,7 +578,7 @@ impl SemanticValueStore {
     pub(super) fn substitute_callable_instance_data(
         &self,
         callable: super::super::CallableInstanceId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<super::super::CallableInstanceId, SemanticValueStoreError> {
         let callable = self.callable_instance_data(callable);
 
@@ -605,7 +591,7 @@ impl SemanticValueStore {
     pub(super) fn substitute_implementation_instance_data(
         &self,
         implementation: super::super::ImplementationInstanceId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<super::super::ImplementationInstanceId, SemanticValueStoreError> {
         let implementation = self.implementation_instance_data(implementation);
 
@@ -887,7 +873,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
 
         let substituted = store
-            .substitute_constant_term_data(conversion, &substitution)
+            .substitute_constant_term_data(conversion, &super::Substitution::Generic(&substitution))
             .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
 
         let substituted = store.constant_term_data(substituted);

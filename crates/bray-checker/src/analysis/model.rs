@@ -308,7 +308,6 @@ impl AnalysisEdge {
             Some(
                 AnalysisRefinement::InvocationFailure(_)
                     | AnalysisRefinement::InvocationCancellation(_)
-                    | AnalysisRefinement::PreconditionFailure(_)
                     | AnalysisRefinement::CleanupRequired { .. }
             )
         )

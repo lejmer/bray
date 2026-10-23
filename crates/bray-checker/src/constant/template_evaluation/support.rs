@@ -15,7 +15,10 @@ pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized
     evaluator: &mut TemplateEvaluator<'_, C>,
     value: ConstantValueId,
 ) -> Result<(), TemplateEvaluationFailure> {
-    if evaluator.template.kind() != CheckedTemplateKind::ConstantDefinition {
+    if evaluator
+        .template
+        .is_some_and(|template| template.kind() != CheckedTemplateKind::ConstantDefinition)
+    {
         return Ok(());
     }
 

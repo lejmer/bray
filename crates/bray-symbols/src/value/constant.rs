@@ -200,6 +200,21 @@ pub enum RealConstantBits {
     Binary128([u8; 16]),
 }
 
+impl RealConstantBits {
+    /// Encodes raw IEEE bits for the selected real representation, rejecting excess bits.
+    pub fn from_bits(role: bray_compiler_known::RepresentationRole, bits: u128) -> Option<Self> {
+        use bray_compiler_known::RepresentationRole;
+
+        match role {
+            RepresentationRole::ScalarR16 => u16::try_from(bits).ok().map(Self::Binary16),
+            RepresentationRole::ScalarR32 => u32::try_from(bits).ok().map(Self::Binary32),
+            RepresentationRole::ScalarR64 => u64::try_from(bits).ok().map(Self::Binary64),
+            RepresentationRole::ScalarR128 => Some(Self::Binary128(bits.to_be_bytes())),
+            _ => None,
+        }
+    }
+}
+
 /// The closed payload of one typed constant-evaluation value.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ConstantValueKind {

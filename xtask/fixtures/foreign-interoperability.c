@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdarg.h>
+#include <string.h>
 #include <wchar.h>
 
 #ifdef _WIN32
@@ -53,6 +54,16 @@ BRAY_EXPORT int32_t bray_foreign_read_counter(const int32_t* value)
         return -1;
 
     return *value;
+}
+
+BRAY_EXPORT double bray_foreign_real_from_bits(uint64_t bits)
+{
+    double value;
+
+    _Static_assert(sizeof(value) == sizeof(bits), "binary64 fixture representation");
+    memcpy(&value, &bits, sizeof(value));
+
+    return value;
 }
 
 BRAY_EXPORT int32_t bray_foreign_sum_variadic(int32_t count, ...)

@@ -1,0 +1,333 @@
+module bray.standard_library_tests.storage_authority;
+
+using core.atomic;
+using internal std.collection;
+using internal std.collection.slot;
+using std.memory;
+using std.task;
+using std.testing;
+
+internal struct CleanupProbe
+{
+    count: &core.atomic.Atomic<u32>;
+    fail: bool = false;
+
+    destruct()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(self.count, 1);
+
+        if self.fail
+        {
+            panic("sparse collection element cleanup");
+        }
+    }
+}
+
+@test
+trusted func hash_table_metadata_cannot_initialize_an_absent_payload()
+{
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let buckets = std.testing.assert_ok(
+            trusted internal std.collection.hash_table_filled_buffer<usize>(
+                8,
+                internal std.collection.HASH_TABLE_OCCUPIED
+            )
+        );
+
+        let items = std.testing.assert_ok(trusted internal std.memory.nullable_buffer<u32>(capacity = 8));
+
+        let table: std.collection.HashTable<u32> =
+        {
+            buckets = buckets,
+            items = items,
+            count = 1
+        };
+
+        let _: &u32 = trusted internal std.collection.hash_table_item(&table, index = 0);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+}
+
+@test
+trusted func ordered_tree_links_cannot_initialize_an_absent_payload()
+{
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let nodes = std.testing.assert_ok(trusted internal std.collection.ordered_tree_nodes(1));
+        let items = std.testing.assert_ok(trusted internal std.memory.nullable_buffer<u32>(capacity = 1));
+
+        let mut tree: std.collection.OrderedTree<u32> =
+        {
+            nodes = nodes,
+            items = items,
+            root = none,
+            free = none,
+            count = 1,
+        };
+
+        let index: usize = 0;
+
+        tree.root = index;
+
+        let _: &u32 = trusted internal std.collection.ordered_tree_item(&tree, index = index);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+}
+
+@test
+trusted func deque_count_cannot_initialize_an_absent_payload()
+{
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let storage = std.testing.assert_ok(trusted internal std.memory.nullable_buffer<u32>(capacity = 1));
+
+        let deque: std.collection.Deque<u32> =
+        {
+            storage = storage,
+            head = 0,
+            count = 1
+        };
+
+        let _: (&u32)? = deque.front();
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+}
+
+@test
+trusted func metadata_replacement_preserves_owned_sparse_payload_cleanup()
+{
+    let hash_count = core.atomic.initialize<u32>(0);
+    let tree_count = core.atomic.initialize<u32>(0);
+    let deque_count = core.atomic.initialize<u32>(0);
+
+    {
+        let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 1));
+
+        let _: usize = trusted internal std.collection.hash_table_insert_available(
+            &mut table,
+            {
+                count = &hash_count
+            },
+            hash = 0
+        );
+
+        table.buckets = std.testing.assert_ok(trusted internal std.collection.hash_table_filled_buffer<usize>(8, 0));
+        table.count = 0;
+
+        let mut tree = std.testing.assert_ok(trusted internal std.collection.OrderedTree<CleanupProbe>(capacity = 1));
+
+        trusted internal std.collection.slot.write(
+            &mut tree.items,
+            {
+                count = &tree_count
+            },
+            index = 0
+        );
+
+        tree.root = none;
+        tree.count = 0;
+
+        let mut deque = std.testing.assert_ok(trusted std.collection.Deque<CleanupProbe>(capacity = 1));
+
+        std.testing.assert_ok(
+            trusted deque.push_back(
+                {
+                    count = &deque_count
+                }
+            )
+        );
+
+        deque.count = 0;
+    }
+
+    assert(core.atomic.load<u32, 1>(&hash_count) == 1);
+    assert(core.atomic.load<u32, 1>(&tree_count) == 1);
+    assert(core.atomic.load<u32, 1>(&deque_count) == 1);
+}
+
+@test
+trusted func hash_table_panic_retires_every_present_payload_once()
+{
+    let first = core.atomic.initialize<u32>(0);
+    let second = core.atomic.initialize<u32>(0);
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 2));
+
+        let _: usize = trusted internal std.collection.hash_table_insert_available(
+            &mut table,
+            {
+                count = &first,
+                fail = true
+            },
+            hash = 0
+        );
+
+        let _: usize = trusted internal std.collection.hash_table_insert_available(
+            &mut table,
+            {
+                count = &second
+            },
+            hash = 1
+        );
+
+        trusted internal std.collection.hash_table_clear(&mut table);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(core.atomic.load<u32, 1>(&first) == 1);
+    assert(core.atomic.load<u32, 1>(&second) == 1);
+}
+
+@test
+trusted func ordered_tree_panic_retires_every_present_payload_once()
+{
+    let first = core.atomic.initialize<u32>(0);
+    let second = core.atomic.initialize<u32>(0);
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let mut tree = std.testing.assert_ok(trusted internal std.collection.OrderedTree<CleanupProbe>(capacity = 2));
+
+        trusted internal std.collection.slot.write(
+            &mut tree.items,
+            {
+                count = &second
+            },
+            index = 0
+        );
+
+        trusted internal std.collection.slot.write(
+            &mut tree.items,
+            {
+                count = &first,
+                fail = true
+            },
+            index = 1
+        );
+
+        trusted internal std.collection.ordered_tree_clear(&mut tree);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(core.atomic.load<u32, 1>(&first) == 1);
+    assert(core.atomic.load<u32, 1>(&second) == 1);
+}
+
+@test
+trusted func deque_panic_retires_every_present_payload_once()
+{
+    let first = core.atomic.initialize<u32>(0);
+    let second = core.atomic.initialize<u32>(0);
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let mut deque = std.testing.assert_ok(trusted std.collection.Deque<CleanupProbe>(capacity = 2));
+
+        std.testing.assert_ok(
+            trusted deque.push_back(
+                {
+                    count = &second
+                }
+            )
+        );
+
+        std.testing.assert_ok(
+            trusted deque.push_back(
+                {
+                    count = &first,
+                    fail = true
+                }
+            )
+        );
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(core.atomic.load<u32, 1>(&first) == 1);
+    assert(core.atomic.load<u32, 1>(&second) == 1);
+}
+
+internal async func retain_collections(
+    pos table: std.collection.HashTable<CleanupProbe>,
+    pos tree: std.collection.OrderedTree<CleanupProbe>,
+    pos deque: std.collection.Deque<CleanupProbe>,
+    pos ready: &core.atomic.Atomic<u32>
+)
+{
+    core.atomic.store<u32, 2>(ready, 1);
+
+    while true
+    {
+        await std.task.yield_now();
+    }
+}
+
+@test
+trusted async func cancellation_retires_all_sparse_collection_owners()
+{
+    let hash_count = core.atomic.initialize<u32>(0);
+    let tree_count = core.atomic.initialize<u32>(0);
+    let deque_count = core.atomic.initialize<u32>(0);
+    let ready = core.atomic.initialize<u32>(0);
+    let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 1));
+
+    let _: usize = trusted internal std.collection.hash_table_insert_available(
+        &mut table,
+        {
+            count = &hash_count
+        },
+        hash = 0
+    );
+
+    let mut tree = std.testing.assert_ok(trusted internal std.collection.OrderedTree<CleanupProbe>(capacity = 1));
+
+    trusted internal std.collection.slot.write(
+        &mut tree.items,
+        {
+            count = &tree_count
+        },
+        index = 0
+    );
+
+    let mut deque = std.testing.assert_ok(trusted std.collection.Deque<CleanupProbe>(capacity = 1));
+
+    std.testing.assert_ok(
+        trusted deque.push_back(
+            {
+                count = &deque_count
+            }
+        )
+    );
+
+    let task = retain_collections(table, tree, deque, &ready).start();
+
+    while core.atomic.load<u32, 1>(&ready) == 0
+    {
+        await std.task.yield_now();
+    }
+
+    std.testing.assert_cancelled<unit>(await task.cancel());
+    assert(core.atomic.load<u32, 1>(&hash_count) == 1);
+    assert(core.atomic.load<u32, 1>(&tree_count) == 1);
+    assert(core.atomic.load<u32, 1>(&deque_count) == 1);
+}

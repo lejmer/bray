@@ -48,34 +48,31 @@ where
     Ok(Binder::new(binding_context, unit))
 }
 
-pub(super) fn path_context<C>(
-    binder: &Binder<'_, C>,
-    scope: LocalScopeId,
-) -> Result<PathBindingContext, BoundUnitBindingError<C::UpstreamError>>
+pub(crate) fn path_context<C>(binder: &Binder<'_, C>, scope: LocalScopeId) -> PathBindingContext
 where
     C: BindingQueryContext + ?Sized,
 {
-    let symbol = binder
-        .binding_context()
-        .symbols()
+    let symbols = binder.binding_context().symbols();
+
+    let symbol = symbols
         .symbol_for_key(binder.unit().key().declared_owner())
-        .ok_or_else(|| missing_owner(binder.unit().key(), None))?;
+        .expect("committed bound unit retains its declared owner");
 
-    let module = binder
-        .binding_context()
-        .symbols()
-        .containing_module(symbol)
-        .ok_or(BoundUnitBindingError::MissingModule {
-            source: binder.unit().key().source(),
-            owner: symbol,
-        })?;
+    if let Some(module) = symbols.containing_module(symbol) {
+        return PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Local);
+    }
 
-    Ok(PathBindingContext::new(
+    assert_eq!(
+        symbols.symbol_origin(symbol),
+        Some(bray_symbols::SymbolOrigin::CompilerKnown),
+        "source and imported bound owners retain their lexical module: {symbol:?}"
+    );
+
+    PathBindingContext::without_module(
         scope,
-        module.id(),
-        module.owner(),
+        symbols.compiler_known_environment().id().into(),
         NameAccess::Local,
-    ))
+    )
 }
 
 pub(crate) fn push_callable_inputs<C>(

@@ -12,6 +12,7 @@ mod catalog_digest;
 mod catalog_revision;
 mod implementation;
 mod iteration;
+mod numeric;
 mod operation;
 mod representation;
 
@@ -50,3 +51,5 @@ pub use implementation::ImplementationHook;
 pub use iteration::CompilerKnownIterationRole;
 pub use operation::CompilerKnownOperationRole;
 pub use representation::{IntegerRepresentation, NumericRepresentationKind, RepresentationRole};
+
+pub use numeric::ScalarShape;

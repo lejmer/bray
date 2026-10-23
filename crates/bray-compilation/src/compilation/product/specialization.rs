@@ -227,7 +227,7 @@ impl ConcreteCodegenInstance {
 
         // The nested instance shares its parent's immutable specialization context.
         Some(Self {
-            key: Self::inherited_key(owner, template)?,
+            key: Self::inherited_key(owner, template, owner.key.specialization().clone())?,
             callable: None,
             anonymous_callable_type: Some(callable_type),
             static_initializer: None,
@@ -240,7 +240,7 @@ impl ConcreteCodegenInstance {
 
     pub(super) fn inherited_helper(owner: &Self, template: MirUnitKey) -> Option<Self> {
         Some(Self {
-            key: Self::inherited_key(owner, template)?,
+            key: Self::inherited_key(owner, template, owner.key.specialization().clone())?,
             callable: None,
             anonymous_callable_type: None,
             static_initializer: None,
@@ -248,6 +248,17 @@ impl ConcreteCodegenInstance {
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
             contextual_self_witness: owner.contextual_self_witness,
+        })
+    }
+
+    /// Retains selected witnesses for a helper whose reference is already fully instantiated.
+    pub(super) fn closed_helper(owner: &Self, template: MirUnitKey) -> Option<Self> {
+        let key = Self::inherited_key(owner, template, CodegenSpecialization::NonGeneric)?;
+
+        Some(Self {
+            witnesses: Arc::clone(&owner.witnesses),
+            contextual_self_witness: owner.contextual_self_witness,
+            ..Self::generated(key)
         })
     }
 
@@ -360,10 +371,14 @@ impl ConcreteCodegenInstance {
         self.contextual_self_witness
     }
 
-    fn inherited_key(owner: &Self, template: MirUnitKey) -> Option<CodegenInstanceKey> {
+    fn inherited_key(
+        owner: &Self,
+        template: MirUnitKey,
+        specialization: CodegenSpecialization,
+    ) -> Option<CodegenInstanceKey> {
         let key = CodegenInstanceKey::new(
             template,
-            owner.key.specialization().clone(),
+            specialization,
             owner.key.witnesses().iter().cloned(),
             owner.key.target().clone(),
         );

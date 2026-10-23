@@ -6,4 +6,4 @@ mod query;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::compilation) use evaluation::constraint_expression;
+pub(super) use context::{generic_constraint_scope, lexical_type_equalities};

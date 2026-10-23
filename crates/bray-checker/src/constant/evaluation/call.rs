@@ -368,9 +368,11 @@ where
         // Preserve the published diagnostics while attaching this caller's source context.
         let mut anchored = diagnostics.clone();
 
-        super::super::diagnostic::anchor_diagnostics(&mut anchored, || {
-            Some(crate::diagnostic::expression_span(self.request, expression))
-        });
+        crate::diagnostic::anchor_diagnostics(
+            &mut anchored,
+            bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+            || Some(crate::diagnostic::expression_span(self.request, expression)),
+        );
 
         self.diagnostics = self.diagnostics.merged(&anchored);
     }

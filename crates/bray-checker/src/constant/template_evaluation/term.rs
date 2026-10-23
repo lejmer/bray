@@ -21,6 +21,41 @@ impl<C> TemplateEvaluator<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(in crate::constant::template_evaluation) fn evaluate_typed_term(
+        &mut self,
+        term: ConstantTermId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let value = self.evaluate_term(term, ty)?;
+        let values = self.context.semantic_values();
+        let data = values.constant_value_data(value);
+
+        if data.ty() == ty
+            && matches!(
+                values.constant_term_data(term).as_ref(),
+                ConstantTermData::Value(_)
+            )
+        {
+            return Ok(value);
+        }
+
+        let Some(role) = crate::representation::type_representation_for_context(self.context, ty)
+            .filter(|role| role.integer_representation().is_some())
+        else {
+            return Ok(value);
+        };
+
+        let kind = super::super::conversion::convert_scalar(data.kind(), role, || {
+            self.context
+                .selected_target()
+                .machine()
+                .pointer_width_bits()
+        })
+        .map_err(|error| self.conversion_failure(error, ty))?;
+
+        Ok(self.intern_value(ty, kind))
+    }
+
     fn evaluate_invocation(
         &mut self,
         target: crate::ConstantCallTarget,
@@ -125,27 +160,24 @@ where
                     .as_ref()
                     .expect("admitted ordinary requirement retains its complete checked graph");
 
-                let mut evaluator = TemplateEvaluator {
-                    context: self.context,
-                    template,
-                    substitution: self.substitution,
-                    selected_implementation: self.selected_implementation,
-                    arguments: self.arguments,
-                    resolver: self.resolver,
-                    limits: self.limits,
-                    budget: self.budget,
-                    values: vec![None; template.nodes().len()],
-                    outputs: Default::default(),
-                    checked_materialization: Default::default(),
-                    diagnostics: Default::default(),
-                    upstream_failure: None,
-                    static_initializer: false,
-                };
-
-                let result = evaluator.evaluate_result(
-                    bray_bound_tree::CheckedTemplateKind::CallableContract,
-                    boolean,
+                let mut evaluator = TemplateEvaluator::new(
+                    self.context,
+                    Some(template),
+                    self.substitution,
+                    self.resolver,
+                    self.limits,
+                    self.budget,
                 );
+
+                evaluator.selected_implementation = self.selected_implementation;
+                evaluator.arguments = self.arguments;
+
+                let result = evaluator.evaluate_generic_inputs().and_then(|()| {
+                    evaluator.evaluate_result(
+                        bray_bound_tree::CheckedTemplateKind::CallableContract,
+                        boolean,
+                    )
+                });
 
                 self.diagnostics.add_range(evaluator.diagnostics);
                 self.upstream_failure = evaluator.upstream_failure;
@@ -167,9 +199,7 @@ where
                     .try_charge_step()
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-                let term = values
-                    .substitute_constant_term(term, self.substitution)
-                    .expect("checked constant requirement belongs to its selected generic context");
+                let term = self.substitute_term(term);
 
                 let condition = crate::execution_condition_from_type_term(values, term, 0)
                     .expect("checked compiler-only requirement has portable predicate meaning");
@@ -230,11 +260,7 @@ where
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
-            let ty = evaluator
-                .context
-                .semantic_values()
-                .substitute_type(*ty, evaluator.substitution)
-                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
+            let ty = evaluator.instantiate_type(*ty)?;
 
             evaluator.evaluate_term(*term, ty)
         }
@@ -276,12 +302,7 @@ where
         }
         ConstantTermData::Conversion { operand, target } => {
             let operand = evaluator.evaluate_term(*operand, ty)?;
-
-            let target = evaluator
-                .context
-                .semantic_values()
-                .substitute_type(*target, evaluator.substitution)
-                .unwrap_or_else(|error| panic!("semantic_value in evaluate_term: {error:?}"));
+            let target = evaluator.instantiate_type(*target)?;
 
             evaluator.evaluate_conversion(operand, target)
         }

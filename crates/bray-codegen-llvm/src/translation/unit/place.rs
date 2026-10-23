@@ -600,8 +600,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return self.place_value(storage, target, "convert.representation.value");
         }
 
-        let source_signed = self.signed_integer(source).unwrap_or(false);
-        let target_signed = self.signed_integer(target).unwrap_or(false);
         let target_type = self.types.map(target)?;
 
         match (value, target_type) {
@@ -609,7 +607,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_int_cast_sign_flag(
                     value,
                     target,
-                    source_signed,
+                    self.signed_integer(source),
                     "convert.integer",
                 ))
                 .map(Into::into)
@@ -620,7 +618,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )
             .map(Into::into),
             (BasicValueEnum::IntValue(value), BasicTypeEnum::FloatType(target)) => {
-                llvm(if source_signed {
+                llvm(if self.signed_integer(source) {
                     self.builder
                         .build_signed_int_to_float(value, target, "convert.integer.float")
                 } else {
@@ -629,13 +627,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 })
                 .map(Into::into)
             }
-            (BasicValueEnum::FloatValue(value), BasicTypeEnum::IntType(target)) => {
-                llvm(if target_signed {
+            (BasicValueEnum::FloatValue(value), BasicTypeEnum::IntType(integer)) => {
+                llvm(if self.signed_integer(target) {
                     self.builder
-                        .build_float_to_signed_int(value, target, "convert.float.integer")
+                        .build_float_to_signed_int(value, integer, "convert.float.integer")
                 } else {
-                    self.builder
-                        .build_float_to_unsigned_int(value, target, "convert.float.integer")
+                    self.builder.build_float_to_unsigned_int(
+                        value,
+                        integer,
+                        "convert.float.integer",
+                    )
                 })
                 .map(Into::into)
             }
@@ -706,14 +707,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.types.value_type(ty)
     }
 
-    pub(super) fn signed_integer(&self, ty: bray_symbols::TypeId) -> Result<bool, CodegenFailure> {
+    pub(super) fn signed_integer(&self, ty: bray_symbols::TypeId) -> bool {
         let mapping = self
             .type_mapping(ty)
             .expect("checked MIR place translation requires an established mapping or value");
 
         match mapping.kind() {
-            CodegenTypeKind::SignedInteger(_) => Ok(true),
-            CodegenTypeKind::Boolean | CodegenTypeKind::UnsignedInteger(_) => Ok(false),
+            CodegenTypeKind::SignedInteger(_) => true,
+            CodegenTypeKind::Boolean | CodegenTypeKind::UnsignedInteger(_) => false,
             CodegenTypeKind::Unit
             | CodegenTypeKind::Float(_)
             | CodegenTypeKind::Pointer { .. }
@@ -724,7 +725,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => {
-                panic!("checked MIR place translation violated an established compiler contract")
+                panic!(
+                    "integer operation requires an integer mapping, type {ty:?}: {:?}",
+                    mapping.kind()
+                )
             }
         }
     }

@@ -10,6 +10,7 @@ mod identity;
 mod input;
 mod lifecycle_call;
 mod lowering;
+mod numeric;
 mod operand;
 mod predicate;
 mod result;
@@ -24,4 +25,5 @@ pub use result::{CompileTimeUnit, LoweredUnit};
 pub use synthetic::{
     DestructionBody, HeapStorageLoweringInput, HeapStorageMethod, SyntheticLoweringContext,
     SyntheticLoweringError, expand_lifecycle_continuations, lower_heap_storage, lower_lifecycle,
+    lower_numeric_callable,
 };

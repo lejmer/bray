@@ -427,3 +427,35 @@ pub(crate) fn escaping_storage_dependency_diagnostic(
         DiagnosticNoteKind::EscapingStorageDependencyResolution,
     ))
 }
+
+/// Attaches caller context to diagnostics that have no more specific source location.
+pub(crate) fn anchor_diagnostics(
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    label: DiagnosticLabelKind,
+    source: impl FnOnce() -> Option<SourceSpan>,
+) {
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.primary_span().is_none())
+    {
+        return;
+    }
+
+    let Some(span) = source() else {
+        return;
+    };
+
+    *diagnostics = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            if diagnostic.primary_span().is_some() {
+                diagnostic.clone()
+            } else {
+                diagnostic
+                    .clone()
+                    .with_primary_span(span)
+                    .with_label(bray_diagnostics::DiagnosticLabel::primary(label, span))
+            }
+        })
+        .collect();
+}

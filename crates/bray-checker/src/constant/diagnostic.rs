@@ -352,36 +352,3 @@ pub fn constant_eligibility_diagnostic(
 
     diagnostic
 }
-
-/// Adds caller context only to nested constant diagnostics that lack a source location.
-pub(super) fn anchor_diagnostics(
-    diagnostics: &mut bray_diagnostics::DiagnosticBag,
-    source: impl FnOnce() -> Option<SourceSpan>,
-) {
-    if !diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.primary_span().is_none())
-    {
-        return;
-    }
-
-    let Some(span) = source() else {
-        return;
-    };
-
-    *diagnostics = diagnostics
-        .iter()
-        .map(|diagnostic| {
-            if diagnostic.primary_span().is_some() {
-                diagnostic.clone()
-            } else {
-                diagnostic.clone().with_primary_span(span).with_label(
-                    bray_diagnostics::DiagnosticLabel::primary(
-                        bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
-                        span,
-                    ),
-                )
-            }
-        })
-        .collect();
-}

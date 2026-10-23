@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use super::super::{
-    ConstantTermData, ConstantValueId, ConstantValueKind, GenericArgument, GenericSubstitutionId,
-    SemanticValueStoreId, TraitApplicationId, TypeData, TypeId,
+    ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind, GenericArgument,
+    GenericSubstitutionId, SemanticValueStoreId, TraitApplicationId, TypeData, TypeId,
 };
 use super::table::SemanticTables;
 
@@ -11,14 +11,119 @@ pub(super) fn substitution_is_concrete(
     store: SemanticValueStoreId,
     root: GenericSubstitutionId,
 ) -> bool {
-    let mut pending = vec![ConcreteWork::Substitution(root)];
+    is_concrete(tables, store, ConcreteWork::Substitution(root))
+}
 
+pub(super) fn constant_term_is_closed(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    root: ConstantTermId,
+) -> bool {
+    is_concrete(tables, store, ConcreteWork::Term(root))
+}
+
+fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: ConcreteWork) -> bool {
+    let closed_terms = matches!(root, ConcreteWork::Term(_));
+    let mut pending = vec![root];
+
+    let mut terms = HashSet::new();
     let mut types = HashSet::new();
     let mut substitutions = HashSet::new();
     let mut trait_applications = HashSet::new();
 
     while let Some(work) = pending.pop() {
         match work {
+            ConcreteWork::Term(id) if terms.insert(id) => {
+                match tables.constant_terms.get(store, id) {
+                    ConstantTermData::Parameter(_)
+                    | ConstantTermData::CallableArgument(_)
+                    | ConstantTermData::TargetProperty(_) => return false,
+                    ConstantTermData::Value(value) => {
+                        if !append_closed_value_type(tables, store, *value, &mut pending) {
+                            return false;
+                        }
+                    }
+                    ConstantTermData::IntegerLiteral { .. } => {}
+                    ConstantTermData::Typed { term, ty } => {
+                        pending.push(ConcreteWork::Type(*ty));
+                        pending.push(ConcreteWork::Term(*term));
+                    }
+                    ConstantTermData::Unary { operand, .. }
+                    | ConstantTermData::NullablePresent(operand)
+                    | ConstantTermData::VariantTest {
+                        subject: operand, ..
+                    } => {
+                        pending.push(ConcreteWork::Term(*operand));
+                    }
+                    ConstantTermData::Conversion { operand, target } => {
+                        pending.push(ConcreteWork::Type(*target));
+                        pending.push(ConcreteWork::Term(*operand));
+                    }
+                    ConstantTermData::Binary { left, right, .. } => {
+                        pending.push(ConcreteWork::Term(*left));
+                        pending.push(ConcreteWork::Term(*right));
+                    }
+                    ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => {
+                        pending.extend(elements.iter().copied().map(ConcreteWork::Term));
+                    }
+                    ConstantTermData::Product(fields) => {
+                        pending.extend(
+                            fields
+                                .iter()
+                                .map(|field| ConcreteWork::Term(*field.value())),
+                        );
+                    }
+                    ConstantTermData::Union { fields, .. } => {
+                        pending.extend(
+                            fields
+                                .iter()
+                                .map(|field| ConcreteWork::Term(*field.value())),
+                        );
+                    }
+                    ConstantTermData::DefinitionApplication {
+                        substitution,
+                        selected_implementation,
+                        ..
+                    } => {
+                        pending.push(ConcreteWork::Substitution(*substitution));
+
+                        if let Some(implementation) = selected_implementation {
+                            let implementation =
+                                tables.implementation_instances.get(store, *implementation);
+
+                            pending.push(ConcreteWork::Substitution(implementation.substitution()));
+                        }
+                    }
+                    ConstantTermData::Call {
+                        callable,
+                        arguments,
+                        selected_implementation,
+                    } => {
+                        let callable = tables.callable_instances.get(store, *callable);
+
+                        pending.push(ConcreteWork::Substitution(callable.substitution()));
+                        pending.extend(arguments.iter().copied().map(ConcreteWork::Term));
+
+                        if let Some(implementation) = selected_implementation {
+                            let implementation =
+                                tables.implementation_instances.get(store, *implementation);
+
+                            pending.push(ConcreteWork::Substitution(implementation.substitution()));
+                        }
+                    }
+                    ConstantTermData::PredicateCall {
+                        predicate,
+                        arguments,
+                    } => {
+                        pending.push(ConcreteWork::Substitution(predicate.substitution()));
+                        pending.extend(arguments.iter().copied().map(ConcreteWork::Term));
+                    }
+                    ConstantTermData::Projection(projection) => {
+                        pending.push(ConcreteWork::Term(projection.subject()));
+                        pending.extend(projection.kind().term_references().map(ConcreteWork::Term));
+                    }
+                }
+            }
             ConcreteWork::Type(id) if types.insert(id) => {
                 let data = tables.types.get(store, id);
 
@@ -39,7 +144,14 @@ pub(super) fn substitution_is_concrete(
                     TypeData::Array { element, length } => {
                         pending.push(ConcreteWork::Type(*element));
 
-                        if !append_closed_array_length_type(tables, store, *length, &mut pending) {
+                        if closed_terms {
+                            pending.push(ConcreteWork::Term(*length));
+                        } else if !append_closed_array_length_type(
+                            tables,
+                            store,
+                            *length,
+                            &mut pending,
+                        ) {
                             return false;
                         }
                     }
@@ -75,6 +187,9 @@ pub(super) fn substitution_is_concrete(
                 for binding in substitution.bindings() {
                     match binding.argument() {
                         GenericArgument::Type(ty) => pending.push(ConcreteWork::Type(ty)),
+                        GenericArgument::Constant(term) if closed_terms => {
+                            pending.push(ConcreteWork::Term(term));
+                        }
                         GenericArgument::Constant(term) => {
                             let ConstantTermData::Value(value) =
                                 tables.constant_terms.get(store, term)
@@ -94,7 +209,8 @@ pub(super) fn substitution_is_concrete(
 
                 pending.push(ConcreteWork::Substitution(application.substitution()));
             }
-            ConcreteWork::Type(_)
+            ConcreteWork::Term(_)
+            | ConcreteWork::Type(_)
             | ConcreteWork::Substitution(_)
             | ConcreteWork::TraitApplication(_) => {}
         }
@@ -106,7 +222,7 @@ pub(super) fn substitution_is_concrete(
 fn append_closed_array_length_type(
     tables: &SemanticTables,
     store: SemanticValueStoreId,
-    mut term: super::super::ConstantTermId,
+    mut term: ConstantTermId,
     pending: &mut Vec<ConcreteWork>,
 ) -> bool {
     loop {
@@ -142,6 +258,7 @@ fn append_closed_value_type(
 }
 
 enum ConcreteWork {
+    Term(ConstantTermId),
     Type(TypeId),
     Substitution(GenericSubstitutionId),
     TraitApplication(TraitApplicationId),

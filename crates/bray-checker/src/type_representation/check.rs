@@ -62,7 +62,7 @@ pub(super) struct MemberRepresentation {
     flexible: bool,
     pub(super) copyable: Copyability,
     pub(super) copy_dependencies: BTreeSet<GenericTypeParameterSymbolId>,
-    pub(super) non_copyable_members: BTreeSet<bray_source::SourceSpan>,
+    pub(super) non_copyable_members: BTreeSet<SourceSpan>,
     stored_type_problems: BTreeSet<DiagnosticStoredTypeProblem>,
     recursive_cycles: Vec<RepresentationCycle>,
     pub(super) recovered: bool,
@@ -801,11 +801,10 @@ where
         element: TypeId,
         origin: Option<SourceSpan>,
     ) -> RepresentationQueryResult<C, ()> {
-        let role = crate::representation::type_representation_for_values(
-            self.context.semantic_values(),
-            self.context.available_compiler_known_symbols(),
-            element,
-        );
+        let role = self
+            .context
+            .available_compiler_known_symbols()
+            .type_representation(self.context.semantic_values(), element);
 
         if role
             .and_then(RepresentationRole::integer_representation)

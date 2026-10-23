@@ -86,6 +86,10 @@ fn intrinsic_value<C: CheckerRequestContext + ?Sized>(
     arguments: &[ConstantValueId],
     result_type: TypeId,
 ) -> Result<Option<ConstantValueId>, SemanticValueStoreError> {
+    if hook.is_numeric_policy() {
+        return numeric_value(context, callable, hook, arguments, result_type);
+    }
+
     let values = context.semantic_values();
 
     let value = match (hook, arguments) {
@@ -270,31 +274,6 @@ fn intrinsic_value<C: CheckerRequestContext + ?Sized>(
                 argument.kind().clone(),
             ))?
         }
-        (ImplementationHook::NumericTruncate, [argument]) => {
-            let argument = values.constant_value_data(values.observed_constant_value(*argument));
-
-            let Some((source, target)) = crate::representation::integer_conversion_representations(
-                values,
-                context.available_compiler_known_symbols(),
-                argument.ty(),
-                result_type,
-            ) else {
-                return Ok(None);
-            };
-
-            let ConstantValueKind::Integer(value) = argument.kind() else {
-                return Ok(None);
-            };
-
-            let kind = super::machine::fold_machine_integer_truncate(
-                value,
-                source,
-                target,
-                context.selected_target().machine().pointer_width_bits(),
-            );
-
-            values.intern_constant_value(ConstantValueData::new(result_type, kind))?
-        }
         (ImplementationHook::UninitFrom, [argument]) => {
             let argument = values.constant_value_data(*argument);
 
@@ -309,6 +288,156 @@ fn intrinsic_value<C: CheckerRequestContext + ?Sized>(
             ConstantValueData::new(result_type, ConstantValueKind::product([])),
         )?,
         _ => return Ok(None),
+    };
+
+    Ok(Some(value))
+}
+
+fn numeric_value<C: CheckerRequestContext + ?Sized>(
+    context: &C,
+    callable: CallableInstanceData,
+    hook: ImplementationHook,
+    arguments: &[ConstantValueId],
+    result_type: TypeId,
+) -> Result<Option<ConstantValueId>, SemanticValueStoreError> {
+    let values = context.semantic_values();
+
+    if !values.substitution_is_concrete(callable.substitution()) {
+        return Ok(None);
+    }
+
+    let value = match (hook, arguments) {
+        (ImplementationHook::NumericTruncationSupported, []) => {
+            let supported = bray_symbols::NumericTruncation::for_instance(
+                values,
+                context.available_compiler_known_symbols(),
+                callable,
+                context
+                    .selected_target()
+                    .machine()
+                    .pointer_width_bits()
+                    .get(),
+            )
+            .is_some();
+
+            values.intern_constant_value(ConstantValueData::new(
+                result_type,
+                ConstantValueKind::Boolean(supported),
+            ))?
+        }
+        (ImplementationHook::NumericTruncationDomain, [argument]) => {
+            let plan = bray_symbols::NumericTruncation::for_instance(
+                values,
+                context.available_compiler_known_symbols(),
+                callable,
+                context
+                    .selected_target()
+                    .machine()
+                    .pointer_width_bits()
+                    .get(),
+            )
+            .expect("checked domain query satisfies its scalar type constraint");
+
+            let argument = values.constant_value_data(values.observed_constant_value(*argument));
+
+            let valid = match plan {
+                bray_symbols::NumericTruncation::RealToInteger {
+                    minimum,
+                    minimum_inclusive,
+                    maximum,
+                    ..
+                } => {
+                    let ConstantValueKind::Real(value) = argument.kind() else {
+                        panic!("checked real domain query retains a real source");
+                    };
+
+                    let compare = |operator, bound| match super::floating::fold_real_binary(
+                        operator, *value, bound,
+                    )
+                    .expect("same-format ordered comparison is defined for every real bit pattern")
+                    {
+                        ConstantValueKind::Boolean(result) => result,
+                        _ => unreachable!("ordered real comparison returns a Boolean"),
+                    };
+
+                    compare(
+                        if minimum_inclusive {
+                            bray_bound_tree::BoundOperator::GreaterEqual
+                        } else {
+                            bray_bound_tree::BoundOperator::Greater
+                        },
+                        minimum,
+                    ) && compare(bray_bound_tree::BoundOperator::Less, maximum)
+                }
+                _ => true,
+            };
+
+            values.intern_constant_value(ConstantValueData::new(
+                result_type,
+                ConstantValueKind::Boolean(valid),
+            ))?
+        }
+        (ImplementationHook::NumericTruncate, [argument]) => {
+            let argument = values.constant_value_data(values.observed_constant_value(*argument));
+
+            let plan = bray_symbols::NumericTruncation::for_instance(
+                values,
+                context.available_compiler_known_symbols(),
+                callable,
+                context
+                    .selected_target()
+                    .machine()
+                    .pointer_width_bits()
+                    .get(),
+            )
+            .expect("checked truncation satisfies its scalar type constraint");
+
+            let kind = match plan {
+                bray_symbols::NumericTruncation::Integer { source, target } => {
+                    let ConstantValueKind::Integer(value) = argument.kind() else {
+                        panic!("checked integer truncation retains an integer source");
+                    };
+
+                    super::machine::fold_machine_integer_truncate(
+                        value,
+                        source,
+                        target,
+                        context.selected_target().machine().pointer_width_bits(),
+                    )
+                }
+                bray_symbols::NumericTruncation::RealToInteger { target, .. } => {
+                    let ConstantValueKind::Real(value) = argument.kind() else {
+                        panic!("checked real truncation retains a real source");
+                    };
+
+                    super::floating::truncate_real(
+                        *value,
+                        target,
+                        context.selected_target().machine().pointer_width_bits(),
+                    )
+                    .expect(
+                        "checked truncation requirement establishes the integer conversion domain",
+                    )
+                }
+                bray_symbols::NumericTruncation::Lossless => {
+                    let target = context
+                        .available_compiler_known_symbols()
+                        .type_representation(values, result_type)
+                        .expect("checked lossless conversion retains a scalar target");
+
+                    super::conversion::convert_scalar(argument.kind(), target, || {
+                        context.selected_target().machine().pointer_width_bits()
+                    })
+                    .expect("checked lossless scalar conversion preserves every source value")
+                }
+            };
+
+            values.intern_constant_value(ConstantValueData::new(result_type, kind))?
+        }
+        _ => panic!(
+            "checked numeric policy {hook:?} retains its declared argument count, actual: {}",
+            arguments.len()
+        ),
     };
 
     Ok(Some(value))

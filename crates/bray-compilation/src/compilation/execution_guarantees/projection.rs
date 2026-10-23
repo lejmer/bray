@@ -59,6 +59,8 @@ impl Compilation {
                     || matches!(
                         hook.hook(),
                         bray_compiler_known::ImplementationHook::NumericTruncate
+                            | bray_compiler_known::ImplementationHook::NumericTruncationSupported
+                            | bray_compiler_known::ImplementationHook::NumericTruncationDomain
                             | bray_compiler_known::ImplementationHook::NullableIsPresent
                             | bray_compiler_known::ImplementationHook::NullableIsAbsent
                             | bray_compiler_known::ImplementationHook::SequenceLength
@@ -84,7 +86,6 @@ impl Compilation {
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<bool, crate::fact::FactQueryError> {
         // Selected domain identities do not change a compiler operation's fixed semantics.
-        // Numeric conversion still checks the actual substituted input and result below.
         let obligation = match obligation {
             ExecutionObligation::Property(property, _) => {
                 ExecutionObligation::Property(property, None)
@@ -99,8 +100,10 @@ impl Compilation {
             .filter(|hook| hook.is_available())
             .map(|hook| hook.hook());
 
-        if hook == Some(bray_compiler_known::ImplementationHook::NumericTruncate) {
-            if !matches!(
+        // Numeric operations are total on their checked type and value domains.
+        // Caller-side precondition failures remain part of the caller's execution graph.
+        if hook.is_some_and(|hook| hook.is_numeric_policy()) {
+            return Ok(matches!(
                 obligation,
                 ExecutionObligation::Observation
                     | ExecutionObligation::Termination
@@ -108,38 +111,7 @@ impl Compilation {
                         ExecutionProperty::Pure | ExecutionProperty::Total,
                         None
                     )
-            ) {
-                return Ok(false);
-            }
-
-            let signature = self.constant_callable_signature(callable, cancellation)?;
-
-            if signature.diagnostics().has_errors() {
-                return Ok(false);
-            }
-
-            let Some(signature) = signature.value() else {
-                return Ok(false);
-            };
-
-            let values = context.semantic_values();
-            let data = values.type_data(signature.callable_type());
-
-            let bray_symbols::TypeData::Callable(signature) = data.as_ref() else {
-                panic!("checked numeric conversion retains its callable type");
-            };
-
-            let [input] = signature.parameters() else {
-                panic!("checked numeric truncation has one argument");
-            };
-
-            return Ok(bray_checker::integer_conversion_representations(
-                values,
-                context.available_compiler_known_symbols(),
-                input.ty(),
-                signature.result(),
-            )
-            .is_some());
+            ));
         }
 
         if hook.is_some_and(|hook| hook.is_range_iteration())

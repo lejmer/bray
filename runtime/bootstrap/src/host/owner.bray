@@ -398,6 +398,11 @@ trusted internal func insert_attachment(
         case Error(capacity) { return Error(capacity); }
     }
 
+    if !(buffer.initialized < buffer.capacity)
+    {
+        return Ok(false);
+    }
+
     trusted internal std.memory.raw_buffer_push<Attachment>(
         buffer,
         Attachment

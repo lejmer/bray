@@ -431,7 +431,7 @@ where
 
     let representation = request
         .declared_type_representation(*definition)
-        .map_err(atomic_query_outcome)?;
+        .map_err(CheckerOutcome::from_query_error)?;
 
     // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(representation.diagnostics().clone());
@@ -455,7 +455,7 @@ where
     } else if representation.is_plain_storage() {
         request
             .plain_storage_atomic_representation(value)
-            .map_err(atomic_query_outcome)?
+            .map_err(CheckerOutcome::from_query_error)?
             .map(|target| {
                 AtomicRepresentationResolution::Known(AtomicValueRepresentation {
                     target,
@@ -493,7 +493,7 @@ where
     };
 
     let checked = crate::constant::checked_substituted_type(request, member.ty(), substitution)
-        .map_err(atomic_query_outcome)?;
+        .map_err(CheckerOutcome::from_query_error)?;
 
     let (member_type, checked_diagnostics) = checked.into_parts();
 
@@ -504,15 +504,6 @@ where
     };
 
     atomic_value_representation(request, member_type, diagnostics, pending)
-}
-
-fn atomic_query_outcome<Upstream>(
-    error: crate::CheckerQueryError<Upstream>,
-) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
-    match error {
-        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 fn atomic_value_type(arguments: &[AtomicGenericArgument]) -> Option<TypeId> {
