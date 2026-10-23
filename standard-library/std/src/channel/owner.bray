@@ -35,9 +35,11 @@ struct Owner<T>
 
         if owners == 1
         {
-            let detached: (std.memory.RawBuffer<T>, std.memory.RawBuffer<std.channel.WaiterEntry>, std.memory.RawBuffer<
-                std.channel.WaiterEntry
-            >) =
+            let detached: (
+                std.memory.RawBuffer<T>,
+                std.memory.RawBuffer<std.channel.WaiterEntry>,
+                std.memory.RawBuffer<std.channel.WaiterEntry>
+            ) =
             {
                 let mut state = shared.state.lock();
                 let channel: &mut std.channel.ChannelState<T> = state.get();

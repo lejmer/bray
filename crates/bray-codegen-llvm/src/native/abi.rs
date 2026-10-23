@@ -5,7 +5,7 @@ use inkwell::AddressSpace;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue};
 
 use super::core::{
@@ -51,7 +51,7 @@ pub(super) fn runtime_function_type<'context>(
         return Some(context.void_type().fn_type(&parameters, false));
     }
 
-    Some(register_type(context, target, signature.result(), false)?.fn_type(&parameters, false))
+    Some(register_type(context, target, signature.result())?.fn_type(&parameters, false))
 }
 
 pub(crate) fn runtime_attributes(
@@ -66,6 +66,42 @@ pub(crate) fn runtime_attributes(
             AttributeLoc::Param(0),
             indirect_result_attribute(context, result)?,
         ));
+    }
+
+    if target.machine().architecture() == TargetArchitecture::X86_64
+        && !uses_microsoft_x64_abi(target)
+    {
+        let signature = role
+            .native_signature()
+            .expect("runtime role has a native signature");
+
+        let mut index = u32::from(runtime_indirect_result_type(context, target, role).is_some());
+
+        for kind in signature.parameters() {
+            if *kind == RuntimeAbiType::InactiveFrame {
+                let value = runtime_value_type(context, target, *kind)
+                    .expect("inactive frame has a native layout");
+
+                attributes.push((
+                    AttributeLoc::Param(index),
+                    context.create_type_attribute(
+                        Attribute::get_named_enum_kind_id("byval"),
+                        value.as_any_type_enum(),
+                    ),
+                ));
+
+                attributes.push((
+                    AttributeLoc::Param(index),
+                    crate::mapping::enum_attribute("align", 8, context)?,
+                ));
+            }
+
+            index += if expands_parameter(target, *kind) {
+                2
+            } else {
+                1
+            };
+        }
     }
 
     let machine = target.machine();
@@ -101,18 +137,21 @@ fn parameter_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if kind == RuntimeAbiType::PanicReport
-        || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
+    if matches!(
+        kind,
+        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
+    ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
     {
         return Some(context.ptr_type(AddressSpace::default()).into());
     }
 
-    register_type(context, target, kind, true)
+    register_type(context, target, kind)
 }
 
 fn expands_parameter(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     target.machine().architecture() == TargetArchitecture::X86_64
         && !uses_microsoft_x64_abi(target)
+        && kind != RuntimeAbiType::InactiveFrame
         && aggregate_is_indirect(kind)
 }
 
@@ -120,7 +159,6 @@ fn register_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
     kind: RuntimeAbiType,
-    parameter: bool,
 ) -> Option<BasicTypeEnum<'context>> {
     if kind == RuntimeAbiType::LaneResult {
         return Some(context.i64_type().into());
@@ -128,15 +166,7 @@ fn register_type<'context>(
 
     if target.machine().architecture() == TargetArchitecture::Aarch64 && aggregate_is_indirect(kind)
     {
-        // AAPCS64 returns integer records in x0/x1. Pointer parameters retain pointer types.
-        return Some(if parameter && kind == RuntimeAbiType::InactiveFrame {
-            context
-                .ptr_type(AddressSpace::default())
-                .array_type(2)
-                .into()
-        } else {
-            context.i64_type().array_type(2).into()
-        });
+        return Some(context.i64_type().array_type(2).into());
     }
 
     runtime_value_type(context, target, kind)
@@ -186,8 +216,10 @@ pub(super) fn invoke_runtime<'context>(
 
         if kind == RuntimeAbiType::PanicReport && value.is_pointer_value() {
             native_arguments.push(value.into());
-        } else if kind == RuntimeAbiType::PanicReport
-            || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
+        } else if matches!(
+            kind,
+            RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
+        ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
         {
             let storage =
                 crate::translation::allocate_temporary(context, builder, value.get_type(), name)?;
@@ -305,6 +337,7 @@ mod tests {
             for operation in [
                 ProtectedFrameOperation::Resume,
                 ProtectedFrameOperation::CancellationEntry,
+                ProtectedFrameOperation::TaskBroadcast,
                 ProtectedFrameOperation::StateDescription,
             ] {
                 let name = format!("{operation:?}");
@@ -370,6 +403,8 @@ mod tests {
 
                 if operation == ProtectedFrameOperation::StateDescription {
                     arguments.push(context.i32_type().const_zero().into());
+                    arguments.push(context.i32_type().const_zero().into());
+                    arguments.push(context.i64_type().const_zero().into());
                 }
 
                 let result = invoke_function(
@@ -564,7 +599,47 @@ mod tests {
                     expected,
                     "{native:?} {role:?} call"
                 );
+
+                let indirect_tokens = if matches!(
+                    native,
+                    NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs
+                ) {
+                    signature
+                        .parameters()
+                        .iter()
+                        .filter(|kind| {
+                            **kind == bray_runtime_interface::RuntimeAbiType::InactiveFrame
+                        })
+                        .count()
+                } else {
+                    0
+                };
+
+                for (kind, instruction) in [("declaration", declaration), ("call", call)] {
+                    assert_eq!(
+                        instruction.matches("byval(").count(),
+                        indirect_tokens,
+                        "{native:?} {role:?} {kind}"
+                    );
+                }
             }
         }
     }
+}
+
+pub(crate) fn call_void_intrinsic<'context>(
+    module: &inkwell::module::Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    name: &str,
+) -> Result<(), CodegenFailure> {
+    let function = module.get_function(name).unwrap_or_else(|| {
+        module.add_function(name, context.void_type().fn_type(&[], false), None)
+    });
+
+    builder
+        .build_call(function, &[], "")
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
 }

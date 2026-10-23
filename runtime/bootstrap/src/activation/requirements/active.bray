@@ -1,0 +1,169 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.requirements;
+
+using std.memory;
+
+@layout(c)
+internal struct Execution
+{
+    address: usize;
+    identity: [u8; 32];
+    state: u32;
+    requirements: State;
+    origin: u64;
+}
+
+// The dispatcher retains this exact active frame and independent output slot
+// throughout the metadata callback. Reentry cannot dispatch or retire the frame.
+trusted internal predicate active_destination(
+    pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    output: RawPointer<Execution>,
+);
+
+trusted internal func active(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
+) -> Execution?
+    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+    uses(intrinsic, layout_reinterpret)
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
+
+    let descriptor = trusted bray.runtime.bootstrap.activation.execution.describe(cursor);
+
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 4)
+    {
+        return none;
+    }
+
+    let query = trusted lambda(
+        pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+        pos callback: RawPointer<Query>,
+        pos context: usize,
+        pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
+    ) -> State
+        requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+        uses(layout_reinterpret)
+    {
+        let authorize = trusted lambda(
+            pos callback: RawPointer<Query>,
+            pos context: usize,
+            pos state: u32,
+            pos operation: u32,
+            pos argument: usize
+        )
+            ensures(
+                trusted core.memory.callable_address_valid<Query>(pointer = callback),
+                trusted query_context(context = context, state = state, operation = operation, argument = argument),
+            )
+            executes(pure, total) {};
+
+        trusted authorize(callback, context, state, operation, argument);
+
+        let selected = trusted std.memory.callable_from_pointer<Query>(callback);
+
+        return trusted selected(context, state, operation, argument);
+    };
+
+    let callback = trusted std.memory.reinterpret<Query, u8>(descriptor.state);
+    let own = trusted query(cursor, callback, header.context, state, operation, argument);
+
+    let parent: State =
+    {
+        affinity = header.retained_affinity,
+        lanes = header.retained_lanes
+    };
+
+    let requirements = match consume combine(own, header.origin, parent, header.retained_origin)
+    {
+        case ?requirements { yield requirements; }
+        case none { return none; }
+    };
+
+    let origin = if header.retained_affinity == 1
+    {
+        yield header.retained_origin;
+    }
+    else
+    {
+        yield header.origin;
+    };
+
+    let execution: Execution =
+    {
+        address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(cursor.pointer),
+        identity = descriptor.storage.identity,
+        state = state,
+        requirements = requirements,
+        origin = origin
+    };
+
+    let mut result: Execution? = none;
+
+    result = execution;
+    return result;
+}
+
+@abi(c)
+trusted internal func snapshot(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize,
+    pos output: RawPointer<Execution>,
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+        trusted active_destination(pointer = pointer, output = output),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let query = trusted lambda(
+        pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+        pos state: u32,
+        pos operation: u32,
+        pos argument: usize,
+        pos output: RawPointer<Execution>,
+    ) -> Execution?
+        requires(
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+            trusted active_destination(pointer = pointer, output = output),
+        )
+        ensures(
+            trusted core.memory.valid_write<Execution>(pointer = output, count = 1),
+            trusted core.memory.aligned_for<Execution>(pointer = output),
+        )
+    {
+        let acquire = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) ->
+            bray.runtime.bootstrap.activation.run.Cursor
+            requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+            ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
+            executes(pure, total)
+        {
+            return
+            {
+                root = pointer,
+                pointer = pointer
+            };
+        };
+
+        let mut cursor = trusted acquire(pointer);
+
+        return trusted active(&mut cursor, state, operation, argument);
+    };
+
+    let execution = match consume trusted query(pointer, state, operation, argument, output)
+    {
+        case ?execution { yield execution; }
+        case none { return 3; }
+    };
+
+    trusted std.memory.write<Execution>(output, execution);
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
+}

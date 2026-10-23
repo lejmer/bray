@@ -62,7 +62,7 @@ trusted func main() -> i32
 
     let target_feature = trusted core.target.feature_enabled("sse2");
 
-    let assembly: (i32, ) = trusted core.target.assembly<(i32, ), (i32, )>(
+    let assembly: (i32,) = trusted core.target.assembly<(i32,), (i32,)>(
         template = "",
         constraints = "+reg",
         clobbers = "",
@@ -71,7 +71,7 @@ trusted func main() -> i32
         inputs = (42,),
     );
 
-    let branching: (i32, ) = trusted core.target.branching_assembly<(i32, ), (i32, ), (func() -> never, )>(
+    let branching: (i32,) = trusted core.target.branching_assembly<(i32,), (i32,), (func() -> never,)>(
         template = "",
         constraints = "+reg,label",
         clobbers = "",
@@ -81,7 +81,7 @@ trusted func main() -> i32
         labels = (alternate,),
     );
 
-    trusted core.target.branching_assembly<(RawPointer<u8>, ), unit, (func() -> never, )>(
+    trusted core.target.branching_assembly<(RawPointer<u8>,), unit, (func() -> never,)>(
         template = "",
         constraints = "m,label",
         clobbers = "",
@@ -123,7 +123,7 @@ trusted func increment(pos pointer: RawPointer<u8>)
     )
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.assembly<(RawPointer<u8>, ), unit>(
+    trusted core.target.assembly<(RawPointer<u8>,), unit>(
         template = "incb $0",
         constraints = "m",
         clobbers = "memory",

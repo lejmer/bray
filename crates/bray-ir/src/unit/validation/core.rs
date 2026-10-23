@@ -149,6 +149,15 @@ fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
 }
 
 fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
+    if unit.frame_descriptor().is_none()
+        && unit
+            .storages()
+            .iter()
+            .any(|storage| matches!(storage.kind(), crate::MirStorageKind::FrameCompletion))
+    {
+        return None;
+    }
+
     let descriptor = match (unit.kind(), unit.frame_descriptor()) {
         (crate::MirUnitKind::ProtectedAsyncFrame(frame), Some(descriptor)) => {
             if descriptor.frame() != *frame {
@@ -184,9 +193,45 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
         }
     };
 
+    let mut completions = unit
+        .storages_with_ids()
+        .filter(|(_, storage)| matches!(storage.kind(), crate::MirStorageKind::FrameCompletion));
+
+    match (descriptor.completion_state(), completions.next()) {
+        (Some(state), Some((storage, value))) => {
+            if !descriptor
+                .states()
+                .iter()
+                .find(|entry| entry.state() == state)?
+                .is_completion_cleanup()
+                || value.ty() != descriptor.result_type()
+                || !descriptor
+                    .states()
+                    .iter()
+                    .find(|entry| entry.state() == state)?
+                    .initialized_storages()
+                    .contains(&storage)
+            {
+                return None;
+            }
+        }
+        (None, None) => {}
+        _ => return None,
+    }
+
+    if completions.next().is_some() {
+        return None;
+    }
+
     for state in descriptor.states() {
-        if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
+        if state.is_completion_cleanup() && descriptor.completion_state().is_none() {
             return None;
+        }
+
+        for entry in [state.entry(), state.broadcast()] {
+            if entry.unit() != unit.unit() || unit.block(entry).is_none() {
+                return None;
+            }
         }
 
         for storage in state.initialized_storages() {

@@ -490,13 +490,19 @@ pub enum MirAsyncOperation {
         parent: ProtectedAsyncFrameId,
         /// Static or existential child frame representation.
         child: MirFrameReference,
+        /// Parent continuation whose requirements remain live while the child executes.
+        resume_state: MirFrameStateId,
         /// Inactive child frame value.
         frame: MirOperand,
+        /// Admitted parent storage receiving the child result before resumption.
+        completion: MirStorageId,
     },
-    /// Move a directly awaited child's completion into the operation result.
+    /// Consume the transferred child outcome and its typed result storage.
     CommitAwaitedCompletion {
         /// Static or existential child frame representation.
         child: MirFrameReference,
+        /// The same destination supplied when composing this child.
+        completion: MirStorageId,
     },
     /// Transfer an inactive frame into a newly started task.
     StartTask {
@@ -516,6 +522,8 @@ pub enum MirAsyncOperation {
         /// Selected private cancellation ABI role.
         runtime: MirRuntimeReference,
     },
+    /// Read the cancellation delivery flag of this protected frame.
+    ObserveFrameCancellation,
     /// Observe whether cancellation was requested for the current run.
     ObserveCurrentRunCancellation {
         /// Selected private cancellation-observation ABI role.
@@ -562,6 +570,22 @@ pub enum MirAsyncOperation {
     DestroyTerminalTask {
         /// Terminal task control state.
         task: MirOperand,
+    },
+}
+
+/// Local cleanup obligations secured by one outgoing reservation.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MirOutgoingOwner {
+    /// Concrete backing selected by an evaluated asynchronous callable value.
+    FrameFactory(MirOperand),
+    /// The selected lifecycle actions of a concrete value.
+    Value(TypeId),
+    /// One concrete invocation, independent of represented child obligations.
+    Invocation {
+        /// Selected callable declaration and substitutions.
+        callable: crate::MirCallableReference,
+        /// Immediate result or inactive asynchronous frame.
+        result: bray_bound_tree::BoundCallResult,
     },
 }
 
@@ -715,14 +739,14 @@ pub enum MirOperationKind {
     /// Admit this owner's local outgoing records before ownership commits.
     AdmitOutgoing {
         /// Owner whose selected local actions determine the requirement.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime admission boundary.
         runtime: MirRuntimeReference,
     },
     /// Discharge a consumed owner's credits without reclaiming transferred reports.
     DischargeOutgoing {
         /// Owner whose local credits are no longer live.
-        ty: TypeId,
+        owner: MirOutgoingOwner,
         /// Runtime discharge boundary.
         runtime: MirRuntimeReference,
     },

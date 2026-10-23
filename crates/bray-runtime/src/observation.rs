@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bray_runtime_model::{
-    ProtectedFrameDependencyId, ProtectedFrameDescriptor, ProtectedFrameStateId,
+    ProtectedAsyncFrameId, ProtectedFrameDependencyId, ProtectedFrameStateId,
     ProtectedFrameStorageId,
 };
 
@@ -62,7 +62,7 @@ impl TaskStartSite {
 pub struct TaskSnapshot {
     task: TaskId,
     start_site: Option<TaskStartSite>,
-    descriptor: ProtectedFrameDescriptor,
+    frame: ProtectedAsyncFrameId,
     state: TaskState,
     execution: crate::FrameExecutionState,
     cancellation: CancellationObservation,
@@ -78,7 +78,7 @@ impl TaskSnapshot {
     pub(crate) const fn new(
         task: TaskId,
         start_site: Option<TaskStartSite>,
-        descriptor: ProtectedFrameDescriptor,
+        frame: ProtectedAsyncFrameId,
         state: TaskState,
         execution: crate::FrameExecutionState,
         cancellation: CancellationObservation,
@@ -88,7 +88,7 @@ impl TaskSnapshot {
         Self {
             task,
             start_site,
-            descriptor,
+            frame,
             state,
             execution,
             cancellation,
@@ -107,9 +107,9 @@ impl TaskSnapshot {
         self.start_site
     }
 
-    /// Returns the compiler-generated descriptor for this task's frame.
-    pub const fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        &self.descriptor
+    /// Returns the representation identity of the task's root frame.
+    pub const fn frame(&self) -> ProtectedAsyncFrameId {
+        self.frame
     }
 
     /// Returns the current task execution state.

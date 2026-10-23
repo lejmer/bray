@@ -405,6 +405,17 @@ fn codegen_mappings(
             CodegenLinkage::LinkOnce,
         ));
 
+        symbols.push(symbol_mapping(
+            CodegenSymbolKey::FrameFactory(instance.key().clone()),
+            super::product::generated_symbol_name(
+                target,
+                CodegenLinkage::LinkOnce,
+                "frame_factory",
+                instance.key(),
+            )?,
+            CodegenLinkage::LinkOnce,
+        ));
+
         for operation in ProtectedFrameOperation::ALL {
             symbols.push(symbol_mapping(
                 CodegenSymbolKey::ProtectedFrame { frame, operation },

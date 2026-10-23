@@ -1,6 +1,6 @@
-use bray_codegen::{CodegenLinkage, CodegenSymbolMapping, CodegenTarget};
+use bray_codegen::CodegenTarget;
 use inkwell::context::Context;
-use inkwell::module::{Linkage, Module};
+use inkwell::module::Module;
 use inkwell::types::StructType;
 use inkwell::values::{GlobalValue, StructValue};
 
@@ -47,9 +47,7 @@ pub(crate) fn descriptor_value<'context>(
 ) -> StructValue<'context> {
     let integer = crate::native::pointer_integer_type(context, target);
 
-    let identity = context
-        .i8_type()
-        .const_array(&identity.map(|byte| context.i8_type().const_int(u64::from(byte), false)));
+    let identity = crate::native::identity_value(context, identity);
 
     descriptor_type(context, target).const_named_struct(&[
         identity.into(),
@@ -58,49 +56,13 @@ pub(crate) fn descriptor_value<'context>(
     ])
 }
 
-pub(crate) fn declare<'context>(
-    module: &Module<'context>,
-    context: &'context Context,
-    target: &CodegenTarget,
-    mapping: &CodegenSymbolMapping,
-    defined: bool,
-) -> GlobalValue<'context> {
-    let global = module.add_global(
-        descriptor_type(context, target),
-        None,
-        mapping.name().as_str(),
-    );
-
-    global.set_constant(true);
-    global.set_visibility(inkwell::GlobalVisibility::Hidden);
-
-    if defined {
-        assert_eq!(
-            mapping.linkage(),
-            CodegenLinkage::LinkOnce,
-            "cleanup descriptors must share their concrete callable identity"
-        );
-
-        global.set_linkage(Linkage::WeakODR);
-
-        crate::comdat::attach_any(
-            module,
-            global,
-            mapping.name().as_str(),
-            target.machine().object_format(),
-        );
-    }
-
-    global
-}
-
 pub(crate) fn descriptors<'context>(
     module: &Module<'context>,
     builder: &inkwell::builder::Builder<'context>,
     requirements: &[bray_codegen::CodegenCleanupRequirement],
     types: &mut super::LlvmTypeMappings<'context, '_>,
 ) -> Result<inkwell::values::PointerValue<'context>, bray_codegen::CodegenFailure> {
-    use bray_codegen::{CodegenFailure, CodegenSymbolKey};
+    use bray_codegen::CodegenFailure;
 
     let context = types.context();
     let descriptor = descriptor_type(context, types.target());
@@ -113,16 +75,7 @@ pub(crate) fn descriptors<'context>(
 
     for (index, requirement) in requirements.iter().enumerate() {
         let element = if requirement.execution() == bray_symbols::CallableExecution::Asynchronous {
-            let mapping = types
-                .mappings()
-                .symbol(&CodegenSymbolKey::CleanupStorage(
-                    requirement.callable().clone(),
-                ))
-                .expect("asynchronous cleanup must retain its emitted storage layout");
-
-            let global = module
-                .get_global(mapping.name().as_str())
-                .expect("cleanup descriptor must have been declared");
+            let global = storage_descriptor(module, types.mappings(), requirement.callable());
 
             builder
                 .build_load(descriptor, global.as_pointer_value(), "cleanup.descriptor")
@@ -211,4 +164,21 @@ pub(crate) fn bundle<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(pointer)
+}
+
+/// Returns the immutable concrete backing descriptor emitted with its callable.
+pub(crate) fn storage_descriptor<'context>(
+    module: &Module<'context>,
+    mappings: &bray_codegen::CodegenMappings,
+    instance: &bray_codegen::CodegenInstanceKey,
+) -> GlobalValue<'context> {
+    let mapping = mappings
+        .symbol(&bray_codegen::CodegenSymbolKey::CleanupStorage(
+            instance.clone(),
+        ))
+        .expect("concrete frame backing must have a mapped descriptor");
+
+    module
+        .get_global(mapping.name().as_str())
+        .expect("concrete frame backing descriptor must have been declared")
 }

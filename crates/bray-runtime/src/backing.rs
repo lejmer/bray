@@ -21,7 +21,12 @@ impl Backing {
             });
         }
 
-        let descriptor = NativeCleanupStorageShape::new([0; 32], size, alignment);
+        Self::admit_shape(NativeCleanupStorageShape::new([0; 32], size, alignment))
+    }
+
+    pub(crate) fn admit_shape(
+        descriptor: NativeCleanupStorageShape,
+    ) -> Result<Self, NativeRuntimeStatus> {
         let mut lease = NativeCleanupStorageLease::empty();
 
         let status =
@@ -45,18 +50,17 @@ impl Backing {
         })
     }
 
-    #[cfg(test)]
     /// Transfers the exact lease to the generated incident's final release callback.
     pub(crate) fn transfer(mut self) -> NativeCleanupStorageLease {
         std::mem::replace(&mut self.lease, NativeCleanupStorageLease::empty())
     }
 
-    pub(crate) const fn address(&self) -> usize {
-        self.address
+    pub(crate) const fn lease(&self) -> NativeCleanupStorageLease {
+        self.lease
     }
 
-    pub(crate) fn pointer(&self) -> *mut u8 {
-        std::ptr::with_exposed_provenance_mut(self.address)
+    pub(crate) const fn address(&self) -> usize {
+        self.address
     }
 }
 

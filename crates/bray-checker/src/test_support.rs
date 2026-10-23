@@ -165,6 +165,14 @@ impl CheckerRequestContext for TestCheckerContext {
         Ok(self.semantic_values()
             .empty_dependency_contract_template().unwrap_or_else(|error| panic!("callable_result_dependencies must satisfy its checked construction contract: {error:?}")))
     }
+    fn anonymous_result_dependencies(
+        &self,
+        _key: &bray_bound_tree::BoundUnitKey,
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
+    {
+        panic!("anonymous result tests require a checked source body");
+    }
+
     fn static_result_dependencies(
         &self,
         _declaration: bray_symbols::StaticSymbolId,

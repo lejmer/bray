@@ -6,11 +6,48 @@ use bray_symbols::{
     SymbolOrdinal,
 };
 
+pub(crate) fn parameter_root<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    reference: bray_bound_tree::BoundReferenceTarget,
+) -> Option<DependencySubjectRoot> {
+    use bray_bound_tree::BoundReferenceTarget;
+    use bray_symbols::{AnyLocalSymbolId, AnySymbolId};
+
+    match reference {
+        BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(parameter)) => {
+            Some(DependencySubjectRoot::Parameter(SymbolOrdinal::new(
+                request
+                    .symbols()
+                    .callable_parameter(parameter)
+                    .expect("bound parameter retains its declaration")
+                    .ordinal(),
+            )))
+        }
+        BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(parameter)) => {
+            Some(DependencySubjectRoot::Parameter(
+                request
+                    .unit()
+                    .local_symbols()
+                    .anonymous_parameter(parameter)
+                    .expect("anonymous parameter retains its local symbol")
+                    .ordinal(),
+            ))
+        }
+        BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_)) => {
+            Some(DependencySubjectRoot::Receiver)
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
     call.implementation_hook()
         .and_then(super::implementation_dependency_source)
         .is_none()
-        && !matches!(call.target(), BoundCallableTarget::Declaration(_))
+        && !matches!(
+            call.target(),
+            BoundCallableTarget::Declaration(_) | BoundCallableTarget::Anonymous(_)
+        )
 }
 
 /// Applies the selected implementation, generic substitution and parameter defaults once.
@@ -44,6 +81,13 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
 
         store
             .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
+    } else if let BoundCallableTarget::Anonymous(_) = call.target() {
+        request.anonymous_result_dependencies(
+            call.resolution()
+                .anonymous_body()
+                .expect("selected anonymous callable retains its body key")
+                .0,
+        )?
     } else if !opaque_result(call)
         && let BoundCallableTarget::Declaration(instance) = call.target()
     {

@@ -368,9 +368,8 @@ mod tests {
         let registration = scheduler
             .register_task(
                 task.id(),
-                task.descriptor().clone(),
+                task.execution_state(),
                 runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
                 &cancellation,
             )
             .unwrap_or_else(|error| panic!("task must register: {error:?}"));
@@ -433,9 +432,8 @@ mod tests {
         let registration = scheduler
             .register_task(
                 task.id(),
-                task.descriptor().clone(),
+                task.execution_state(),
                 runtime.runtime().id(),
-                ProtectedFrameStateId::new(0),
                 &cancellation,
             )
             .unwrap_or_else(|error| panic!("task must register: {error:?}"));

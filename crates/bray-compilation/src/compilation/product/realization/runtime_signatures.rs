@@ -116,6 +116,7 @@ macro_rules! define_runtime_signatures {
     };
     (@type $compilation:ident, Pointer) => { $compilation.codegen_opaque_pointer_type() };
     (@type $compilation:ident, Usize) => { $compilation.codegen_representation_type(RepresentationRole::ScalarUsize) };
+    (@type $compilation:ident, U8) => { $compilation.codegen_representation_type(RepresentationRole::ScalarU8) };
     (@type $compilation:ident, U32) => { $compilation.codegen_representation_type(RepresentationRole::ScalarU32) };
     (@type $compilation:ident, U64) => { $compilation.codegen_representation_type(RepresentationRole::ScalarU64) };
     (@type $compilation:ident, Bool) => { $compilation.codegen_representation_type(RepresentationRole::ScalarBool) };

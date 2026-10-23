@@ -35,15 +35,16 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .symbol(&CodegenSymbolKey::CleanupStorage(instance.key().clone()))
         .expect("protected frame must publish its cleanup storage descriptor");
 
-    let completion = types.map(descriptor.result_type())?;
-    let backing = context.struct_type(&[context_type.into(), completion], false);
+    let identity = instance
+        .protected_frame_identity()
+        .expect("protected frame has a concrete instance identity");
 
     let value = crate::mapping::cleanup::descriptor_value(
         context,
         request.target(),
-        descriptor.frame().digest(),
-        types.target_data().get_store_size(&backing),
-        types.target_data().get_abi_alignment(&backing),
+        identity.digest(),
+        types.target_data().get_store_size(&context_type),
+        types.target_data().get_abi_alignment(&context_type),
     );
 
     module
@@ -51,9 +52,20 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .expect("cleanup descriptor must have been declared")
         .set_initializer(&value);
 
-    translate_constructor(module, request, instance, context_type, types)?;
-    translate_frame_adapter(module, request, instance, context_type, types)?;
-    translate_state_callback(context, module, request, instance)?;
+    crate::mapping::frame::initialize_factory(context, module, request.mappings(), instance.key());
+
+    let activation = super::description::declare(module, request, instance, context_type, types)?;
+
+    translate_constructor(
+        module,
+        request,
+        instance,
+        context_type,
+        activation.as_pointer_value(),
+        types,
+    )?;
+
+    super::description::translate_state_callback(context, module, request, instance, context_type)?;
     translate_cancellation_entry(module, request, instance, context_type, types)?;
     translate_action_callbacks(module, request, instance, context_type, types)?;
 
@@ -73,16 +85,38 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         debug.attach_function(resume, "frame.resume", linkage_name, source)
     });
 
-    UnitTranslator::for_frame_resume(
+    UnitTranslator::for_frame_operation(
         context,
         module,
         request,
         instance,
         resume,
         context_type,
+        ProtectedFrameOperation::Resume,
         types,
         debug,
         debug_scope,
+    )?
+    .translate()?;
+
+    let broadcast = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::TaskBroadcast,
+    );
+
+    UnitTranslator::for_frame_operation(
+        context,
+        module,
+        request,
+        instance,
+        broadcast,
+        context_type,
+        ProtectedFrameOperation::TaskBroadcast,
+        types,
+        None,
+        None,
     )?
     .translate()?;
 
@@ -103,15 +137,27 @@ fn frame_context_type<'context>(
         .frame_descriptor()
         .expect("protected-frame translation requires an established mapping or value");
 
-    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
+    let mut fields = Vec::with_capacity(instance.mir().storages().len() + 4);
 
     fields.push(context.i32_type().into());
     fields.push(types.map(descriptor.result_type())?);
     fields.push(context.i8_type().into());
 
     for (_, storage) in instance.mir().storages_with_ids() {
-        fields.push(types.map(storage.ty())?);
+        fields.push(
+            if matches!(
+                storage.kind(),
+                MirStorageKind::BroadcastLocal | MirStorageKind::FrameCompletion
+            ) {
+                // Preserve storage indexing without reserving callback scratch bytes in each frame.
+                context.i8_type().array_type(0).into()
+            } else {
+                types.map(storage.ty())?
+            },
+        );
     }
+
+    fields.push(crate::native::activation::header_type(context, types.target()).into());
 
     Ok(context.struct_type(&fields, false))
 }
@@ -121,6 +167,7 @@ fn translate_constructor<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
+    activation: PointerValue<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let symbol = request
@@ -138,32 +185,15 @@ fn translate_constructor<'context>(
 
     builder.position_at_end(block);
 
-    let pointer = context.ptr_type(AddressSpace::default());
-    let usize = crate::native::pointer_integer_type(types.context(), request.target());
-    let calloc_type = pointer.fn_type(&[usize.into(), usize.into()], false);
-
-    let calloc = module
-        .get_function("calloc")
-        .unwrap_or_else(|| module.add_function("calloc", calloc_type, None));
-
-    let size = types.target_data().get_store_size(&context_type);
-
-    let call = builder
-        .build_call(
-            calloc,
-            &[
-                usize.const_int(1, false).into(),
-                usize.const_int(size, false).into(),
-            ],
-            "frame.storage",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    let storage = call
-        .try_as_basic_value()
-        .basic()
-        .and_then(pointer_value)
-        .expect("protected-frame translation requires an established mapping or value");
+    let storage = super::storage::claim(
+        module,
+        request,
+        instance,
+        context_type,
+        activation,
+        &builder,
+        types,
+    )?;
 
     initialize_parameters(
         &builder,
@@ -175,14 +205,15 @@ fn translate_constructor<'context>(
         types,
     )?;
 
-    let adapter = frame_operation_function(
+    super::storage::publish(
         module,
         request,
-        instance,
-        ProtectedFrameOperation::MoveBeforeStart,
-    )
-    .as_global_value()
-    .as_pointer_value();
+        context_type,
+        storage,
+        activation,
+        &builder,
+        types,
+    )?;
 
     let result_type = match symbol.signature().result() {
         CodegenResultMapping::Direct { ty, .. }
@@ -206,7 +237,7 @@ fn translate_constructor<'context>(
         .into_struct_value();
 
     let inactive = builder
-        .build_insert_value(inactive, adapter, 1, "frame.inactive.adapter")
+        .build_insert_value(inactive, activation, 1, "frame.inactive.descriptor")
         .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
@@ -320,222 +351,6 @@ fn store_frame_parameter<'context>(
     builder
         .build_store(destination, value)
         .map_err(CodegenFailure::backend_library)?;
-
-    Ok(())
-}
-
-fn translate_frame_adapter<'context>(
-    module: &Module<'context>,
-    request: CodegenRequest<'_>,
-    instance: &CodegenInstance,
-    context_type: StructType<'context>,
-    types: &mut LlvmTypeMappings<'context, '_>,
-) -> Result<(), CodegenFailure> {
-    let function = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::MoveBeforeStart,
-    );
-
-    let descriptor = instance
-        .mir()
-        .frame_descriptor()
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let context = types.context();
-    let builder = context.create_builder();
-    let block = context.append_basic_block(function, "frame.adapter");
-
-    builder.position_at_end(block);
-
-    let completion = types.map(descriptor.result_type())?;
-
-    let frame_layout = (
-        types.target_data().get_store_size(&context_type),
-        types.target_data().get_abi_alignment(&context_type),
-    );
-
-    let completion_layout = (
-        types.target_data().get_store_size(&completion),
-        types.target_data().get_abi_alignment(&completion),
-    );
-
-    let identity = context.i8_type().const_array(
-        &descriptor
-            .frame()
-            .digest()
-            .iter()
-            .map(|byte| context.i8_type().const_int(u64::from(*byte), false))
-            .collect::<Vec<_>>(),
-    );
-
-    let callbacks = [
-        ProtectedFrameOperation::StateDescription,
-        ProtectedFrameOperation::Resume,
-        ProtectedFrameOperation::CancellationEntry,
-        ProtectedFrameOperation::TaskBroadcast,
-        ProtectedFrameOperation::LifecycleResolution,
-        ProtectedFrameOperation::CompletionMove,
-        ProtectedFrameOperation::Destruction,
-    ]
-    .map(|operation| {
-        frame_operation_function(module, request, instance, operation)
-            .as_global_value()
-            .as_pointer_value()
-    });
-
-    let [
-        state,
-        resume,
-        cancel,
-        broadcast,
-        resolve,
-        move_completion,
-        destroy,
-    ] = callbacks;
-
-    let usize = crate::native::pointer_integer_type(context, request.target());
-
-    let fields: [BasicValueEnum<'context>; 14] = [
-        function
-            .get_nth_param(crate::native::frame_parameter_index(
-                request.target(),
-                ProtectedFrameOperation::MoveBeforeStart,
-                0,
-            ))
-            .expect("protected-frame translation requires an established mapping or value"),
-        identity.into(),
-        context
-            .i32_type()
-            .const_int(
-                crate::conversion::resource_limit(descriptor.states().len(), "frame_state_count")?,
-                false,
-            )
-            .into(),
-        usize.const_int(frame_layout.0, false).into(),
-        usize.const_int(u64::from(frame_layout.1), false).into(),
-        usize.const_int(completion_layout.0, false).into(),
-        usize
-            .const_int(u64::from(completion_layout.1), false)
-            .into(),
-        state.into(),
-        resume.into(),
-        cancel.into(),
-        broadcast.into(),
-        resolve.into(),
-        move_completion.into(),
-        destroy.into(),
-    ];
-
-    let mut frame = crate::native::protected_frame_type(context, request.target()).get_undef();
-
-    for (index, field) in fields.into_iter().enumerate() {
-        frame = builder
-            .build_insert_value(
-                frame,
-                field,
-                crate::conversion::resource_limit(index, "frame_adapter_field_index")?,
-                "frame.adapter.field",
-            )
-            .map_err(CodegenFailure::backend_library)?
-            .into_struct_value();
-    }
-
-    crate::native::return_frame_result(
-        types.context(),
-        &builder,
-        function,
-        request.target(),
-        ProtectedFrameOperation::MoveBeforeStart,
-        frame.into(),
-    )?;
-
-    Ok(())
-}
-
-fn translate_state_callback(
-    context: &Context,
-    module: &Module<'_>,
-    request: CodegenRequest<'_>,
-    instance: &CodegenInstance,
-) -> Result<(), CodegenFailure> {
-    let function = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::StateDescription,
-    );
-
-    let descriptor = instance
-        .mir()
-        .frame_descriptor()
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let state = function
-        .get_nth_param(1)
-        .and_then(|value| match value {
-            BasicValueEnum::IntValue(value) => Some(value),
-            _ => None,
-        })
-        .expect("protected-frame translation requires an established mapping or value");
-
-    let builder = context.create_builder();
-    let dispatch = context.append_basic_block(function, "frame.state");
-    let invalid = context.append_basic_block(function, "frame.state.invalid");
-    let mut cases = Vec::with_capacity(descriptor.states().len());
-
-    for state in descriptor.states() {
-        let block = context.append_basic_block(function, "frame.state.known");
-
-        let lane_requirements =
-            state
-                .lane_requirements()
-                .iter()
-                .fold(0_u64, |requirements, lane| {
-                    requirements
-                        | match lane {
-                            bray_runtime_interface::ExecutionLaneRequirement::Blocking => 1,
-                            bray_runtime_interface::ExecutionLaneRequirement::Compute => 2,
-                            bray_runtime_interface::ExecutionLaneRequirement::MainThread => 4,
-                        }
-                });
-
-        let affinity = if state
-            .lane_requirements()
-            .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
-        {
-            bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
-        } else {
-            state.affinity().code()
-        };
-
-        builder.position_at_end(block);
-
-        crate::native::return_frame_state(
-            context,
-            &builder,
-            u64::from(affinity),
-            lane_requirements,
-        )?;
-
-        cases.push((
-            context
-                .i32_type()
-                .const_int(u64::from(state.state().raw()), false),
-            block,
-        ));
-    }
-
-    builder.position_at_end(dispatch);
-
-    builder
-        .build_switch(state, invalid, &cases)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(invalid);
-
-    crate::native::return_frame_state(context, &builder, 0, 0)?;
 
     Ok(())
 }

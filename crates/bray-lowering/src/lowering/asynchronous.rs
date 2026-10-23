@@ -49,7 +49,47 @@ impl Lowerer<'_> {
             "checked await retains its exact operand"
         );
 
-        self.lower_awaited_frame(id.into(), frame, self.expression_type(id), current, source)
+        let completion = self.expression_type(id);
+
+        let awaited = self.lower_awaited_frame(
+            id.into(),
+            frame,
+            completion,
+            current,
+            Self::retained_source(&source),
+        )?;
+
+        let (block, value) = self.finish_typed_call_panic_check(
+            id,
+            awaited.block.expect("await resumes to its completion"),
+            &source,
+            &awaited.value.expect("await publishes its completion value"),
+            completion,
+            None,
+        )?;
+
+        // Take the child's outcome before observing a new cancellation request.
+        // A completed value is an owned temporary until the enclosing expression
+        // accepts it, so cancellation uses the same cleanup as other inputs.
+        let retained = self.input_temporaries.len();
+
+        let value = if self.input_cleanup_phases(completion).is_some() {
+            self.materialize_owned_input(id, block, &source, value, completion)?
+        } else {
+            value
+        };
+
+        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+
+        let resume = self.builder.push_block(
+            Self::retained_source(&source),
+            self.builder.block_kind(block),
+        )?;
+
+        self.branch_frame_cancellation(block, &source, resume, cancellation)?;
+        self.input_temporaries.truncate(retained);
+
+        Ok(LoweredExpression::continuing(resume, Some(value), source))
     }
 
     pub(super) fn lower_awaited_frame(
@@ -67,34 +107,19 @@ impl Lowerer<'_> {
             );
         };
 
-        let suspension = self
-            .input
-            .suspension(occurrence)
-            // Lowering mutates its builder while retaining this immutable checked decision.
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingSuspensionPoint {value:?}",
-                    value = occurrence
-                )
-            });
+        let suspension = self.input.suspension(occurrence).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSuspensionPoint {value:?}",
+                value = occurrence
+            )
+        });
 
         let child = MirFrameReference::Erased;
 
-        self.push_operation(
-            current,
+        let resume = self.builder.push_block(
             Self::retained_source(&source),
-            MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
-                parent,
-                child,
-                frame: frame_value,
-            }),
-            None,
+            self.builder.block_kind(current),
         )?;
-
-        let resume = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         let cancellation = match occurrence {
             bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
@@ -118,7 +143,31 @@ impl Lowerer<'_> {
             _ => self.suspension_cleanup_edge(&source, occurrence.node())?,
         };
 
+        // Ordinary await observes cancellation after taking the terminal outcome.
+        // Selected asynchronous exits already execute under their cleanup shield.
+        let dispatch = resume;
+
+        let broadcast = self.frame_broadcast(&source, occurrence, false)?;
         let state = self.next_frame_state()?;
+
+        let destination = self.builder.push_storage(
+            Self::retained_source(&source),
+            bray_ir::MirStorageKind::Temporary,
+            completion,
+        )?;
+
+        self.push_operation(
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
+                parent,
+                child,
+                resume_state: state,
+                frame: frame_value,
+                completion: destination,
+            }),
+            None,
+        )?;
 
         self.set_terminator(
             current,
@@ -127,7 +176,7 @@ impl Lowerer<'_> {
                 kind: MirSuspensionKind::Awaited,
                 payload: None,
                 resume_state: state,
-                resume: MirEdge::new(resume, []),
+                resume: MirEdge::new(dispatch, []),
                 cancellation,
                 registration: self.runtime_reference(RuntimeAbiRole::SuspensionRegistration),
                 wake: self.runtime_reference(RuntimeAbiRole::Wake),
@@ -139,18 +188,23 @@ impl Lowerer<'_> {
         self.frame_states.push(
             MirFrameState::new(
                 state,
-                resume,
+                dispatch,
+                broadcast,
                 self.execution_lane_requirements(),
                 initialized_storages,
             )
-            .with_affinity(self.frame_affinity()),
+            .with_affinity(self.frame_affinity())
+            .with_completion_cleanup(self.completion_cleanup.is_some()),
         );
 
         let value = self
             .push_operation(
                 resume,
                 Self::retained_source(&source),
-                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion { child }),
+                MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion {
+                    child,
+                    completion: destination,
+                }),
                 Some(completion),
             )?
             .result()
@@ -161,6 +215,51 @@ impl Lowerer<'_> {
             Some(MirOperand::Value(value)),
             source,
         ))
+    }
+
+    pub(in crate::lowering) fn branch_frame_cancellation(
+        &mut self,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        resume: MirBlockId,
+        cancellation: bray_ir::MirCleanupEdge,
+    ) -> Result<(), LoweringError> {
+        let cancelled = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        self.set_terminator(
+            cancelled,
+            Self::retained_source(source),
+            MirTerminatorKind::CancelCurrentRun {
+                cleanup: cancellation,
+            },
+        )?;
+
+        let boolean =
+            self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+        let requested = self
+            .push_operation(
+                current,
+                Self::retained_source(source),
+                MirOperationKind::Async(MirAsyncOperation::ObserveFrameCancellation),
+                Some(boolean),
+            )?
+            .result()
+            .expect("frame cancellation observation returns a boolean");
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::Branch {
+                condition: MirOperand::Value(requested),
+                then_edge: MirEdge::new(cancelled, []),
+                else_edge: MirEdge::new(resume, []),
+            },
+        )?;
+
+        Ok(())
     }
 
     pub(super) fn lower_call_operation(
@@ -222,7 +321,46 @@ impl Lowerer<'_> {
 
         let result_type = self.expression_type(expression);
 
-        self.push_checked_value_operation(expression, block, source, operation, result_type)
+        let admission = match &operation {
+            MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                initializer: MirFrameInitializer::Callable(call),
+                ..
+            }) => match call.target() {
+                bray_ir::MirCallTarget::Direct(callable) => {
+                    Some(bray_ir::MirOutgoingOwner::Invocation {
+                        callable: *callable,
+                        result: call.result(),
+                    })
+                }
+                bray_ir::MirCallTarget::Indirect { callee, .. } => {
+                    Some(bray_ir::MirOutgoingOwner::FrameFactory(callee.clone()))
+                }
+                target => panic!(
+                    "checked asynchronous construction retains a direct or indirect factory, got {target:?}"
+                ),
+            },
+            _ => None,
+        };
+
+        let block = match &admission {
+            // Admission and discharge refer to the same evaluated factory or selected declaration.
+            Some(owner) => self.admit_outgoing(expression, block, &source, owner.clone())?,
+            None => block,
+        };
+
+        let (block, value) = self.push_checked_value_operation(
+            expression,
+            block,
+            Self::retained_source(&source),
+            operation,
+            result_type,
+        )?;
+
+        if let Some(owner) = admission {
+            self.discharge_outgoing(block, &source, owner)?;
+        }
+
+        Ok((block, value))
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {
@@ -230,35 +368,29 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {
-        self.input
-            .body_behavior()
-            .execution_requirements()
-            .iter()
-            .filter_map(|requirement| {
-                match self
-                    .input
-                    .available_compiler_known_symbols()
-                    .symbol_implementation(requirement.declaration())
-                {
-                    Some(ImplementationHook::BlockingExecution) => {
-                        Some(ExecutionLaneRequirement::Blocking)
-                    }
-                    Some(ImplementationHook::ComputeExecution) => {
-                        Some(ExecutionLaneRequirement::Compute)
-                    }
-                    Some(ImplementationHook::MainThreadExecution) => {
-                        Some(ExecutionLaneRequirement::MainThread)
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
+        if self.completion_cleanup.is_some() {
+            // Concrete lifecycle realization supplies requirements after substitution.
+            return Vec::new();
+        }
+
+        let requirements = self.input.body_behavior().execution_requirements();
+
+        lower_execution_requirements(
+            self.input.available_compiler_known_symbols(),
+            requirements.iter().copied(),
+        )
     }
 
     pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
-        let state = u32::try_from(self.frame_states.len()).map_err(|_| {
-            LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded)
-        })?;
+        // State zero describes initial captures and is assembled after body lowering.
+        let state = self
+            .frame_states
+            .len()
+            .checked_add(1)
+            .and_then(|state| u32::try_from(state).ok())
+            .ok_or(LoweringError::MirCapacity(
+                bray_ir::MirCapacityError::IdentityCapacityExceeded,
+            ))?;
 
         Ok(MirFrameStateId::new(state))
     }
@@ -364,6 +496,26 @@ fn call_receiver(call: &MirCall, expression: BoundExpressionId) -> MirOperand {
                 value = expression
             )
         })
+}
+
+/// Lowers established execution predicates to native lane requirements.
+pub fn lower_execution_requirements(
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    requirements: impl IntoIterator<Item = bray_symbols::CallableExecutionRequirement>,
+) -> Vec<ExecutionLaneRequirement> {
+    requirements
+        .into_iter()
+        .map(
+            |requirement| match known.symbol_implementation(requirement.declaration()) {
+                Some(ImplementationHook::BlockingExecution) => ExecutionLaneRequirement::Blocking,
+                Some(ImplementationHook::ComputeExecution) => ExecutionLaneRequirement::Compute,
+                Some(ImplementationHook::MainThreadExecution) => {
+                    ExecutionLaneRequirement::MainThread
+                }
+                hook => panic!("checked execution requirement has no lane: {hook:?}"),
+            },
+        )
+        .collect()
 }
 
 #[cfg(test)]

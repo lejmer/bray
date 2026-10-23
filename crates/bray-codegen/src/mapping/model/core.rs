@@ -223,7 +223,8 @@ impl CodegenMappings {
         self.symbols
             .binary_search_by(|mapping| match mapping.key() {
                 CodegenSymbolKey::Instance(candidate) => candidate.cmp(instance),
-                CodegenSymbolKey::CleanupStorage(_)
+                CodegenSymbolKey::FrameFactory(_)
+                | CodegenSymbolKey::CleanupStorage(_)
                 | CodegenSymbolKey::Runtime(_)
                 | CodegenSymbolKey::ProtectedFrame { .. } => std::cmp::Ordering::Greater,
             })

@@ -89,6 +89,16 @@ pub(in crate::analysis) fn merge(
                 (&mut left, &mut left_identities, &value),
                 (&mut right, &mut right_identities, &other),
             ] {
+                // Rename the complete current observation only for an established owner.
+                // Both predecessors must still establish the predicate after renaming.
+                // Snapshots share immutable components, so borrowed keys need no tree copy.
+                if *value != joined
+                    && value.owner_identity() == joined.owner_identity()
+                    && value.owner_identity().observation_path().is_some()
+                {
+                    insert_replacement(map, &value.clone().borrowed(), &joined.clone().borrowed());
+                }
+
                 // Literal payloads are shared by unrelated places and contract constants.
                 // Joining their slots must not rename the constant itself.
                 if *value == joined

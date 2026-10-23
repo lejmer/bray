@@ -372,8 +372,15 @@ mod tests {
     impl crate::ProtectedFrame for FailingCleanupFrame {
         type Output = FailingCompletion;
 
-        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
-            self.0.descriptor()
+        fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+            self.0.frame()
+        }
+
+        fn execution_state(
+            &self,
+            state: bray_runtime_model::ProtectedFrameStateId,
+        ) -> Option<crate::FrameExecutionState> {
+            self.0.execution_state(state)
         }
 
         fn resume(

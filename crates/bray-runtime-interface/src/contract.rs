@@ -100,7 +100,6 @@ impl ExecutableHostEntryId {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutableHostEntry {
     root: RootExecution,
-    root_frame_adapter: Option<BinarySymbolName>,
     result: ExecutableEntryResult,
 }
 
@@ -109,20 +108,14 @@ impl ExecutableHostEntry {
     pub const fn synchronous(result: ExecutableEntryResult) -> Self {
         Self {
             root: RootExecution::Synchronous,
-            root_frame_adapter: None,
             result,
         }
     }
 
-    /// Creates one asynchronous source entry and its generated frame-transfer adapter.
-    pub fn asynchronous(
-        frame: ProtectedAsyncFrameId,
-        root_frame_adapter: BinarySymbolName,
-        result: ExecutableEntryResult,
-    ) -> Self {
+    /// Creates one asynchronous source entry with its checked frame identity.
+    pub fn asynchronous(frame: ProtectedAsyncFrameId, result: ExecutableEntryResult) -> Self {
         Self {
             root: RootExecution::Asynchronous { frame },
-            root_frame_adapter: Some(root_frame_adapter),
             result,
         }
     }
@@ -130,11 +123,6 @@ impl ExecutableHostEntry {
     /// Returns how this source entry becomes a root run.
     pub const fn root(&self) -> RootExecution {
         self.root
-    }
-
-    /// Returns the generated asynchronous frame-transfer adapter, when required.
-    pub fn root_frame_adapter(&self) -> Option<&BinarySymbolName> {
-        self.root_frame_adapter.as_ref()
     }
 
     /// Returns the checked source result mapping for this entry.
@@ -303,7 +291,6 @@ impl ExecutableHostContract {
 
         for entry in self.data.entries.iter() {
             entry.root.hash(state);
-            entry.root_frame_adapter.hash(state);
 
             match entry.result {
                 ExecutableEntryResult::Unit => 0u8.hash(state),
@@ -646,12 +633,9 @@ mod tests {
             RootExecution::Synchronous => {
                 ExecutableHostEntry::synchronous(ExecutableEntryResult::Unit)
             }
-            RootExecution::Asynchronous { frame } => ExecutableHostEntry::asynchronous(
-                frame,
-                BinarySymbolName::try_new("test_root_frame_adapter")
-                    .unwrap_or_else(|| panic!("test frame adapter must be valid")),
-                ExecutableEntryResult::Unit,
-            ),
+            RootExecution::Asynchronous { frame } => {
+                ExecutableHostEntry::asynchronous(frame, ExecutableEntryResult::Unit)
+            }
         };
 
         let mut builder =

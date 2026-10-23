@@ -1,0 +1,85 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation;
+
+using std.memory;
+
+// Validate offsets before deriving a pointer into admitted backing. Checking the
+// lease remains a separate resident-pool operation and precedes dereference.
+internal func valid_layout(pos descriptor: &Descriptor) -> bool
+{
+    let bytes: usize = descriptor.storage.bytes;
+    let align: usize = descriptor.storage.align;
+    let header_bytes: usize = std.memory.size_of<Header>();
+    let header_align: usize = std.memory.align_of<Header>();
+
+    if !bray.runtime.bootstrap.storage.valid_layout(&descriptor.storage) || descriptor.states == 0
+    {
+        return false;
+    }
+
+    if align < header_align || descriptor.header % header_align != 0 || descriptor.header > bytes
+    {
+        return false;
+    }
+
+    if header_bytes > bytes - descriptor.header
+    {
+        return false;
+    }
+
+    let completion_align: usize = descriptor.completion_align;
+
+    if completion_align == 0 || completion_align & (completion_align - 1) != 0 || align < completion_align
+    {
+        return false;
+    }
+
+    if descriptor.completion % completion_align != 0 || descriptor.completion > bytes
+    {
+        return false;
+    }
+
+    if descriptor.completion_bytes > bytes - descriptor.completion
+    {
+        return false;
+    }
+
+    return descriptor.completion_bytes == 0 || descriptor.completion + descriptor.completion_bytes <=
+        descriptor.header || descriptor.header + header_bytes <= descriptor.completion;
+}
+
+trusted internal func resident_address(
+    pos pool: &mut bray.runtime.bootstrap.ReportPool,
+    pos token: &Inactive,
+    pos descriptor: &Descriptor,
+    dispatch: bool,
+) -> usize
+    uses(intrinsic)
+{
+    if !valid_layout(descriptor)
+    {
+        return 0;
+    }
+
+    let maximum: usize = ~0;
+
+    if token.lease.address == 0 || descriptor.header > maximum - token.lease.address
+    {
+        return 0;
+    }
+
+    let address: usize = trusted bray.runtime.bootstrap.storage.frame_address(
+        pool,
+        &token.lease,
+        &descriptor.storage,
+        trusted core.target.expose_address<Descriptor>(token.descriptor),
+        dispatch = dispatch
+    );
+
+    if address == 0
+    {
+        return 0;
+    }
+
+    return address + descriptor.header;
+}

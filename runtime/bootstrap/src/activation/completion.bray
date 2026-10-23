@@ -1,0 +1,64 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.completion;
+
+using std.memory;
+
+// The currently executing parent retains this independent empty outcome slot.
+// Its child has transferred its result and retired before this callback resumes.
+trusted internal predicate destination(
+    pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+);
+
+@abi(c)
+trusted internal func take(
+    pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>,
+    pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>,
+)
+    requires(
+        trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
+        trusted destination(pointer = pointer, outcome = outcome)
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let acquire = trusted lambda(pos pointer: RawPointer<bray.runtime.bootstrap.activation.Header>) ->
+        bray.runtime.bootstrap.activation.run.Cursor
+        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
+        executes(pure, total)
+    {
+        return
+        {
+            root = pointer,
+            pointer = pointer
+        };
+    };
+
+    let mut cursor = trusted acquire(pointer);
+    let header = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+    if header.child != 0 || header.incoming.kind < 1 || header.incoming.kind > 3
+    {
+        trusted core.target.abort();
+    }
+
+    let result: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = header.incoming.kind - 1,
+        payload = header.incoming.payload,
+        report = trusted bray.runtime.bootstrap.activation.execution.take_report(&mut header.incoming),
+    };
+
+    header.incoming = bray.runtime.bootstrap.activation.empty_progress();
+
+    let retained = trusted lambda(pos outcome: RawPointer<bray.runtime.bootstrap.ReportOutcome>)
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        )
+        executes(pure, total) {};
+
+    trusted retained(outcome);
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);
+}

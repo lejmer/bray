@@ -134,20 +134,24 @@ fn empty_native_test_products_emit_a_successful_host() {
         .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
         .unwrap_or_else(|| panic!("empty native test plan must retain generated host MIR"));
 
-    assert!(matches!(
-        host_mir.operations(),
-        [begin, report, shutdown]
-            if matches!(
-                begin.kind(),
-                MirOperationKind::Host(MirHostOperation::BeginStaticCleanup)
-            ) && matches!(
-                report.kind(),
-                MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. })
-            ) && matches!(
-                shutdown.kind(),
-                MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. })
-            )
-    ));
+    assert!(
+        matches!(
+            host_mir.operations(),
+            [entry, begin, report, shutdown]
+                if matches!(entry.kind(), MirOperationKind::Host(MirHostOperation::BeginProductEntry)) && matches!(
+                    begin.kind(),
+                    MirOperationKind::Host(MirHostOperation::BeginStaticCleanup)
+                ) && matches!(
+                    report.kind(),
+                    MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. })
+                ) && matches!(
+                    shutdown.kind(),
+                    MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. })
+                )
+        ),
+        "{:#?}",
+        host_mir.operations()
+    );
 
     assert!(
         generated_artifacts(&backend, &plan)

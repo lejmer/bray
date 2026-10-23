@@ -151,6 +151,7 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering) fn finish_abnormal_cleanup(
         &mut self,
+        first_phase: MirCleanupPhase,
         current: MirBlockId,
         source: &MirSourceAnchor,
         report: Option<MirOperand>,
@@ -221,6 +222,21 @@ impl Lowerer<'_> {
             lifecycle_continuation,
         )?;
 
+        if first_phase == MirCleanupPhase::LifecycleResolution {
+            self.set_terminator(
+                current,
+                Self::retained_source(source),
+                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                    MirCleanupPhase::LifecycleResolution,
+                    MirEdge::new(lifecycle, []),
+                )),
+            )?;
+
+            self.abnormal_cleanup_machine = Some(machine);
+
+            return Ok(());
+        }
+
         let cancellation_continuation =
             self.abnormal_cancellation_continuation(&mut machine, source, lifecycle)?;
 
@@ -276,6 +292,7 @@ impl Lowerer<'_> {
             report,
             unit,
             self.input.target().runtime_abi(),
+            bray_ir::MirStorageKind::Temporary,
         )?;
 
         let selector = self.builder.push_storage(

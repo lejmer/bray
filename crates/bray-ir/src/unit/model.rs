@@ -41,7 +41,6 @@ impl MirGeneratedLifecycleRole {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => None,
@@ -241,6 +240,19 @@ impl MirUnit {
     /// Returns the hidden protected-frame descriptor when this unit owns one.
     pub const fn frame_descriptor(&self) -> Option<&MirFrameDescriptor> {
         self.frame_descriptor.as_ref()
+    }
+
+    /// Realizes callback execution requirements without changing control flow or identity.
+    pub fn with_frame_execution_requirements(
+        mut self,
+        requirements: &[[&'static [bray_runtime_interface::ExecutionLaneRequirement]; 3]],
+    ) -> Self {
+        self.frame_descriptor
+            .as_mut()
+            .expect("callback requirements belong to a protected frame")
+            .set_execution_requirements(requirements);
+
+        self
     }
 
     /// Returns the entry block.

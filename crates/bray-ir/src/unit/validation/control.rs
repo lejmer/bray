@@ -152,7 +152,7 @@ pub(super) fn validate_terminator(
             };
 
             validate_frame_state(unit, *resume_state)?;
-            validate_ordinary_edge(unit, block_id, resume)?;
+            validate_local_edge(unit, block_id, resume)?;
 
             let Some(descriptor) = unit.frame_descriptor() else {
                 return None;
@@ -244,6 +244,10 @@ pub(super) fn validate_terminator(
                 | MirTerminatorKind::InlineAssembly(_)
                 | MirTerminatorKind::ContinueCleanup(_)
                 | MirTerminatorKind::CheckCallOutcome { .. }
+                | MirTerminatorKind::Return(None)
+                | MirTerminatorKind::Unreachable
+                | MirTerminatorKind::PropagatePanic { .. }
+                | MirTerminatorKind::PropagateCancellation { .. }
         )
     {
         return None;
@@ -317,7 +321,10 @@ fn validate_call_panic_check(
                 crate::ConstructionTarget::TypeForm { .. }
             ),
             crate::MirOperationKind::Memory(memory) => memory.kind().requires_checked_outcome(),
-            crate::MirOperationKind::AdmitOutgoing { .. }
+            crate::MirOperationKind::Async(crate::MirAsyncOperation::CommitAwaitedCompletion {
+                ..
+            })
+            | crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
             | crate::MirOperationKind::Finalize(_)
             | crate::MirOperationKind::Destroy(_) => true,

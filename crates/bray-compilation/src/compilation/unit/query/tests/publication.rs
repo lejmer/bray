@@ -904,16 +904,22 @@ fn recursive_result_dependencies_share_one_component_publication() {
                 .result()
                 .value()
                 .keys()
-                .copied()
+                .cloned()
                 .collect::<std::collections::BTreeSet<_>>(),
             members
                 .iter()
-                .map(|(callable, _)| callable.into_any())
+                .map(
+                    |(callable, _)| bray_checker::ResultDependencyOwner::Declaration(
+                        callable.into_any()
+                    )
+                )
                 .collect()
         );
 
         assert_eq!(
-            published.result().value()[&callable.into_any()].dependencies,
+            published.result().value()
+                [&bray_checker::ResultDependencyOwner::Declaration(callable.into_any())]
+                .dependencies,
             *result.value()
         );
 
@@ -927,7 +933,8 @@ fn recursive_result_dependencies_share_one_component_publication() {
 
         assert!(
             Arc::ptr_eq(
-                published.result().value()[&callable.into_any()]
+                published.result().value()
+                    [&bray_checker::ResultDependencyOwner::Declaration(callable.into_any())]
                     .body
                     .value(),
                 body_result.result().value()
@@ -1054,7 +1061,9 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
 
     assert_eq!(
         summary,
-        published.result().value()[&provider.symbol()].dependencies
+        published.result().value()
+            [&bray_checker::ResultDependencyOwner::Declaration(provider.symbol())]
+            .dependencies
     );
 
     for (symbol, key) in &members {
@@ -1064,7 +1073,9 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
 
         assert!(Arc::ptr_eq(
             body.result().value(),
-            published.result().value()[symbol].body.value()
+            published.result().value()[&bray_checker::ResultDependencyOwner::Declaration(*symbol)]
+                .body
+                .value()
         ));
 
         assert_eq!(

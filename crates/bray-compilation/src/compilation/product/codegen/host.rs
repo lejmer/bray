@@ -262,15 +262,7 @@ impl Compilation {
                 self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
 
             let entry = match root.protected_frame_identity() {
-                Some(frame) => ExecutableHostEntry::asynchronous(
-                    frame,
-                    super::super::realization::generated_frame_symbol_name(
-                        target,
-                        frame,
-                        bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-                    )?,
-                    result,
-                ),
+                Some(frame) => ExecutableHostEntry::asynchronous(frame, result),
                 None => ExecutableHostEntry::synchronous(result),
             };
 

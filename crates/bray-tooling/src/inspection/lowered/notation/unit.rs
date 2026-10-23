@@ -35,8 +35,8 @@ pub(crate) fn render_unit(unit: &InspectionMirUnit, include_source: bool) -> Str
 
             let _ = writeln!(
                 output,
-                "        state {} -> bb{} live [{}];",
-                state.id, state.entry, storages
+                "        state {} -> bb{} broadcast bb{} live [{}];",
+                state.id, state.entry, state.broadcast, storages
             );
         }
 

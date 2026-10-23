@@ -467,7 +467,10 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             && self
                 .configuration
                 .is_enabled(FormatterRule::TrailingCommaLayout)
-            && self.nodes.last().copied() != Some(SyntaxKind::TupleExpression)
+            && !matches!(
+                self.nodes.last(),
+                Some(SyntaxKind::TupleExpression | SyntaxKind::TypeExpression)
+            )
         {
             self.writer.omit_trailing_comma_when_flat();
         }

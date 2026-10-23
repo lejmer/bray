@@ -176,7 +176,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {

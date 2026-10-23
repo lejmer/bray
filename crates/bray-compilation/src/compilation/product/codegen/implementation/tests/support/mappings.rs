@@ -59,7 +59,7 @@ pub(in super::super) fn realize_codegen_mappings(
     target: &bray_codegen::CodegenTarget,
     reachability: &ConcreteCodegenReachability,
     cancellation: &CancellationToken,
-) {
+) -> Vec<bray_codegen::CodegenMappings> {
     let roots = reachability
         .graph()
         .roots()
@@ -98,19 +98,22 @@ pub(in super::super) fn realize_codegen_mappings(
     )
     .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
 
-    for unit in units.iter() {
-        compilation
-            .codegen_mappings_for_product(
-                &test_product_identity(),
-                unit,
-                None,
-                &BTreeSet::new(),
-                target,
-                &roots,
-                reachability,
-                false,
-                cancellation,
-            )
-            .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
-    }
+    units
+        .iter()
+        .map(|unit| {
+            compilation
+                .codegen_mappings_for_product(
+                    &test_product_identity(),
+                    unit,
+                    None,
+                    &BTreeSet::new(),
+                    target,
+                    &roots,
+                    reachability,
+                    false,
+                    cancellation,
+                )
+                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"))
+        })
+        .collect()
 }

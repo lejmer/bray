@@ -1,0 +1,99 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.run;
+
+using std.memory;
+
+// A native entry retains one exclusive dispatch claim. It issues its Cursor
+// locally and never returns it through the ABI.
+trusted internal predicate owned(root: RawPointer<bray.runtime.bootstrap.activation.Header>);
+
+// This non-copyable capability anchors every header borrow in one entry. Moving
+// traversal changes its selected member. Copying these fields issues no authority.
+internal struct Cursor
+{
+    root: RawPointer<bray.runtime.bootstrap.activation.Header>;
+    mut pointer: RawPointer<bray.runtime.bootstrap.activation.Header>;
+}
+
+trusted internal predicate selected(cursor: &Cursor);
+
+trusted internal func current(pos cursor: &mut Cursor)
+    requires(trusted selected(cursor = &cursor))
+    ensures(trusted selected(cursor = &cursor))
+    uses(intrinsic)
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor, root = true);
+
+    cursor.pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+        address = header.current
+    );
+}
+
+trusted internal func select(pos cursor: &mut Cursor)
+    requires(trusted selected(cursor = &cursor))
+    ensures(trusted selected(cursor = &cursor))
+    uses(intrinsic)
+{
+    let address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(cursor.pointer);
+    let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor, root = true);
+
+    header.current = address;
+}
+
+trusted internal func descend(pos cursor: &mut Cursor)
+    requires(trusted selected(cursor = &cursor))
+    ensures(trusted selected(cursor = &cursor))
+    uses(intrinsic)
+{
+    let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
+
+    if header.child == 0
+    {
+        trusted core.target.abort();
+    }
+
+    cursor.pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+        address = header.child
+    );
+
+    // The admitted link identifies a retained child under this same native claim.
+    let retained = trusted lambda(pos cursor: &mut Cursor)
+        ensures(trusted selected(cursor = &cursor))
+        executes(pure, total) {};
+
+    trusted retained(cursor);
+    trusted select(cursor);
+}
+
+trusted internal func begin_broadcast(pos cursor: &mut Cursor)
+    requires(trusted selected(cursor = &cursor))
+    ensures(trusted selected(cursor = &cursor))
+    uses(intrinsic)
+{
+    let root = cursor.root;
+    let identity = trusted core.target.expose_address<bray.runtime.bootstrap.activation.Header>(root);
+
+    {
+        let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor, root = true);
+
+        header.broadcast_next = identity;
+        header.current = identity;
+    }
+
+    cursor.pointer = root;
+}
+
+trusted internal func begin_abandonment(pos cursor: &mut Cursor)
+    requires(trusted selected(cursor = &cursor))
+    ensures(trusted selected(cursor = &cursor))
+{
+    let root = trusted bray.runtime.bootstrap.activation.execution.read(cursor, root = true);
+
+    if root.abandoned != 0
+    {
+        return;
+    }
+
+    trusted begin_broadcast(cursor);
+    trusted abandon(cursor);
+}

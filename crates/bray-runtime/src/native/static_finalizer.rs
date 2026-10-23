@@ -19,7 +19,7 @@ pub(crate) fn run_static_finalizer(
             ];
         };
 
-        if !runtime.start(task, frame.into_protected()).is_success() {
+        if !runtime.start(task, &frame).is_success() {
             return [
                 Some(OwnedCleanupIncident::runtime_failure()),
                 None,
@@ -110,8 +110,7 @@ pub(crate) fn with_static_cleanup_context<T>(
 mod tests {
     use bray_runtime_abi::{
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeProtectedFrame,
-        NativeStaticFinalizerStatus,
+        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeStaticFinalizerStatus,
     };
 
     use super::run_static_finalizer;
@@ -364,29 +363,31 @@ mod tests {
             usize::try_from(u64::from(affinity.code()) | (u64::from(requirements.bits()) << 32))
                 .unwrap_or_else(|_| panic!("native frame state must fit the test target"));
 
-        NativeInactiveFrame::new(context, move_before_start)
+        move_before_start(context)
     }
 
-    extern "C" fn move_before_start(context: usize) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
+    extern "C" fn move_before_start(context: usize) -> NativeInactiveFrame {
+        super::super::fixtures::admit(
             context,
-            [9; 32],
-            1,
-            1,
-            1,
-            1,
-            1,
-            state,
-            resume,
-            cancel,
-            ignore_action,
-            ignore_resolution,
-            ignore_completion_move,
-            ignore_action,
+            bray_runtime_abi::NativeActivationDescriptor {
+                storage: bray_runtime_abi::NativeCleanupStorageShape::new([9; 32], 1, 1),
+                header: 0,
+                completion: 0,
+                completion_bytes: 1,
+                completion_align: 1,
+                states: 1,
+                state: state,
+                resume: resume,
+                cancel: cancel,
+                broadcast: ignore_broadcast,
+                resolve: ignore_resolution,
+                move_completion: ignore_completion_move,
+                destroy: ignore_action,
+            },
         )
     }
 
-    extern "C" fn state(context: usize, _: u32) -> NativeFrameState {
+    extern "C" fn state(context: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
         let context = u64::try_from(context)
             .unwrap_or_else(|_| panic!("test frame context must fit the native ABI"));
 
@@ -410,6 +411,8 @@ mod tests {
     extern "C-unwind" fn cancel(destination: &mut NativeFrameProgress, _: usize) {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 0, 0);
     }
+
+    extern "C-unwind" fn ignore_broadcast(_: &mut NativeFrameProgress, _: usize) {}
 
     extern "C-unwind" fn ignore_action(_: usize) {}
 

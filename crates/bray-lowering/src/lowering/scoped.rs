@@ -104,14 +104,19 @@ impl Lowerer<'_> {
                     },
                 )?;
 
-                let (current, value) = lowerer.finish_typed_call_panic_check(
-                    expression,
-                    current,
-                    &source,
-                    &MirOperand::Value(value),
-                    invocation_result.ty(),
-                    None,
-                )?;
+                let (current, value) = if matches!(invocation_result, BoundCallResult::Immediate(_))
+                {
+                    lowerer.finish_typed_call_panic_check(
+                        expression,
+                        current,
+                        &source,
+                        &MirOperand::Value(value),
+                        invocation_result.ty(),
+                        None,
+                    )?
+                } else {
+                    (current, MirOperand::Value(value))
+                };
 
                 let (current, value) =
                     if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
@@ -313,8 +318,6 @@ impl Lowerer<'_> {
                 let mut completion = MirOperand::Value(call);
 
                 if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
-                    block = lowerer.check_scoped_exit_call(block, source, ordinary_shield, &mut continuations)?;
-
                     let awaited = lowerer.lower_awaited_frame(
                         BoundExecutionSite::ScopedExit(expression), completion, result, block,
                         Self::retained_source(source),

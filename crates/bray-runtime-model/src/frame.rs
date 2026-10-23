@@ -91,8 +91,6 @@ impl ProtectedFrameAffinity {
 /// Compiler-emitted operation available for one protected frame.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProtectedFrameOperation {
-    /// Moves an inactive frame into runtime-owned storage.
-    MoveBeforeStart,
     /// Describes one resumable state to the runtime.
     StateDescription,
     /// Enters or resumes the frame.
@@ -111,8 +109,7 @@ pub enum ProtectedFrameOperation {
 
 impl ProtectedFrameOperation {
     /// Every compiler-emitted protected-frame operation in stable order.
-    pub const ALL: [Self; 8] = [
-        Self::MoveBeforeStart,
+    pub const ALL: [Self; 7] = [
         Self::StateDescription,
         Self::Resume,
         Self::CancellationEntry,
@@ -125,7 +122,6 @@ impl ProtectedFrameOperation {
     /// Returns this compiler-generated operation's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::MoveBeforeStart => "move_before_start",
             Self::StateDescription => "state_description",
             Self::Resume => "resume",
             Self::CancellationEntry => "cancellation_entry",
@@ -140,7 +136,6 @@ impl ProtectedFrameOperation {
 /// Binary symbol table for compiler-emitted protected-frame operations.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameOperations {
-    move_before_start: BinarySymbolName,
     state_description: BinarySymbolName,
     resume: BinarySymbolName,
     cancellation_entry: BinarySymbolName,
@@ -157,7 +152,6 @@ impl ProtectedFrameOperations {
         reason = "each protected-frame operation has one required typed symbol"
     )]
     pub const fn new(
-        move_before_start: BinarySymbolName,
         state_description: BinarySymbolName,
         resume: BinarySymbolName,
         cancellation_entry: BinarySymbolName,
@@ -167,7 +161,6 @@ impl ProtectedFrameOperations {
         destruction: BinarySymbolName,
     ) -> Self {
         Self {
-            move_before_start,
             state_description,
             resume,
             cancellation_entry,
@@ -181,7 +174,6 @@ impl ProtectedFrameOperations {
     /// Returns the binary symbol implementing one protected-frame operation.
     pub const fn symbol(&self, operation: ProtectedFrameOperation) -> &BinarySymbolName {
         match operation {
-            ProtectedFrameOperation::MoveBeforeStart => &self.move_before_start,
             ProtectedFrameOperation::StateDescription => &self.state_description,
             ProtectedFrameOperation::Resume => &self.resume,
             ProtectedFrameOperation::CancellationEntry => &self.cancellation_entry,
@@ -241,9 +233,9 @@ pub enum ProtectedFrameLayoutBuildError {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameStateDescriptor {
     state: ProtectedFrameStateId,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
-    initialized_storage: Arc<[ProtectedFrameStorageId]>,
-    dependencies: Arc<[ProtectedFrameDependencyId]>,
+    lane_requirements: &'static [ExecutionLaneRequirement],
+    initialized_storage: Option<Arc<[ProtectedFrameStorageId]>>,
+    dependencies: Option<Arc<[ProtectedFrameDependencyId]>>,
     affinity: ProtectedFrameAffinity,
 }
 
@@ -258,7 +250,7 @@ impl ProtectedFrameStateDescriptor {
     ) -> Self {
         Self {
             state,
-            lane_requirements: sorted_unique_slice(lane_requirements),
+            lane_requirements: ExecutionLaneRequirement::set(lane_requirements),
             initialized_storage: sorted_unique_slice(initialized_storage),
             dependencies: sorted_unique_slice(dependencies),
             affinity,
@@ -272,17 +264,17 @@ impl ProtectedFrameStateDescriptor {
 
     /// Returns the execution-lane requirements active in this state.
     pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
-        &self.lane_requirements
+        self.lane_requirements
     }
 
     /// Returns storage known to be initialized while suspended in this state.
     pub fn initialized_storage(&self) -> &[ProtectedFrameStorageId] {
-        &self.initialized_storage
+        self.initialized_storage.as_deref().unwrap_or_default()
     }
 
     /// Returns unresolved task dependencies owned in this state.
     pub fn dependencies(&self) -> &[ProtectedFrameDependencyId] {
-        &self.dependencies
+        self.dependencies.as_deref().unwrap_or_default()
     }
 
     /// Returns the thread-affinity contract active in this state.
@@ -296,7 +288,7 @@ impl ProtectedFrameStateDescriptor {
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         affinity: ProtectedFrameAffinity,
     ) -> Self {
-        self.lane_requirements = sorted_unique_slice(lane_requirements);
+        self.lane_requirements = ExecutionLaneRequirement::set(lane_requirements);
         self.affinity = affinity;
 
         self
@@ -404,12 +396,10 @@ impl ProtectedFrameDescriptor {
     }
 }
 
-fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Arc<[T]> {
-    values
-        .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Option<Arc<[T]>> {
+    let values = values.into_iter().collect::<BTreeSet<_>>();
+
+    (!values.is_empty()).then(|| values.into_iter().collect())
 }
 
 /// A malformed protected-frame descriptor.
@@ -438,6 +428,52 @@ mod tests {
         BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
         ProtectedFrameAbiVersions, RuntimeAbiVersion,
     };
+
+    #[test]
+    fn placement_changes_retain_local_metadata_without_allocating_lane_sets() {
+        let state = ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(3),
+            [ExecutionLaneRequirement::Compute],
+            [super::ProtectedFrameStorageId::new(7)],
+            [super::ProtectedFrameDependencyId::new(9)],
+            ProtectedFrameAffinity::Movable,
+        );
+
+        let storage = state.initialized_storage().as_ptr();
+        let dependencies = state.dependencies().as_ptr();
+
+        let updated = state.with_execution_requirements(
+            [
+                ExecutionLaneRequirement::Blocking,
+                ExecutionLaneRequirement::Compute,
+            ],
+            ProtectedFrameAffinity::OriginThread,
+        );
+
+        assert_eq!(updated.state(), ProtectedFrameStateId::new(3));
+        assert_eq!(updated.initialized_storage().as_ptr(), storage);
+        assert_eq!(updated.dependencies().as_ptr(), dependencies);
+        assert_eq!(updated.affinity(), ProtectedFrameAffinity::OriginThread);
+
+        assert_eq!(
+            updated.lane_requirements(),
+            [
+                ExecutionLaneRequirement::Blocking,
+                ExecutionLaneRequirement::Compute
+            ]
+        );
+
+        let empty = ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(0),
+            [],
+            [],
+            [],
+            ProtectedFrameAffinity::Movable,
+        );
+
+        assert!(empty.initialized_storage.is_none());
+        assert!(empty.dependencies.is_none());
+    }
 
     #[test]
     fn frame_layouts_require_power_of_two_alignment() {
@@ -561,7 +597,6 @@ mod tests {
 
     fn test_operations() -> ProtectedFrameOperations {
         ProtectedFrameOperations::new(
-            symbol("__bray_test_move"),
             symbol("__bray_test_state"),
             symbol("__bray_test_resume"),
             symbol("__bray_test_cancel"),

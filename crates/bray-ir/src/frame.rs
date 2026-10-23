@@ -24,8 +24,10 @@ pub enum MirFrameReference {
 pub struct MirFrameState {
     state: MirFrameStateId,
     entry: MirBlockId,
+    broadcast: MirBlockId,
     affinity: ProtectedFrameAffinity,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
+    completion_cleanup: bool,
+    lane_requirements: [&'static [ExecutionLaneRequirement]; 3],
     initialized_storages: Arc<[MirStorageId]>,
 }
 
@@ -34,14 +36,17 @@ impl MirFrameState {
     pub fn new(
         state: MirFrameStateId,
         entry: MirBlockId,
+        broadcast: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
             state,
             entry,
+            broadcast,
             affinity: ProtectedFrameAffinity::Movable,
-            lane_requirements: sorted_unique_shared_slice(lane_requirements),
+            completion_cleanup: false,
+            lane_requirements: [ExecutionLaneRequirement::set(lane_requirements), &[], &[]],
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
     }
@@ -56,11 +61,28 @@ impl MirFrameState {
         self.entry
     }
 
+    /// Returns the checked entry that only broadcasts initialized task obligations.
+    pub const fn broadcast(&self) -> MirBlockId {
+        self.broadcast
+    }
+
     /// Retains the exact thread-affinity required by this frame state.
     pub const fn with_affinity(mut self, affinity: ProtectedFrameAffinity) -> Self {
         self.affinity = affinity;
 
         self
+    }
+
+    /// Marks entries belonging to completed-result disposal, including its continuations.
+    pub const fn with_completion_cleanup(mut self, completion_cleanup: bool) -> Self {
+        self.completion_cleanup = completion_cleanup;
+
+        self
+    }
+
+    /// Returns whether this state executes completed-result disposal.
+    pub const fn is_completion_cleanup(&self) -> bool {
+        self.completion_cleanup
     }
 
     /// Returns the checked thread-affinity for this frame state.
@@ -70,7 +92,24 @@ impl MirFrameState {
 
     /// Returns checked execution-lane requirements in canonical order.
     pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
+        self.lane_requirements[0]
+    }
+
+    /// Returns requirements for resume, cancellation or broadcast, in that order.
+    /// Abandonment enters cancellation. Moving a result and releasing empty backing
+    /// execute no source lifecycle operation.
+    pub fn operation_requirements(&self) -> &[&'static [ExecutionLaneRequirement]; 3] {
         &self.lane_requirements
+    }
+
+    /// Attaches requirements established for the concrete callback entries.
+    pub fn with_operation_requirements(
+        mut self,
+        requirements: [Vec<ExecutionLaneRequirement>; 3],
+    ) -> Self {
+        self.lane_requirements = requirements.map(ExecutionLaneRequirement::set);
+
+        self
     }
 
     /// Returns storages known to be initialized when this state is entered.
@@ -86,16 +125,33 @@ pub struct MirFrameDescriptor {
     abi_version: RuntimeAbiVersion,
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
+    completion_state: Option<MirFrameStateId>,
     states: Arc<[MirFrameState]>,
 }
 
 impl MirFrameDescriptor {
+    pub(crate) fn set_execution_requirements(
+        &mut self,
+        requirements: &[[&'static [ExecutionLaneRequirement]; 3]],
+    ) {
+        assert_eq!(
+            self.states.len(),
+            requirements.len(),
+            "realized callback requirements cover every frame state"
+        );
+
+        for (state, requirements) in Arc::make_mut(&mut self.states).iter_mut().zip(requirements) {
+            state.lane_requirements = *requirements;
+        }
+    }
+
     pub(crate) fn remap_local_ids(
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
         for state in Arc::make_mut(&mut self.states) {
             state.entry = mappings.block(state.entry);
+            state.broadcast = mappings.block(state.broadcast);
 
             for storage in Arc::make_mut(&mut state.initialized_storages) {
                 *storage = mappings.storage(*storage);
@@ -110,6 +166,7 @@ impl MirFrameDescriptor {
         abi_version: RuntimeAbiVersion,
         frame_abi: ProtectedFrameAbiVersions,
         result_type: TypeId,
+        completion_state: Option<MirFrameStateId>,
         states: impl IntoIterator<Item = MirFrameState>,
     ) -> Result<Self, crate::MirCapacityError> {
         let states: Vec<_> = states.into_iter().collect();
@@ -144,11 +201,17 @@ impl MirFrameDescriptor {
             );
         }
 
+        assert!(
+            completion_state.is_none_or(|completion| state_ids.contains(&completion)),
+            "completed-result cleanup must identify a described frame state"
+        );
+
         Ok(Self {
             frame,
             abi_version,
             frame_abi,
             result_type,
+            completion_state,
             states: shared_slice(states),
         })
     }
@@ -171,6 +234,12 @@ impl MirFrameDescriptor {
     /// Returns the frame's completed result type.
     pub const fn result_type(&self) -> TypeId {
         self.result_type
+    }
+
+    /// Returns the entry that owns cleanup of a completed, unconsumed result.
+    /// Trivial result types need no result-cleanup entry.
+    pub const fn completion_state(&self) -> Option<MirFrameStateId> {
+        self.completion_state
     }
 
     /// Returns resumable states in descriptor order.
@@ -213,25 +282,32 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [])
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, None, [])
             })
             .is_err()
         );
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [state.clone(), state])
+                MirFrameDescriptor::new(
+                    frame,
+                    abi,
+                    frame_abi,
+                    result_type,
+                    None,
+                    [state.clone(), state],
+                )
             })
             .is_err()
         );
 
-        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
+        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, entry, [], []);
 
         assert!(
             std::panic::catch_unwind(|| {
-                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [non_contiguous])
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, None, [non_contiguous])
             })
             .is_err()
         );

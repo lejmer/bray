@@ -229,10 +229,10 @@ fn boolean_condition_refinements_respect_later_operand_mutation() {
 }
 
 #[test]
-fn opaque_calls_invalidate_storage_refinements_while_pure_calls_preserve_them() {
+fn calls_preserve_unexposed_scalar_refinements() {
     for (call, expected) in [
         ("touch();", Some(PatternPredicate::NullablePresent)),
-        ("opaque();", None),
+        ("opaque();", Some(PatternPredicate::NullablePresent)),
         ("stable();", Some(PatternPredicate::NullablePresent)),
     ] {
         let source = format!(

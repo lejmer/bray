@@ -274,6 +274,24 @@ impl CodegenInstance {
         &self.mir
     }
 
+    /// Attaches realized callback requirements while retaining identity and dependencies.
+    pub fn with_frame_execution_requirements(
+        mut self,
+        requirements: &[[&'static [bray_runtime_interface::ExecutionLaneRequirement]; 3]],
+    ) -> Self {
+        if !requirements.is_empty() {
+            // Concrete metadata owns the descriptor while all immutable MIR tables stay shared.
+            self.mir = Arc::new(
+                self.mir
+                    .as_ref()
+                    .clone()
+                    .with_frame_execution_requirements(requirements),
+            );
+        }
+
+        self
+    }
+
     /// Returns exact generated-definition dependencies in canonical order.
     pub fn dependencies(&self) -> &[CodegenInstanceDependency] {
         &self.dependencies
@@ -523,13 +541,14 @@ mod tests {
 
         builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
 
         let Ok(descriptor) = MirFrameDescriptor::new(
             frame,
             RuntimeAbiVersion::new(1, 0),
             ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
             bray_testing::test_mir_type(),
+            None,
             [state],
         ) else {
             panic!("test frame descriptor must validate");

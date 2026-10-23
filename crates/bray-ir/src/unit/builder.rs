@@ -1316,7 +1316,7 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, entry, [], []);
 
         let abi = RuntimeAbiVersion::new(1, 0);
 
@@ -1325,6 +1325,7 @@ mod tests {
             abi,
             ProtectedFrameAbiVersions::uniform(abi),
             result_type,
+            None,
             [state],
         ) {
             Ok(descriptor) => descriptor,

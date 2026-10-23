@@ -104,6 +104,7 @@ pub(super) fn smoke_test(
     smoke_test_bootstrap(package, target, directory)?;
     super::observation_smoke::smoke_test(package, target, directory)?;
     super::entry_smoke::smoke_test(package, target, directory)?;
+    super::execution::smoke_test(package, target, directory)?;
 
     Ok(())
 }
@@ -443,6 +444,11 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
+        bray_runtime_abi::symbols::ACTIVATION_ENTRY_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_COMPOSITION_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_STEP_SYMBOL,
+        bray_runtime_abi::symbols::ACTIVATION_DISPATCH_SYMBOL,
+        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_ADMISSION_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_ACTIVATION_SYMBOL,
         bray_runtime_abi::symbols::CLEANUP_STORAGE_CLAIM_SYMBOL,
@@ -472,7 +478,6 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::WAKE_SYMBOL,
         bray_runtime_abi::symbols::TEST_ENTRY_SELECTION_SYMBOL,
         bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
-        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
         "bray_runtime_substrate_report_primary",
         "__rust_alloc",
         "__rust_dealloc",

@@ -13,7 +13,7 @@ pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailu
     result.map_err(CodegenFailure::backend_library)
 }
 
-pub(super) fn nonzero_integer<'context>(
+pub(in crate::translation) fn nonzero_integer<'context>(
     builder: &Builder<'context>,
     value: IntValue<'context>,
     name: &str,

@@ -737,3 +737,394 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
 
     assert_eq!(cleanup_storages.len(), required.len(), "{cleanup_places:?}");
 }
+
+#[test]
+fn frame_admission_failure_retains_initialized_capture_cleanup() {
+    for creation in [
+        "async func consume_guard(pos guard: Guard) {} func create(pos guard: Guard) { let outcome = catch { let pending = consume_guard(guard); yield unit; }; }",
+        "callable Worker = async func(pos guard: Guard); func create(pos guard: Guard, pos worker: Worker) { let outcome = catch { let pending = worker(guard); yield unit; }; }",
+    ] {
+        assert_frame_admission_retains_capture(&format!(
+            "module app; struct Guard {{ destruct() {{}} }} {creation}"
+        ));
+    }
+}
+
+fn assert_frame_admission_retains_capture(source: &str) {
+    let compilation = compilation(source);
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "create"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let admission = mir
+        .blocks()
+        .iter()
+        .find(|block| {
+            block.operations().last().is_some_and(|id| {
+                matches!(
+                    mir.operation(*id).unwrap().kind(),
+                    MirOperationKind::AdmitOutgoing {
+                        owner: bray_ir::MirOutgoingOwner::Invocation { .. }
+                            | bray_ir::MirOutgoingOwner::FrameFactory(_),
+                        ..
+                    }
+                )
+            })
+        })
+        .expect("frame backing is secured before capture transfer");
+
+    if let MirOperationKind::AdmitOutgoing {
+        owner: bray_ir::MirOutgoingOwner::FrameFactory(callee),
+        ..
+    } = mir
+        .operation(*admission.operations().last().unwrap())
+        .unwrap()
+        .kind()
+    {
+        let bray_ir::MirOperand::Move(factory) = callee else {
+            panic!("indirect admission retains the evaluated factory");
+        };
+
+        assert!(matches!(
+            mir.storage(factory.storage()).unwrap().kind(),
+            bray_ir::MirStorageKind::Temporary
+        ));
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Store { destination, value: bray_ir::MirOperand::Copy(source), .. }
+                if destination == factory && matches!(mir.storage(source.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(_))
+        )), "factory selection is captured before admission can reenter");
+    }
+
+    let MirTerminatorKind::CheckCallOutcome {
+        completed,
+        panicked,
+        ..
+    } = admission.terminator().kind()
+    else {
+        panic!("admission requires a cleanup edge");
+    };
+
+    let capture = mir
+        .block(completed.target())
+        .unwrap()
+        .operations()
+        .iter()
+        .find_map(|id| {
+            let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) = mir.operation(*id).unwrap().kind()
+            else {
+                return None;
+            };
+
+            let bray_ir::MirOperand::Move(place) = call.arguments()[0].value() else {
+                panic!("constructor moves the guarded input");
+            };
+
+            Some(place)
+        })
+        .expect("only admitted construction transfers captures");
+
+    let mut pending = vec![panicked.target()];
+    let mut seen = BTreeSet::new();
+    let mut resolves_capture = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        let block = mir.block(id).unwrap();
+
+        for id in block.operations() {
+            let kind = mir.operation(*id).unwrap().kind();
+
+            assert!(
+                !matches!(
+                    kind,
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+                ),
+                "failed admission never constructs a frame"
+            );
+
+            resolves_capture |= matches!(kind, MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place
+            } if place == capture);
+        }
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        resolves_capture,
+        "failed admission resolves the exact retained input"
+    );
+}
+
+#[test]
+fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        func entered() {}
+        async func consume_guard(pos guard: Guard) { entered(); }
+    "#,
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "consume_guard"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    let entry = mir
+        .block(mir.frame_descriptor().unwrap().states()[0].entry())
+        .unwrap();
+
+    let MirTerminatorKind::Branch {
+        condition,
+        then_edge,
+        else_edge,
+    } = entry.terminator().kind()
+    else {
+        panic!("initial frame state selects cancellation before source execution");
+    };
+
+    assert!(entry.operations().iter().any(|id| {
+        let operation = mir.operation(*id).unwrap();
+        matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+        ) && operation.result().map(bray_ir::MirOperand::Value).as_ref() == Some(condition)
+    }));
+
+    let mut pending = vec![then_edge.target()];
+    let mut seen = BTreeSet::new();
+    let mut cleans_capture = false;
+
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        assert_ne!(
+            id,
+            else_edge.target(),
+            "cancellation never enters the source body"
+        );
+
+        let block = mir.block(id).unwrap();
+
+        for id in block.operations() {
+            let kind = mir.operation(*id).unwrap().kind();
+
+            if let MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                place,
+            } = kind
+            {
+                cleans_capture |= matches!(
+                    mir.storage(place.storage()).unwrap().kind(),
+                    bray_ir::MirStorageKind::Parameter(_)
+                );
+            }
+        }
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|target| pending.push(target));
+    }
+
+    assert!(
+        cleans_capture,
+        "inactive cancellation resolves initialized captures"
+    );
+}
+
+#[test]
+fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Resource {}
+        impl Resource {
+            enter() -> bool { return true; }
+            async exit(pos lease: bool) {}
+        }
+        async func caller(pos task: Task<unit>, pos resource: Resource) -> bool {
+            return with lease = resource { yield lease; };
+        }
+    "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let checked = compilation.async_analysis(key.clone()).unwrap();
+
+    let exit = checked
+        .value()
+        .suspensions()
+        .iter()
+        .find(|suspension| {
+            matches!(
+                suspension.occurrence(),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(_)
+            )
+        })
+        .unwrap();
+
+    assert!(!exit.cancellation_broadcast().is_empty());
+
+    let lowered = compilation.lowered_unit(key).unwrap();
+    let mir = lowered_mir(&lowered);
+
+    assert!(
+        mir.is_valid(),
+        "broadcast callbacks must satisfy MIR contracts"
+    );
+
+    let frame = mir.frame_descriptor().unwrap();
+
+    assert!(frame.states().len() > 1);
+
+    let mut shielded = false;
+
+    for block in mir.blocks() {
+        let MirTerminatorKind::Suspend {
+            resume_state,
+            cancellation,
+            ..
+        } = block.terminator().kind()
+        else {
+            continue;
+        };
+
+        if matches!(
+            mir.block(cancellation.edge().target())
+                .unwrap()
+                .terminator()
+                .kind(),
+            MirTerminatorKind::Unreachable
+        ) {
+            shielded = true;
+
+            let entry = mir
+                .block(frame.states()[usize::try_from(resume_state.raw()).unwrap()].entry())
+                .unwrap();
+
+            assert!(
+                !entry.operations().iter().any(|operation| matches!(
+                    mir.operation(*operation).unwrap().kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
+                )),
+                "a shielded exit resumes its pending continuation even if cancellation started cleanup"
+            );
+        }
+    }
+
+    assert!(shielded);
+
+    for state in frame.states() {
+        let mut pending = vec![state.broadcast()];
+        let mut seen = BTreeSet::new();
+        let mut broadcasts_task = false;
+
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+
+            assert_ne!(id, state.entry(), "broadcast does not resume the frame");
+
+            let block = mir.block(id).unwrap();
+
+            assert!(!matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend { .. } | MirTerminatorKind::Unreachable
+            ));
+
+            for id in block.operations() {
+                if let MirOperationKind::Cleanup { phase, place } =
+                    mir.operation(*id).unwrap().kind()
+                {
+                    assert_eq!(*phase, bray_ir::MirCleanupPhase::TaskCancellation);
+
+                    broadcasts_task |= matches!(
+                        mir.storage(place.storage()).unwrap().kind(),
+                        bray_ir::MirStorageKind::Parameter(0)
+                    );
+                }
+
+                if let MirOperationKind::Store { destination, .. } =
+                    mir.operation(*id).unwrap().kind()
+                {
+                    assert!(
+                        matches!(
+                            mir.storage(destination.storage()).unwrap().kind(),
+                            bray_ir::MirStorageKind::BroadcastLocal
+                        ),
+                        "broadcast preserves the suspended frame's pending state"
+                    );
+                }
+            }
+
+            block
+                .terminator()
+                .kind()
+                .for_each_successor(|next| pending.push(next));
+        }
+
+        assert!(
+            broadcasts_task,
+            "state {} must broadcast its retained task",
+            state.state().raw()
+        );
+    }
+}
+
+#[test]
+fn frames_without_cancellation_obligations_have_empty_broadcasts() {
+    let compilation = compilation("module app; async func caller() -> bool { return true; }");
+
+    assert!(!compilation.check_diagnostics().has_errors());
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "caller"))
+        .unwrap();
+
+    let mir = lowered_mir(&lowered);
+
+    assert!(mir.is_valid());
+
+    for state in mir.frame_descriptor().unwrap().states() {
+        let block = mir.block(state.broadcast()).unwrap();
+
+        assert!(block.operations().is_empty());
+
+        assert!(matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::Return(None)
+        ));
+    }
+
+    assert!(
+        !mir.storages()
+            .iter()
+            .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::BroadcastLocal))
+    );
+}

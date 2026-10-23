@@ -1,0 +1,131 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.callback;
+
+using std.memory;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap;
+
+// One invocation binds the checked execution snapshot to its exact descriptor,
+// context and operation. It owns both disjoint
+// output slots. The progress slot is initialized with an empty report.
+// The records slot owns the admitted records removed from that
+// activation. Retaining operations keep its frame alive, and consuming retirement
+// retains its descriptor copy and provider code through return.
+trusted internal predicate authorized(
+    execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    context: usize,
+    operation: u32,
+    argument: usize,
+    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
+
+// The native caller checks the exact selected lane and attachment against this
+// snapshot. It cannot change activation state or consume an owner during this
+// query. A non-success status leaves the producer and its records untouched.
+internal callable Ready = @abi(c) trusted func(
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution,
+            count = 1
+        ),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution
+        ),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = execution),
+    );
+
+// The native bridge contains unwind and retains the selected provider throughout
+// the call. Frame headers are not borrowed while producer code executes.
+internal callable Invoke = @abi(c) trusted func(
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    pos context: usize,
+    pos operation: u32,
+    pos argument: usize,
+    pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(
+            execution = execution,
+            descriptor = descriptor,
+            context = context,
+            operation = operation,
+            argument = argument,
+            progress = progress,
+            records = records,
+        ),
+    )
+    ensures(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = descriptor),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Progress>(pointer = progress, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Progress>(pointer = progress),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = progress),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = records, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = records),
+        trusted returned(progress = progress, records = records),
+    );
+
+// The output owns its report provider and all unused records. Initialized fields
+// alone cannot manufacture this evidence.
+trusted internal predicate returned(
+    progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+);
+
+trusted internal func invoke(
+    pos callback: Invoke,
+    pos execution: RawPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos descriptor: RawPointer<bray.runtime.bootstrap.activation.Descriptor>,
+    pos context: usize,
+    pos operation: u32,
+    pos argument: usize,
+    pos progress: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(
+            execution = execution,
+            descriptor = descriptor,
+            context = context,
+            operation = operation,
+            argument = argument,
+            progress = progress,
+            records = records,
+        ),
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
+    uses(raw_memory)
+{
+    trusted callback(execution, descriptor, context, operation, argument, progress, records);
+
+    let take = trusted lambda(
+        pos source: RawPointer<bray.runtime.bootstrap.activation.Progress>,
+        pos records: RawPointer<bray.runtime.bootstrap.ReportRecords>,
+    ) -> bray.runtime.bootstrap.activation.Progress
+        requires(
+            trusted returned(progress = source, records = records),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Progress>(pointer = source, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Progress>(pointer = source),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = source),
+        )
+        ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    {
+        return trusted std.memory.read<bray.runtime.bootstrap.activation.Progress>(source);
+    };
+
+    let remaining = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(records);
+
+    return (take(progress, records), remaining);
+}

@@ -3578,3 +3578,97 @@ fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
         compilation.check_diagnostics()
     );
 }
+
+#[test]
+fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
+    for (helper, valid) in [
+        (
+            "trusted func boundary(pos stop: bool) uses(intrinsic) { if stop { trusted core.target.abort(); } }",
+            true,
+        ),
+        ("extern trusted func boundary(pos stop: bool);", false),
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Owner {{ pointer: RawPointer<u8>; }}
+            trusted predicate live(owner: &Owner);
+            {helper}
+            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
+            func caller(pos owner: &Owner, pos stop: bool)
+                requires(trusted live(owner))
+            {{
+                trusted boundary(stop);
+                observe(owner);
+            }}
+            "#
+        ));
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{helper}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
+    for (guarantee, observation, valid) in [
+        (
+            "ensures(trusted selected(cursor))",
+            "observe(cursor);",
+            true,
+        ),
+        ("", "observe(cursor);", false),
+        (
+            "ensures(trusted selected(cursor))",
+            "observe(other);",
+            false,
+        ),
+        (
+            "ensures(trusted selected(cursor))",
+            "let rebuilt: Cursor = { root = cursor.root, member = cursor.member }; observe(&rebuilt);",
+            false,
+        ),
+    ] {
+        let compilation = compilation(&format!(
+            r#"
+            trusted module app;
+            struct Cursor {{ root: RawPointer<u8>; member: RawPointer<u8>; }}
+            trusted predicate selected(cursor: &Cursor);
+            extern trusted func update(pos cursor: &Cursor)
+                requires(trusted selected(cursor)) {guarantee};
+            func observe(pos cursor: &Cursor) requires(trusted selected(cursor)) {{}}
+            func caller(pos cursor: &Cursor, pos other: &Cursor, pos change: bool)
+                requires(trusted selected(cursor))
+            {{
+                if change {{ trusted update(cursor); }}
+                {observation}
+            }}
+            "#
+        ));
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{guarantee} / {observation}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}

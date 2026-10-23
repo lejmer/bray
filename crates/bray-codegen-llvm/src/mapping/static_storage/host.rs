@@ -4,7 +4,7 @@ use bray_codegen::{
 };
 use inkwell::attributes::AttributeLoc;
 use inkwell::types::{ArrayType, BasicType, IntType, PointerType, StructType};
-use inkwell::values::{ArrayValue, FunctionValue, GlobalValue, PointerValue};
+use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use inkwell::{
     GlobalVisibility,
     module::{Linkage, Module},
@@ -71,7 +71,7 @@ pub(super) fn declare_thread_static_registration<'context>(
 
     let initializer = registration_type.const_named_struct(&[
         descriptor.as_pointer_value().into(),
-        static_identity_value(context, entry.identity()).into(),
+        crate::native::identity_value(context, entry.identity().bytes()).into(),
         callbacks
             .prepare
             .as_global_value()
@@ -148,7 +148,7 @@ pub(super) fn declare_static_host_entry<'context>(
             .const_int(u64::from(bray_runtime_abi::PRODUCT_HOST_ABI_VERSION), false)
             .into(),
         context.i32_type().const_int(duration, false).into(),
-        static_identity_value(context, host_mapping.identity()).into(),
+        crate::native::identity_value(context, host_mapping.identity().bytes()).into(),
         // The final descriptor supplies order. Reusable records must be product independent.
         context.i64_type().const_zero().into(),
         storage.into(),
@@ -228,7 +228,10 @@ fn declare_static_dependency_lookup<'context>(
         builder.position_at_end(block);
 
         builder
-            .build_return(Some(&static_identity_value(context, identity)))
+            .build_return(Some(&crate::native::identity_value(
+                context,
+                identity.bytes(),
+            )))
             .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
@@ -303,7 +306,7 @@ pub(super) fn declare_product_host<'context>(
             .const_int(u64::from(bray_runtime_abi::PRODUCT_HOST_ABI_VERSION), false)
             .into(),
         context.i32_type().const_zero().into(),
-        product_identity_value(context, product_host.identity()).into(),
+        crate::native::identity_value(context, product_host.identity().bytes()).into(),
         static_entry.as_global_value().as_pointer_value().into(),
         usize
             .const_int(
@@ -577,29 +580,6 @@ fn static_identity_type(context: &inkwell::context::Context) -> ArrayType<'_> {
 
 fn product_identity_type(context: &inkwell::context::Context) -> ArrayType<'_> {
     context.i8_type().array_type(32)
-}
-
-fn static_identity_value(
-    context: &inkwell::context::Context,
-    identity: bray_runtime_abi::NativeStaticIdentity,
-) -> ArrayValue<'_> {
-    byte_array(context, identity.bytes())
-}
-
-fn product_identity_value(
-    context: &inkwell::context::Context,
-    identity: bray_runtime_abi::NativeProductIdentity,
-) -> ArrayValue<'_> {
-    byte_array(context, identity.bytes())
-}
-
-fn byte_array(context: &inkwell::context::Context, bytes: [u8; 32]) -> ArrayValue<'_> {
-    let values = bytes
-        .into_iter()
-        .map(|byte| context.i8_type().const_int(u64::from(byte), false))
-        .collect::<Vec<_>>();
-
-    context.i8_type().const_array(&values)
 }
 
 fn usize_type<'context>(

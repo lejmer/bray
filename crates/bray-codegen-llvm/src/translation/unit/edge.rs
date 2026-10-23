@@ -14,9 +14,10 @@ use super::core::UnitTranslator;
 pub(super) fn reachable_blocks(
     unit: &MirUnit,
     forwards_call_outcomes: bool,
+    entries: impl IntoIterator<Item = MirBlockId>,
 ) -> BTreeSet<MirBlockId> {
     let mut reachable = BTreeSet::new();
-    let mut pending = vec![unit.entry()];
+    let mut pending: Vec<_> = entries.into_iter().collect();
 
     while let Some(block) = pending.pop() {
         if !reachable.insert(block) {
@@ -390,10 +391,13 @@ mod tests {
 
         let unit = builder.finish(entry);
 
-        assert_eq!(reachable_blocks(&unit, true), [entry, completed].into());
+        assert_eq!(
+            reachable_blocks(&unit, true, [unit.entry()]),
+            [entry, completed].into()
+        );
 
         assert_eq!(
-            reachable_blocks(&unit, false),
+            reachable_blocks(&unit, false, [unit.entry()]),
             [entry, completed, panicked, cancelled].into()
         );
     }
@@ -412,7 +416,7 @@ mod tests {
         let unit = builder.finish(entry);
 
         assert_eq!(
-            reachable_blocks(&unit, true),
+            reachable_blocks(&unit, true, [unit.entry()]),
             [entry, completed, panicked].into()
         );
     }
@@ -440,7 +444,7 @@ mod tests {
         let unit = builder.finish(entry);
 
         assert_eq!(
-            reachable_blocks(&unit, true),
+            reachable_blocks(&unit, true, [unit.entry()]),
             [entry, completed, panicked, cancelled].into()
         );
     }
@@ -467,7 +471,7 @@ mod tests {
         let unit = builder.finish(entry);
 
         assert_eq!(
-            reachable_blocks(&unit, true),
+            reachable_blocks(&unit, true, [unit.entry()]),
             [entry, completed, panicked].into()
         );
     }
@@ -530,7 +534,7 @@ mod tests {
         let unit = builder.finish(entry);
 
         assert_eq!(
-            reachable_blocks(&unit, true),
+            reachable_blocks(&unit, true, [unit.entry()]),
             [entry, completed, cancelled].into()
         );
     }
@@ -574,7 +578,7 @@ mod tests {
                 entry,
                 source.clone(),
                 MirOperationKind::AdmitOutgoing {
-                    ty,
+                    owner: bray_ir::MirOutgoingOwner::Value(ty),
                     runtime: MirRuntimeReference::new(
                         RuntimeAbiRole::OutgoingAdmission,
                         builder.target().runtime_abi(),

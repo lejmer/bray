@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
-use bray_bound_tree::{BoundCallableTarget, BoundUnitKind};
+use bray_bound_tree::{BoundCallableTarget, BoundUnitKey, BoundUnitKind};
+use bray_checker::ResultDependencyOwner;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableResultDependenciesQuery, CallableSymbolId, DependencyContractTemplateId,
@@ -22,19 +23,25 @@ pub(in crate::compilation) struct BodyAnalysis {
         DiagnosticResult<std::sync::Arc<bray_bound_tree::CheckedBodySemantics>>,
 }
 
-type Component = BTreeMap<AnySymbolId, BodyAnalysis>;
+type Component = BTreeMap<ResultDependencyOwner, BodyAnalysis>;
 
 pub(in crate::compilation) fn source_body_semantics(
     context: &CompilationBindingContext<'_>,
     key: &bray_bound_tree::BoundUnitKey,
 ) -> BindingQueryResult<DiagnosticResult<std::sync::Arc<bray_bound_tree::CheckedBodySemantics>>> {
-    let owner = context
-        .symbols()
-        .symbol_for_key(key.declared_owner())
-        .expect("declared body retains its symbol");
+    let owner = if key.kind() == BoundUnitKind::AnonymousCallable {
+        ResultDependencyOwner::Anonymous(key.clone())
+    } else {
+        ResultDependencyOwner::Declaration(
+            context
+                .symbols()
+                .symbol_for_key(key.declared_owner())
+                .expect("declared body retains its symbol"),
+        )
+    };
 
     let component =
-        source_component(context, owner)?.expect("declared body belongs to a source component");
+        source_component(context, &owner)?.expect("source body belongs to a source component");
 
     // The consumer shares the component's immutable body and diagnostic allocations.
     Ok(component.result().value()[&owner].body.clone())
@@ -78,7 +85,7 @@ fn infer_reachable_results(
 
 fn source_component(
     context: &CompilationBindingContext<'_>,
-    root: AnySymbolId,
+    root: &ResultDependencyOwner,
 ) -> BindingQueryResult<Option<std::sync::Arc<crate::fact::PublishedUnitResult<Component>>>> {
     let compilation = context.compilation();
 
@@ -88,8 +95,7 @@ fn source_component(
 
     let owner = component.iter().min().expect("call component is nonempty");
 
-    let key = compilation
-        .declared_unit_key(*owner, body_kind(*owner))
+    let key = body_key(compilation, owner)
         .map_err(binder_error)?
         .expect("source component owner retains its body");
 
@@ -112,14 +118,14 @@ fn source_component(
 
 fn cached_members(
     compilation: &crate::Compilation,
-    owner: AnySymbolId,
-) -> Option<std::sync::Arc<[AnySymbolId]>> {
+    owner: &ResultDependencyOwner,
+) -> Option<std::sync::Arc<[ResultDependencyOwner]>> {
     compilation
         .state
         .result_dependency_membership
         .lock()
         .expect("source component membership index must remain available")
-        .get(&owner)
+        .get(owner)
         .map(std::sync::Arc::clone)
 }
 
@@ -127,8 +133,8 @@ fn cached_members(
 // prerequisite inside its semantic publication, preserving query dependencies.
 fn source_members(
     context: &CompilationBindingContext<'_>,
-    root: AnySymbolId,
-) -> BindingQueryResult<Option<std::sync::Arc<[AnySymbolId]>>> {
+    root: &ResultDependencyOwner,
+) -> BindingQueryResult<Option<std::sync::Arc<[ResultDependencyOwner]>>> {
     let compilation = context.compilation();
 
     if let Some(members) = cached_members(compilation, root) {
@@ -136,8 +142,8 @@ fn source_members(
     }
 
     let mut units = BTreeSet::new();
-    let mut pending = vec![root];
-    let mut edges = BTreeMap::<AnySymbolId, BTreeSet<AnySymbolId>>::new();
+    let mut pending = vec![root.clone()];
+    let mut edges = BTreeMap::<ResultDependencyOwner, BTreeSet<ResultDependencyOwner>>::new();
     let mut visited = BTreeSet::new();
 
     while let Some(owner) = pending.pop() {
@@ -145,17 +151,15 @@ fn source_members(
 
         // A published component already includes its entire outgoing closure. It cannot
         // return to an undiscovered node in this immutable snapshot.
-        if !visited.insert(owner)
-            || cached_members(compilation, owner).is_some()
-            || context.imported_semantic_address(owner)?.is_some()
+        if !visited.insert(owner.clone())
+            || cached_members(compilation, &owner).is_some()
+            || matches!(&owner, ResultDependencyOwner::Declaration(symbol)
+                if context.imported_semantic_address(*symbol)?.is_some())
         {
             continue;
         }
 
-        let Some(key) = compilation
-            .declared_unit_key(owner, body_kind(owner))
-            .map_err(binder_error)?
-        else {
+        let Some(key) = body_key(compilation, &owner).map_err(binder_error)? else {
             continue;
         };
 
@@ -170,24 +174,31 @@ fn source_members(
             .map_err(binder_error)?;
 
         let prepared = compilation
-            .prepared_body_analysis_with_cancellation(key, context.cancellation)
+            .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
             .map_err(binder_error)?;
 
-        for callee in body_callees(behavior.result().value(), prepared.result().value()) {
-            pending.push(callee);
-            edges.entry(owner).or_default().insert(callee);
+        let expressions = compilation
+            .expression_semantics_with_cancellation(key.clone(), context.cancellation)
+            .map_err(binder_error)?;
+
+        for callee in body_callees(
+            behavior.result().value(),
+            prepared.result().value(),
+            expressions.result().value(),
+        ) {
+            pending.push(callee.clone());
+            edges.entry(owner.clone()).or_default().insert(callee);
         }
 
         units.insert(owner);
     }
 
-    let components = bray_base::strongly_connected_components(units.iter().copied(), |callable| {
+    let components = bray_base::strongly_connected_components(units.iter(), |callable| {
         edges
-            .get(&callable)
+            .get(callable)
             .into_iter()
             .flatten()
-            .filter(|callee| units.contains(callee))
-            .copied()
+            .filter(|callee| units.contains(*callee))
     });
 
     // Binding and query waits hold no index lock, so independent discovery stays parallel.
@@ -200,33 +211,35 @@ fn source_members(
     for component in components {
         if component
             .iter()
-            .any(|member| membership.contains_key(member))
+            .any(|member| membership.contains_key(*member))
         {
             // Concurrent publication can prune a suffix during this walk. Its complete
             // component already owns every member of the resulting partial component.
             assert!(
                 component
                     .iter()
-                    .all(|member| membership.contains_key(member)),
+                    .all(|member| membership.contains_key(*member)),
                 "source component publication must cover its complete outgoing closure"
             );
 
             continue;
         }
 
-        let component = std::sync::Arc::<[AnySymbolId]>::from(component);
+        let component = std::sync::Arc::<[ResultDependencyOwner]>::from(
+            component.into_iter().cloned().collect::<Vec<_>>(),
+        );
 
         for member in component.iter() {
-            membership.insert(*member, std::sync::Arc::clone(&component));
+            membership.insert(member.clone(), std::sync::Arc::clone(&component));
         }
     }
 
-    Ok(membership.get(&root).map(std::sync::Arc::clone))
+    Ok(membership.get(root).map(std::sync::Arc::clone))
 }
 
 fn infer_component(
     compilation: &crate::Compilation,
-    component: &[AnySymbolId],
+    component: &[ResultDependencyOwner],
     cancellation: &crate::fact::CancellationToken,
 ) -> Result<DiagnosticResult<Component>, crate::fact::FactQueryError> {
     use crate::compilation::binder::binding_query_error;
@@ -242,15 +255,14 @@ fn infer_component(
         )
         .expect("empty result dependency template satisfies the semantic store contract");
 
-    let members = component.iter().copied().collect::<BTreeSet<_>>();
+    let members = component.iter().cloned().collect::<BTreeSet<_>>();
     let mut units = BTreeMap::new();
     let mut callees = BTreeSet::new();
     let mut cyclic = component.len() > 1;
     let mut diagnostics = DiagnosticBag::new();
 
     for callable in component {
-        let key = compilation
-            .declared_unit_key(*callable, body_kind(*callable))?
+        let key = body_key(compilation, callable)?
             .expect("source summary component member retains its body");
 
         // Read each prerequisite inside the publication owner so incremental reuse
@@ -260,6 +272,7 @@ fn infer_component(
         for callee in body_callees(
             inputs.behavior.result().value(),
             inputs.prepared.result().value(),
+            inputs.expressions.result().value(),
         ) {
             cyclic |= callee == *callable;
 
@@ -276,16 +289,16 @@ fn infer_component(
             inputs.behavior.result().diagnostics(),
         ]);
 
-        units.insert(*callable, inputs);
+        units.insert(callable.clone(), inputs);
     }
 
     let mut templates = members
         .iter()
-        .map(|callable| (*callable, empty))
+        .map(|callable| (callable.clone(), empty))
         .collect::<BTreeMap<_, _>>();
 
     for callee in callees {
-        let result = summary(&context, callee).map_err(binding_query_error)?;
+        let result = summary(&context, &callee).map_err(binding_query_error)?;
 
         templates.insert(callee, *result.value());
         diagnostics = diagnostics.merged(result.diagnostics());
@@ -294,8 +307,12 @@ fn infer_component(
     let recursive = if cyclic {
         members
             .iter()
-            .copied()
-            .filter_map(CallableSymbolId::try_from_any)
+            .filter_map(|owner| match owner {
+                ResultDependencyOwner::Declaration(symbol) => {
+                    CallableSymbolId::try_from_any(*symbol)
+                }
+                ResultDependencyOwner::Anonymous(_) => None,
+            })
             .collect()
     } else {
         BTreeSet::new()
@@ -320,9 +337,9 @@ fn infer_component(
                 ))
                 .expect("checked component summary has established semantic identities");
 
-            bodies.insert(*callable, BodyAnalysis { dependencies, body });
+            bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
 
-            changed |= templates.insert(*callable, dependencies) != Some(dependencies);
+            changed |= templates.insert(callable.clone(), dependencies) != Some(dependencies);
         }
 
         if !cyclic || !changed {
@@ -423,38 +440,76 @@ fn body_result_dependencies(
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
 }
 
-fn body_kind(owner: AnySymbolId) -> BoundUnitKind {
+fn body_key(
+    compilation: &crate::Compilation,
+    owner: &ResultDependencyOwner,
+) -> Result<Option<BoundUnitKey>, crate::fact::FactQueryError> {
     match owner {
-        AnySymbolId::CallableParameterDefaultProvider(_)
-        | AnySymbolId::StructFieldDefaultProvider(_)
-        | AnySymbolId::UnionPayloadDefaultProvider(_) => BoundUnitKind::RuntimeDefault,
-        AnySymbolId::Static(_) => BoundUnitKind::ConstantTemplate,
-        _ => BoundUnitKind::CallableBody,
+        ResultDependencyOwner::Anonymous(key) => Ok(Some(key.clone())),
+        ResultDependencyOwner::Declaration(symbol) => {
+            let kind = match symbol {
+                AnySymbolId::CallableParameterDefaultProvider(_)
+                | AnySymbolId::StructFieldDefaultProvider(_)
+                | AnySymbolId::UnionPayloadDefaultProvider(_) => BoundUnitKind::RuntimeDefault,
+                AnySymbolId::Static(_) => BoundUnitKind::ConstantTemplate,
+                _ => BoundUnitKind::CallableBody,
+            };
+
+            compilation.declared_unit_key(*symbol, kind)
+        }
     }
 }
 
 fn body_callees<'a>(
     behavior: &'a bray_bound_tree::BodyBehaviorContributions,
     prepared: &'a bray_checker::PreparedBodyAnalysis,
-) -> impl Iterator<Item = AnySymbolId> + 'a {
+    expressions: &'a bray_bound_tree::CheckedExpressionSemantics,
+) -> impl Iterator<Item = ResultDependencyOwner> + 'a {
     behavior
         .calls()
         .iter()
         .filter_map(|call| match call.target() {
-            BoundCallableTarget::Declaration(instance) => {
-                Some(instance.definition().callable_symbol().into_any())
-            }
-            _ => None,
+            BoundCallableTarget::Declaration(instance) => Some(ResultDependencyOwner::Declaration(
+                instance.definition().callable_symbol().into_any(),
+            )),
+            BoundCallableTarget::Anonymous(_)
+            | BoundCallableTarget::Predicate(_)
+            | BoundCallableTarget::Indirect(_) => None,
         })
-        .chain(behavior.defaults().iter().map(|provider| provider.symbol()))
+        // Inactive async construction also needs the body's deferred result summary.
+        .chain(
+            expressions
+                .selections()
+                .entries()
+                .iter()
+                .filter_map(|entry| {
+                    let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+                        return None;
+                    };
+
+                    call.resolution()
+                        .anonymous_body()
+                        .map(|(key, _)| ResultDependencyOwner::Anonymous(key.clone()))
+                }),
+        )
+        .chain(
+            behavior
+                .defaults()
+                .iter()
+                .map(|provider| ResultDependencyOwner::Declaration(provider.symbol())),
+        )
         .chain(
             behavior
                 .static_dependencies()
                 .iter()
                 .copied()
-                .map(AnySymbolId::Static),
+                .map(|symbol| ResultDependencyOwner::Declaration(AnySymbolId::Static(symbol))),
         )
-        .chain(prepared.lifecycle_callees().map(CallableSymbolId::into_any))
+        .chain(
+            prepared
+                .lifecycle_callees()
+                .map(|callable| ResultDependencyOwner::Declaration(callable.into_any())),
+        )
 }
 
 fn source_summary(
@@ -462,28 +517,41 @@ fn source_summary(
     owner: AnySymbolId,
 ) -> BindingQueryResult<Option<DiagnosticResult<DependencyContractTemplateId>>> {
     // Diagnostic bags share their persistent collection with the component publication.
-    Ok(source_component(context, owner)?.map(|component| {
-        DiagnosticResult::new(
-            component.result().value()[&owner].dependencies,
-            component.result().diagnostics().clone(),
-        )
-    }))
+    Ok(
+        source_component(context, &ResultDependencyOwner::Declaration(owner))?.map(|component| {
+            DiagnosticResult::new(
+                component.result().value()[&ResultDependencyOwner::Declaration(owner)].dependencies,
+                component.result().diagnostics().clone(),
+            )
+        }),
+    )
 }
 
 pub(in crate::compilation) fn default_result_dependencies(
     context: &CompilationBindingContext<'_>,
     provider: bray_bound_tree::DefaultValueProvider,
 ) -> BindingQueryResult<DependencyContractTemplateId> {
-    summary(context, provider.symbol()).map(|result| *result.value())
+    summary(
+        context,
+        &ResultDependencyOwner::Declaration(provider.symbol()),
+    )
+    .map(|result| *result.value())
 }
 
 fn summary(
     context: &CompilationBindingContext<'_>,
-    owner: AnySymbolId,
+    owner: &ResultDependencyOwner,
 ) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
     use bray_symbols::{
         CallableParameterDefaultQuery, CallableParameterDefaultValue, StructFieldDefaultQuery,
         StructFieldDefaultValue, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
+    };
+
+    let owner = match owner {
+        ResultDependencyOwner::Declaration(symbol) => *symbol,
+        ResultDependencyOwner::Anonymous(key) => {
+            return anonymous_result_dependencies(context, key);
+        }
     };
 
     if let AnySymbolId::Static(declaration) = owner {
@@ -554,6 +622,21 @@ fn summary(
         }
         _ => panic!("runtime default {owner:?} has a non-default subject {subject:?}"),
     }
+}
+
+pub(in crate::compilation) fn anonymous_result_dependencies(
+    context: &CompilationBindingContext<'_>,
+    key: &BoundUnitKey,
+) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
+    let owner = ResultDependencyOwner::Anonymous(key.clone());
+
+    let component = source_component(context, &owner)?
+        .expect("anonymous callable belongs to a source component");
+
+    Ok(DiagnosticResult::new(
+        component.result().value()[&owner].dependencies,
+        component.result().diagnostics().clone(),
+    ))
 }
 
 /// Static authority uses the initializer's component, without demanding lifecycle graph validation.

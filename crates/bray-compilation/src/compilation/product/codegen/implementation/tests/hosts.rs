@@ -52,14 +52,13 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
         .find_map(|(unit, mappings)| (unit.key() == frame_unit.key()).then_some(mappings))
         .unwrap_or_else(|| panic!("root frame mappings must be retained"));
 
-    let adapter = frame_mapping
-        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
-            frame,
-            operation: ProtectedFrameOperation::MoveBeforeStart,
-        })
-        .map(bray_codegen::CodegenSymbolMapping::name);
-
-    assert_eq!(host.entries()[0].root_frame_adapter(), adapter);
+    for operation in ProtectedFrameOperation::ALL {
+        assert!(
+            frame_mapping
+                .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+                .is_some()
+        );
+    }
 
     for role in [
         RuntimeAbiRole::RootExecution,
@@ -126,6 +125,38 @@ fn independently_started_tasks_emit_native_units() {
             .iter()
             .all(|artifact| !artifact.is_empty())
     );
+
+    let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+        .into_iter()
+        .map(|bytes| String::from_utf8(bytes).unwrap())
+        .collect::<String>();
+
+    assert!(
+        ir.contains("frame.terminal.broadcast:"),
+        "completed source frames skip retained-state broadcast"
+    );
+
+    let callbacks = ir
+        .split("define ")
+        .filter(|body| {
+            body.lines()
+                .next()
+                .is_some_and(|line| line.contains(".frame.cleanup("))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !callbacks.is_empty(),
+        "task observation must retain explicit-outcome cleanup callbacks"
+    );
+
+    for callback in callbacks {
+        assert_eq!(callback.lines().next().unwrap().matches("ptr ").count(), 2);
+
+        let body = callback.split("\n}").next().unwrap();
+
+        assert!(!body.contains("@bray_runtime_panic_propagation("));
+    }
 }
 
 #[test]
@@ -419,4 +450,441 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
         .count();
 
     assert_eq!(root_executions, 1);
+}
+
+#[test]
+fn frame_constructors_claim_admitted_aligned_backing() {
+    let (backend, plan) = runtime_native_plan(
+        "module app; async func child() -> i32 { return 7; } async func main() -> i32 { return await child(); }",
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let ir = artifacts
+        .iter()
+        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(ir.contains("bray_runtime_outgoing_activation"));
+    assert!(ir.contains("frame.outgoing"));
+    assert!(ir.contains("bray_runtime_activation_publication"));
+    assert!(ir.contains("bray_runtime_cleanup_storage_release"));
+    assert!(ir.contains("bray_runtime_outgoing_admission"));
+    assert!(!ir.contains("@calloc("));
+    assert!(!ir.contains("@free("));
+}
+
+#[test]
+fn erased_async_factories_preserve_constructor_backing() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        callable Worker = async func(pos value: i32) -> i32;
+        async func first(pos value: i32) -> i32 { return value + 1; }
+        async func second(pos value: i32) -> i32 { return value + 2; }
+        async func invoke(pos worker: Worker, pos value: i32) -> i32 { return await worker(value); }
+        async func main() -> i32 {
+            let worker: Worker = if true { yield first; } else { yield second; };
+            return await invoke(worker, 6);
+        }
+    "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    let ir = artifacts
+        .iter()
+        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(ir.contains("frame.factory.member"));
+    assert!(ir.contains("frame_factory"));
+    assert!(ir.contains("bray_runtime_outgoing_admission"));
+
+    assert!(
+        !plan
+            .mappings()
+            .iter()
+            .flat_map(|mapping| mapping.symbols())
+            .any(|symbol| {
+                matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(runtime)
+            if runtime.role() == RuntimeAbiRole::FrameCreation)
+            })
+    );
+}
+
+#[test]
+fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        async func identity<T>(pos value: T) -> T { return value; }
+        async func main() -> i32 {
+            let first = await identity<i32>(7);
+            let second = await identity<u32>(8);
+            return first;
+        }
+    "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+    let mut specializations = std::collections::BTreeMap::new();
+
+    for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
+        let ir = std::str::from_utf8(artifact).unwrap();
+
+        for instance in unit.instances() {
+            let Some(identity) = instance.protected_frame_identity() else {
+                continue;
+            };
+
+            specializations
+                .entry(instance.key().template())
+                .or_insert_with(Vec::new)
+                .push(identity);
+
+            let bytes = identity
+                .digest()
+                .iter()
+                .map(|byte| {
+                    if *byte == b'\\' {
+                        "\\\\".to_owned()
+                    } else if (b' '..=b'~').contains(byte) && *byte != b'"' {
+                        char::from(*byte).to_string()
+                    } else {
+                        format!("\\{byte:02X}")
+                    }
+                })
+                .collect::<String>();
+
+            let encoded = format!("c\"{bytes}\"");
+
+            let backing = mappings
+                .symbol(&bray_codegen::CodegenSymbolKey::CleanupStorage(
+                    instance.key().clone(),
+                ))
+                .unwrap();
+
+            let declaration = ir
+                .lines()
+                .find(|line| line.starts_with(&format!("@{} =", backing.name().as_str())))
+                .unwrap();
+
+            assert!(
+                declaration.contains(&encoded),
+                "backing must identify its concrete specialization: {declaration}"
+            );
+
+            let descriptor = ir
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("@{}.activation =", backing.name().as_str()))
+                })
+                .unwrap();
+
+            assert!(
+                descriptor.contains(&encoded),
+                "activation must preserve the admitted concrete identity: {descriptor}"
+            );
+        }
+    }
+
+    let siblings = specializations
+        .values()
+        .find(|identities| identities.len() == 2)
+        .unwrap();
+
+    assert_ne!(
+        siblings[0], siblings[1],
+        "same-sized specializations need distinct authority identities"
+    );
+}
+
+#[test]
+fn failed_frame_resolution_selects_cancellation_before_source_entry() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+        struct Guard { destruct() {} }
+        async func child(pos guard: Guard) -> i32 { return 7; }
+        async func main() -> i32 { return await child(Guard {}); }
+        "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+    let mut checked = 0;
+
+    for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
+        let ir = std::str::from_utf8(artifact).unwrap();
+
+        for instance in unit.instances() {
+            let Some(frame) = instance.protected_frame_identity() else {
+                continue;
+            };
+
+            let symbol = |operation| {
+                mappings
+                    .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
+                    .unwrap()
+                    .name()
+                    .as_str()
+            };
+
+            let resolution = format!("@{}(", symbol(ProtectedFrameOperation::LifecycleResolution));
+
+            let body = ir
+                .split("define ")
+                .find(|body| {
+                    body.lines()
+                        .next()
+                        .is_some_and(|line| line.contains(&resolution))
+                })
+                .unwrap()
+                .split("\n}")
+                .next()
+                .unwrap();
+
+            let cancellation = format!("@{}(", symbol(ProtectedFrameOperation::CancellationEntry));
+
+            if !body.contains(&cancellation) {
+                // LLVM may inline the small cancellation adapter. Its flag must
+                // still be established before resuming the checked state entry.
+                let request = body
+                    .find("store i8 1,")
+                    .expect("inlined cancellation requests delivery");
+
+                let resume = body
+                    .find(&format!("@{}(", symbol(ProtectedFrameOperation::Resume)))
+                    .expect("inlined cancellation enters the checked continuation");
+
+                assert!(request < resume, "{body}");
+            }
+
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked >= 2,
+        "both parent and child failure entries must be checked"
+    );
+}
+
+#[test]
+fn owned_completion_emits_a_resumable_disposal_entry() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct() {}
+        }
+
+        async func child() -> Guard
+        {
+            return Guard {};
+        }
+
+        async func main() -> i32
+        {
+            let value = await child();
+
+            return 0;
+        }
+        "#,
+    );
+
+    let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+    assert!(!artifacts.is_empty());
+
+    let completions = plan
+        .units()
+        .iter()
+        .flat_map(|unit| unit.instances())
+        .filter_map(|instance| instance.mir().frame_descriptor())
+        .filter(|frame| frame.completion_state().is_some())
+        .count();
+
+    assert_eq!(
+        completions, 1,
+        "only the owned child result requires disposal"
+    );
+}
+#[test]
+fn generic_completed_results_retain_concrete_cleanup_lanes() {
+    for (ty, value) in [("Guard", "Guard {}"), ("(Guard, i32)", "(Guard {}, 7)")] {
+        let (_, plan) = runtime_native_plan(
+            &r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            let value = await identity<RESULT>(VALUE);
+
+            return 0;
+        }
+        "#
+            .replace("RESULT", ty)
+            .replace("VALUE", value),
+        );
+
+        let completions = plan
+            .units()
+            .iter()
+            .flat_map(|unit| unit.instances())
+            .filter_map(|instance| instance.mir().frame_descriptor())
+            .filter_map(|frame| {
+                frame.completion_state().map(|completion| {
+                    frame
+                        .states()
+                        .iter()
+                        .find(|state| state.state() == completion)
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            completions.len(),
+            1,
+            "the concrete owned result must retain its disposal state"
+        );
+
+        assert_eq!(
+            completions[0].lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        assert_eq!(
+            completions[0].operation_requirements()[1].as_ref(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        assert!(completions[0].operation_requirements()[2].is_empty());
+
+        let frame = plan
+            .units()
+            .iter()
+            .flat_map(|unit| unit.instances())
+            .filter_map(|instance| instance.mir().frame_descriptor())
+            .find(|frame| frame.completion_state().is_some())
+            .unwrap();
+
+        assert_eq!(
+            frame.states()[0].operation_requirements()[1].as_ref(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+            "abandoning the generic capture runs its concrete destructor before body entry"
+        );
+    }
+}
+
+#[test]
+fn inactive_cancellation_does_not_require_unentered_body_lanes() {
+    let (_, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        async func child() -> i32
+            requires(blocking_execution())
+        {
+            return 7;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            return await child();
+        }
+        "#,
+    );
+
+    let states = plan
+        .units()
+        .iter()
+        .flat_map(|unit| unit.instances())
+        .filter_map(|instance| instance.mir().frame_descriptor())
+        .map(|frame| &frame.states()[0])
+        .collect::<Vec<_>>();
+
+    assert!(!states.is_empty());
+
+    for state in states {
+        assert_eq!(
+            state.lane_requirements(),
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+        );
+
+        assert!(state.operation_requirements()[1].is_empty());
+        assert!(state.operation_requirements()[2].is_empty());
+    }
+}
+
+#[test]
+fn task_observation_retains_concrete_cleanup_lanes_without_executing_them_at_construction() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+                requires(blocking_execution())
+            {
+            }
+        }
+
+        async func identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func main() -> i32
+            requires(blocking_execution())
+        {
+            let task = identity<Guard>(Guard {}).start();
+            let result = await task.join();
+            return 0;
+        }
+    "#,
+    );
+
+    let observations = plan.mappings().iter()
+        .flat_map(bray_codegen::CodegenMappings::operations)
+        .filter(|operation| operation.helpers().iter().any(|helper| matches!(
+            helper.symbol(), Some(bray_codegen::CodegenSymbolKey::Runtime(reference))
+                if reference.role() == bray_runtime_interface::RuntimeAbiRole::TaskObservationCreation
+        )))
+        .collect::<Vec<_>>();
+
+    assert!(!observations.is_empty());
+
+    for observation in observations {
+        assert!(observation.helpers().iter().any(|helper| {
+            helper.execution_requirements().is_some_and(|lanes| {
+                lanes.contains(&bray_runtime_interface::ExecutionLaneRequirement::Blocking)
+            })
+        }));
+    }
+
+    assert!(
+        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
+    );
 }

@@ -4,7 +4,7 @@ use bray_codegen::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirFrameReference, MirHelperReference, MirRuntimeReference};
-use bray_runtime_interface::{ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole};
+use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole};
 use bray_testing::test_mir_unit;
 
 use super::targets::codegen_target;
@@ -43,26 +43,12 @@ fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
             runtime(RuntimeAbiRole::PanicReportConstruction),
         ),
         (
-            MirHelperReference::MoveInactiveFrame(MirFrameReference::Known(frame)),
-            CodegenSymbolKey::ProtectedFrame {
-                frame,
-                operation: ProtectedFrameOperation::MoveBeforeStart,
-            },
-        ),
-        (
-            MirHelperReference::MoveInactiveFrame(MirFrameReference::Erased),
-            runtime(RuntimeAbiRole::InactiveFrameMove),
-        ),
-        (
             MirHelperReference::ComposeAwaitedFrame(MirFrameReference::Erased),
             runtime(RuntimeAbiRole::AwaitedFrameComposition),
         ),
         (
             MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Known(frame)),
-            CodegenSymbolKey::ProtectedFrame {
-                frame,
-                operation: ProtectedFrameOperation::CompletionMove,
-            },
+            runtime(RuntimeAbiRole::FrameCompletionMove),
         ),
         (
             MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Erased),

@@ -491,7 +491,18 @@ where
         }
     }
 
-    for (_, expression) in request.unit().tree().expressions() {
+    for (id, expression) in request.unit().tree().expressions() {
+        if matches!(expression, bray_bound_tree::BoundExpression::Await(_)) {
+            // A completed await owns its result before delivering cancellation.
+            // Publish its cleanup shape with the other implicit input owners.
+            let ty = types
+                .expression(id)
+                .expect("checked await retains its completion type")
+                .ty();
+
+            cleanup_shapes.include_input(ty)?;
+        }
+
         let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
             continue;
         };
@@ -617,6 +628,20 @@ where
         }
 
         plans.push(plan);
+    }
+
+    if matches!(
+        request.unit().root(),
+        bray_bound_tree::BoundUnitRoot::CallableBody {
+            execution: bray_symbols::CallableExecution::Asynchronous,
+            ..
+        } | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+            execution: bray_symbols::CallableExecution::Asynchronous,
+            ..
+        }
+    ) && let Some(result) = types.callable_result_type()
+    {
+        cleanup_shapes.include_input(result)?;
     }
 
     Ok((

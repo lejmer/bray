@@ -16,9 +16,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             self.function,
             self.request.target(),
-            bray_runtime_interface::ProtectedFrameOperation::Resume,
+            if self.frame_broadcast {
+                bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast
+            } else {
+                bray_runtime_interface::ProtectedFrameOperation::Resume
+            },
             progress,
         )
+    }
+
+    pub(in crate::translation::unit) fn return_broadcast_outcome(
+        &self,
+        kind: bray_runtime_abi::NativeFrameProgressKind,
+        payload: BasicValueEnum<'context>,
+    ) -> Result<(), CodegenFailure> {
+        let progress = self.build_frame_progress(
+            kind.code(),
+            self.types.context().i32_type().const_zero(),
+            payload,
+        )?;
+
+        self.return_frame_progress(progress.into())
     }
 
     pub(super) fn resolve_host_result(
@@ -173,7 +191,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             if self.host_role_implementation(completion)
                 != RuntimeRoleImplementation::CompilerLowering
             {
+                let context = self.types.context();
+                let release = context.append_basic_block(self.function, "root.release");
+                let released = context.append_basic_block(self.function, "root.released");
+
+                let present = super::super::support::nonzero_integer(
+                    &self.builder,
+                    root.into_int_value(),
+                    "root.present",
+                )?;
+
+                llvm(
+                    self.builder
+                        .build_conditional_branch(present, release, released),
+                )?;
+
+                self.builder.position_at_end(release);
                 self.invoke_native_runtime(completion, &[root])?;
+                llvm(self.builder.build_unconditional_branch(released))?;
+                self.builder.position_at_end(released);
             }
         }
 
@@ -331,25 +367,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok((Some(completed), result))
     }
 
-    fn safe_completion_payload(
+    pub(super) fn safe_completion_payload(
         &self,
         payload: inkwell::values::IntValue<'context>,
         completed: inkwell::values::IntValue<'context>,
         result_type: inkwell::types::BasicTypeEnum<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let fallback = self.allocate_temporary(result_type, "root.completion.fallback")?;
+        let fallback = self.allocate_temporary(result_type, "completion.unused")?;
 
         llvm(self.builder.build_store(fallback, result_type.const_zero()))?;
 
         let fallback = llvm(self.builder.build_ptr_to_int(
             fallback,
             payload.get_type(),
-            "root.completion.fallback.handle",
+            "completion.unused.handle",
         ))?;
 
         llvm(
             self.builder
-                .build_select(completed, payload, fallback, "root.completion.handle"),
+                .build_select(completed, payload, fallback, "completion.handle"),
         )
         .map(|value| {
             int_value(value)

@@ -99,14 +99,49 @@ BRAY_EXPORT uint64_t bray_foreign_record_alignment(void)
     return _Alignof(BrayForeignRecord);
 }
 
-typedef struct { int8_t narrow; uint8_t unsigned_narrow; int32_t signed_value; } BraySmallRecord;
-typedef struct { float first; float second; } BrayFloatPair;
-typedef struct { int32_t integer; double real; } BrayMixedRecord;
-typedef struct { double real; int32_t integer; } BrayReversedRecord;
-typedef struct { double first; double second; } BrayDoublePair;
-typedef struct { uint64_t first; uint64_t second; uint64_t third; } BrayLargeRecord;
-typedef struct { uint8_t first; uint8_t second; uint8_t third; } BrayByteTriple;
-typedef struct { BraySmallRecord inner; uint64_t wide; } BrayNestedRecord;
+typedef struct
+{
+    int8_t narrow;
+    uint8_t unsigned_narrow;
+    int32_t signed_value;
+} BraySmallRecord;
+typedef struct
+{
+    float first;
+    float second;
+} BrayFloatPair;
+typedef struct
+{
+    int32_t integer;
+    double real;
+} BrayMixedRecord;
+typedef struct
+{
+    double real;
+    int32_t integer;
+} BrayReversedRecord;
+typedef struct
+{
+    double first;
+    double second;
+} BrayDoublePair;
+typedef struct
+{
+    uint64_t first;
+    uint64_t second;
+    uint64_t third;
+} BrayLargeRecord;
+typedef struct
+{
+    uint8_t first;
+    uint8_t second;
+    uint8_t third;
+} BrayByteTriple;
+typedef struct
+{
+    BraySmallRecord inner;
+    uint64_t wide;
+} BrayNestedRecord;
 
 BRAY_EXPORT BrayByteTriple bray_foreign_byte_triple(BrayByteTriple value)
 {

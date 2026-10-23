@@ -8,7 +8,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::boundary::{invoke_static_boundary, mapped_instance_function, static_outcome};
+use super::boundary::{mapped_instance_function, static_outcome};
 use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
@@ -535,7 +535,7 @@ fn declare_static_lifecycle_phase<'context>(
     if let Some(instance) = instance {
         let (function, signature) = mapped_instance_function(module, mappings, instance);
 
-        invoke_static_boundary(
+        crate::mapping::invoke_with_outcome(
             &builder,
             function,
             signature,

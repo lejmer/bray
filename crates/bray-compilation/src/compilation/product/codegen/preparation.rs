@@ -512,8 +512,12 @@ impl Compilation {
         for instance in reachability.graph().instances() {
             let mir = instance.mir();
 
-            if !identities.contains_key(&mir.unit()) {
-                identities.insert(mir.unit(), super::mir_content_identity(self, mir)?);
+            // Instances share immutable MIR by allocation. Concrete descriptors can
+            // differ even when their template-local unit identities are equal.
+            let identity = std::ptr::from_ref(mir);
+
+            if !identities.contains_key(&identity) {
+                identities.insert(identity, super::mir_content_identity(self, mir)?);
             }
         }
 
@@ -523,7 +527,7 @@ impl Compilation {
             |instance| compatibility.get(instance.key()).cloned(),
             |mir| {
                 *identities
-                    .get(&mir.unit())
+                    .get(&std::ptr::from_ref(mir))
                     .expect("partition MIR identity must be prepared")
             },
         )
@@ -599,5 +603,120 @@ impl Compilation {
         );
 
         Ok(mappings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn concrete_completion_metadata_participates_in_partition_identity() {
+        let compilation = crate::test_support::compilation(
+            r#"
+            module app;
+
+            public struct Blocking
+            {
+                destruct()
+                    requires(blocking_execution())
+                {
+                }
+            }
+
+            public struct Computing
+            {
+                destruct()
+                    requires(compute_execution())
+                {
+                }
+            }
+
+            async func identity<T>(pos value: T) -> T
+            {
+                return value;
+            }
+
+            public async func blocking(pos value: Blocking) -> Blocking
+                requires(blocking_execution())
+            {
+                return await identity<Blocking>(value);
+            }
+
+            public async func computing(pos value: Computing) -> Computing
+                requires(compute_execution())
+            {
+                return await identity<Computing>(value);
+            }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap();
+
+        let semantics = compilation.product_semantics().unwrap();
+        let cancellation = &compilation.state.cancellation;
+
+        let roots = compilation
+            .product_root_instances(semantics.value(), None, &target, cancellation)
+            .unwrap();
+
+        let keys = roots.iter().map(|root| root.key().clone()).collect();
+
+        let graph = compilation
+            .codegen_reachability(
+                roots,
+                None,
+                &target,
+                bray_codegen::CodegenOptions::default(),
+                false,
+                cancellation,
+            )
+            .unwrap();
+
+        let product =
+            bray_symbols::ProductIdentity::try_new(crate::test_support::package_identity(), "test")
+                .unwrap();
+
+        let units = compilation
+            .partition_native_codegen(
+                &product,
+                bray_symbols::ProductKind::Library,
+                &graph,
+                &keys,
+                cancellation,
+            )
+            .unwrap();
+
+        let frames = graph
+            .graph()
+            .instances()
+            .iter()
+            .filter(|instance| instance.mir().frame_descriptor().is_some())
+            .collect::<Vec<_>>();
+
+        assert!(
+            frames.iter().any(|left| frames.iter().any(|right| {
+                left.mir().unit() == right.mir().unit()
+                    && left.mir().frame_descriptor() != right.mir().frame_descriptor()
+            })),
+            "fixture must exercise different concrete descriptors for one template"
+        );
+
+        for unit in units.iter() {
+            bray_codegen::CodegenUnit::try_from_key(
+                unit.key(),
+                unit.instances().iter().cloned(),
+                |mir| super::super::mir_content_identity(&compilation, mir).unwrap(),
+            )
+            .expect("planned identity must include each concrete descriptor's actual content");
+        }
     }
 }

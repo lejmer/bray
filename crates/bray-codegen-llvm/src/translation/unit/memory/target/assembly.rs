@@ -414,24 +414,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    pub(in crate::translation::unit) fn call_void_intrinsic(
-        &mut self,
-        name: &str,
-    ) -> Result<(), CodegenFailure> {
-        let function = match self.module.get_function(name) {
-            Some(function) => function,
-            None => self.module.add_function(
-                name,
-                self.types.context().void_type().fn_type(&[], false),
-                None,
-            ),
-        };
-
-        llvm(self.builder.build_call(function, &[], "target.termination"))?;
-
-        Ok(())
-    }
-
     pub(super) fn constant_string(&self, value: ConstantValueId) -> &str {
         let mapping = self
             .request

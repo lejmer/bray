@@ -165,7 +165,10 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::AtomicLoad { .. }
         | Operation::AtomicWait { .. }
         | Operation::AtomicNotify { .. }
-        | Operation::Fence { .. } => StorageEffect::None,
+        | Operation::Fence { .. }
+        // The analysis graph terminates this operation without source cleanup.
+        // There is no returning storage effect, even in a conditional branch.
+        | Operation::CatastrophicAbort => StorageEffect::None,
         Operation::UninitWrite { .. }
         | Operation::UninitMove { .. }
         | Operation::Read {
@@ -192,7 +195,6 @@ pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
         | Operation::RawBufferReplace { .. }
         | Operation::RawBufferRelocate { .. }
         | Operation::ByteBufferFill
-        | Operation::CatastrophicAbort
         | Operation::DebuggerTrap
         | Operation::UnreachableTermination
         | Operation::InlineAssembly { .. } => StorageEffect::Unknown,
