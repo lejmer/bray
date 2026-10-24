@@ -9,7 +9,6 @@ use bray_test_protocol::{
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use super::identity::identity_text;
 use super::report::{
     operation_width, outcome_state, render_details, report_outcome, summary_state, summary_status,
 };
@@ -44,7 +43,7 @@ impl TestProgress {
             let duration = result.duration().map(|duration| duration.duration());
 
             let line = TestReportMessageRenderer::english().live_result(
-                &identity_text(result.identity()),
+                &result.identity().to_string(),
                 report_outcome(result.outcome()),
                 duration,
             );
@@ -92,7 +91,7 @@ impl TerminalTestProgress {
         let identities = plan
             .invocations()
             .iter()
-            .map(|invocation| identity_text(invocation.identity()))
+            .map(|invocation| invocation.identity().to_string())
             .collect::<Vec<_>>();
 
         let subject_width = max_column_width(identities.iter().map(String::as_str));

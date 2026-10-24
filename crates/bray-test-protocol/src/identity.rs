@@ -52,6 +52,23 @@ impl TestIdentity {
     }
 }
 
+impl std::fmt::Display for TestIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{}/{}::",
+            self.product.package().as_str(),
+            self.product.name()
+        )?;
+
+        for segment in self.declaration.module().segments() {
+            write!(formatter, "{segment}.")?;
+        }
+
+        formatter.write_str(self.declaration.name().as_str())
+    }
+}
+
 /// Exact source revision and range that declares one test entry.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TestSourceAnchor {
@@ -83,5 +100,30 @@ impl TestSourceAnchor {
     /// Returns the declaring source revision.
     pub const fn version(self) -> SourceVersion {
         self.version
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TestDeclarationPath, TestIdentity};
+    use bray_symbols::{ModulePathKey, PackageIdentity, ProductIdentity, SymbolName};
+
+    #[test]
+    fn displayed_test_identity_is_product_qualified_and_stable() {
+        let product = ProductIdentity::try_new(
+            PackageIdentity::try_new("sample.package").expect("package"),
+            "checks",
+        )
+        .expect("product");
+
+        let path = TestDeclarationPath::new(
+            ModulePathKey::try_new(["nested", "module"]).expect("module"),
+            SymbolName::try_new("works").expect("name"),
+        );
+
+        assert_eq!(
+            TestIdentity::new(product, path).to_string(),
+            "sample.package/checks::nested.module.works"
+        );
     }
 }

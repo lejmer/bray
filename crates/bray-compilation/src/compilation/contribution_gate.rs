@@ -39,7 +39,11 @@ use super::substitution::named_type;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
-    pub(in crate::compilation) fn module_contribution_gate(
+    /// Returns the cached target and product availability of one raw module contribution.
+    ///
+    /// The ID belongs to this compilation's unselected declaration table. This
+    /// preserves availability evidence independently of checked product entries.
+    pub fn module_contribution_gate(
         &self,
         part: ModulePartId,
     ) -> Result<Arc<DiagnosticResult<ModuleContributionGate>>, FactQueryError> {

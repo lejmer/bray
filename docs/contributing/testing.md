@@ -66,6 +66,26 @@ identities. The first invocation can build compiler tools and bundles. Later inv
 
 The suite requires a supported native host with [LLVM](llvm.md) and a native linker configured.
 
+## Standard-library test completeness
+
+Run the native API plans and outcome checks with:
+
+```text
+cargo xtask standard-library test --part api --part outcomes
+```
+
+The audit derives expected tests from the original product sources, module availability for the selected native target,
+and declared `@test` functions. It checks the published catalog from the copied test workspace against those independent
+facts before accepting reports. New source files and tests automatically join the full sequential and parallel plans.
+The audit prints target exclusions and checks exact identities, source anchors, execution metadata, and catalog digests.
+
+Focused plans declare their intended identities beside their execution oracles. Update those local expectations when
+deliberately widening a plan. Outcome plans must cover every applicable outcome test exactly once, so a new case also
+needs an execution oracle. There is no global expected-test count to update.
+
+The suite requires a supported native host with LLVM and a native linker configured. Source-inventory unit tests cover
+all supported target profiles, while execution checks run on the current host.
+
 ## Readiness audits
 
 Repository-wide readiness audits are development checks rather than ordinary behavioral tests. Run every audit

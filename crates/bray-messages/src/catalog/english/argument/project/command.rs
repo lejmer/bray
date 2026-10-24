@@ -89,6 +89,8 @@ pub(crate) fn format_english_project_command_failure(
             format_english_io_error_kind(*error)
         ),
         Failure::MalformedTestCatalog { path } => format!("the test catalog at {} has malformed contents", format_english_path(path)),
+        Failure::DuplicateTestCatalogEntry { path, identity } => format!("test '{identity}' appears more than once in the test product data at {}", format_english_path(path)),
+        Failure::TestCatalogResultMismatch { path, identity } => format!("test '{identity}' has a result type that disagrees with its recoverable error type in the test product data at {}", format_english_path(path)),
         Failure::UnsupportedTestCatalogVersion { path, actual, supported } => format!("the test catalog at {} uses format version {actual}, but this compiler supports version {supported}", format_english_path(path)),
         Failure::TestCatalogCapacityExceeded { path } => format!("the test catalog at {} exceeds the supported size limits", format_english_path(path)),
         Failure::TestHostChanged { path } => format!("the test host file at {} changed before execution", format_english_path(path)),

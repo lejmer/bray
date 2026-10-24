@@ -89,6 +89,20 @@ fn test_host_file_failures_preserve_the_path_and_specific_cause() {
 
     for (failure, expected) in [
         (
+            Failure::DuplicateTestCatalogEntry {
+                path: "tests.braytest".into(),
+                identity: "sample/tests::checks.works".into(),
+            },
+            "test 'sample/tests::checks.works' appears more than once in the test product data at tests.braytest",
+        ),
+        (
+            Failure::TestCatalogResultMismatch {
+                path: "tests.braytest".into(),
+                identity: "sample/tests::checks.works".into(),
+            },
+            "test 'sample/tests::checks.works' has a result type that disagrees with its recoverable error type in the test product data at tests.braytest",
+        ),
+        (
             Failure::MalformedTestCatalog {
                 path: "tests.braytest".into(),
             },
