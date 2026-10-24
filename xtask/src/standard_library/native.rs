@@ -241,9 +241,15 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     let target = NativeTarget::current()
         .ok_or_else(|| BuildError::conformance("native", "the compiler host is not supported"))?;
 
-    println!("Native standard-library execution target: {}", target.as_str());
+    println!(
+        "Native standard-library execution target: {}",
+        target.as_str()
+    );
 
-    for unavailable in NativeTarget::ALL.into_iter().filter(|other| *other != target) {
+    for unavailable in NativeTarget::ALL
+        .into_iter()
+        .filter(|other| *other != target)
+    {
         println!(
             "  execution unavailable in this run for {}, requires a matching native host",
             unavailable.as_str()

@@ -49,7 +49,7 @@ pub(super) fn smoke_test(
         ),
         (
             "async-tasks",
-            include_str!("../../fixtures/native-execution/async_tasks.bray"),
+            include_str!("../../fixtures/native-execution/async-tasks.bray"),
             0,
         ),
     ] {
