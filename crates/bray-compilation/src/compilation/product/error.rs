@@ -1,7 +1,7 @@
 use bray_codegen::{BackendSelectionError, CodegenCallSite, CodegenInstanceKey, CodegenUnitKey};
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::{ContainerId, DeclarationId};
-use bray_ir::{MirOperationId, MirUnitKey};
+use bray_ir::MirOperationId;
 use bray_source::{SourceId, TextSize, TextSizeOverflow};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantValueId, ConstantValueKind,
@@ -95,8 +95,6 @@ pub(crate) enum ProductQueryContext {
     Type(TypeId),
     /// Product construction for one implementation requirement.
     ImplementationRequirement(ImplementationRequirementKey),
-    /// Product construction for one MIR unit.
-    MirUnit(MirUnitKey),
     /// Product construction for one operation in a concrete code generation instance.
     Operation {
         /// The instance containing the operation.

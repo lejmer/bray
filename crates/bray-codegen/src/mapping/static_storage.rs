@@ -81,16 +81,15 @@ impl CodegenStaticInstanceKey {
     }
 }
 
-/// Native realization selected for one static storage use in a concrete MIR instance.
+/// Native realization of a static definition or a use in a concrete MIR instance.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenStaticStorageMapping {
     owner: CodegenInstanceKey,
-    storage: bray_ir::MirStorageId,
+    storage: Option<bray_ir::MirStorageId>,
     ty: bray_symbols::TypeId,
     instance: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
     native_binding: Option<bray_symbols::NativeSymbolBinding>,
-    defines_storage: bool,
     initial_value: ConstantValueId,
     relocations: Arc<[CodegenStaticRelocation]>,
     outgoing_requirements: Arc<[crate::CodegenCleanupRequirement]>,
@@ -169,15 +168,14 @@ impl CodegenStaticFinalization {
 }
 
 impl CodegenStaticStorageMapping {
-    /// Creates one exact storage-use mapping.
+    /// Creates a definition without a MIR storage root, or a use with its exact root.
     pub fn new(
         owner: CodegenInstanceKey,
-        storage: bray_ir::MirStorageId,
+        storage: Option<bray_ir::MirStorageId>,
         ty: bray_symbols::TypeId,
         instance: CodegenStaticInstanceKey,
         symbol: BinarySymbolName,
         native_binding: Option<bray_symbols::NativeSymbolBinding>,
-        defines_storage: bool,
         initial_value: ConstantValueId,
         relocations: impl IntoIterator<Item = CodegenStaticRelocation>,
         outgoing_requirements: impl IntoIterator<Item = crate::CodegenCleanupRequirement>,
@@ -191,7 +189,6 @@ impl CodegenStaticStorageMapping {
             instance,
             symbol,
             native_binding,
-            defines_storage,
             initial_value,
             relocations: bray_base::shared_slice(relocations),
             outgoing_requirements: bray_base::shared_slice(outgoing_requirements),
@@ -210,8 +207,8 @@ impl CodegenStaticStorageMapping {
         &self.owner
     }
 
-    /// Returns the unit-local static storage root.
-    pub const fn storage(&self) -> bray_ir::MirStorageId {
+    /// Returns the unit-local use, or `None` for the semantic definition.
+    pub const fn storage(&self) -> Option<bray_ir::MirStorageId> {
         self.storage
     }
 
@@ -237,7 +234,7 @@ impl CodegenStaticStorageMapping {
 
     /// Returns whether this unit owns the storage definition.
     pub const fn defines_storage(&self) -> bool {
-        self.defines_storage
+        self.storage.is_none()
     }
 
     /// Returns the product-formed constant value stored before execution begins.

@@ -30,6 +30,13 @@ fn library_static_definition_survives_initializer_pruning() {
         "the exported static keeps its semantic instance"
     );
 
+    assert!(
+        plan.mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .any(|mapping| mapping.defines_storage() && mapping.storage().is_none())
+    );
+
     assert!(!generated_artifacts(&backend, &plan).is_empty());
 }
 

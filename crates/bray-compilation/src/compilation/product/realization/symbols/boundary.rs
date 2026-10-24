@@ -200,12 +200,13 @@ impl Compilation {
         // mappings can still attach a consumer-local finalizer source.
         let source_namespace = match instance.key().template() {
             MirUnitKey::ImportedExecutable(_)
-                if !instance.mir().storages().iter().any(|storage| {
-                    matches!(
-                        storage.kind(),
-                        MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_)
-                    )
-                }) =>
+                if realization.static_instance().is_none()
+                    && !instance.mir().storages().iter().any(|storage| {
+                        matches!(
+                            storage.kind(),
+                            MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_)
+                        )
+                    }) =>
             {
                 [0; 32]
             }

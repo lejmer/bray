@@ -3,8 +3,15 @@ module async_tasks;
 using core.atomic;
 using std.task;
 using std.testing;
+using std.memory;
 
 internal static RELEASE: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static BUFFER_STARTED: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static BUFFER_CLEANUPS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static BUFFER_DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 async func gated(pos gate: usize)
 {
@@ -55,7 +62,71 @@ async func await_cancellation()
     }
 }
 
-async func main()
+struct BufferTaskParticipant
+{
+    async finalize()
+    {
+        _ = core.atomic.fetch_add<usize, 3>(&BUFFER_CLEANUPS, 1);
+
+        // Each child needs its sibling to receive cancellation before it can finish.
+        while core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) != 2
+        {
+            await std.task.yield_now();
+        }
+    }
+
+    destruct()
+    {
+        _ = core.atomic.fetch_add<usize, 3>(&BUFFER_DESTRUCTIONS, 1);
+    }
+}
+
+async func buffer_task()
+{
+    let participant = BufferTaskParticipant
+    {
+    };
+
+    _ = core.atomic.fetch_add<usize, 3>(&BUFFER_STARTED, 1);
+
+    loop
+    {
+        await std.task.yield_now();
+    }
+}
+
+trusted async func represented_tasks()
+    uses(raw_memory, unchecked_init)
+{
+    let mut owners: std.memory.RawBuffer<TaskOwner> = match trusted std.memory.RawBuffer<TaskOwner>(capacity = 3)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("buffer layout"); }
+    };
+
+    trusted internal std.memory.raw_buffer_push<TaskOwner>(
+        &mut owners,
+        TaskOwner
+        {
+            task = buffer_task().start()
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_push<TaskOwner>(
+        &mut owners,
+        TaskOwner
+        {
+            task = buffer_task().start()
+        }
+    );
+
+    while core.atomic.load<usize, 1>(&BUFFER_STARTED) != 2
+    {
+        await std.task.yield_now();
+    }
+}
+
+trusted async func main()
 {
     // The gate keeps each returned task live until its new owner releases it.
     let direct: Task<unit> = await returned_task(1);
@@ -84,4 +155,9 @@ async func main()
     _ = std.testing.assert_panicked<unit>(await failed.join());
 
     std.testing.assert_cancelled<unit>(await cancelled.cancel());
+
+    await trusted represented_tasks();
+
+    assert(core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) == 2);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 2);
 }

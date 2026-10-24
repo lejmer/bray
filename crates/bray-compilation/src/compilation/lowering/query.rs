@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
-    BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot,
-    CheckedExpressionTypes,
+    BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey, CheckedExpressionTypes,
 };
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -11,14 +9,9 @@ use bray_ir::{MirOperand, MirTargetContract};
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, executable_unit_kind, lower_unit,
 };
-use bray_symbols::{
-    AnySymbolId, ConstantTermData, GenericOwnerId, StaticInstanceTemplateId,
-    StaticReferenceSelection, TypeId,
-};
+use bray_symbols::{AnySymbolId, ConstantTermData, StaticInstanceTemplateId};
 
 use super::super::Compilation;
-use super::super::binder::generic_parameter_ids;
-use super::super::substitution::identity_substitution;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
 };
@@ -182,13 +175,6 @@ impl Compilation {
 
         let unit_kind = executable_unit_kind(unit.result().value(), &target);
 
-        let static_owner = self.static_lowering_owner(
-            key,
-            unit.result().value(),
-            expressions.result().value().types(),
-            cancellation,
-        )?;
-
         let native_static_templates =
             self.native_static_templates(expressions.result().value().selections(), cancellation)?;
 
@@ -225,11 +211,6 @@ impl Compilation {
             .with_unwind(body.result().value().unwind())
             .with_native_static_templates(&native_static_templates)
             .with_runtime_calls(&runtime_calls);
-
-        let input = match static_owner {
-            Some((reference, ty)) => input.with_static_owner(reference, ty),
-            None => input,
-        };
 
         let span = self
             .state
@@ -428,72 +409,5 @@ impl Compilation {
         operands.sort_unstable_by_key(|(expression, _)| *expression);
 
         Ok((operands, diagnostics))
-    }
-
-    fn static_lowering_owner(
-        &self,
-        key: &BoundUnitKey,
-        unit: &BoundUnit,
-        expression_types: &CheckedExpressionTypes,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<(StaticReferenceSelection, TypeId)>, FactQueryError> {
-        if key.kind() != BoundUnitKind::ConstantTemplate {
-            return Ok(None);
-        }
-
-        let binding_context = self.binding_context_for(key, cancellation)?;
-
-        let Some(AnySymbolId::Static(declaration)) = binding_context
-            .symbols()
-            .symbol_for_key(key.declared_owner())
-        else {
-            return Ok(None);
-        };
-
-        if self.static_initializer_key(declaration)?.as_ref() != Some(key) {
-            return Ok(None);
-        }
-
-        let parameters = generic_parameter_ids(binding_context.symbols(), declaration.into())
-            .map_err(super::super::binder::binding_query_error)?;
-
-        let owner = GenericOwnerId::try_new(declaration.into()).ok_or_else(|| {
-            FactQueryError::from(super::super::product::ProductQueryFailure::missing(
-                super::super::product::ProductQueryContext::Symbol(declaration.into()),
-                super::super::product::ProductDataKind::GenericOwner,
-            ))
-        })?;
-
-        let substitution =
-            identity_substitution(binding_context.semantic_values(), owner, &parameters)?;
-
-        let BoundUnitRoot::Expression(initializer) = unit.root() else {
-            panic!(
-                "initializer unit {key:?} must have an expression root, got {:?}",
-                unit.root()
-            );
-        };
-
-        let ty = expression_types
-            .expression(initializer)
-            .ok_or_else(|| {
-                FactQueryError::from(super::super::product::ProductQueryFailure::missing(
-                    super::super::product::ProductQueryContext::MirUnit(
-                        bray_ir::MirUnitKey::Bound(key.clone()),
-                    ),
-                    super::super::product::ProductDataKind::ResolvedType,
-                ))
-            })?
-            .ty();
-
-        Ok(Some((
-            StaticReferenceSelection::open(
-                StaticInstanceTemplateId::new(declaration),
-                substitution,
-                [],
-                self.requested_target().profile().identity().clone(),
-            ),
-            ty,
-        )))
     }
 }
