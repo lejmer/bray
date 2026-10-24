@@ -10,6 +10,7 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_syntax::{
     BlockExpressionSyntax, BlockItemSyntax, ExpressionSyntax, SourceSyntaxNode, SyntaxKind,
+    syntax_node_view,
 };
 
 use crate::compilation::Compilation;
@@ -119,9 +120,15 @@ fn discard_suggestion(
 ) -> DiagnosticSuggestion {
     let source = expression.source().source_id();
     let range = expression.full_range();
+    let start = syntax_node_view(expression)
+        .tokens()
+        .next()
+        .expect("a valid source expression has its first token")
+        .range()
+        .start();
 
     let mut edits = vec![DiagnosticSourceEdit::new(
-        SourceSpan::empty(source, range.start()),
+        SourceSpan::empty(source, start),
         "_ = ",
     )];
 
@@ -209,6 +216,8 @@ mod tests {
             edit.replacement(),
         );
 
+        assert!(fixed.contains("\n                _ = value();"));
+
         let fixed_compilation = crate::test_support::compilation(&fixed);
 
         assert!(
@@ -216,6 +225,40 @@ mod tests {
             "{:#?}",
             fixed_compilation.check_diagnostics()
         );
+    }
+
+    #[test]
+    fn discard_edits_preserve_indentation_and_leading_comments() {
+        for (body, corrected) in [
+            ("    value();", "    _ = value();"),
+            (
+                "    // acknowledgement\n    value();",
+                "    // acknowledgement\n    _ = value();",
+            ),
+            (
+                "    /* acknowledgement */ value();",
+                "    /* acknowledgement */ _ = value();",
+            ),
+        ] {
+            let prefix = "module app; func value() -> i32 { return 7; } func main() {\n";
+            let text = format!("{prefix}{body}\n}}");
+            let compilation = compilation(&text);
+            let diagnostic = compilation
+                .check_diagnostics()
+                .by_kind(DiagnosticKind::CheckingIgnoredExpressionResult)
+                .next()
+                .unwrap();
+
+            let edit = &diagnostic.suggestions()[0].edits()[0];
+            let mut fixed = text.clone();
+
+            fixed.insert_str(
+                usize::try_from(edit.span().start().bytes()).unwrap(),
+                edit.replacement(),
+            );
+
+            assert_eq!(fixed, format!("{prefix}{corrected}\n}}"));
+        }
     }
 
     #[test]
