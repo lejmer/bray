@@ -5,6 +5,7 @@ mod compiler_timing;
 mod corpus;
 mod execution;
 mod format;
+mod gate;
 mod html;
 mod model;
 mod observation;

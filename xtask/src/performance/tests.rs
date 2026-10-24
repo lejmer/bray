@@ -98,6 +98,38 @@ fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
 }
 
 #[test]
+fn command_options_require_paired_unique_pinned_inputs() {
+    for arguments in [
+        vec!["--output", "report", "--standard-library", "bundle"],
+        vec!["--output", "report", "--runtime", "runtime.brayrt"],
+        vec![
+            "--output",
+            "report",
+            "--standard-library",
+            "bundle",
+            "--runtime",
+            "runtime.brayrt",
+            "--runtime",
+            "other.brayrt",
+        ],
+    ] {
+        assert!(parse_options_for_test(&arguments).is_err());
+    }
+
+    assert!(
+        parse_options_for_test(&[
+            "--output",
+            "report",
+            "--standard-library",
+            "bundle",
+            "--runtime",
+            "runtime.brayrt",
+        ])
+        .is_ok()
+    );
+}
+
+#[test]
 fn output_validation_rejects_peer_output_mismatches() {
     let expected = bray_base::lowercase_hex(&Sha256::digest([]));
 
@@ -1083,9 +1115,15 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             corpus_sha256: bray_base::lowercase_hex(&Sha256::digest(corpus.as_bytes())),
             target: "x86_64-pc-windows-msvc".to_owned(),
             host: "test-host".to_owned(),
+            host_class: Some("test-host-class".to_owned()),
+            worker_budget: 1,
+            rustc_version: "rustc".to_owned(),
+            standard_library_sha256: "1".repeat(64),
+            runtime_sha256: "2".repeat(64),
             build_configuration: "release".to_owned(),
             compiler_version: "compiler".to_owned(),
             source_revision: "revision".to_owned(),
+            measured_at_unix_nanoseconds: 1,
             llvm_version: "llvm".to_owned(),
             runtime_linkage: RuntimeLinkage::DynamicApplicationRuntime,
             warmup_iterations: 2,

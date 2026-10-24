@@ -145,7 +145,11 @@ pub(super) fn identity(html: &mut BoundedHtml, label: &str, identity: &ReportIde
         <dd><code>{}</code></dd><dt>LLVM</dt><dd>{}</dd><dt>Runtime linkage</dt><dd>{}</dd>\
         <dt>Corpus SHA-256</dt>\
         <dd><code>{}</code></dd><dt>Samples</dt><dd>{} warmup and {} measured</dd>\
-        <dt>Timer resolution</dt><dd>{} ns</dd></dl></section>",
+        <dt>Timer resolution</dt><dd>{} ns</dd>\
+        <dt>Host class</dt><dd>{}</dd><dt>Worker budget</dt><dd>{}</dd>\
+        <dt>Rust toolchain</dt><dd>{}</dd><dt>Standard-library SHA-256</dt><dd><code>{}</code></dd>\
+        <dt>Runtime SHA-256</dt><dd><code>{}</code></dd>\
+        <dt>Measurement start</dt><dd>{} Unix nanoseconds</dd></dl></section>",
         escape(&identity.target),
         escape(&identity.host),
         escape(&identity.compiler_version),
@@ -156,6 +160,12 @@ pub(super) fn identity(html: &mut BoundedHtml, label: &str, identity: &ReportIde
         identity.warmup_iterations,
         identity.sample_iterations,
         grouped(identity.timer_resolution_nanoseconds),
+        escape(identity.host_class.as_deref().unwrap_or("not declared")),
+        identity.worker_budget,
+        escape(&identity.rustc_version),
+        escape(&identity.standard_library_sha256),
+        escape(&identity.runtime_sha256),
+        identity.measured_at_unix_nanoseconds,
     );
 }
 

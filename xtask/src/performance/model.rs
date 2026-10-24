@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 1;
+pub(super) const SCHEMA_REVISION: u32 = 2;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
@@ -49,9 +49,15 @@ pub(super) struct ReportIdentity {
     pub corpus_sha256: String,
     pub target: String,
     pub host: String,
+    pub host_class: Option<String>,
+    pub worker_budget: usize,
+    pub rustc_version: String,
+    pub standard_library_sha256: String,
+    pub runtime_sha256: String,
     pub build_configuration: String,
     pub compiler_version: String,
     pub source_revision: String,
+    pub measured_at_unix_nanoseconds: u128,
     pub llvm_version: String,
     pub runtime_linkage: RuntimeLinkage,
     pub warmup_iterations: u32,

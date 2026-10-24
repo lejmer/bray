@@ -17,6 +17,8 @@ pub(super) fn report_identity(
     options: &Options,
     workloads: &[&Workload],
     timer_resolution_nanoseconds: u64,
+    standard_library: &Path,
+    runtime: &Path,
 ) -> Result<ReportIdentity, String> {
     let corpus_sha256 = corpus_digest(workloads);
 
@@ -48,9 +50,18 @@ pub(super) fn report_identity(
         target: options.target.as_str().to_owned(),
         host: NativeTarget::current()
             .map_or_else(|| "unsupported".to_owned(), |host| host.as_str().to_owned()),
+        host_class: options.host_class.clone(),
+        worker_budget: bray_compilation::WorkerBudget::available_parallelism().get(),
+        rustc_version: command_text(Command::new("rustc").arg("--version"))?,
+        standard_library_sha256: file_digest(&standard_library.join("manifest.json"))?,
+        runtime_sha256: runtime_digest(runtime)?,
         build_configuration: "release".to_owned(),
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         source_revision,
+        measured_at_unix_nanoseconds: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| format!("measurement clock precedes Unix epoch: {error}"))?
+            .as_nanos(),
         llvm_version: llvm_version
             .lines()
             .next()
@@ -61,6 +72,44 @@ pub(super) fn report_identity(
         sample_iterations: options.samples,
         timer_resolution_nanoseconds,
     })
+}
+
+fn file_digest(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("could not fingerprint {}: {error}", path.display()))?;
+
+    Ok(hex(Sha256::digest(bytes).into()))
+}
+
+fn runtime_digest(metadata: &Path) -> Result<String, String> {
+    let directory = metadata
+        .parent()
+        .expect("prepared runtime metadata has a package directory");
+
+    let mut paths = std::fs::read_dir(directory)
+        .map_err(|error| format!("could not inspect {}: {error}", directory.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not inspect runtime inputs: {error}"))?;
+
+    paths.sort();
+
+    let mut digest = Sha256::new();
+
+    for path in paths {
+        if path.is_file() && path.file_name().is_some_and(|name| name != "input.sha256") {
+            digest.update(
+                path.file_name()
+                    .expect("runtime input has a name")
+                    .as_encoded_bytes(),
+            );
+
+            digest.update([0]);
+            digest.update(file_digest(&path)?);
+        }
+    }
+
+    Ok(hex(digest.finalize().into()))
 }
 
 pub(in crate::performance) fn expected_output_digest(
@@ -186,4 +235,40 @@ fn command_text(command: &mut Command) -> Result<String, String> {
 
 fn hex(bytes: [u8; 32]) -> String {
     lowercase_hex(&bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn runtime_identity_fingerprints_the_metadata_package_and_ignores_cache_stamps() {
+        let package = tempfile::tempdir().expect("runtime package");
+        let metadata = package.path().join("bray-runtime.brayrt");
+        let archive = package.path().join("libbray_runtime.a");
+
+        std::fs::write(&metadata, b"metadata").expect("runtime metadata");
+        std::fs::write(&archive, b"archive").expect("runtime archive");
+
+        let original = super::runtime_digest(&metadata).expect("metadata file identifies package");
+
+        std::fs::write(package.path().join("input.sha256"), b"cache stamp")
+            .expect("runtime cache stamp");
+
+        assert_eq!(
+            super::runtime_digest(&metadata).expect("package identity"),
+            original
+        );
+
+        std::fs::write(&archive, b"changed archive").expect("changed runtime archive");
+
+        let changed = super::runtime_digest(&metadata).expect("changed package identity");
+
+        assert_ne!(changed, original);
+
+        std::fs::write(&metadata, b"changed metadata").expect("changed runtime metadata");
+
+        assert_ne!(
+            super::runtime_digest(&metadata).expect("changed metadata identity"),
+            changed
+        );
+    }
 }

@@ -49,7 +49,7 @@ const REQUIRED_CLOSED_CATEGORIES: &[&str] = &[
     "MirTaskTerminalState",
     "MirUnaryOperator",
     "PatternOperation",
-    "PatternPredicate",
+    "MirPatternPredicate",
     "PatternProjection",
 ];
 

@@ -161,7 +161,7 @@ fn compare_compilation(
         .collect()
 }
 
-fn validate_identity(
+pub(super) fn validate_identity(
     baseline: &PerformanceReport,
     candidate: &PerformanceReport,
 ) -> Result<(), String> {
@@ -173,6 +173,11 @@ fn validate_identity(
         || left.corpus_sha256 != right.corpus_sha256
         || left.target != right.target
         || left.host != right.host
+        || left.host_class != right.host_class
+        || left.worker_budget != right.worker_budget
+        || left.rustc_version != right.rustc_version
+        || left.standard_library_sha256 != right.standard_library_sha256
+        || left.runtime_sha256 != right.runtime_sha256
         || left.build_configuration != right.build_configuration
         || left.compiler_version != right.compiler_version
         || left.llvm_version != right.llvm_version

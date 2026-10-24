@@ -17,3 +17,4 @@ pub(super) use options::parse_for_test as parse_options_for_test;
 pub(in crate::performance) use output::validate as validate_output;
 #[cfg(test)]
 pub(super) use output::validate_parts as validate_output_parts;
+pub(in crate::performance) use publication::read_report;

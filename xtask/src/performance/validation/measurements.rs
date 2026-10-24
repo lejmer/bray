@@ -147,9 +147,18 @@ pub(super) fn validate_identity(report: &PerformanceReport) -> Result<NativeTarg
         || !sha_is_valid(&identity.corpus_sha256)
         || identity.target.is_empty()
         || identity.host.is_empty()
+        || identity
+            .host_class
+            .as_ref()
+            .is_some_and(|label| label.trim().is_empty() || label.len() > 256)
+        || identity.worker_budget == 0
+        || identity.rustc_version.is_empty()
+        || !sha_is_valid(&identity.standard_library_sha256)
+        || !sha_is_valid(&identity.runtime_sha256)
         || identity.build_configuration.is_empty()
         || identity.compiler_version.is_empty()
         || identity.source_revision.is_empty()
+        || identity.measured_at_unix_nanoseconds == 0
         || identity.llvm_version.is_empty()
         || identity.runtime_linkage != expected_runtime_linkage
         || identity.warmup_iterations == 0

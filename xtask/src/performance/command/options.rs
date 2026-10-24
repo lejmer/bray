@@ -9,6 +9,8 @@ use super::super::model::MAX_SAMPLE_COUNT;
 pub(super) struct Options {
     pub output: PathBuf,
     pub baseline: Option<PathBuf>,
+    pub host_class: Option<String>,
+    pub toolchain: Option<(PathBuf, PathBuf)>,
     pub target: NativeTarget,
     pub warmup: u32,
     pub samples: u32,
@@ -19,6 +21,9 @@ impl Options {
     pub fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut output = None;
         let mut baseline = None;
+        let mut host_class = None;
+        let mut standard_library = None;
+        let mut runtime = None;
         let mut target = None;
         let mut warmup = 2;
         let mut samples = 7;
@@ -29,6 +34,24 @@ impl Options {
                 "--output" if output.is_none() => output = Some(path(&mut arguments, "--output")?),
                 "--baseline" if baseline.is_none() => {
                     baseline = Some(path(&mut arguments, "--baseline")?);
+                }
+                "--standard-library" if standard_library.is_none() => {
+                    standard_library = Some(path(&mut arguments, "--standard-library")?);
+                }
+                "--runtime" if runtime.is_none() => {
+                    runtime = Some(path(&mut arguments, "--runtime")?);
+                }
+                "--host-class" if host_class.is_none() => {
+                    let label = value(&mut arguments, "--host-class")?;
+
+                    if label.trim().is_empty() || label.len() > 256 {
+                        return Err(
+                            "--host-class requires a nonempty label of at most 256 bytes"
+                                .to_owned(),
+                        );
+                    }
+
+                    host_class = Some(label);
                 }
                 "--target" if target.is_none() => {
                     let value = value(&mut arguments, "--target")?;
@@ -57,6 +80,14 @@ impl Options {
 
         let output = output.ok_or_else(|| "missing --output".to_owned())?;
 
+        let toolchain = match (standard_library, runtime) {
+            (Some(standard_library), Some(runtime)) => Some((standard_library, runtime)),
+            (None, None) => None,
+            _ => {
+                return Err("--standard-library and --runtime must be supplied together".to_owned());
+            }
+        };
+
         let host = NativeTarget::current()
             .ok_or_else(|| "the compiler host does not select a native target".to_owned())?;
 
@@ -72,6 +103,8 @@ impl Options {
         Ok(Self {
             output,
             baseline,
+            host_class,
+            toolchain,
             target,
             warmup,
             samples,
