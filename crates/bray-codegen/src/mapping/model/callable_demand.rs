@@ -130,6 +130,7 @@ fn operation_callable_instances(
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
+        | MirOperationKind::ReleaseBuffer { .. }
         | MirOperationKind::Quiesce { .. }
         | MirOperationKind::Destroy { .. }
         | MirOperationKind::Cleanup { .. }

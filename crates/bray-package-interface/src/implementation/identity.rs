@@ -16,7 +16,7 @@ use super::codec::runtime_requirements_identity;
 
 /// Exact compiler template-schema revision implemented by this crate.
 pub const CURRENT_TEMPLATE_SCHEMA_REVISION: ImplementationTemplateSchemaRevision =
-    ImplementationTemplateSchemaRevision::new(1);
+    ImplementationTemplateSchemaRevision::new(2);
 
 /// Exact compiler schema used to interpret checked implementation templates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -448,7 +448,7 @@ mod tests {
     use super::CURRENT_TEMPLATE_SCHEMA_REVISION;
 
     #[test]
-    fn current_implementation_template_schema_is_version_one() {
-        assert_eq!(CURRENT_TEMPLATE_SCHEMA_REVISION.raw(), 1);
+    fn current_implementation_template_schema_is_version_two() {
+        assert_eq!(CURRENT_TEMPLATE_SCHEMA_REVISION.raw(), 2);
     }
 }

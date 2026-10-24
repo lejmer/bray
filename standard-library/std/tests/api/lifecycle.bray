@@ -4,6 +4,8 @@ using std.bytes;
 using std.format;
 using std.io;
 using std.memory;
+using core.atomic;
+using std.task;
 
 @test
 func imported_buffer_is_destroyed() -> Result<unit, std.memory.MemoryLayoutError>
@@ -51,6 +53,207 @@ func repeated_standard_output_locks_are_released() -> Result<unit, std.io.IoErro
 {
     try std.io.print("first-lock|");
     try std.io.print("second-lock");
+
+    return Ok(unit);
+}
+
+struct CleanupCounts
+{
+    finalized: core.atomic.Atomic<usize>;
+    destroyed: core.atomic.Atomic<usize>;
+}
+
+func cleanup_counts() -> CleanupCounts
+{
+    return
+    {
+        finalized = core.atomic.initialize<usize>(0),
+        destroyed = core.atomic.initialize<usize>(0),
+    };
+}
+
+struct BufferElement
+{
+    counts: &CleanupCounts;
+    digit: usize;
+    fail: bool = false;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+
+        let previous = core.atomic.load<usize, 1>(&self.counts.finalized);
+
+        core.atomic.store<usize, 4>(&self.counts.finalized, previous * 10 + self.digit);
+
+        if self.fail
+        {
+            panic("buffer finalizer");
+        }
+    }
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&self.counts.destroyed);
+
+        core.atomic.store<usize, 4>(&self.counts.destroyed, previous * 10 + self.digit);
+    }
+}
+
+@test
+trusted async func borrowed_buffer_release_can_repeat_and_refill() -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let counts = cleanup_counts();
+    let mut buffer: std.memory.RawBuffer<BufferElement> = try trusted std.memory.RawBuffer<BufferElement>(capacity = 2);
+
+    trusted internal std.memory.raw_buffer_push<BufferElement>(
+        &mut buffer,
+        BufferElement
+        {
+            counts = &counts,
+            digit = 1
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_release<BufferElement>(&mut buffer);
+    trusted internal std.memory.raw_buffer_release<BufferElement>(&mut buffer);
+
+    let mut replacement: std.memory.RawBuffer<BufferElement> = try trusted std.memory.RawBuffer<BufferElement>(
+        capacity = 2
+    );
+
+    trusted internal std.memory.raw_buffer_push<BufferElement>(
+        &mut replacement,
+        BufferElement
+        {
+            counts = &counts,
+            digit = 2
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_replace<BufferElement>(&mut buffer, &mut replacement);
+    trusted internal std.memory.raw_buffer_release<BufferElement>(&mut buffer);
+
+    assert(std.memory.initialized_count<BufferElement>(&buffer) == 0);
+    assert(std.memory.initialized_count<BufferElement>(&replacement) == 0);
+    assert(core.atomic.load<usize, 1>(&counts.finalized) == 12);
+    assert(core.atomic.load<usize, 1>(&counts.destroyed) == 12);
+
+    return Ok(unit);
+}
+
+@test
+trusted async func buffer_cleanup_continues_after_suspending_finalizer_failure(
+) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let counts = cleanup_counts();
+    let mut buffer: std.memory.RawBuffer<BufferElement> = try trusted std.memory.RawBuffer<BufferElement>(capacity = 4);
+
+    trusted internal std.memory.raw_buffer_push<BufferElement>(
+        &mut buffer,
+        BufferElement
+        {
+            counts = &counts,
+            digit = 1
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_push<BufferElement>(
+        &mut buffer,
+        BufferElement
+        {
+            counts = &counts,
+            digit = 2,
+            fail = true
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_push<BufferElement>(
+        &mut buffer,
+        BufferElement
+        {
+            counts = &counts,
+            digit = 3
+        }
+    );
+
+    let failure: Result<unit, PanicReport> = catch
+    {
+        trusted internal std.memory.raw_buffer_release<BufferElement>(&mut buffer);
+        yield unit;
+    };
+
+    let failed = match consume failure
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    assert(failed);
+    assert(std.memory.initialized_count<BufferElement>(&buffer) == 0);
+    assert(core.atomic.load<usize, 1>(&counts.finalized) == 321);
+    assert(core.atomic.load<usize, 1>(&counts.destroyed) == 321);
+
+    return Ok(unit);
+}
+
+@test
+trusted async func buffer_replacement_installs_new_contents_before_cleanup_failure(
+) -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let counts = cleanup_counts();
+
+    {
+        let mut destination: std.memory.RawBuffer<BufferElement> = try trusted std.memory.RawBuffer<BufferElement>(
+            capacity = 1
+        );
+
+        let mut replacement: std.memory.RawBuffer<BufferElement> = try trusted std.memory.RawBuffer<BufferElement>(
+            capacity = 1
+        );
+
+        trusted internal std.memory.raw_buffer_push<BufferElement>(
+            &mut destination,
+            BufferElement
+            {
+                counts = &counts,
+                digit = 1,
+                fail = true
+            }
+        );
+
+        trusted internal std.memory.raw_buffer_push<BufferElement>(
+            &mut replacement,
+            BufferElement
+            {
+                counts = &counts,
+                digit = 2
+            }
+        );
+
+        let failure: Result<unit, PanicReport> = catch
+        {
+            trusted internal std.memory.raw_buffer_replace<BufferElement>(&mut destination, &mut replacement);
+            yield unit;
+        };
+
+        let failed = match consume failure
+        {
+            case Ok(_) { yield false; }
+            case Error(_) { yield true; }
+        };
+
+        assert(failed);
+        assert(std.memory.initialized_count<BufferElement>(&destination) == 1);
+        assert(std.memory.initialized_count<BufferElement>(&replacement) == 0);
+        assert(core.atomic.load<usize, 1>(&counts.destroyed) == 1);
+    };
+
+    assert(core.atomic.load<usize, 1>(&counts.finalized) == 12);
+    assert(core.atomic.load<usize, 1>(&counts.destroyed) == 12);
 
     return Ok(unit);
 }

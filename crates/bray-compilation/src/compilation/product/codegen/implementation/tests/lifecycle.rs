@@ -90,6 +90,92 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
 
         func dispose(pos buffer: std.memory.RawBuffer<Resource>) {}
         func dispose_bytes(pos buffer: std.memory.RawBuffer<u8>) {}
+
+        using core.atomic;
+        static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+        async func record()
+        {
+            let previous = core.atomic.load<usize, 1>(&COUNT);
+            core.atomic.store<usize, 4>(&COUNT, previous + 1);
+        }
+
+        struct Suspending
+        {
+            async finalize() { await record(); }
+        }
+
+        async func dispose_suspending(pos buffer: std.memory.RawBuffer<Suspending>) {}
+        async func dispose_boxed(pos owner: box Suspending) {}
+        async func dispose_tasks(pos buffer: std.memory.RawBuffer<Task<unit>>) {}
+        async func dispose_futures(pos buffer: std.memory.RawBuffer<Future<unit>>) {}
+
+        struct Sibling
+        {
+            task: Task<unit>;
+            tail: Suspending;
+        }
+
+        struct Group
+        {
+            first: Task<unit>;
+            middle: [Sibling; 2];
+            last: Suspending;
+        }
+
+        async func dispose_groups(pos buffer: std.memory.RawBuffer<Group>) {}
+
+        trusted async func construct_suspending() -> Result<unit, std.memory.MemoryLayoutError>
+        {
+            let buffer: std.memory.RawBuffer<Suspending> = try trusted std.memory.RawBuffer<Suspending>(capacity = 1);
+
+            return Ok(unit);
+        }
+
+        struct Node
+        {
+            children: std.memory.RawBuffer<Node>;
+            async finalize() { await record(); }
+        }
+
+        async func dispose_recursive(pos buffer: std.memory.RawBuffer<Node>) {}
+
+        async func dispose_generic<T>(pos buffer: std.memory.RawBuffer<T>) {}
+        async func dispose_generic_owner(pos buffer: std.memory.RawBuffer<Suspending>)
+        {
+            await dispose_generic<Suspending>(buffer);
+        }
+
+        trusted async func release_generic<T>(pos buffer: &mut std.memory.RawBuffer<T>)
+            uses(manual_alloc)
+        {
+            trusted std.memory.raw_buffer_release<T>(buffer);
+        }
+
+        trusted async func release_generic_owner(pos buffer: &mut std.memory.RawBuffer<Suspending>)
+        {
+            await trusted release_generic<Suspending>(buffer);
+        }
+
+        trusted async func release_generic_bytes(pos buffer: &mut std.memory.RawBuffer<u8>)
+        {
+            await trusted release_generic<u8>(buffer);
+        }
+
+        trusted async func release_suspending(pos buffer: &mut std.memory.RawBuffer<Suspending>)
+            uses(manual_alloc)
+        {
+            trusted std.memory.raw_buffer_release<Suspending>(buffer);
+        }
+
+        trusted async func replace_suspending(
+            pos destination: &mut std.memory.RawBuffer<Suspending>,
+            pos source: &mut std.memory.RawBuffer<Suspending>,
+        )
+            uses(manual_alloc)
+        {
+            trusted std.memory.raw_buffer_replace<Suspending>(destination, source);
+        }
     "#;
 
     let (backend, codegen) = super::support::compilation::codegen_configuration();
@@ -167,13 +253,21 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
         )
         .unwrap();
 
-    let mut observed = 0;
+    let mut observed = std::collections::BTreeSet::new();
+    let mut retained_array_prefix = false;
 
     for mir in plan
         .units()
         .iter()
         .flat_map(bray_codegen::CodegenUnit::mir_units)
     {
+        if let Some(frame) = mir.frame_descriptor() {
+            retained_array_prefix |= frame
+                .states()
+                .iter()
+                .any(|state| broadcast_retains_nested_prefix(mir, state.retention().broadcast()));
+        }
+
         for operation in mir.operations() {
             let MirOperationKind::Memory(memory) = operation.kind() else {
                 continue;
@@ -185,21 +279,76 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
                 continue;
             };
 
-            assert!(memory.abandoned_cleanup().is_some());
+            assert_eq!(
+                operation.kind().helper_references(),
+                [bray_ir::MirHelperReference::StandardLibrary(
+                    bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
+                ),]
+            );
 
-            assert!(operation.kind().helper_references().contains(
-                &bray_ir::MirHelperReference::Destroy(
-                    element,
-                    bray_ir::MirDestructionDisposition::Dynamic
-                )
-            ));
+            assert!(
+                mir.operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(),
+                MirOperationKind::Memory(memory) if matches!(memory.kind(),
+                    bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount)))
+            );
 
-            observed += 1;
+            observed.insert(element);
         }
     }
 
-    assert_eq!(observed, 2);
+    assert_eq!(observed.len(), 7);
+
+    assert!(
+        retained_array_prefix,
+        "waiting for a nested finalizer keeps the unconsumed array prefix broadcastable"
+    );
+
     assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+fn broadcast_retains_nested_prefix(mir: &bray_ir::MirUnit, entry: bray_ir::MirBlockId) -> bool {
+    let mut pending = vec![entry];
+    let mut visited = std::collections::BTreeSet::new();
+
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+
+        let block = mir.block(id).unwrap();
+
+        for operation in block
+            .operations()
+            .iter()
+            .map(|id| mir.operation(*id).unwrap())
+        {
+            if let MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                place,
+                ..
+            } = operation.kind()
+                && place
+                    .projections()
+                    .iter()
+                    .filter(|projection| {
+                        matches!(projection.kind(), bray_ir::MirProjectionKind::Index(_))
+                    })
+                    .count()
+                    == 2
+            {
+                return true;
+            }
+        }
+
+        block
+            .terminator()
+            .kind()
+            .for_each_successor(|next| pending.push(next));
+    }
+
+    false
 }
 
 #[test]

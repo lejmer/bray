@@ -18,6 +18,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let semantic_arguments = semantic_arguments.as_slice();
 
         let default_helper = match call.target() {
+            MirCallTarget::Lifecycle { role, ty } => Some(super::super::support::next_helper(
+                &mut helpers,
+                &bray_ir::MirHelperReference::LifecycleFrame {
+                    role: *role,
+                    ty: *ty,
+                },
+            )),
             MirCallTarget::Predicate(reference) => Some(super::super::support::next_helper(
                 &mut helpers,
                 &bray_ir::MirHelperReference::Predicate(reference.clone()),
@@ -109,7 +116,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
             }
-            MirCallTarget::DefaultValue { .. } | MirCallTarget::Predicate(_) => {
+            MirCallTarget::DefaultValue { .. }
+            | MirCallTarget::Predicate(_)
+            | MirCallTarget::Lifecycle { .. } => {
                 let helper = default_helper.expect(
                     "checked MIR call translation requires an established mapping or value",
                 );

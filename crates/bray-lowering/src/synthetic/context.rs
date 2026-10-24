@@ -38,6 +38,13 @@ pub trait SyntheticLoweringContext {
         phase: bray_bound_tree::LifecyclePhase,
     ) -> Result<bray_bound_tree::LifecycleAction, Self::Error>;
 
+    /// Returns whether an indirect owner's selected cleanup needs an admitted frame boundary.
+    fn lifecycle_requires_frame(
+        &self,
+        ty: TypeId,
+        role: bray_ir::MirGeneratedLifecycleRole,
+    ) -> Result<bool, Self::Error>;
+
     /// Returns the exact representation role of a source or imported type.
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole>;
 
@@ -75,4 +82,5 @@ pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Size
     pub(crate) frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
     pub(crate) frame_states: Vec<bray_ir::MirFrameState>,
     pub(crate) continuation: Option<bray_ir::MirBlockId>,
+    pub(crate) owner_retirement: Option<bray_ir::MirOperationKind>,
 }

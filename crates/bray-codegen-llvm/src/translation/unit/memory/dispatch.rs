@@ -124,18 +124,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     );
                 };
 
-                self.translate_raw_buffer_release(
-                    id,
-                    buffer,
-                    *buffer_type,
-                    element,
-                    memory.abandoned_cleanup(),
-                )?;
+                self.translate_raw_buffer_release(id, buffer, *buffer_type, element)?;
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::RawBufferReplace { element } => {
-                self.translate_raw_buffer_replace(id, memory, element)?;
+            CheckedMemoryOperationKind::RawBufferReplace { .. } => {
+                self.translate_raw_buffer_replace(memory)?;
 
                 Ok(None)
             }

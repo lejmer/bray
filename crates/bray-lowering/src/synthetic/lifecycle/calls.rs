@@ -24,6 +24,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         place: MirPlace,
+        retirement: Option<MirOperationKind>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let boolean = self
             .context
@@ -44,13 +45,31 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 },
             ),
             bray_bound_tree::LifecycleAction::Call(callable) => {
+                let finalization = if retirement.is_none() {
+                    self.retain_cleanup_owner(builder, source, &place, &outcome)?
+                } else {
+                    // The initialized prefix or target guard still covers this whole owner.
+                    outcome.clone()
+                };
+
                 // Invocation borrows this path while destruction retains the same owner.
-                self.push_lifecycle_call(builder, block, source, place.clone(), callable, &outcome)?
+                self.push_lifecycle_call(
+                    builder,
+                    block,
+                    source,
+                    place.clone(),
+                    callable,
+                    &finalization,
+                )?
             }
             action => {
                 panic!("selected whole-value finalization must be an invocation, got {action:?}")
             }
         };
+
+        if let Some(retirement) = retirement {
+            self.push_lifecycle_operation(builder, block, source, retirement)?;
+        }
 
         self.push_lifecycle_operation(
             builder,
@@ -127,7 +146,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok((completed, abandoned))
     }
 
-    fn await_lifecycle_call(
+    pub(super) fn await_lifecycle_call(
         &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,

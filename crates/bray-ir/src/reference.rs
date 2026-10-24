@@ -155,6 +155,13 @@ pub enum MirDefaultOwner {
 pub enum MirCallTarget {
     /// A concrete Bray callable instance.
     Direct(MirCallableReference),
+    /// An admitted factory for selected represented-owner lifecycle work.
+    Lifecycle {
+        /// Concrete role executed by the generated frame.
+        role: crate::MirGeneratedLifecycleRole,
+        /// Owner borrowed by the generated frame.
+        ty: bray_symbols::TypeId,
+    },
     /// A declaration-owned default evaluated before its caller transfers inputs.
     DefaultValue {
         /// Exact declaration context selecting the provider specialization.
@@ -180,7 +187,9 @@ impl MirCallTarget {
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
-            Self::DefaultValue { .. } | Self::Predicate(_) => CallableAbi::Bray,
+            Self::DefaultValue { .. } | Self::Predicate(_) | Self::Lifecycle { .. } => {
+                CallableAbi::Bray
+            }
             Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }

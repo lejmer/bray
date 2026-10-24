@@ -62,6 +62,7 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
+        | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => place.remap_local_ids(mappings),
         MirOperationKind::Destroy {
             place, abandoned, ..
@@ -98,10 +99,6 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::Generator(operation) => remap_generator_operation(operation, mappings),
         MirOperationKind::Call(call) => call.remap_local_ids(mappings),
         MirOperationKind::Memory(operation) => {
-            if let Some(abandoned) = &mut operation.abandoned_cleanup {
-                abandoned.remap_local_ids(mappings);
-            }
-
             for operand in Arc::make_mut(&mut operation.operands) {
                 operand.remap_local_ids(mappings);
             }

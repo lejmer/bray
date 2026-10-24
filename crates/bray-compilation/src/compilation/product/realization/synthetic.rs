@@ -104,6 +104,25 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
             .is_some())
     }
 
+    fn lifecycle_requires_frame(
+        &self,
+        ty: TypeId,
+        role: bray_ir::MirGeneratedLifecycleRole,
+    ) -> Result<bool, Self::Error> {
+        let ty = match self.realization {
+            Some(realization) => self.compilation.concrete_codegen_type(
+                ty,
+                realization.substitution(),
+                Some(realization),
+                self.cancellation,
+            )?,
+            None => ty,
+        };
+
+        self.compilation
+            .lifecycle_requires_frame(ty, role, self.cancellation)
+    }
+
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {
         crate::compilation::foreign::compiler_known_representation(self.compilation, definition)
     }

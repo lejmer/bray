@@ -148,6 +148,7 @@ impl MirOperationKind {
             }
             Self::Borrow { place, .. }
             | Self::Quiesce { place, .. }
+            | Self::ReleaseBuffer { place, .. }
             | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
             Self::Destroy {
                 place, abandoned, ..
@@ -198,10 +199,6 @@ impl MirOperationKind {
             },
             Self::Call(call) => visit_call_operands(call, &mut visit),
             Self::Memory(operation) => {
-                if let Some(abandoned) = operation.abandoned_cleanup() {
-                    visit_operand(abandoned, &mut visit);
-                }
-
                 for operand in operation.operands() {
                     visit_operand(operand, &mut visit);
                 }
@@ -438,6 +435,9 @@ pub fn for_each_operation_storage(
             place: destination, ..
         }
         | MirOperationKind::Quiesce {
+            place: destination, ..
+        }
+        | MirOperationKind::ReleaseBuffer {
             place: destination, ..
         }
         | MirOperationKind::Destroy {

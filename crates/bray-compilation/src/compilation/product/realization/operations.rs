@@ -272,7 +272,9 @@ impl Compilation {
             MirHelperReference::Quiesce(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_, _)
-            | MirHelperReference::Cleanup { .. } => {
+            | MirHelperReference::ReleaseBuffer(_)
+            | MirHelperReference::Cleanup { .. }
+            | MirHelperReference::LifecycleFrame { .. } => {
                 if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
                     return Ok(None);
                 }
@@ -311,8 +313,15 @@ impl Compilation {
                 self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
                 *disposition,
             ),
+            MirHelperReference::ReleaseBuffer(ty) => MirHelperReference::ReleaseBuffer(
+                self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            ),
             MirHelperReference::Cleanup { phase, ty } => MirHelperReference::Cleanup {
                 phase: *phase,
+                ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            },
+            MirHelperReference::LifecycleFrame { role, ty } => MirHelperReference::LifecycleFrame {
+                role: *role,
                 ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             },
             MirHelperReference::AnonymousCallable(_)

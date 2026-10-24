@@ -213,6 +213,7 @@ pub(crate) enum InspectionMirUnitKey {
     GeneratedLifecycle {
         role: &'static str,
         type_identity: String,
+        execution: &'static str,
     },
     ImportedExecutable {
         owner: InspectionSymbolIdentity,
@@ -854,6 +855,11 @@ fn operation_parts(
 
             "quiesce"
         }
+        MirOperationKind::ReleaseBuffer { place, .. } => {
+            parts.place("place", place, context)?;
+
+            "release_buffer"
+        }
         MirOperationKind::Destroy {
             place, abandoned, ..
         } => {
@@ -946,10 +952,6 @@ fn memory_operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
-    if let Some(abandoned) = memory.abandoned_cleanup() {
-        parts.operand("abandoned", abandoned, context)?;
-    }
-
     match memory.kind() {
         CheckedMemoryOperationKind::AtomicLoad { order, .. }
         | CheckedMemoryOperationKind::AtomicStore { order, .. }
@@ -1181,6 +1183,11 @@ fn call_parts(
     }
 
     match call.target() {
+        MirCallTarget::Lifecycle { role, ty } => {
+            parts.attribute("dispatch", "lifecycle_frame");
+            parts.attribute("role", generated_lifecycle_role(*role));
+            parts.r#type("owner", *ty, context)?;
+        }
         MirCallTarget::Direct(reference) => {
             parts.attribute("dispatch", "direct");
             callable_reference("callee", *reference, parts, context);
@@ -2236,6 +2243,10 @@ fn inspection_unit_key(
         MirUnitKey::GeneratedLifecycle(key) => InspectionMirUnitKey::GeneratedLifecycle {
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
+            execution: match key.execution() {
+                bray_symbols::CallableExecution::Synchronous => "synchronous",
+                bray_symbols::CallableExecution::Asynchronous => "asynchronous",
+            },
         },
         MirUnitKey::ImportedExecutable(key) => InspectionMirUnitKey::ImportedExecutable {
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
@@ -2696,6 +2707,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
         bray_ir::MirGeneratedLifecycleRole::Quiesce => "quiesce",
         bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
         bray_ir::MirGeneratedLifecycleRole::Destroy(_) => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => "release_buffer",
         bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
             "cleanup_task_cancellation"
         }

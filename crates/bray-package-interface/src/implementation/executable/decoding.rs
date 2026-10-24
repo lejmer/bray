@@ -681,6 +681,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
+            28 => Ok(MirOperationKind::ReleaseBuffer {
+                place: self.place()?,
+                collection: self.cleanup_collection()?.map(Box::new),
+            }),
             25 => Ok(MirOperationKind::Quiesce {
                 place: self.place()?,
                 collection: self.cleanup_collection()?.map(Box::new),
@@ -989,6 +993,17 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
         let target = match read_u32(&mut self.reader)? {
+            5 => MirCallTarget::Lifecycle {
+                role: match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirGeneratedLifecycleRole::Quiesce,
+                    2 => bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer,
+                    1 => bray_ir::MirGeneratedLifecycleRole::Destroy(
+                        bray_ir::MirDestructionDisposition::Dynamic,
+                    ),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+                ty: self.ty()?,
+            },
             0 => MirCallTarget::Direct(MirCallableReference::new(
                 self.callable_instance()?,
                 self.callable_abi()?,
@@ -1491,24 +1506,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.semantics)?;
         validate_decoded_atomic_result(kind, result_type, self.semantics)?;
 
-        let mut operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
+        let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
             .with_inline_assembly_symbols(self.callable_references()?);
-
-        if let Some(abandoned) = self.optional_operand()? {
-            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
-                return Err(ExecutableTemplateDecodeError::Malformed);
-            }
-
-            operation = operation.with_abandoned_cleanup(abandoned);
-        }
-
-        if let Some(collection) = self.cleanup_collection()? {
-            if !matches!(kind, CheckedMemoryOperationKind::RawBufferRelease { .. }) {
-                return Err(ExecutableTemplateDecodeError::Malformed);
-            }
-
-            operation = operation.with_cleanup_collection(collection);
-        }
 
         Ok(operation)
     }

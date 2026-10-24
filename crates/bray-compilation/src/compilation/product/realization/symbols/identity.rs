@@ -111,9 +111,26 @@ impl Compilation {
         realization: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<[u8; 32], CodegenPreparationError> {
-        let callable = realization
-            .callable_instance()
-            .expect("cleanup storage belongs to its selected callable");
+        let Some(callable) = realization.callable_instance() else {
+            let MirUnitKey::GeneratedLifecycle(key) = realization.key().template() else {
+                panic!(
+                    "cleanup backing belongs to a selected callable or generated lifecycle frame"
+                );
+            };
+
+            assert_eq!(
+                key.execution(),
+                bray_symbols::CallableExecution::Asynchronous,
+                "generated cleanup backing identifies an admitted frame"
+            );
+
+            let mut hasher = StableDigestHasher::new();
+
+            hasher.write(b"bray.codegen-lifecycle-cleanup-storage");
+            key.hash(&mut hasher);
+
+            return Ok(hasher.finalize());
+        };
 
         let binding_context = self.binding_context(cancellation)?;
 

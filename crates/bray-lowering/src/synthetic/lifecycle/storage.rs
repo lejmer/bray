@@ -60,7 +60,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     fn push_buffer_prefix_lifecycle(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
@@ -112,10 +112,38 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             buffer_type,
         )?;
 
+        let buffer_storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, buffer_type)
+            .map_err(|cause| self.capacity_error(cause))?;
+
+        let buffer_place = MirPlace::new(buffer_storage, [], buffer_type);
+
+        self.push_lifecycle_operation(
+            builder,
+            block,
+            source,
+            MirOperationKind::Store {
+                kind: MirStoreKind::Initialize,
+                destination: buffer_place.clone(),
+                value: MirOperand::Value(buffer),
+            },
+        )?;
+
+        let mut emit = |operation, ty| {
+            builder
+                .push_operation(block, source.clone(), operation, Some(ty))
+                .map(|commit| {
+                    commit
+                        .result()
+                        .expect("prefix observation publishes its result")
+                })
+                .map_err(|cause| self.capacity_error(cause))
+        };
+
         let prefix_value = emit(
             MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
-                [MirOperand::Value(buffer)],
+                [MirOperand::Copy(buffer_place.clone())],
                 [buffer_type],
                 Some(prefix),
             ))),
@@ -157,6 +185,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             prefix_place.project(MirProjectionKind::Dereference, slice),
             element,
             MirOperand::Value(length),
+            matches!(
+                role,
+                bray_ir::MirGeneratedLifecycleRole::Destroy(_)
+                    | bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer
+            )
+            .then(|| MirOperand::Copy(buffer_place)),
         )
     }
 
@@ -169,6 +203,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: &MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
         action: bray_bound_tree::LifecycleAction,
+        retirement: Option<MirOperationKind>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let ty = place.ty();
 
@@ -186,6 +221,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .push_buffer_prefix_lifecycle(builder, block, source, role, place, element);
             }
             bray_bound_tree::LifecycleAction::RawBuffer(element) => {
+                let block = self
+                    .push_buffer_prefix_lifecycle(builder, block, source, role, place, element)?;
+
                 let outcome = self.cleanup_outcome(builder, block, source)?;
                 let values = self.context.semantic_values();
 
@@ -217,11 +255,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     [MirOperand::Value(buffer)],
                     [borrowed],
                     None,
-                )
-                .with_abandoned_cleanup(
-                    self.abandoned
-                        .clone()
-                        .expect("buffer destruction retains its invocation argument"),
                 );
 
                 self.push_lifecycle_operation(
@@ -239,6 +272,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
             bray_bound_tree::LifecycleAction::ReleaseString => {
                 let outcome = self.cleanup_outcome(builder, block, source)?;
+
+                if let Some(retirement) = retirement {
+                    self.push_lifecycle_operation(builder, block, source, retirement)?;
+                }
 
                 self.push_lifecycle_operation(
                     builder,
@@ -259,6 +296,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
             }
             bray_bound_tree::LifecycleAction::DestroyReport => {
+                if let Some(retirement) = retirement {
+                    self.push_lifecycle_operation(builder, block, source, retirement)?;
+                }
+
                 let status = self
                     .context
                     .representation_type(RepresentationRole::ScalarU32)?;
@@ -300,6 +341,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     )?;
 
                     if matches!(role, bray_ir::MirGeneratedLifecycleRole::Cleanup(_)) {
+                        if let Some(retirement) = retirement {
+                            self.push_lifecycle_operation(builder, block, source, retirement)?;
+                        }
+
                         self.push_lifecycle_operation(
                             builder,
                             block,
@@ -312,6 +357,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                     return self
                         .finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
+                }
+                bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => {
+                    unreachable!("buffer release selects its raw-buffer representation")
                 }
                 bray_ir::MirGeneratedLifecycleRole::Destroy(_) => {
                     self.push_lifecycle_operation(
@@ -369,17 +417,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             borrow,
         )?;
 
-        let Some(release) = release else {
-            return self.push_child_lifecycle_operations(
-                builder,
-                block,
-                source,
-                role,
-                [Ok(target_place)],
-            );
-        };
-
         let outcome = self.cleanup_outcome(builder, block, source)?;
+        let retirement = self.owner_retirement.take();
 
         let block = self.push_child_lifecycle_operation(
             builder,
@@ -388,16 +427,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             role,
             target_place,
             &outcome,
+            retirement,
         )?;
 
-        self.push_selected_call(
-            builder,
-            block,
-            source,
-            storage_place,
-            release,
-            release.result,
-        )?;
+        if let Some(release) = release {
+            self.push_selected_call(
+                builder,
+                block,
+                source,
+                storage_place,
+                release,
+                release.result,
+            )?;
+        }
 
         let block = outcome
             .check(builder, block, source)
@@ -405,4 +447,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)
     }
+}
+
+pub(super) fn buffer_cleanup_progress(
+    builder: &MirUnitBuilder,
+    buffer: MirOperand,
+    count: MirOperand,
+) -> MirOperationKind {
+    let types = [builder.operand_type(&buffer), builder.operand_type(&count)];
+
+    MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+        bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount,
+        [buffer, count],
+        types,
+        None,
+    )))
 }

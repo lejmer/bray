@@ -18,6 +18,8 @@ pub enum MirGeneratedLifecycleRole {
     StaticFinalize,
     /// Runs semantic destruction.
     Destroy(crate::MirDestructionDisposition),
+    /// Resolves buffer contents while retaining the live buffer's local allowance.
+    ReleaseBuffer,
     /// Runs one checked cleanup phase.
     Cleanup(MirCleanupPhase),
 }
@@ -29,7 +31,9 @@ impl MirGeneratedLifecycleRole {
 
         match self {
             MirGeneratedLifecycleRole::StaticFinalize => LifecyclePhase::Finalize,
-            MirGeneratedLifecycleRole::Destroy(_) => LifecyclePhase::Destroy,
+            MirGeneratedLifecycleRole::Destroy(_) | MirGeneratedLifecycleRole::ReleaseBuffer => {
+                LifecyclePhase::Destroy
+            }
             MirGeneratedLifecycleRole::Quiesce => LifecyclePhase::Quiesce,
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 LifecyclePhase::Cancel
@@ -46,7 +50,9 @@ impl MirGeneratedLifecycleRole {
             MirHelperReference::Quiesce(_) => Some(Self::Quiesce),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_, disposition) => Some(Self::Destroy(*disposition)),
+            MirHelperReference::ReleaseBuffer(_) => Some(Self::ReleaseBuffer),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
+            MirHelperReference::LifecycleFrame { role, .. } => Some(*role),
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::DefaultValue(_)
@@ -71,6 +77,7 @@ impl MirGeneratedLifecycleRole {
 pub struct MirGeneratedLifecycleKey {
     role: MirGeneratedLifecycleRole,
     type_identity: [u8; 32],
+    execution: bray_symbols::CallableExecution,
 }
 
 #[cfg(test)]
@@ -116,7 +123,20 @@ impl MirGeneratedLifecycleKey {
         Self {
             role,
             type_identity,
+            execution: bray_symbols::CallableExecution::Synchronous,
         }
+    }
+
+    /// Selects an admitted protected frame for this generated lifecycle definition.
+    pub const fn with_execution(mut self, execution: bray_symbols::CallableExecution) -> Self {
+        self.execution = execution;
+
+        self
+    }
+
+    /// Returns whether the definition is a direct helper or an admitted frame factory.
+    pub const fn execution(&self) -> bray_symbols::CallableExecution {
+        self.execution
     }
 
     /// Returns the generated lifecycle role.

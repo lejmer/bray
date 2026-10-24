@@ -52,7 +52,7 @@ impl Lowerer<'_> {
         .with_completion_cleanup(self.completion_cleanup.is_some()))
     }
 
-    pub(super) fn cleanup_retention(
+    pub(in crate::lowering) fn cleanup_retention(
         &mut self,
         source: &MirSourceAnchor,
     ) -> Result<Option<std::sync::Arc<bray_ir::MirFrameRetention>>, LoweringError> {

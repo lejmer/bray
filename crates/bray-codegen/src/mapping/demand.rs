@@ -162,6 +162,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
             collect_operand_value(value, demands);
         }
         MirOperationKind::Borrow { place, .. }
+        | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
         MirOperationKind::Unary { operand, .. }
@@ -190,10 +191,6 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
         MirOperationKind::Call(call) => collect_call_values(call, demands),
         MirOperationKind::Memory(memory) => {
-            if let Some(abandoned) = memory.abandoned_cleanup() {
-                collect_operand_value(abandoned, demands);
-            }
-
             demands.values.extend(memory.kind().contract_constants());
             collect_operands(memory.operands(), demands);
         }

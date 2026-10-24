@@ -21,12 +21,14 @@ impl CodegenLifecycleNeeds {
     const TASK_CANCELLATION: Self = Self(1 << 2);
     const LIFECYCLE_RESOLUTION: Self = Self(1 << 3);
     const QUIESCE: Self = Self(1 << 4);
+    const SUSPEND: Self = Self(1 << 5);
     const ALL: Self = Self(
         Self::FINALIZE.0
             | Self::DESTROY.0
             | Self::TASK_CANCELLATION.0
             | Self::LIFECYCLE_RESOLUTION.0
-            | Self::QUIESCE.0,
+            | Self::QUIESCE.0
+            | Self::SUSPEND.0,
     );
 
     const fn contains(self, other: Self) -> bool {
@@ -52,6 +54,10 @@ impl CodegenLifecycleNeeds {
     const fn represented(children: Self) -> Self {
         let mut represented = Self::NONE;
 
+        if children.contains(Self::SUSPEND) {
+            represented = represented.with(Self::SUSPEND);
+        }
+
         if children.contains(Self::FINALIZE) || children.contains(Self::DESTROY) {
             represented = represented.with(Self::DESTROY);
         }
@@ -72,7 +78,65 @@ impl CodegenLifecycleNeeds {
     }
 }
 
+// Share suspension needs through represented dependencies before facts are cached.
+// The existing lifecycle traversal discovers these edges without selecting types again.
+#[derive(Default)]
+struct LifecycleNeedsGraph {
+    active: Vec<TypeId>,
+    computed: BTreeMap<TypeId, CodegenLifecycleNeeds>,
+    dependents: BTreeMap<TypeId, BTreeSet<TypeId>>,
+}
+
+impl LifecycleNeedsGraph {
+    fn close(self) -> BTreeMap<TypeId, CodegenLifecycleNeeds> {
+        let suspending = bray_base::transitive_dependencies(
+            self.computed.iter().filter_map(|(ty, needs)| {
+                needs
+                    .contains(CodegenLifecycleNeeds::SUSPEND)
+                    .then_some(*ty)
+            }),
+            |ty| self.dependents.get(ty).into_iter().flatten().copied(),
+        );
+
+        self.computed
+            .into_iter()
+            .map(|(ty, needs)| {
+                (
+                    ty,
+                    if suspending.contains(&ty) {
+                        needs.with(CodegenLifecycleNeeds::SUSPEND)
+                    } else {
+                        needs
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
 impl Compilation {
+    pub(in crate::compilation) fn lifecycle_requires_frame(
+        &self,
+        ty: TypeId,
+        role: MirGeneratedLifecycleRole,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
+        if !matches!(
+            role,
+            MirGeneratedLifecycleRole::Quiesce
+                | MirGeneratedLifecycleRole::ReleaseBuffer
+                | MirGeneratedLifecycleRole::Destroy(
+                    bray_ir::MirDestructionDisposition::Ordinary
+                        | bray_ir::MirDestructionDisposition::Dynamic
+                )
+        ) {
+            return Ok(false);
+        }
+
+        let needs = self.codegen_lifecycle_needs(ty, cancellation)?;
+
+        Ok(needs.requires(role.phase()) && needs.contains(CodegenLifecycleNeeds::SUSPEND))
+    }
     pub(super) fn codegen_cleanup_is_trivial(
         &self,
         ty: TypeId,
@@ -123,11 +187,15 @@ impl Compilation {
             return Ok(needs);
         }
 
-        let mut active = BTreeSet::new();
-        let mut computed = BTreeMap::new();
+        let mut graph = LifecycleNeedsGraph::default();
 
-        let needs =
-            self.compute_codegen_lifecycle_needs(ty, cancellation, &mut active, &mut computed)?;
+        let root = self.compute_codegen_lifecycle_needs(ty, cancellation, &mut graph)?;
+
+        // A concurrent query may already have published this root's complete fact.
+        graph.computed.insert(ty, root);
+
+        let computed = graph.close();
+        let needs = computed[&ty];
 
         self.state
             .codegen_lifecycle_needs
@@ -147,12 +215,16 @@ impl Compilation {
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
-        active: &mut BTreeSet<TypeId>,
-        computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
+        graph: &mut LifecycleNeedsGraph,
     ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         cancellation.check()?;
 
-        if let Some(needs) = computed
+        if let Some(parent) = graph.active.last() {
+            graph.dependents.entry(ty).or_default().insert(*parent);
+        }
+
+        if let Some(needs) = graph
+            .computed
             .get(&ty)
             .copied()
             .or(self.cached_lifecycle_needs(ty)?)
@@ -160,11 +232,15 @@ impl Compilation {
             return Ok(needs);
         }
 
-        if !active.insert(ty) {
-            // Legal recursion crosses an owned indirection. Preserve all lifecycle work for
-            // recovered direct cycles rather than suppressing code generation speculatively.
-            return Ok(CodegenLifecycleNeeds::ALL);
+        if graph.active.contains(&ty) {
+            // Preserve the existing conservative structural phases. Suspension is
+            // propagated from selected work across the cycle before publishing facts.
+            return Ok(CodegenLifecycleNeeds(
+                CodegenLifecycleNeeds::ALL.0 & !CodegenLifecycleNeeds::SUSPEND.0,
+            ));
         }
+
+        graph.active.push(ty);
 
         let values = self.semantic_value_store()?;
 
@@ -175,19 +251,14 @@ impl Compilation {
             TypeData::Named {
                 definition,
                 substitution,
-            } => self.named_codegen_lifecycle_needs(
-                *definition,
-                *substitution,
-                cancellation,
-                active,
-                computed,
-            )?,
+            } => {
+                self.named_codegen_lifecycle_needs(*definition, *substitution, cancellation, graph)?
+            }
             TypeData::Tuple(elements) => {
                 let children = self.children_codegen_lifecycle_needs(
                     elements.iter().copied(),
                     cancellation,
-                    active,
-                    computed,
+                    graph,
                 )?;
 
                 CodegenLifecycleNeeds::represented(children)
@@ -196,19 +267,14 @@ impl Compilation {
                 if super::realization::closed_array_length(values, *length)? == 0 {
                     CodegenLifecycleNeeds::NONE
                 } else {
-                    let child = self.compute_codegen_lifecycle_needs(
-                        *element,
-                        cancellation,
-                        active,
-                        computed,
-                    )?;
+                    let child =
+                        self.compute_codegen_lifecycle_needs(*element, cancellation, graph)?;
 
                     CodegenLifecycleNeeds::represented(child)
                 }
             }
             TypeData::Nullable(target) => {
-                let child =
-                    self.compute_codegen_lifecycle_needs(*target, cancellation, active, computed)?;
+                let child = self.compute_codegen_lifecycle_needs(*target, cancellation, graph)?;
 
                 CodegenLifecycleNeeds::represented(child)
             }
@@ -216,10 +282,14 @@ impl Compilation {
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
                 .with(CodegenLifecycleNeeds::QUIESCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
-            TypeData::OwnedIndirection { .. } => CodegenLifecycleNeeds::DESTROY
-                .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
-                .with(CodegenLifecycleNeeds::QUIESCE)
-                .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
+            TypeData::OwnedIndirection { target, .. } => {
+                let children =
+                    self.compute_codegen_lifecycle_needs(*target, cancellation, graph)?;
+
+                CodegenLifecycleNeeds::represented(children)
+                    .with(CodegenLifecycleNeeds::DESTROY)
+                    .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION)
+            }
             TypeData::FlexibleArray(_) | TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 CodegenLifecycleNeeds::NONE
             }
@@ -231,8 +301,8 @@ impl Compilation {
             | TypeData::TraitView(_) => CodegenLifecycleNeeds::ALL,
         };
 
-        active.remove(&ty);
-        computed.insert(ty, needs);
+        assert_eq!(graph.active.pop(), Some(ty));
+        graph.computed.insert(ty, needs);
 
         Ok(needs)
     }
@@ -242,8 +312,7 @@ impl Compilation {
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
-        active: &mut BTreeSet<TypeId>,
-        computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
+        graph: &mut LifecycleNeedsGraph,
     ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         if let Some(needs) = self.compiler_known_lifecycle_needs(definition) {
             return Ok(needs);
@@ -280,14 +349,38 @@ impl Compilation {
             };
         }
 
+        if needs.contains(CodegenLifecycleNeeds::FINALIZE) {
+            let ty = self
+                .semantic_value_store()?
+                .intern_type(TypeData::Named {
+                    definition,
+                    substitution,
+                })
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            let finalizer = self
+                .lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
+                .expect("selected finalization retains its concrete callable");
+
+            if finalizer.result.execution() == bray_symbols::CallableExecution::Asynchronous
+                && !self.finalizer_is_complete(
+                    finalizer.callable,
+                    finalizer.result.completion_type(),
+                    None,
+                    cancellation,
+                )?
+            {
+                needs = needs.with(CodegenLifecycleNeeds::SUSPEND);
+            }
+        }
+
         let children = match representation.value().storage() {
             DeclaredStorageShape::Structure(members) => self
                 .template_children_codegen_lifecycle_needs(
                     members.iter().map(|member| member.ty()),
                     substitution,
                     cancellation,
-                    active,
-                    computed,
+                    graph,
                 )?,
             DeclaredStorageShape::Union(variants) => self
                 .template_children_codegen_lifecycle_needs(
@@ -297,16 +390,14 @@ impl Compilation {
                         .map(|member| member.ty()),
                     substitution,
                     cancellation,
-                    active,
-                    computed,
+                    graph,
                 )?,
         };
 
         needs = needs.with(CodegenLifecycleNeeds::represented(children));
 
         if let Some(element) = raw_buffer {
-            let children =
-                self.compute_codegen_lifecycle_needs(element, cancellation, active, computed)?;
+            let children = self.compute_codegen_lifecycle_needs(element, cancellation, graph)?;
 
             needs = needs
                 .with(CodegenLifecycleNeeds::represented(children))
@@ -327,18 +418,12 @@ impl Compilation {
         &self,
         children: impl IntoIterator<Item = TypeId>,
         cancellation: &CancellationToken,
-        active: &mut BTreeSet<TypeId>,
-        computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
+        graph: &mut LifecycleNeedsGraph,
     ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         let mut needs = CodegenLifecycleNeeds::NONE;
 
         for child in children {
-            needs = needs.with(self.compute_codegen_lifecycle_needs(
-                child,
-                cancellation,
-                active,
-                computed,
-            )?);
+            needs = needs.with(self.compute_codegen_lifecycle_needs(child, cancellation, graph)?);
         }
 
         Ok(needs)
@@ -349,20 +434,14 @@ impl Compilation {
         children: impl IntoIterator<Item = &'template bray_symbols::TypeExpressionTemplate>,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
-        active: &mut BTreeSet<TypeId>,
-        computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
+        graph: &mut LifecycleNeedsGraph,
     ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         let mut needs = CodegenLifecycleNeeds::NONE;
 
         for template in children {
             let child = self.resolve_codegen_type(template, substitution, cancellation)?;
 
-            needs = needs.with(self.compute_codegen_lifecycle_needs(
-                child,
-                cancellation,
-                active,
-                computed,
-            )?);
+            needs = needs.with(self.compute_codegen_lifecycle_needs(child, cancellation, graph)?);
         }
 
         Ok(needs)

@@ -73,6 +73,7 @@ pub(super) fn validate_operation(
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
+        | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => {
             validate_place(unit, place, block, Some(id))?;
         }
@@ -188,9 +189,9 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         ) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Host(_) => block_kind == MirBlockKind::Ordinary,
-        MirOperationKind::Quiesce { .. } | MirOperationKind::Destroy { .. } => {
-            block_kind != MirBlockKind::CleanupBroadcast
-        }
+        MirOperationKind::ReleaseBuffer { .. }
+        | MirOperationKind::Quiesce { .. }
+        | MirOperationKind::Destroy { .. } => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Cleanup { phase, .. } => match phase {
             crate::MirCleanupPhase::TaskCancellation => {
                 block_kind == MirBlockKind::CleanupBroadcast
@@ -280,6 +281,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     | MirGeneratorOperation::CleanupBroadcast { .. }
                     | MirGeneratorOperation::Destroy { .. }
             )
+            | MirOperationKind::ReleaseBuffer { .. }
             | MirOperationKind::Quiesce { .. }
             | MirOperationKind::Destroy { .. }
             | MirOperationKind::Cleanup { .. }
@@ -661,11 +663,34 @@ fn validate_call(
     operation: MirOperationId,
     call: &crate::MirCall,
 ) -> Option<()> {
-    if call.is_cleanup() && !matches!(call.target(), MirCallTarget::Direct(_)) {
+    if call.is_cleanup()
+        && !matches!(
+            call.target(),
+            MirCallTarget::Direct(_) | MirCallTarget::Lifecycle { .. }
+        )
+    {
         return None;
     }
 
     match call.target() {
+        MirCallTarget::Lifecycle { role, .. } => {
+            if !call.is_cleanup()
+                || !matches!(
+                    call.result(),
+                    bray_bound_tree::BoundCallResult::LazyFuture(_)
+                )
+                || !matches!(
+                    role,
+                    crate::MirGeneratedLifecycleRole::Quiesce
+                        | crate::MirGeneratedLifecycleRole::ReleaseBuffer
+                        | crate::MirGeneratedLifecycleRole::Destroy(
+                            crate::MirDestructionDisposition::Dynamic
+                        )
+                )
+            {
+                return None;
+            }
+        }
         MirCallTarget::Direct(reference) => {
             if let Some(contract) = call
                 .contract()

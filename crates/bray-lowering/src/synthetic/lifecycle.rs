@@ -3,6 +3,7 @@ mod body;
 mod calls;
 mod destruction;
 mod expansion;
+mod frame;
 mod outcome;
 mod outgoing;
 mod representation;

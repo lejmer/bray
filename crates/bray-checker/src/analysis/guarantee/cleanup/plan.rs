@@ -18,7 +18,7 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
-    pub(crate) input_cleanup_calls:
+    pub(crate) expression_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
     pub(in crate::analysis::guarantee) inert_futures: BTreeMap<
@@ -429,7 +429,7 @@ impl Plan {
         let input_parts = super::inputs::parts(
             cleanup_shapes,
             request,
-            expressions.types(),
+            expressions,
             &mut types,
             &mut diagnostics,
         )?;
@@ -455,6 +455,13 @@ impl Plan {
         }
 
         prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
+
+        prepared.select_buffer_cleanup(
+            expressions.selections(),
+            request.semantic_values(),
+            &input_cleanup,
+        );
+
         prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
         prepared.select_inert_futures(cleanup_shapes, request, expressions.selections())?;
 

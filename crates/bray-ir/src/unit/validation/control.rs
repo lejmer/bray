@@ -357,12 +357,18 @@ fn validate_call_outcome_check(
                 crate::ConstructionTarget::TypeForm { .. }
             ),
             crate::MirOperationKind::Memory(memory) => memory.kind().requires_checked_outcome(),
-            crate::MirOperationKind::Async(crate::MirAsyncOperation::CommitAwaitedCompletion {
-                ..
-            })
+            crate::MirOperationKind::Text(text) => {
+                text.kind() == crate::MirTextOperationKind::Release
+            }
+            crate::MirOperationKind::Async(
+                crate::MirAsyncOperation::CommitAwaitedCompletion { .. }
+                | crate::MirAsyncOperation::BroadcastInactiveFrame { .. }
+                | crate::MirAsyncOperation::DestroyInactiveFrame { .. },
+            )
             | crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
             | crate::MirOperationKind::Quiesce { .. }
+            | crate::MirOperationKind::ReleaseBuffer { .. }
             | crate::MirOperationKind::Destroy { .. } => true,
             _ => false,
         });

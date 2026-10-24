@@ -28,7 +28,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let action = self.context.lifecycle_action(place.ty(), role.phase())?;
 
-        self.expand_lifecycle_action(builder, block, source, role, place, runtime_abi, action)
+        self.expand_lifecycle_action(
+            builder,
+            block,
+            source,
+            role,
+            place,
+            runtime_abi,
+            action,
+            None,
+        )
     }
 
     pub(super) fn expand_lifecycle_action(
@@ -40,15 +49,24 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
         action: bray_bound_tree::LifecycleAction,
+        retirement: Option<MirOperationKind>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         use bray_bound_tree::LifecycleAction;
 
         match action {
-            LifecycleAction::None => Ok(block),
+            LifecycleAction::None => {
+                if let Some(retirement) = retirement {
+                    self.push_lifecycle_operation(builder, block, source, retirement)?;
+                }
+
+                Ok(block)
+            }
             LifecycleAction::Call(callable) => self
                 .push_checked_lifecycle_call(builder, block, source, place, callable)
                 .map(|(block, _)| block),
-            LifecycleAction::Resolve => self.push_owner_resolution(builder, block, source, place),
+            LifecycleAction::Resolve => {
+                self.push_owner_resolution(builder, block, source, place, retirement)
+            }
             LifecycleAction::Future => {
                 let outcome = self.cleanup_outcome(builder, block, source)?;
 
@@ -66,6 +84,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::LifecycleResolution,
                     ) => {
+                        if let Some(retirement) = retirement {
+                            self.push_lifecycle_operation(builder, block, source, retirement)?;
+                        }
+
                         return self.compose_cleanup_frame(
                             builder,
                             block,
@@ -92,6 +114,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                                 runtime_abi,
                             ),
                         }
+                    }
+                    bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => {
+                        unreachable!("buffer release selects its raw-buffer representation")
                     }
                     bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                         unreachable!("inactive computations have no whole-value finalizer")
@@ -194,6 +219,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 &place,
                 runtime_abi,
                 action,
+                retirement,
             ),
         }
     }
@@ -332,34 +358,61 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
-        children: impl IntoIterator<Item = Result<MirPlace, C::Error>, IntoIter: DoubleEndedIterator>,
+        children: impl IntoIterator<Item = Result<MirPlace, C::Error>>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let mut children = children.into_iter().rev().peekable();
+        let children = children.into_iter().collect::<Result<Vec<_>, _>>()?;
 
-        if children.peek().is_none() {
+        if children.is_empty() {
             return Ok(block);
         }
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
+        let mut remaining = outcome.clone();
+        let mut retained = Vec::with_capacity(children.len());
+
+        for (index, child) in children.iter().enumerate() {
+            retained.push(remaining.clone());
+
+            if index + 1 < children.len()
+                && matches!(role, bray_ir::MirGeneratedLifecycleRole::Destroy(_))
+            {
+                // Each callback adds one still-owned sibling to a shared prefix.
+                remaining = self.retain_cleanup_owner(builder, source, child, &remaining)?;
+            }
+        }
+
         let mut block = block;
 
-        for child in children {
-            block = self
-                .push_child_lifecycle_operation(builder, block, source, role, child?, &outcome)?;
+        for (child, retained) in children.into_iter().zip(retained).rev() {
+            block = self.push_child_lifecycle_operation(
+                builder, block, source, role, child, &retained, None,
+            )?;
         }
 
         self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)
     }
 
     pub(super) fn push_child_lifecycle_operation(
-        &self,
+        &mut self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         child: MirPlace,
         outcome: &crate::cleanup_outcome::CleanupOutcome,
+        retirement: Option<MirOperationKind>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
+        if retirement.is_some()
+            && matches!(
+                role,
+                bray_ir::MirGeneratedLifecycleRole::Destroy(
+                    bray_ir::MirDestructionDisposition::Ordinary
+                )
+            )
+        {
+            return self.push_child_resolution(builder, block, source, child, outcome, retirement);
+        }
+
         let operation = match role {
             bray_ir::MirGeneratedLifecycleRole::Quiesce => MirOperationKind::Quiesce {
                 place: child,
@@ -381,10 +434,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
             bray_ir::MirGeneratedLifecycleRole::Destroy(
                 bray_ir::MirDestructionDisposition::Dynamic,
-            ) => {
+            )
+            | bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => {
+                // Both branches retain the compact incoming disposition as frame states grow.
                 let inherited = self
                     .abandoned
-                    .as_ref()
+                    .clone()
                     .expect("generated destruction retains its invocation argument");
 
                 let abandoned = builder
@@ -409,6 +464,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     },
                 );
 
+                if let Some(retirement) = &retirement {
+                    // Mutually exclusive paths share the same compact memory effect operands.
+                    self.push_lifecycle_operation(builder, abandoned, source, retirement.clone())?;
+                }
+
                 self.push_lifecycle_operation(
                     builder,
                     abandoned,
@@ -420,22 +480,32 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     },
                 )?;
 
-                self.push_lifecycle_operation(
-                    builder,
-                    ordinary,
-                    source,
-                    MirOperationKind::Cleanup {
-                        collection: None,
-                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                        place: child,
-                    },
-                )?;
+                let abandoned = outcome
+                    .check(builder, abandoned, source)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                let ordinary = if retirement.is_some() {
+                    self.push_child_resolution(
+                        builder, ordinary, source, child, outcome, retirement,
+                    )?
+                } else {
+                    self.push_lifecycle_operation(
+                        builder,
+                        ordinary,
+                        source,
+                        MirOperationKind::Cleanup {
+                            collection: None,
+                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                            place: child,
+                        },
+                    )?;
+
+                    outcome
+                        .check(builder, ordinary, source)
+                        .map_err(|cause| self.capacity_error(cause))?
+                };
 
                 for end in [abandoned, ordinary] {
-                    let end = outcome
-                        .check(builder, end, source)
-                        .map_err(|cause| self.capacity_error(cause))?;
-
                     builder.set_terminator(
                         end,
                         source.clone(),
@@ -455,10 +525,47 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         };
 
+        if let Some(retirement) = retirement {
+            self.push_lifecycle_operation(builder, block, source, retirement)?;
+        }
+
         self.push_lifecycle_operation(builder, block, source, operation)?;
 
         outcome
             .check(builder, block, source)
             .map_err(|cause| self.capacity_error(cause))
+    }
+
+    fn push_child_resolution(
+        &mut self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        child: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+        retirement: Option<MirOperationKind>,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let action = self
+            .context
+            .lifecycle_action(child.ty(), bray_bound_tree::LifecyclePhase::Resolve)?;
+
+        let collection = self.collection.replace(outcome.clone());
+
+        let result = self.expand_lifecycle_action(
+            builder,
+            block,
+            source,
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                bray_ir::MirCleanupPhase::LifecycleResolution,
+            ),
+            child,
+            builder.target().runtime_abi(),
+            action,
+            retirement,
+        );
+
+        self.collection = collection;
+
+        result
     }
 }

@@ -531,7 +531,15 @@ impl Compilation {
             structural_type_identity(self.semantic_value_store()?, &binding_context, ty)?;
 
         let key = CodegenInstanceKey::new(
-            MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),
+            MirUnitKey::GeneratedLifecycle(
+                MirGeneratedLifecycleKey::new(role, identity).with_execution(
+                    if matches!(reference, MirHelperReference::LifecycleFrame { .. }) {
+                        bray_symbols::CallableExecution::Asynchronous
+                    } else {
+                        bray_symbols::CallableExecution::Synchronous
+                    },
+                ),
+            ),
             CodegenSpecialization::NonGeneric,
             [],
             MirTargetContract::new(

@@ -77,8 +77,6 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let report = self.representation_type(RepresentationRole::PanicReport)?;
-
         self.cleanup_outcome = Some(self.create_cleanup_outcome(block, source)?);
 
         let broadcast = self.builder.push_block(
@@ -140,6 +138,29 @@ impl Lowerer<'_> {
             MirOperand::Move(replacement),
         )?;
 
+        let outcome = self.cleanup_outcome.take().unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
+
+        let completed = self.finish_replacement_cleanup(expression, lifecycle, source, &outcome)?;
+
+        self.cleanup_occurrence = previous_occurrence;
+
+        Ok(completed)
+    }
+
+    pub(super) fn finish_replacement_cleanup(
+        &mut self,
+        expression: BoundExpressionId,
+        lifecycle: MirBlockId,
+        source: &MirSourceAnchor,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, LoweringError> {
+        let report = self.representation_type(RepresentationRole::PanicReport)?;
+
         let installed = self
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
@@ -149,13 +170,6 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::Goto(MirEdge::new(installed, [])),
         )?;
-
-        let outcome = self.cleanup_outcome.take().unwrap_or_else(|| {
-            panic!(
-                "lowering contract violation: MissingSemanticSelection {value:?}",
-                value = expression
-            )
-        });
 
         let panicked = self
             .builder
@@ -176,8 +190,6 @@ impl Lowerer<'_> {
 
         self.finish_panic_to_active_catch(expression, panicked, source, outcome.report(), report)?;
         self.finish_cancellation(cancelled, source, expression.into(), Some(outcome.report()))?;
-
-        self.cleanup_occurrence = previous_occurrence;
 
         Ok(completed)
     }

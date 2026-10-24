@@ -327,7 +327,7 @@ fn cleanup_deferred_calls(
 ) -> BTreeMap<bray_bound_tree::AnyBoundNodeId, BTreeSet<BodyBehaviorCall>> {
     // Suspension entries own their call sets while the cleanup plan remains shared.
     let mut calls = cleanup
-        .input_cleanup_calls
+        .expression_cleanup_calls
         .iter()
         .map(|(expression, calls)| ((*expression).into(), calls.clone()))
         .collect::<BTreeMap<_, _>>();
