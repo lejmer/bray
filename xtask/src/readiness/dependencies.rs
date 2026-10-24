@@ -55,9 +55,22 @@ impl CargoMetadata {
 pub(super) struct PackageDependencies {
     manifest_path: PathBuf,
     dependencies: Vec<Dependency>,
+    targets: Vec<CargoTarget>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct CargoTarget {
+    pub(super) name: String,
+    pub(super) kind: Vec<String>,
+    pub(super) src_path: PathBuf,
+    pub(super) test: bool,
 }
 
 impl PackageDependencies {
+    pub(super) fn targets(&self) -> &[CargoTarget] {
+        &self.targets
+    }
+
     // Build dependencies also belong to the production boundary, even on another target.
     pub(super) fn contains_production(&self, name: &str) -> bool {
         self.dependencies.iter().any(|dependency| {
@@ -87,7 +100,7 @@ enum DependencyKind {
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
 
     #[test]
     fn cargo_dependency_identity_ignores_text_and_preserves_declaration_kinds() {
