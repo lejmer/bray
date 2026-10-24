@@ -96,7 +96,7 @@ pub(crate) fn execute(
 ) -> Result<(TestCommandReport, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
-    let hosts = load_hosts(hosts);
+    let hosts = load_hosts(hosts)?;
 
     let report = execute_loaded(
         workspace_root,
@@ -128,7 +128,7 @@ pub(crate) fn execute_batch(
 ) -> Result<(Vec<(String, TestCommandReport)>, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
-    let hosts = load_hosts(hosts);
+    let hosts = load_hosts(hosts)?;
     let mut reports = Vec::with_capacity(request.plans().len());
 
     for plan in request.plans() {
@@ -236,21 +236,16 @@ fn execute_loaded(
     Ok(report)
 }
 
-fn load_hosts(hosts: Vec<BuiltTestHost>) -> Vec<LoadedTestHost> {
-    let mut loaded = Vec::with_capacity(hosts.len());
-
-    for host in hosts {
-        loaded.push(host.load().unwrap_or_else(|| {
-            panic!(
-                "validated project MissingResult contract failed: {:?}",
-                DiagnosticProjectOperation::TestHostPublication
-            )
-        }));
-    }
+fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, DiagnosticBag> {
+    let mut loaded = hosts
+        .into_iter()
+        .map(BuiltTestHost::load)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(operation_diagnostics)?;
 
     loaded.sort_by(|left, right| left.catalog.product().cmp(right.catalog.product()));
 
-    loaded
+    Ok(loaded)
 }
 
 fn selection_query(options: &TackTestOptions) -> Result<TestSelectionQuery, DiagnosticBag> {
@@ -762,7 +757,7 @@ mod tests {
         let (executable, catalog) = write_empty_test_host(directory.path());
 
         let host = BuiltTestHost::try_new(executable, catalog)
-            .unwrap_or_else(|| panic!("fresh test host should be valid"));
+            .unwrap_or_else(|failure| panic!("fresh test host should be valid: {failure:?}"));
 
         let first = TestBatchPlan::try_new("first", [], 1, None)
             .unwrap_or_else(|error| panic!("first plan should be valid: {error:?}"));

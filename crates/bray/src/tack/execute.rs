@@ -867,7 +867,7 @@ fn test_host_from_generation(
         })?;
 
     BuiltTestHost::try_new(executable.to_path_buf(), test_catalog.to_path_buf())
-        .ok_or_else(|| selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost))
+        .map_err(operation_diagnostics)
 }
 
 fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {

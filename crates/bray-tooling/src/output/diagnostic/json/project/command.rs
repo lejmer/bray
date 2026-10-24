@@ -208,6 +208,20 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         path: String,
         error: &'static str,
     },
+    MalformedTestCatalog {
+        path: String,
+    },
+    UnsupportedTestCatalogVersion {
+        path: String,
+        actual: u32,
+        supported: u32,
+    },
+    TestCatalogCapacityExceeded {
+        path: String,
+    },
+    TestHostChanged {
+        path: String,
+    },
     CurrentExecutable {
         operation: &'static str,
         error: &'static str,
@@ -307,6 +321,24 @@ impl DiagnosticProjectCommandFailureJson {
                 operation: operation.as_str(),
                 path: path_to_output_string(path),
                 error: error.as_str(),
+            },
+            Failure::MalformedTestCatalog { path } => Self::MalformedTestCatalog {
+                path: path_to_output_string(path),
+            },
+            Failure::UnsupportedTestCatalogVersion {
+                path,
+                actual,
+                supported,
+            } => Self::UnsupportedTestCatalogVersion {
+                path: path_to_output_string(path),
+                actual: *actual,
+                supported: *supported,
+            },
+            Failure::TestCatalogCapacityExceeded { path } => Self::TestCatalogCapacityExceeded {
+                path: path_to_output_string(path),
+            },
+            Failure::TestHostChanged { path } => Self::TestHostChanged {
+                path: path_to_output_string(path),
             },
             Failure::CurrentExecutable { operation, error } => Self::CurrentExecutable {
                 operation: operation.as_str(),

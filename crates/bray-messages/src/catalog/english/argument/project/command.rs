@@ -57,7 +57,7 @@ const fn format_english_project_operation(
         Operation::TestBatchRequest => "read the test batch request",
         Operation::TestConcurrency => "compute test concurrency",
         Operation::TestExecutionPlan => "construct the test execution plan",
-        Operation::TestHostPublication => "publish the test host",
+        Operation::TestHostLoad => "load the test host",
         Operation::TestFilter => "apply the test filter",
         Operation::TestHostLocation => "locate the test host",
         Operation::TestAdmission => "admit a test to the execution schedule",
@@ -88,6 +88,10 @@ pub(crate) fn format_english_project_command_failure(
             format_english_path(path),
             format_english_io_error_kind(*error)
         ),
+        Failure::MalformedTestCatalog { path } => format!("the test catalog at {} has malformed contents", format_english_path(path)),
+        Failure::UnsupportedTestCatalogVersion { path, actual, supported } => format!("the test catalog at {} uses format version {actual}, but this compiler supports version {supported}", format_english_path(path)),
+        Failure::TestCatalogCapacityExceeded { path } => format!("the test catalog at {} exceeds the supported size limits", format_english_path(path)),
+        Failure::TestHostChanged { path } => format!("the test host file at {} changed before execution", format_english_path(path)),
         Failure::CurrentExecutable { operation, error } => format!(
             "could not {} because the host could not identify the current executable ({})",
             format_english_project_operation(*operation),

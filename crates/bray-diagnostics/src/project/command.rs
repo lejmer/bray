@@ -53,8 +53,6 @@ pub enum DiagnosticProjectSelectionProblem {
     MissingTestExecutableOutput,
     /// A required test catalog output path is absent.
     MissingTestCatalogOutput,
-    /// A required published test host is absent.
-    MissingTestHost,
     /// A retained product predates reusable build identities.
     MissingReusableBuildIdentity(String),
     /// One exact identity in a retained product differs from the current inputs.
@@ -158,7 +156,7 @@ pub enum DiagnosticProjectOperation {
     TestBatchRequest,
     TestConcurrency,
     TestExecutionPlan,
-    TestHostPublication,
+    TestHostLoad,
     TestFilter,
     TestHostLocation,
     TestAdmission,
@@ -360,6 +358,30 @@ pub enum DiagnosticProjectCommandFailure {
         /// Stable host I/O failure category.
         error: DiagnosticIoErrorKind,
     },
+    /// A test catalog has malformed binary contents.
+    MalformedTestCatalog {
+        /// Exact catalog file that could not be decoded.
+        path: PathBuf,
+    },
+    /// A test catalog uses a different binary format version.
+    UnsupportedTestCatalogVersion {
+        /// Exact catalog file carrying the version.
+        path: PathBuf,
+        /// Version recorded in the catalog.
+        actual: u32,
+        /// Version accepted by the current decoder.
+        supported: u32,
+    },
+    /// A test catalog exceeds the decoder's supported resource bounds.
+    TestCatalogCapacityExceeded {
+        /// Exact catalog file exceeding decoder limits.
+        path: PathBuf,
+    },
+    /// A test-host file changed after its publication identity was established.
+    TestHostChanged {
+        /// Exact executable or catalog whose contents changed.
+        path: PathBuf,
+    },
     /// The host could not identify the current Bray executable.
     CurrentExecutable {
         /// Command operation resolving the executable.
@@ -542,7 +564,7 @@ impl DiagnosticProjectOperation {
             Self::TestBatchRequest => "test_batch_request",
             Self::TestConcurrency => "test_concurrency",
             Self::TestExecutionPlan => "test_execution_plan",
-            Self::TestHostPublication => "test_host_publication",
+            Self::TestHostLoad => "test_host_load",
             Self::TestFilter => "test_filter",
             Self::TestHostLocation => "test_host_location",
             Self::TestAdmission => "test_admission",

@@ -1831,3 +1831,26 @@ fn finalization_diagnostics_preserve_owner_and_ownership_end() {
         assert_eq!(diagnostic["notes"][0]["kind"], "resolve_finalization");
     }
 }
+
+#[test]
+fn test_catalog_version_failure_preserves_both_versions_in_json() {
+    let diagnostic = DiagnosticProjectCommandFailure::UnsupportedTestCatalogVersion {
+        path: "tests.braytest".into(),
+        actual: 2,
+        supported: 1,
+    }
+    .diagnostic(DiagnosticId::new(0));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .expect("structured catalog error JSON");
+
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("diagnostic JSON");
+    let failure = &value["diagnostics"][0]["args"][0]["value"]["value"];
+
+    assert_eq!(failure["category"], "unsupported_test_catalog_version");
+    assert_eq!(failure["path"], "tests.braytest");
+    assert_eq!(failure["actual"], 2);
+    assert_eq!(failure["supported"], 1);
+}
