@@ -260,6 +260,25 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 
 ## Naming
 
+### Source filenames
+
+Production source follows its language's normal filename conventions. Rust modules use `snake_case.rs`, and Bray source
+uses the [Bray source style guide](bray-style-guide.md#source-files-and-modules).
+
+Scenario-oriented compiled source under `xtask/fixtures` uses `kebab-case` regardless of language. This includes Bray,
+C, C++, Rust, assembly, LLVM IR, and supporting headers. Use lowercase ASCII words or numbers separated by single
+hyphens, such as `async-tasks.bray`, `static-storage-host.c`, `static-storage-host.h`, or `runtime-smoke.rs`.
+Module and declaration names continue to follow their language's identifier rules.
+
+Keep structural entry filenames such as `main.bray`, `main.rs`, `lib.rs`, and `build.rs` unchanged. Token and parser-input
+corpora retain their corpus-specific naming rules. Generated `build` and `target` directories are output rather than
+scenario fixtures.
+
+Both `cargo xtask style` and `cargo xtask style check` reject compiled fixture filename violations. Include any new
+compiled fixture language in the style check when introducing it.
+
+### Identifiers
+
 - Use clear, descriptive names.
 - Avoid cryptic abbreviations and shorthands outside genuinely local or mathematical contexts.
 - Use names such as `index`, `symbol`, `source`, `span`, `node`, `place`, and `diagnostic`.

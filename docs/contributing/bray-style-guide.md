@@ -24,6 +24,9 @@ useful, but repository source follows the defaults in this guide.
 A small module should initially live in a single `<name>.bray` source file.
 
 Source files use `snake_case` names. A file should normally be named after the central concept it owns.
+Scenario-oriented compiled source under `xtask/fixtures` follows the repository's
+[compiled-fixture filename convention](coding-conventions.md#source-filenames) instead. This physical filename exception
+does not change module or declaration names.
 
 Prefer one production module contribution per source file and use a source module declaration for it. A closely related
 test or support module can follow the production items as a braced module declaration when keeping that contribution

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "static_storage_host.h"
+#include "static-storage-host.h"
 
 #if defined(_WIN32)
 #include <windows.h>

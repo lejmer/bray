@@ -353,11 +353,11 @@ fn native_static_storage_fixture_prepares_for_windows() {
     let sources = [
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../xtask/fixtures/native-execution/static_storage.bray"
+            "/../../xtask/fixtures/native-execution/static-storage.bray"
         )),
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../xtask/fixtures/native-execution/static_storage_contribution.bray"
+            "/../../xtask/fixtures/native-execution/static-storage-contribution.bray"
         )),
     ];
 

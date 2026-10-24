@@ -10,13 +10,13 @@ use super::core::{
 use super::fixtures::PRODUCT_NAME;
 use super::repeatable::{RepeatableFixtureAudit, audit_repeatable_fixtures};
 
-const STATIC_STORAGE_FIXTURE: &str = "xtask/fixtures/native-execution/static_storage.bray";
+const STATIC_STORAGE_FIXTURE: &str = "xtask/fixtures/native-execution/static-storage.bray";
 const STATIC_STORAGE_CONTRIBUTION: &str =
-    "xtask/fixtures/native-execution/static_storage_contribution.bray";
-const STATIC_CLEANUP_FAILURE: &str = "xtask/fixtures/native-execution/static_cleanup_failure.bray";
-const STATIC_STORAGE_HOST: &str = "xtask/fixtures/native-execution/static_storage_host.c";
+    "xtask/fixtures/native-execution/static-storage-contribution.bray";
+const STATIC_CLEANUP_FAILURE: &str = "xtask/fixtures/native-execution/static-cleanup-failure.bray";
+const STATIC_STORAGE_HOST: &str = "xtask/fixtures/native-execution/static-storage-host.c";
 const STATIC_STORAGE_ARCHIVE_CONSUMER: &str =
-    "xtask/fixtures/native-execution/static_storage_archive_consumer.bray";
+    "xtask/fixtures/native-execution/static-storage-archive-consumer.bray";
 const ARCHIVE_PACKAGE: &str = "fixture.storage";
 
 pub(super) fn audit_static_storage(
@@ -56,7 +56,7 @@ pub(super) fn audit_static_storage(
         runtime,
         "bray-native-static-cleanup-panics-",
         RepeatableFixtureAudit::new(
-            &["xtask/fixtures/native-execution/static_cleanup_panics.bray"],
+            &["xtask/fixtures/native-execution/static-cleanup-panics.bray"],
             1,
             "static cleanup panics preserve every owner and error payload",
             &["bray.static.host."],
