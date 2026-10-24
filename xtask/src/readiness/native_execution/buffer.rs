@@ -46,6 +46,7 @@ const STANDARD_FORMAT_FIXTURES: &[&str] = &[
     STANDARD_STRING_SOURCE,
     STANDARD_CHARACTER_SOURCE,
     STANDARD_NUMERIC_CHECKED_SOURCE,
+    "standard-library/std/src/numeric/integer.bray",
     STANDARD_NUMERIC_LIMITS_SOURCE,
     STANDARD_FORMAT_ROOT_SOURCE,
     STANDARD_FORMAT_OPTIONS_SOURCE,
@@ -146,6 +147,7 @@ pub(super) fn standard_library_compilation(
     for source in [
         STANDARD_ROOT_SOURCE,
         "standard-library/std/src/numeric/policy.bray",
+        STANDARD_NUMERIC_LIMITS_SOURCE,
         STANDARD_MEMORY_SOURCE,
         "standard-library/std/src/memory/pointer.bray",
         "standard-library/std/src/memory/storage.bray",

@@ -175,12 +175,10 @@ fn link_fixture(
     crate::command::require_success(command, "linking native provider retention fixture")
         .map_err(|error| BuildError::conformance("native provider retention", error))?;
 
-    let mut execution = Command::new(&executable);
+    let execution = subprocess::Exec::cmd(&executable).cwd(output);
 
-    execution.current_dir(output);
-
-    crate::command::require_success(execution, "executing native provider retention fixture")
-        .map_err(|error| BuildError::conformance("native provider retention", error))?;
+    crate::validation_process::success(execution, crate::validation_process::TIMEOUT)
+        .map_err(|error| BuildError::conformance("native provider retention", error.to_string()))?;
 
     fs::read_to_string(&map).map_err(|error| BuildError::read(&map, error))
 }

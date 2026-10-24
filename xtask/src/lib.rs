@@ -26,6 +26,7 @@ mod source_format;
 mod standard_library;
 mod style;
 mod text;
+mod validation_process;
 mod windows_crt;
 mod workspace;
 

@@ -17,7 +17,6 @@ internal struct CleanupProbe
 }
 
 trusted func main() -> Result<unit, MemoryLayoutError>
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let buffer: RawBuffer<u8> = try trusted RawBuffer<u8>(capacity = 5);
 
@@ -57,13 +56,11 @@ trusted func main() -> Result<unit, MemoryLayoutError>
 }
 
 trusted internal func destroy_probes() -> unit
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let buffer_owner: RawBuffer<CleanupProbe> = trusted probe_buffer();
 }
 
 trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
-    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let mut buffer: RawBuffer<CleanupProbe> = match trusted RawBuffer<CleanupProbe>(capacity = 3)
     {

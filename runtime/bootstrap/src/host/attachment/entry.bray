@@ -44,7 +44,7 @@ trusted internal func enter_attachment_locked(
         trusted attachment_cleanup_completed(owner = lease)
     )
     executes(total)
-    uses(foreign_call, intrinsic, raw_memory, unchecked_alias)
+    uses(intrinsic, raw_memory, unchecked_alias)
 {
     let no_identity: u64 = 0;
     let unavailable = (bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE, no_identity);

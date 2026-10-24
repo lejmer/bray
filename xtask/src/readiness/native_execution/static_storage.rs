@@ -180,19 +180,20 @@ fn audit_library_host(
     )?;
 
     let harness = compile_host(root, target, loaded.path())?;
-    let mut command = Command::new(&harness);
 
-    command.args([&first_copy, &second_copy]);
-    command.args([control, descriptor, hidden_static]);
-    command.args(identities);
+    let command = subprocess::Exec::cmd(&harness)
+        .args([&first_copy, &second_copy])
+        .args([control, descriptor, hidden_static])
+        .args(identities)
+        .arg(if dependency.is_some() {
+            "bray_archive_provider_probe_read"
+        } else {
+            "bray_provider_probe_read"
+        });
 
-    command.arg(if dependency.is_some() {
-        "bray_archive_provider_probe_read"
-    } else {
-        "bray_provider_probe_read"
-    });
-
-    crate::command::require_success(command, "executing the native static product host").map(|_| ())
+    crate::validation_process::success(command, crate::validation_process::TIMEOUT)
+        .map(|_| ())
+        .map_err(|error| format!("executing the native static product host: {error}"))
 }
 
 fn thread_static_identities(output: &Path, package: &str) -> Result<[String; 2], String> {
