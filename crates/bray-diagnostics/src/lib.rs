@@ -84,17 +84,15 @@ pub use emission::{
     DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
     DiagnosticForeignQueryFailure, DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole,
     DiagnosticPackageInterfaceFailure, DiagnosticProductQueryFailure,
-    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure, DiagnosticTestCatalogFailure,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
     DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;
 pub use inspection::{
-    DiagnosticBoundInspectionFailure, DiagnosticDeclarationInspectionFailure,
-    DiagnosticInspectionFailure, DiagnosticInspectionFailureDetail,
-    DiagnosticInspectionOutputFormat, DiagnosticInspectionTarget,
-    DiagnosticLoweredInspectionFailure, DiagnosticSourceInspectionFailure,
-    DiagnosticSymbolInspectionFailure, DiagnosticSyntaxInspectionFailure,
-    DiagnosticTokenInspectionFailure,
+    DiagnosticBoundInspectionFailure, DiagnosticInspectionFailure,
+    DiagnosticInspectionFailureDetail, DiagnosticInspectionOutputFormat,
+    DiagnosticInspectionTarget, DiagnosticLoweredInspectionFailure,
+    DiagnosticSymbolInspectionFailure,
 };
 pub use interface::{
     DiagnosticCheckedTemplateProblem, DiagnosticInterfaceCompressionFailure,
@@ -119,14 +117,12 @@ pub use linker::{
 };
 pub use note::{DiagnosticNote, DiagnosticNoteKind};
 pub use project::{
-    DiagnosticInvocationBuildFailure, DiagnosticLinkerCapabilityBuildFailure,
-    DiagnosticNativeLinkerBuildFailure, DiagnosticPathRequirement,
-    DiagnosticProfileComparisonProblem, DiagnosticProfileContext, DiagnosticProfileDescriptorKind,
-    DiagnosticProfileValidationProblem, DiagnosticProjectCommandFailure,
-    DiagnosticProjectDependencyCycleMember, DiagnosticProjectManifestField,
-    DiagnosticProjectOperation, DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
-    DiagnosticReusableBuildIdentityPart, DiagnosticTestExecutionPlanProblem,
-    DiagnosticTestSchedulingProblem, DiagnosticToolProtocolFailure, DiagnosticToolStream,
+    DiagnosticPathRequirement, DiagnosticProfileComparisonProblem, DiagnosticProfileContext,
+    DiagnosticProfileDescriptorKind, DiagnosticProfileValidationProblem,
+    DiagnosticProjectCommandFailure, DiagnosticProjectDependencyCycleMember,
+    DiagnosticProjectManifestField, DiagnosticProjectOperation, DiagnosticProjectProcessFailure,
+    DiagnosticProjectSelectionProblem, DiagnosticReusableBuildIdentityPart,
+    DiagnosticTestExecutionPlanProblem, DiagnosticTestSchedulingProblem, DiagnosticToolStream,
 };
 pub use quality::{DiagnosticQualityContract, DiagnosticQualityIssue};
 pub use related::{DiagnosticRelatedLocation, DiagnosticRelatedLocationKind};

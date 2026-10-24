@@ -1101,9 +1101,7 @@ fn recovery_or_unavailable<T>(recovered: bool, value: Option<T>) -> SemanticAvai
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundReferenceTarget, BoundSourceAnchor, BoundUnitKind};
-    use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticFailureValue, DiagnosticKind,
-    };
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{SourceId, SourceVersion, TextSize};
 
     use super::SemanticAvailability;
@@ -1132,32 +1130,20 @@ mod tests {
         let compilation = compilation(SOURCE);
         let missing = SourceId::new(99);
 
-        let error = compilation
-            .build_source_reference_index(
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.build_source_reference_index(
                 missing,
                 &CancellationToken::new(),
                 QueryPriority::Interactive,
             )
-            .expect_err("a missing tooling source must fail");
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let DiagnosticEmissionEvaluationFailure::SemanticQuery(failure) =
-            error.diagnostic_evaluation_failure()
-        else {
-            panic!("a missing tooling source must remain a semantic query failure");
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(failure.category(), "semantic_query_contract_violation");
-        assert_eq!(failure.reason(), "semantic_query_missing_data");
-
-        assert_eq!(
-            failure.context()[1].value(),
-            &DiagnosticFailureValue::Count(99)
-        );
-
-        assert_eq!(
-            failure.context()[2].value(),
-            &DiagnosticFailureValue::Text("source_snapshot".to_owned())
-        );
+        assert!(message.contains("SourceSnapshot"));
+        assert!(message.contains("99"));
     }
 
     #[test]

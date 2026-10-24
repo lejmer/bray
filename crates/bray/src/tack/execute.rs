@@ -463,11 +463,9 @@ fn execute_invocation_with_progress(
         | TackCommand::Format { .. }
         | TackCommand::ProfileShow { .. }
         | TackCommand::ProfileCompare { .. }
-        | TackCommand::VendorInstall { .. } => failure(
-            operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
-                DiagnosticProjectOperation::CommandRouting,
-            )),
-            output_format,
+        | TackCommand::VendorInstall { .. } => panic!(
+            "validated project Invariant contract failed: {:?}",
+            DiagnosticProjectOperation::CommandRouting
         ),
     }
 }
@@ -869,7 +867,7 @@ fn test_host_from_generation(
         })?;
 
     BuiltTestHost::try_new(executable.to_path_buf(), test_catalog.to_path_buf())
-        .ok_or_else(|| selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost))
+        .map_err(operation_diagnostics)
 }
 
 fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {
@@ -1003,11 +1001,9 @@ fn run_inspect(
             .next_back()
             .map(|output| result_from_output(output, output_format))
             .unwrap_or_else(|| {
-                failure(
-                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                        DiagnosticProjectOperation::Inspection,
-                    )),
-                    output_format,
+                panic!(
+                    "validated project MissingResult contract failed: {:?}",
+                    DiagnosticProjectOperation::Inspection
                 )
             });
     }
@@ -1257,9 +1253,7 @@ mod tests {
 
     impl ToolExecutor for InvalidProtocolExecutor {
         fn capture(&self, _request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
-            Err(ToolExecutionError::StreamThreadPanicked(
-                ToolStream::StandardOutput,
-            ))
+            Err(ToolExecutionError::InvalidUtf8(ToolStream::StandardOutput))
         }
 
         fn serve(
@@ -1330,9 +1324,8 @@ mod tests {
 
     impl ToolExecutor for RecordingExecutor {
         fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
-            self.publish_compiler_outputs(&request).map_err(|()| {
-                ToolExecutionError::StreamThreadPanicked(ToolStream::StandardOutput)
-            })?;
+            self.publish_compiler_outputs(&request)
+                .unwrap_or_else(|()| panic!("test compiler outputs must be publishable"));
 
             self.record(&request);
 

@@ -66,13 +66,12 @@ impl ExecutionSlots {
                 break;
             }
 
-            state = self.available.wait(state).map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::SchedulerSlots,
-                    fact: None,
-                    task: None,
-                }
-            })?;
+            state = self.available.wait(state).unwrap_or_else(|_| {
+                panic!(
+                    "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                    SynchronizationComponent::SchedulerSlots
+                )
+            });
         }
 
         unregister_waiter(&mut state, interactive)?;
@@ -117,12 +116,10 @@ impl ExecutionSlots {
 
     pub(super) fn state(&self) -> Result<MutexGuard<'_, SlotState>, FactQueryError> {
         self.state.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::SchedulerSlots,
-                fact: None,
-                task: None,
-            }
-            .into()
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::SchedulerSlots
+            )
         })
     }
 
@@ -218,23 +215,23 @@ pub(super) fn unregister_waiter(
 ) -> Result<(), FactQueryError> {
     if interactive {
         if state.interactive_waiters == 0 {
-            return Err(FactRuntimeFailure::InvalidSchedulerState {
-                counter: SchedulerCounter::InteractiveWaiters,
-                expected_minimum: 1,
-                actual: 0,
-            }
-            .into());
+            panic!(
+                "query runtime InvalidSchedulerState contract failed: counter={:?}, expected_minimum={:?}, actual={:?}",
+                SchedulerCounter::InteractiveWaiters,
+                1,
+                0
+            );
         }
 
         state.interactive_waiters -= 1;
     } else {
         if state.ordinary_waiters == 0 {
-            return Err(FactRuntimeFailure::InvalidSchedulerState {
-                counter: SchedulerCounter::OrdinaryWaiters,
-                expected_minimum: 1,
-                actual: 0,
-            }
-            .into());
+            panic!(
+                "query runtime InvalidSchedulerState contract failed: counter={:?}, expected_minimum={:?}, actual={:?}",
+                SchedulerCounter::OrdinaryWaiters,
+                1,
+                0
+            );
         }
 
         state.ordinary_waiters -= 1;
@@ -261,12 +258,10 @@ impl ExecutionLease {
 
     fn activity(&self) -> Result<MutexGuard<'_, Option<ProfileWorkerActivity>>, FactQueryError> {
         self.activity.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::SchedulerSlots,
-                fact: None,
-                task: None,
-            }
-            .into()
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::SchedulerSlots
+            )
         })
     }
 
@@ -275,12 +270,12 @@ impl ExecutionLease {
         let mut state = slots.state()?;
 
         if state.active == 0 {
-            return Err(FactRuntimeFailure::InvalidSchedulerState {
-                counter: SchedulerCounter::ActiveSlots,
-                expected_minimum: 1,
-                actual: 0,
-            }
-            .into());
+            panic!(
+                "query runtime InvalidSchedulerState contract failed: counter={:?}, expected_minimum={:?}, actual={:?}",
+                SchedulerCounter::ActiveSlots,
+                1,
+                0
+            );
         }
 
         drop(activity.take());
@@ -326,8 +321,12 @@ impl Drop for ExecutionSlot<'_> {
     fn drop(&mut self) {
         // Slot release cannot report errors from Drop. Fallible acquisition validates every
         // counter transition before a slot guard is constructed.
-        if let Ok(mut activity) = self.lease.activity.lock() {
-            drop(activity.take());
+        match self.lease.activity.lock() {
+            Ok(mut activity) => drop(activity.take()),
+            Err(_) => assert!(
+                std::thread::panicking(),
+                "execution-slot activity must remain unpoisoned"
+            ),
         }
 
         if !self.lease.held.swap(false, Ordering::Relaxed) {
@@ -335,10 +334,24 @@ impl Drop for ExecutionSlot<'_> {
         }
 
         let Ok(mut state) = self.slots.state.lock() else {
+            assert!(
+                std::thread::panicking(),
+                "query guard state must remain unpoisoned"
+            );
+
             return;
         };
 
-        state.active = state.active.saturating_sub(1);
+        let Some(active) = state.active.checked_sub(1) else {
+            assert!(
+                std::thread::panicking(),
+                "an execution slot must own an active worker"
+            );
+
+            return;
+        };
+
+        state.active = active;
         self.slots.available.notify_all();
     }
 }

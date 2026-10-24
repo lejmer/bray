@@ -38,11 +38,11 @@ pub(in crate::compilation::export) fn build_semantics(
 > {
     let values = compilation
         .semantic_value_store()
-        .map_err(super::super::invalid_compilation_fact_error)?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let binder = compilation
         .binding_context(&compilation.state.cancellation)
-        .map_err(super::super::invalid_compilation_fact_error)?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
 
@@ -74,7 +74,7 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let execution = compilation
         .export_execution_contracts(selected, &compilation.state.cancellation)
-        .map_err(super::super::invalid_compilation_fact_error)?;
+        .map_err(super::super::fact_query_export_error)?;
 
     if let Some(error) =
         super::super::error::source_diagnostic_export_error(execution.diagnostics())
@@ -127,7 +127,7 @@ pub(in crate::compilation::export) fn build_semantics(
         || commit_interface_semantic_fragments(semantics, committed_fragments),
         crate::profile::result_outcome,
     )
-    .map_err(PackageInterfaceExportError::FragmentCommit)?;
+    .map_err(super::super::error::commit_error)?;
 
     Ok((
         semantics,
@@ -154,7 +154,7 @@ fn constant_callable_bodies(
 
         let Some(body) = compilation
             .callable_body_key(definition)
-            .map_err(super::super::invalid_compilation_fact_error)?
+            .map_err(super::super::fact_query_export_error)?
         else {
             continue;
         };
@@ -163,7 +163,7 @@ fn constant_callable_bodies(
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 definition.callable_symbol(),
             ))
-            .map_err(super::super::invalid_compilation_binding_error)?;
+            .map_err(super::super::binding_query_export_error)?;
 
         if signature.diagnostics().has_errors() {
             continue;
@@ -294,13 +294,14 @@ fn resolve_fragments(
         let second_span = pair[1].diagnostic_span(graph);
 
         // The error owns the stable identity after the temporary fragment batch is released.
-        return Err(PackageInterfaceExportError::ConflictingSemanticFragment {
+        panic!(
+            "export ConflictingSemanticFragment contract failed: first={:?}, second={:?}, first_span={:?}, second_span={:?}, identity={:?}",
             first,
             second,
             first_span,
             second_span,
-            identity: pair[0].identity().clone(),
-        });
+            pair[0].identity()
+        );
     }
 
     Ok(fragments)
@@ -333,7 +334,7 @@ fn native_boundaries(
             AnySymbolId::Function(function) => {
                 let contract = compilation
                     .foreign_callable_contract(function)
-                    .map_err(super::super::invalid_compilation_fact_error)?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if contract.diagnostics().has_errors() {
                     // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
@@ -353,7 +354,7 @@ fn native_boundaries(
             AnySymbolId::Static(declaration) => {
                 let contract = compilation
                     .foreign_static_contract(declaration)
-                    .map_err(super::super::invalid_compilation_fact_error)?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if contract.diagnostics().has_errors() {
                     // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
@@ -366,7 +367,7 @@ fn native_boundaries(
 
                 let template = compilation
                     .static_instance_template(declaration)
-                    .map_err(super::super::invalid_compilation_fact_error)?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 (
                     contract.direction(),

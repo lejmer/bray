@@ -177,9 +177,12 @@ impl Compilation {
                 executable_host,
                 reference.role(),
             )
-            .ok_or(CodegenPreparationError::MissingRuntimeRole(
-                reference.role(),
-            ))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked native MissingRuntimeRole contract failed: {:?}",
+                    reference.role(),
+                )
+            });
 
             let signature = self.codegen_runtime_signature(reference.role())?;
 

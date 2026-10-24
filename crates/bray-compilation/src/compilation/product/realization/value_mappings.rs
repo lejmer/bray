@@ -74,7 +74,10 @@ impl Compilation {
             let data = values.constant_term_data(term);
 
             let ConstantTermData::Value(value) = data.as_ref() else {
-                return Err(CodegenPreparationError::OpenConstantTerm(term));
+                panic!(
+                    "checked native OpenConstantTerm contract failed: {:?}",
+                    term
+                );
             };
 
             pending.push(*value);
@@ -177,7 +180,10 @@ impl Compilation {
                 let data = values.constant_term_data(term);
 
                 let ConstantTermData::Value(value) = data.as_ref() else {
-                    return Err(CodegenPreparationError::OpenConstantTerm(term));
+                    panic!(
+                        "checked native OpenConstantTerm contract failed: {:?}",
+                        term
+                    );
                 };
 
                 resolved.insert((instance.key().clone(), template_term), *value);
@@ -209,7 +215,10 @@ impl Compilation {
                 };
 
                 let Some(value) = resolved.get(&(instance.key().clone(), term)) else {
-                    return Err(CodegenPreparationError::OpenConstantTerm(term));
+                    panic!(
+                        "checked native OpenConstantTerm contract failed: {:?}",
+                        term
+                    );
                 };
 
                 terminators.push(CodegenTerminatorMapping::new(

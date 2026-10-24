@@ -7,8 +7,8 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableSignatureQuery, GenericConstraintsQuery, StructFieldTypeQuery,
-    UnionPayloadFieldTypeQuery,
+    CallableSignatureQuery, GenericConstraintsQuery, GenericTypeConstraintsQuery,
+    StructFieldTypeQuery, UnionPayloadFieldTypeQuery,
 };
 
 use super::built_in_operator;
@@ -49,6 +49,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + CheckerSemanticQueryProvider<StructFieldTypeQuery>
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
@@ -146,6 +147,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
@@ -159,7 +161,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
     finish_expression_types_with_deferred(request, session, prepared.deferred(), &[])
@@ -184,6 +186,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     let (session, prepared) = match prepare_expression_check(
@@ -197,7 +200,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
     finish_expression_check(
@@ -221,12 +224,13 @@ fn prepare_expression_check<'view, C>(
     operation_input: &crate::ExpressionTypeInput,
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
-    crate::CheckerQueryError<C::UpstreamError>,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     let supplemental_types = nested_callables
@@ -370,6 +374,7 @@ where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
         + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
         + ?Sized,
 {
     let type_result = match finish_expression_types_with_deferred(
@@ -390,14 +395,14 @@ where
     let (mut entries, selection_diagnostics) = match final_selections(request, &types, &prepared) {
         Ok(Some(result)) => result,
         Ok(None) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
     let (mut propagation_entries, propagation_diagnostics) =
         match crate::selection::select_propagations(request, &types) {
             Ok(Some(result)) => result,
             Ok(None) => return CheckerOutcome::Cancelled,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
     entries.append(&mut propagation_entries);
@@ -448,13 +453,6 @@ where
             .merged(&supplemental_diagnostics)
             .merged(&literal_diagnostics),
     )
-}
-
-fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
-    match error {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 #[cfg(test)]

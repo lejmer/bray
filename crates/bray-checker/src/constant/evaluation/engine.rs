@@ -1859,6 +1859,27 @@ mod tests {
         assert!(result.diagnostics().is_empty());
         assert_eq!(*result.value(), referenced_value);
 
+        let recovery_type = semantic_values()
+            .intern_type(bray_symbols::TypeData::Error)
+            .unwrap();
+
+        let recovery = semantic_values()
+            .intern_error_constant_value(recovery_type)
+            .unwrap();
+
+        let recovered = evaluate_reference(
+            &unit,
+            root,
+            &context,
+            expected,
+            ConstantReferenceResolution::Value(recovery),
+        );
+
+        assert_eq!(
+            constant_value(*recovered.value()).as_ref(),
+            &bray_symbols::ConstantValueData::new(expected, ConstantValueKind::Error)
+        );
+
         let (unit, root, context) = reference_unit(BoundUnitId::new(98), expected);
 
         let result = evaluate_reference_with_limits(

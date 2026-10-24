@@ -3,9 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_symbols::{AnySymbolId, PredicateDefinitionSymbolId, SymbolGraph, SymbolKey};
-use bray_syntax::{
-    ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
-};
+use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
 use crate::compilation::{
     Compilation, SemanticDataKind, SemanticQueryContext, SemanticQueryFailure,
@@ -197,20 +195,41 @@ impl Compilation {
         symbols: &SymbolGraph,
         syntax: &SemanticSyntaxIndex,
     ) -> Result<(), FactQueryError> {
-        for anchor in declaration.surface().constraints() {
-            if syntax.has_bound_constraint_expression(*anchor) {
-                let context = SemanticQueryContext::SymbolKey(owner.clone());
+        if !declaration.surface().constraints().is_empty()
+            || declaration
+                .surface()
+                .contract_clauses()
+                .iter()
+                .any(|anchor| anchor.syntax_kind() == SyntaxKind::WithClause)
+        {
+            use bray_binder::SymbolQueryProvider;
 
-                push_key(
-                    keys,
-                    BoundUnitKey::constraint(owner.clone(), self.bound_source(*anchor)?),
-                    context,
-                )?;
+            let generic = self
+                .binding_context(&self.state.cancellation)?
+                .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::GenericDeclarationTemplateQuery,
+                >::new(
+                    bray_symbols::GenericOwnerId::try_new(symbol)
+                        .expect("static constraints belong to a generic owner"),
+                ))
+                .map_err(crate::compilation::binder::binding_query_error)?;
+
+            for constraint in generic.value().constraints() {
+                if let bray_symbols::GenericConstraintTemplate::Source { unit, .. } = constraint {
+                    push_key(
+                        keys,
+                        BoundUnitKey::constraint(owner.clone(), self.bound_source(*unit)?),
+                        SemanticQueryContext::SymbolKey(owner.clone()),
+                    )?;
+                }
             }
         }
 
         for anchor in declaration.surface().contract_clauses() {
-            if syntax.has_bound_constraint_expression(*anchor) {
+            // Static predicates already have their individual constraint units above.
+            if anchor.syntax_kind() != SyntaxKind::WithClause
+                && syntax.surface_expression(*anchor).is_some()
+            {
                 let context = SemanticQueryContext::SymbolKey(owner.clone());
 
                 push_key(
@@ -330,11 +349,6 @@ impl SemanticSyntaxIndex {
                 {
                     entry.surface_expression = Some(anchor);
                     entry.surface_expression_depth = Some(expression_depth);
-
-                    entry.surface_expression_is_trait_satisfaction =
-                        node.cast::<ExpressionSyntax>().is_some_and(|expression| {
-                            expression.trait_satisfaction_constraint().is_some()
-                        });
                 }
             }
 
@@ -350,12 +364,6 @@ impl SemanticSyntaxIndex {
             .is_some_and(|entry| entry.has_callable_body)
     }
 
-    fn has_bound_constraint_expression(&self, anchor: SyntaxAnchor) -> bool {
-        self.entries.get(&anchor).is_some_and(|entry| {
-            entry.surface_expression.is_some() && !entry.surface_expression_is_trait_satisfaction
-        })
-    }
-
     fn surface_expression(&self, anchor: SyntaxAnchor) -> Option<SyntaxAnchor> {
         self.entries.get(&anchor)?.surface_expression
     }
@@ -365,7 +373,6 @@ impl SemanticSyntaxIndex {
 struct SemanticSyntaxEntry {
     surface_expression: Option<SyntaxAnchor>,
     surface_expression_depth: Option<usize>,
-    surface_expression_is_trait_satisfaction: bool,
     has_callable_body: bool,
 }
 
@@ -405,11 +412,52 @@ mod tests {
     use bray_bound_tree::BoundUnitKind;
 
     use super::DeclaredUnitIndex;
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::FactQueryError;
+
     use crate::test_support::{compilation, source_input};
+
+    #[test]
+    fn mixed_static_clauses_have_one_unit_per_predicate() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            const func supported<T>() -> bool
+            {
+                return true;
+            }
+
+            func constrained<T>()
+                with(T: Copyable, supported<T>())
+                requires(true)
+            {
+            }
+        "#,
+        );
+
+        let index = compilation.declared_units().unwrap();
+
+        let constraints = index
+            .keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::Constraint)
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 1);
+
+        assert_eq!(
+            constraints[0].source().syntax().syntax_kind(),
+            bray_syntax::SyntaxKind::Expression
+        );
+
+        assert_eq!(
+            index
+                .keys
+                .iter()
+                .filter(|key| key.kind() == BoundUnitKind::ContractClause)
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn primary_declaration_lookups_share_one_inventory() {
@@ -557,20 +605,17 @@ mod tests {
 
         assert_eq!(key.kind(), BoundUnitKind::ConstantTemplate);
 
-        let error = DeclaredUnitIndex::new(vec![key.clone(), key.clone()])
-            .err()
-            .unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            DeclaredUnitIndex::new(vec![key.clone(), key.clone()])
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert_eq!(
-            error,
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Unit(key.clone()),
-                SemanticQueryViolation::CountMismatch {
-                    data: SemanticDataKind::BoundUnit,
-                    expected: 1,
-                    actual: 2,
-                },
-            ))
-        );
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("CountMismatch"));
+        assert!(message.contains("BoundUnit"));
+        assert!(message.contains("expected: 1"));
+        assert!(message.contains("actual: 2"));
     }
 }

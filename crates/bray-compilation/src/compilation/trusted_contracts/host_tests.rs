@@ -341,6 +341,7 @@ using core.target;
         "access_prepared_host",
         "load_attachment_identity",
         "current_attachment_locked",
+        "grow",
         "insert_attachment",
         "enter_attachment_locked",
         "take_attachment_exit",

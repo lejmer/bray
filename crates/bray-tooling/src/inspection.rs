@@ -19,11 +19,10 @@ pub use api::{
 };
 pub use support::InspectionOutput;
 pub(crate) use support::{
-    InspectionSourceError, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
-    InspectionTrivia, InspectionTriviaError, TreeWriter, escaped_text, location_for_range,
-    location_range_text, location_start_text, push_indented_report_value, push_report_value,
-    push_text_diagnostic, quoted_text, range_text, render_pretty_json, trivia_entries,
-    trivia_summary,
+    InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor, InspectionTrivia,
+    TreeWriter, escaped_text, location_for_range, location_range_text, location_start_text,
+    push_indented_report_value, push_report_value, push_text_diagnostic, quoted_text, range_text,
+    render_pretty_json, trivia_entries, trivia_summary,
 };
 pub use types::format_semantic_type;
 pub(crate) use types::{InspectionType, TypeInspectionError};

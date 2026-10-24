@@ -33,8 +33,7 @@ internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportP
 
     yield core.memory.uninit_from<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
         {
-            instance = prepared.0,
-            storage = prepared.1,
+            prepared = prepared
         }
     );
 };
@@ -78,7 +77,7 @@ trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.Re
     >(&STORAGE, pointer);
 
     let initialized = trusted lambda(pos pool: &std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>)
-        ensures(trusted std.sync.spin_lock.valid(&pool.instance))
+        ensures(trusted std.sync.spin_lock.valid(&pool.prepared.instance))
         executes(pure, total) {};
 
     initialized(pool);

@@ -6,6 +6,7 @@ mod compiler_known;
 mod composition;
 mod dependency_audit;
 mod diagnostic_output;
+mod formatter_reference;
 mod input_identity;
 mod json;
 mod link_map;
@@ -26,6 +27,7 @@ mod source_format;
 mod standard_library;
 mod style;
 mod text;
+mod validation_process;
 mod windows_crt;
 mod workspace;
 

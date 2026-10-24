@@ -279,7 +279,6 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectSelectionJson {
     MissingExecutableOutput,
     MissingTestExecutableOutput,
     MissingTestCatalogOutput,
-    MissingTestHost,
     MissingReusableBuildIdentity {
         product: String,
     },
@@ -363,7 +362,6 @@ impl DiagnosticProjectSelectionJson {
             Problem::MissingExecutableOutput => Self::MissingExecutableOutput,
             Problem::MissingTestExecutableOutput => Self::MissingTestExecutableOutput,
             Problem::MissingTestCatalogOutput => Self::MissingTestCatalogOutput,
-            Problem::MissingTestHost => Self::MissingTestHost,
             Problem::MissingReusableBuildIdentity(product) => Self::MissingReusableBuildIdentity {
                 product: product.clone(),
             },

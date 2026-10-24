@@ -170,9 +170,10 @@ fn product_source_input_digest(
 }
 
 fn identity_missing_product_diagnostics() -> DiagnosticBag {
-    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-        DiagnosticProjectOperation::ReusableBuildIdentity,
-    ))
+    panic!(
+        "validated project MissingResult contract failed: {:?}",
+        DiagnosticProjectOperation::ReusableBuildIdentity
+    )
 }
 
 fn identity_io_diagnostics(path: PathBuf, error: std::io::Error) -> DiagnosticBag {

@@ -1,5 +1,5 @@
 use bray_bound_tree::{ConversionTarget, SelectedConversion, SelectedOperation};
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{RepresentationRole, ScalarShape};
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
@@ -205,13 +205,13 @@ fn phase_contract_is_compatible(
         && source.predicate_requirements().iter().all(|condition| {
             target.predicate_requirements().iter().any(|candidate| {
                 candidate.condition() == condition.condition()
-                    && candidate.is_trusted() == condition.is_trusted()
+                    && candidate.domain() == condition.domain()
             })
         })
         && target.predicate_guarantees().iter().all(|condition| {
             source.predicate_guarantees().iter().any(|candidate| {
                 candidate.condition() == condition.condition()
-                    && candidate.is_trusted() == condition.is_trusted()
+                    && candidate.domain() == condition.domain()
             })
         })
         && target
@@ -240,8 +240,9 @@ where
         .pointer_width_bits()
         .get();
 
-    scalar_shape(source, target_width).is_some_and(|source| {
-        scalar_shape(target, target_width).is_some_and(|target| source.can_represent(target))
+    ScalarShape::for_role(source, target_width).is_some_and(|source| {
+        ScalarShape::for_role(target, target_width)
+            .is_some_and(|target| source.converts_losslessly_to(target))
     })
 }
 
@@ -399,55 +400,6 @@ where
     )
 }
 
-#[derive(Clone, Copy)]
-enum ScalarShape {
-    Signed(u16),
-    Unsigned(u16),
-    Real(u16),
-    Complex(u16),
-}
-
-impl ScalarShape {
-    const fn can_represent(self, target: Self) -> bool {
-        match (self, target) {
-            (Self::Signed(source), Self::Signed(target)) => source <= target,
-            (Self::Unsigned(source), Self::Unsigned(target)) => source <= target,
-            (Self::Unsigned(source), Self::Signed(target)) => source < target,
-            (Self::Signed(source), Self::Real(mantissa)) => source - 1 <= mantissa,
-            (Self::Unsigned(source), Self::Real(mantissa)) => source <= mantissa,
-            (Self::Real(source), Self::Real(target)) => source <= target,
-            (Self::Complex(source), Self::Complex(target)) => source <= target,
-            _ => false,
-        }
-    }
-}
-
-const fn scalar_shape(role: RepresentationRole, target_width: u16) -> Option<ScalarShape> {
-    match role {
-        RepresentationRole::ScalarI8 => Some(ScalarShape::Signed(8)),
-        RepresentationRole::ScalarI16 => Some(ScalarShape::Signed(16)),
-        RepresentationRole::ScalarI32 => Some(ScalarShape::Signed(32)),
-        RepresentationRole::ScalarI64 => Some(ScalarShape::Signed(64)),
-        RepresentationRole::ScalarI128 => Some(ScalarShape::Signed(128)),
-        RepresentationRole::ScalarU8 => Some(ScalarShape::Unsigned(8)),
-        RepresentationRole::ScalarU16 => Some(ScalarShape::Unsigned(16)),
-        RepresentationRole::ScalarU32 => Some(ScalarShape::Unsigned(32)),
-        RepresentationRole::ScalarU64 => Some(ScalarShape::Unsigned(64)),
-        RepresentationRole::ScalarU128 => Some(ScalarShape::Unsigned(128)),
-        RepresentationRole::ScalarIsize => Some(ScalarShape::Signed(target_width)),
-        RepresentationRole::ScalarUsize => Some(ScalarShape::Unsigned(target_width)),
-        RepresentationRole::ScalarR16 => Some(ScalarShape::Real(11)),
-        RepresentationRole::ScalarR32 => Some(ScalarShape::Real(24)),
-        RepresentationRole::ScalarR64 => Some(ScalarShape::Real(53)),
-        RepresentationRole::ScalarR128 => Some(ScalarShape::Real(113)),
-        RepresentationRole::ScalarC32 => Some(ScalarShape::Complex(11)),
-        RepresentationRole::ScalarC64 => Some(ScalarShape::Complex(24)),
-        RepresentationRole::ScalarC128 => Some(ScalarShape::Complex(53)),
-        RepresentationRole::ScalarC256 => Some(ScalarShape::Complex(113)),
-        _ => None,
-    }
-}
-
 pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool {
     let SelectedOperation::Conversion(conversion) = operation else {
         return false;
@@ -467,7 +419,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundUnitId, ConversionTarget, SelectedConversion};
-    use bray_compiler_known::RepresentationRole;
+    use bray_compiler_known::{RepresentationRole, ScalarShape};
 
     use crate::CheckerUnitView;
     use crate::test_support::{
@@ -475,7 +427,48 @@ mod tests {
         push_expression, tuple_type,
     };
 
-    use super::{ScalarShape, c_variadic_promotion_target, scalar_shape, validate_conversion};
+    use super::{c_variadic_promotion_target, validate_conversion};
+
+    #[test]
+    fn callable_contracts_preserve_all_three_predicate_domains() {
+        use bray_symbols::{CallablePhaseBehavior, PredicateDomain, PredicateSemanticSummary};
+
+        let values = crate::test_support::semantic_values();
+        let dependency = values.empty_dependency_contract_template().unwrap();
+
+        for source in [
+            PredicateDomain::Value,
+            PredicateDomain::Trusted,
+            PredicateDomain::Execution,
+        ] {
+            for target in [
+                PredicateDomain::Value,
+                PredicateDomain::Trusted,
+                PredicateDomain::Execution,
+            ] {
+                for guarantee in [false, true] {
+                    let phase = |domain| {
+                        let condition =
+                            PredicateSemanticSummary::new(dependency).with_condition(None, domain);
+
+                        let (requirements, guarantees) = if guarantee {
+                            (Vec::new(), vec![condition])
+                        } else {
+                            (vec![condition], Vec::new())
+                        };
+
+                        CallablePhaseBehavior::empty(dependency)
+                            .with_predicates(requirements, guarantees)
+                    };
+
+                    assert_eq!(
+                        super::phase_contract_is_compatible(&phase(source), &phase(target)),
+                        source == target
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn c_variadic_arguments_use_the_default_scalar_promotions() {
@@ -517,18 +510,18 @@ mod tests {
 
     #[test]
     fn target_sized_integers_convert_to_their_fixed_128_bit_domains() {
-        let Some(signed) = scalar_shape(RepresentationRole::ScalarIsize, 128) else {
+        let Some(signed) = ScalarShape::for_role(RepresentationRole::ScalarIsize, 128) else {
             panic!("target-sized signed integers must have a scalar shape");
         };
 
-        let Some(unsigned) = scalar_shape(RepresentationRole::ScalarUsize, 128) else {
+        let Some(unsigned) = ScalarShape::for_role(RepresentationRole::ScalarUsize, 128) else {
             panic!("target-sized unsigned integers must have a scalar shape");
         };
 
-        assert!(signed.can_represent(ScalarShape::Signed(128)));
-        assert!(unsigned.can_represent(ScalarShape::Unsigned(128)));
-        assert!(!signed.can_represent(ScalarShape::Signed(64)));
-        assert!(!unsigned.can_represent(ScalarShape::Unsigned(64)));
+        assert!(signed.converts_losslessly_to(ScalarShape::Signed(128)));
+        assert!(unsigned.converts_losslessly_to(ScalarShape::Unsigned(128)));
+        assert!(!signed.converts_losslessly_to(ScalarShape::Signed(64)));
+        assert!(!unsigned.converts_losslessly_to(ScalarShape::Unsigned(64)));
     }
 
     #[test]

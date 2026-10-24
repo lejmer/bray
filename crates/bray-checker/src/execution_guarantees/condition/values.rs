@@ -417,6 +417,15 @@ impl ExecutionCondition {
             return Self::Unknown;
         }
 
+        if let [Self::Literal(value)] = operands.as_slice()
+            && let Some(kind) = crate::constant::fold_numeric_sign(operator, value.kind())
+        {
+            return Self::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+                value.ty(),
+                kind,
+            )));
+        }
+
         if let [Self::Literal(left), Self::Literal(right)] = operands.as_slice() {
             if matches!(
                 operator,

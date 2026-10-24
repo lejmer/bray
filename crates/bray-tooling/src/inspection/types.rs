@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::inspection::InspectionSymbolIdentity;
 
-const MAXIMUM_TYPE_DEPTH: usize = 256;
+pub(super) const MAXIMUM_TYPE_DEPTH: usize = 256;
 
 /// Formats one canonical semantic type as Bray source-like text.
 pub fn format_semantic_type(

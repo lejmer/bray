@@ -14,9 +14,12 @@ impl Compilation {
         reference: &MirHelperReference,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        let ty = reference
-            .lifecycle_type()
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+        let ty = reference.lifecycle_type().unwrap_or_else(|| {
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference
+            )
+        });
 
         let pointer = self
             .semantic_value_store()?

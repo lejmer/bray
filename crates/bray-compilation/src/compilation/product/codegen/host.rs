@@ -251,7 +251,7 @@ impl Compilation {
         for root_realization in roots {
             let root = reachability
                 .and_then(|reachability| reachability.graph().instance(root_realization.key()))
-                .ok_or(NativeProductPlanningError::MissingProductRoot)?;
+                .expect("checked executable root must be in its reachability graph");
 
             let entry_result_type = root
                 .mir()
@@ -270,7 +270,7 @@ impl Compilation {
         }
 
         if entries.is_empty() && kind != ProductKind::Test {
-            return Err(NativeProductPlanningError::MissingProductRoot);
+            panic!("checked executable product must retain its entry: kind={kind:?}");
         }
 
         let has_async_entries = entries
@@ -388,10 +388,14 @@ impl Compilation {
             ));
         }
 
-        builder
-            .finish()
-            .map(Some)
-            .map_err(NativeProductPlanningError::InvalidExecutableHost)
+        builder.finish().map(Some).map_err(|cause| match cause {
+            bray_runtime_interface::ExecutableHostContractBuildError::IncompatibleRuntime(
+                cause,
+            ) => NativeProductPlanningError::InvalidRuntimeSelection(
+                bray_runtime_interface::RuntimeArtifactSelectionError::IncompatibleRuntime(cause),
+            ),
+            _ => panic!("native executable-host construction failed: {cause:?}"),
+        })
     }
 
     #[expect(
@@ -423,7 +427,9 @@ impl Compilation {
         let data = values.type_data(ty);
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
-            return Err(NativeProductPlanningError::InvalidEntryResult);
+            panic!(
+                "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+            );
         };
 
         let role = super::super::super::foreign::compiler_known_representation(self, *definition);
@@ -438,33 +444,45 @@ impl Compilation {
                     .expect("selected compiler-known Result must have its representation");
 
                 let bray_symbols::TypeData::Named { substitution, .. } = data.as_ref() else {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 };
 
                 let substitution = values.generic_substitution_data(*substitution);
 
                 let [success, error] = substitution.bindings() else {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 };
 
                 let GenericArgument::Type(success) = success.argument() else {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 };
 
                 let success = values.type_data(success);
 
                 let bray_symbols::TypeData::Named { definition, .. } = success.as_ref() else {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 };
 
                 if super::super::super::foreign::compiler_known_representation(self, *definition)
                     != Some(RepresentationRole::Unit)
                 {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 }
 
                 let GenericArgument::Type(error) = error.argument() else {
-                    return Err(NativeProductPlanningError::InvalidEntryResult);
+                    panic!(
+                        "checked executable entry result has an incompatible representation: type={ty:?}, data={data:?}"
+                    );
                 };
 
                 Ok(ExecutableEntryResult::Fallible {
@@ -473,7 +491,9 @@ impl Compilation {
                     success_variant: representation.success_variant(),
                 })
             }
-            _ => Err(NativeProductPlanningError::InvalidEntryResult),
+            _ => panic!(
+                "checked executable entry result requires its established runtime representation: type={ty:?}, role={role:?}"
+            ),
         }
     }
 }

@@ -276,7 +276,7 @@ impl Transfer {
 pub(in crate::analysis::storage_flow) struct State {
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
-    pub(super) returned_inputs: BTreeMap<Place, BTreeSet<Target>>,
+    pub(super) returned_inputs: BTreeMap<Place, References>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
@@ -319,10 +319,8 @@ impl State {
 
         for (reference, roots) in &incoming.returned_inputs {
             let previous = self.returned_inputs.entry(reference.clone()).or_default();
-            let count = previous.len();
 
-            previous.extend(roots.iter().cloned());
-            changed |= previous.len() != count;
+            changed |= previous.merge(roots);
         }
 
         changed |= merge_references(&mut self.borrows, &incoming.borrows, |_| false, |_| false);

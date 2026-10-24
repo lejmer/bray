@@ -49,6 +49,10 @@ pub(crate) fn format_english_unsupported_emission_reason(
             llvm_tool_role(*tool),
             format_english_path(path)
         ),
+        Reason::InvalidHostEnvironment { variable, value } => format!(
+            "the host environment variable {} requires an absolute path but contains {}",
+            format_english_quoted_text(variable.as_str()), format_english_path(value)
+        ),
         Reason::MissingHostEnvironment(variable) => format!(
             "the host environment does not define {}",
             format_english_quoted_text(variable.as_str())

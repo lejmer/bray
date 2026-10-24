@@ -273,15 +273,12 @@ pub(super) fn with_declaration_root<R>(
 
     let surface = compiler_known_surface(context.symbols, symbol)?;
 
-    let fragment = surface.syntax_fragment().map_err(|cause| {
-        crate::compilation::binder::semantic_query_binding_error(
-            crate::compilation::SemanticQueryFailure::PreparsedSyntax {
-                symbol,
-                source: None,
-                cause,
-            },
+    let fragment = surface.syntax_fragment().unwrap_or_else(|cause| {
+        panic!(
+            "semantic PreparsedSyntax construction failed: symbol={:?}, cause={:?}",
+            symbol, cause
         )
-    })?;
+    });
 
     consume(fragment.root())
 }
@@ -309,7 +306,6 @@ pub(super) fn syntax_node_for_anchor<'syntax>(
 
 #[cfg(test)]
 mod tests {
-    use bray_binder::{BindingError, BoundUnitBindingError};
 
     use super::symbol_ordinal;
     use crate::compilation::binder::binding_query_error;
@@ -325,8 +321,8 @@ mod tests {
 
         assert_eq!(
             binding_query_error(error),
-            FactQueryError::Binding(BoundUnitBindingError::Binding(
-                BindingError::IdentityCapacityExceeded
+            FactQueryError::BindingCapacity(bray_binder::BoundUnitConstructionError::LocalSymbol(
+                bray_symbols::LocalSymbolBuildError::CapacityExceeded
             ))
         );
     }

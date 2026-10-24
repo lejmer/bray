@@ -25,9 +25,9 @@ pub use binding::{
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
     BoundUnitBindingError, bind_anonymous_callable, bind_callable_body, bind_callable_type_clause,
-    bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_contract_clause_expressions, bind_embedded_constant, bind_predicate_definition,
-    bind_runtime_default, bind_target_gate,
+    bind_constant_template, bind_constraint, bind_contract_clause, bind_embedded_constant,
+    bind_predicate_clause_expressions, bind_predicate_definition, bind_runtime_default,
+    bind_target_gate,
 };
 pub use lookup::{
     BoundImplementationUsing, ImportedPathRoot, NameAccess, bind_implementation_using,
@@ -41,7 +41,6 @@ pub use query::{
 pub use result::BoundUnitComputation;
 pub use semantic_context::semantic_unit_context;
 pub use surface::{
-    BoundTrustedCapability, PredicateClauseBindingContext, bind_predicate_clause,
-    bind_trusted_capability_clause,
+    BoundTrustedCapability, PredicateClauseBindingContext, bind_trusted_capability_clause,
 };
 pub use unit::BoundUnitConstructionError;

@@ -32,6 +32,22 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
         (TypeData::OwnedIndirection { target, .. }, DependencyProjection::OwnedTarget) => {
             Some(*target)
         }
+        (
+            TypeData::Named {
+                definition,
+                substitution,
+            },
+            DependencyProjection::OwnedTarget,
+        ) => request
+            .context()
+            .raw_buffer_element(*definition, *substitution)?
+            .map(|element| {
+                // This is the allocation's storage shape, not proof of an initialized slice.
+                request
+                    .semantic_values()
+                    .intern_type(TypeData::Slice(element))
+                    .expect("recognized buffer element has a slice storage type")
+            }),
         (TypeData::Nullable(target), DependencyProjection::NullableValue) => Some(*target),
         (TypeData::Array { .. } | TypeData::Slice(_), DependencyProjection::Element(_)) => {
             sequence_element_type(request, owner)

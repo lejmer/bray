@@ -194,10 +194,7 @@ fn standard_library_failure_diagnostic(
                 DiagnosticKind::StandardLibraryInfrastructureFailure,
                 SeverityKind::Error,
             )
-            .with_arg(DiagnosticArg::artifact_path(path.clone()))
-            .with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ReportCompilerDefect,
-            ));
+            .with_arg(DiagnosticArg::artifact_path(path.clone()));
 
             (diagnostic, Some(path))
         }

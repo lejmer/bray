@@ -1,6 +1,5 @@
 mod argument;
 mod build_progress;
-mod compiler_defect;
 mod diagnostics;
 #[cfg(test)]
 mod guard;
@@ -24,7 +23,6 @@ pub(crate) use build_progress::{
     heading as build_progress_heading, operation as build_progress_operation,
     unit_count as build_progress_unit_count,
 };
-pub(crate) use compiler_defect::{INTERNAL_COMPILER_ERROR, format_internal_compiler_error};
 pub(crate) use diagnostics::{
     diagnostic_template, label_heading, note_heading, note_kind, note_template,
     related_location_heading, severity_label,

@@ -10,7 +10,7 @@ pub use failure::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticEvaluationFailureDetail,
     DiagnosticPackageInterfaceFailure, DiagnosticSemanticQueryFailure,
-    DiagnosticSemanticValueFailure, DiagnosticTestCatalogFailure,
+    DiagnosticSemanticValueFailure,
 };
 pub use foreign_query::DiagnosticForeignQueryFailure;
 pub use product_query::DiagnosticProductQueryFailure;

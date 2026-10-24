@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
     BindingError, BindingQueryContext, BindingQueryError, PredicateClauseBindingContext,
-    SymbolQueryProvider, bind_predicate_clause, bind_trusted_capability_clause,
+    SymbolQueryProvider, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -16,9 +16,9 @@ use bray_symbols::{
     CallableContractsQuery, CallableExecution, CallableExecutionRequirement, CallablePhaseBehavior,
     CallablePredicateContractsQuery, CallableSignatureQuery, CallableSymbolId, CallableTrust,
     CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
-    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, SymbolOrigin,
-    SymbolQueryContract, SymbolQueryRequest, TrustedCapabilityRequirement,
-    TrustedCapabilitySymbolId, TypeData,
+    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
+    GenericTypeConstraintsQuery, SymbolOrigin, SymbolQueryContract, SymbolQueryRequest,
+    TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView,
@@ -29,10 +29,9 @@ use bray_syntax::{
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{
-    CheckedSourcePredicateSequence, checked_catalog_predicates, checked_source_predicate_sequence,
+    CheckedSourcePredicateSequence, checked_bound_predicates, checked_source_predicate_sequence,
     extend_dependency_contract_with_statics,
 };
-use super::environment::type_binder;
 use super::surface::{symbol_ordinal, syntax_node_for_anchor, with_declaration_root};
 use crate::compilation::binder::{
     BindingQueryResult, CompilationBindingContext,
@@ -44,6 +43,19 @@ use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryViolation, SemanticSymbolCategory,
 };
 use crate::fact::SymbolQueryCache;
+
+impl CompilationSymbolQueryEvaluator<GenericTypeConstraintsQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<GenericTypeConstraintsQuery> {
+        &self.generic_type_constraints
+    }
+    fn bind(
+        &self,
+        context: &CompilationBindingContext<'_>,
+        request: SymbolQueryRequest<GenericTypeConstraintsQuery>,
+    ) -> BindingQueryResult<DiagnosticResult<GenericConstraintSet>> {
+        bind_generic_type_constraints(context, request.owner())
+    }
+}
 
 impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSymbolSemantics {
     fn cache(&self) -> &SymbolQueryCache<GenericConstraintsQuery> {
@@ -140,7 +152,7 @@ fn bind_callable_predicate_contracts(
                 &mut execution,
                 &mut diagnostics,
             )?,
-            ContractClauseSyntax::Uses(_) | ContractClauseSyntax::With(_) => {}
+            ContractClauseSyntax::Uses(_) | ContractClauseSyntax::With => {}
         }
     }
 
@@ -211,7 +223,7 @@ fn bind_callable_predicate_contracts(
                 .with_condition(condition, predicate.domain());
 
             predicates.push(CallableContractClause::new(
-                symbol_ordinal(predicates.len())?,
+                post.ordinal(),
                 CallableContractClauseKind::Ensures,
                 predicate,
             ));
@@ -288,6 +300,47 @@ pub(in crate::compilation::binder::symbol) fn conditional_postconditions(
     output
 }
 
+fn bind_generic_type_constraints(
+    context: &CompilationBindingContext<'_>,
+    generic_owner: GenericOwnerId,
+) -> BindingQueryResult<DiagnosticResult<GenericConstraintSet>> {
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        GenericDeclarationTemplateQuery,
+    >::new(generic_owner))?;
+
+    let mut constraints = Vec::new();
+    let mut diagnostics = template.diagnostics().clone();
+
+    for source in template.value().constraints() {
+        let constraint = match source {
+            bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
+                resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
+            }
+            bray_symbols::GenericConstraintTemplate::TypeEquality { .. } => {
+                resolve_type_equality_constraint(context, source, &mut diagnostics)?
+            }
+            bray_symbols::GenericConstraintTemplate::Source { .. } => continue,
+            bray_symbols::GenericConstraintTemplate::Resolved(constraint) => {
+                if matches!(
+                    constraint.kind(),
+                    bray_symbols::CheckedConstraintKind::Predicate(_)
+                ) {
+                    continue;
+                }
+
+                *constraint
+            }
+        };
+
+        constraints.push(constraint);
+    }
+
+    Ok(DiagnosticResult::new(
+        GenericConstraintSet::new(constraints),
+        diagnostics,
+    ))
+}
+
 fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
@@ -326,10 +379,10 @@ fn bind_generic_constraints(
             })
             .collect::<BindingQueryResult<Vec<_>>>()?;
 
-        return publish_catalog_result(
+        return Ok(DiagnosticResult::new(
             GenericConstraintSet::new(constraints),
             template_diagnostics,
-        );
+        ));
     }
 
     let catalog_sources = if context.symbols.declaration_syntax_anchor(owner).is_none()
@@ -361,17 +414,15 @@ fn bind_generic_constraints(
         BTreeMap::new()
     };
 
-    let mut constraints = Vec::with_capacity(template.value().constraints().len());
-    let mut diagnostics = template_diagnostics;
+    let headers = context.resolve_symbol_query(
+        SymbolQueryRequest::<GenericTypeConstraintsQuery>::new(generic_owner),
+    )?;
+
+    let mut constraints = headers.value().constraints().to_vec();
+    let mut diagnostics = template_diagnostics.merged(headers.diagnostics());
 
     for source in template.value().constraints() {
         let constraint = match source {
-            bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
-                resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
-            }
-            bray_symbols::GenericConstraintTemplate::TypeEquality { .. } => {
-                resolve_type_equality_constraint(context, source, &mut diagnostics)?
-            }
             bray_symbols::GenericConstraintTemplate::Source {
                 ordinal,
                 unit,
@@ -396,19 +447,33 @@ fn bind_generic_constraints(
                     (syntax_node_view(clause), expression.clone())
                 };
 
-                let result = bind_predicate_clause(
-                    context,
-                    owner,
-                    unit,
-                    [expression],
-                    PredicateClauseBindingContext::GenericConstraint,
-                )?;
+                let result = if context.symbols.declaration_syntax_anchor(owner).is_some() {
+                    let key = context
+                        .compilation()
+                        .constraint_unit_key(
+                            owner,
+                            bray_declarations::SyntaxAnchor::from_node(&unit),
+                        )
+                        .map_err(super::binding::binder_error)?;
+
+                    let checked = checked_source_predicate_sequence(context, key)?;
+
+                    DiagnosticResult::new(checked.predicates, checked.diagnostics)
+                } else {
+                    checked_bound_predicates(
+                        context,
+                        owner,
+                        unit,
+                        vec![expression],
+                        PredicateClauseBindingContext::GenericConstraint,
+                    )?
+                };
 
                 let (predicates, clause_diagnostics) = result.into_parts();
 
                 diagnostics = diagnostics.merged(&clause_diagnostics);
 
-                let [predicate] = predicates.as_ref() else {
+                let [predicate] = predicates.as_slice() else {
                     return Err(query_contract(
                         owner,
                         GenericConstraintsQuery::KIND,
@@ -422,19 +487,18 @@ fn bind_generic_constraints(
 
                 CheckedConstraint::new(*ordinal, *predicate)
             }
-            bray_symbols::GenericConstraintTemplate::Resolved(_) => {
-                return Err(query_contract(
-                    owner,
-                    GenericConstraintsQuery::KIND,
-                    SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
-                ));
-            }
+            _ => continue,
         };
 
         constraints.push(constraint);
     }
 
-    publish_catalog_result(GenericConstraintSet::new(constraints), diagnostics)
+    constraints.sort_unstable_by_key(|constraint| constraint.ordinal());
+
+    Ok(DiagnosticResult::new(
+        GenericConstraintSet::new(constraints),
+        diagnostics,
+    ))
 }
 
 fn bind_callable_contracts(
@@ -463,18 +527,23 @@ fn bind_callable_contracts(
 
     let declared_execution_requirements = execution.into_parts().0;
 
+    let mut has_static_constraints = false;
+
     for clause in clauses {
         match clause {
             ContractClauseSyntax::Requires(_) | ContractClauseSyntax::Ensures(_) => {}
-            ContractClauseSyntax::With(clause) => bind_callable_static_constraints(
-                context,
-                owner.into_any(),
-                clause.expressions(),
-                &mut predicates,
-                &mut diagnostics,
-            )?,
+            ContractClauseSyntax::With => has_static_constraints = true,
             ContractClauseSyntax::Uses(clause) => uses_clauses.push(clause),
         }
+    }
+
+    if has_static_constraints {
+        bind_callable_static_constraints(
+            context,
+            owner.into_any(),
+            &mut predicates,
+            &mut diagnostics,
+        )?;
     }
 
     let capabilities =
@@ -641,10 +710,10 @@ fn bind_callable_contracts(
         &mut diagnostics,
     )?;
 
-    publish_catalog_result(
+    Ok(DiagnosticResult::new(
         CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
         diagnostics,
-    )
+    ))
 }
 
 pub(in crate::compilation) fn bind_declared_execution_requirements(
@@ -692,7 +761,7 @@ pub(in crate::compilation) fn bind_declared_trusted_capabilities(
             ContractClauseSyntax::Uses(clause) => Some(clause),
             ContractClauseSyntax::Requires(_)
             | ContractClauseSyntax::Ensures(_)
-            | ContractClauseSyntax::With(_) => None,
+            | ContractClauseSyntax::With => None,
         }),
         None,
     )
@@ -991,7 +1060,7 @@ fn trusted_capability_origins<'a>(
 pub(in crate::compilation) enum ContractClauseSyntax {
     Requires(RequiresClauseSyntax),
     Ensures(EnsuresClauseSyntax),
-    With(WithClauseSyntax),
+    With,
     Uses(UsesClauseSyntax),
 }
 
@@ -1007,23 +1076,55 @@ fn bind_callable_predicates(
 ) -> BindingQueryResult<()> {
     let expressions = expressions.into_iter().collect::<Vec<_>>();
 
-    if context.symbols.symbol_origin(owner) != Some(SymbolOrigin::Source) {
-        let result = checked_catalog_predicates(context, owner, syntax, expressions)?;
+    let ordinals = if syntax.kind() == SyntaxKind::WhenClause {
+        None
+    } else {
+        let callable =
+            CallableSymbolId::try_from_any(owner).expect("caller predicates belong to a callable");
 
-        let (summaries, clause_diagnostics) = result.into_parts();
+        let template = context.resolve_symbol_query(SymbolQueryRequest::<
+            bray_symbols::CallableContractTemplateQuery,
+        >::new(callable))?;
 
-        *diagnostics = diagnostics.merged(&clause_diagnostics);
+        let bray_symbols::CallableContractTemplate::Source(source) = template.value() else {
+            panic!("source caller predicates retain their source template");
+        };
 
-        for summary in summaries {
-            let ordinal = symbol_ordinal(predicates.len())?;
+        let anchor = bray_declarations::SyntaxAnchor::from_node(&syntax);
 
-            predicates.push(CallableContractClause::new(ordinal, kind, summary));
+        Some(
+            source
+                .expressions()
+                .iter()
+                .filter(|expression| {
+                    let expression = expression.expression().syntax();
+
+                    expression.source_id() == anchor.source_id()
+                        && anchor.full_range().contains_range(expression.full_range())
+                })
+                .map(|expression| expression.ordinal())
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    let checked = if context.symbols.symbol_origin(owner) == Some(SymbolOrigin::Source) {
+        checked_callable_predicates(context, owner, syntax)?
+    } else {
+        let (predicates, diagnostics) = checked_bound_predicates(
+            context,
+            owner,
+            syntax,
+            expressions,
+            PredicateClauseBindingContext::CallableContract(kind),
+        )?
+        .into_parts();
+
+        CheckedSourcePredicateSequence {
+            predicates,
+            diagnostics,
+            execution_requirements: Vec::new(),
         }
-
-        return Ok(());
-    }
-
-    let checked = checked_callable_predicates(context, owner, syntax)?;
+    };
 
     *diagnostics = diagnostics.merged(&checked.diagnostics);
 
@@ -1031,8 +1132,19 @@ fn bind_callable_predicates(
         execution_requirements.extend(checked.execution_requirements);
     }
 
-    for predicate in checked.predicates {
-        let ordinal = symbol_ordinal(predicates.len())?;
+    if let Some(ordinals) = &ordinals {
+        assert_eq!(
+            ordinals.len(),
+            checked.predicates.len(),
+            "checked predicate clauses retain source identities"
+        );
+    }
+
+    for (index, predicate) in checked.predicates.into_iter().enumerate() {
+        let ordinal = match &ordinals {
+            Some(ordinals) => ordinals[index],
+            None => symbol_ordinal(predicates.len())?,
+        };
 
         predicates.push(CallableContractClause::new(ordinal, kind, predicate));
     }
@@ -1189,9 +1301,7 @@ fn resolve_trait_satisfaction_templates(
 fn checked_constant_terms_binding_error(
     cause: bray_checker::CheckedConstantTermsBuildError,
 ) -> BindingQueryError<crate::fact::FactQueryError> {
-    crate::compilation::binder::semantic_query_binding_error(
-        crate::compilation::SemanticQueryFailure::CheckedConstantTerms { unit: None, cause },
-    )
+    panic!("checked constant terms must have unique occurrences: {cause:?}")
 }
 
 fn constraint_context(
@@ -1218,63 +1328,59 @@ fn missing_semantic_data(
 fn bind_callable_static_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-    expressions: impl IntoIterator<Item = ExpressionSyntax>,
     predicates: &mut Vec<CallableContractClause>,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<()> {
-    for expression in expressions {
-        let ordinal = symbol_ordinal(predicates.len())?;
+    let owner =
+        GenericOwnerId::try_new(owner).expect("static callable constraints have a generic owner");
 
-        let clause = if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
-            let subject =
-                type_binder(context, owner)?.bind_type_expression(satisfaction.subject())?;
+    let checked =
+        context.resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))?;
 
-            let application =
-                type_binder(context, owner)?.bind_trait_application(satisfaction.application())?;
+    *diagnostics = diagnostics.merged(checked.diagnostics());
 
-            *diagnostics = diagnostics.merged(subject.diagnostics());
-            *diagnostics = diagnostics.merged(application.diagnostics());
+    if checked.diagnostics().has_errors() {
+        return Ok(());
+    }
 
-            let Some(application) = application.value() else {
-                continue;
-            };
+    let callable = CallableSymbolId::try_from_any(owner.symbol())
+        .expect("static clauses belong to a callable");
 
-            let (subject, application) = resolve_trait_satisfaction_templates(
-                context,
-                subject.value(),
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        bray_symbols::CallableContractTemplateQuery,
+    >::new(callable))?;
+
+    let bray_symbols::CallableContractTemplate::Source(source) = template.value() else {
+        panic!("source static clauses retain their source template");
+    };
+
+    let expressions = source
+        .expressions()
+        .iter()
+        .filter(|expression| {
+            expression.kind() == bray_symbols::DeclarationPredicateClauseKind::Static
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expressions.len(),
+        checked.value().constraints().len(),
+        "static clauses retain each generic constraint identity"
+    );
+
+    for (constraint, expression) in checked.value().constraints().iter().zip(expressions) {
+        let ordinal = expression.ordinal();
+
+        let clause = match constraint.kind() {
+            bray_symbols::CheckedConstraintKind::TraitSatisfaction {
+                subject,
                 application,
-                SemanticQueryContext::Symbol(owner),
-                diagnostics,
-            )?;
-
-            CallableContractClause::trait_satisfaction(ordinal, subject, application)
-        } else {
-            // The binder owns the expression while the clause view borrows the same syntax node.
-            let result = bind_predicate_clause(
-                context,
-                owner,
-                syntax_node_view(&expression),
-                [expression.clone()],
-                PredicateClauseBindingContext::GenericConstraint,
-            )?;
-
-            let (checked, expression_diagnostics) = result.into_parts();
-
-            *diagnostics = diagnostics.merged(&expression_diagnostics);
-
-            let [predicate] = checked.as_ref() else {
-                return Err(query_contract(
-                    owner,
-                    CallableContractsQuery::KIND,
-                    SemanticQueryViolation::CountMismatch {
-                        data: SemanticDataKind::GenericConstraint,
-                        expected: 1,
-                        actual: checked.len(),
-                    },
-                ));
-            };
-
-            CallableContractClause::new(ordinal, CallableContractClauseKind::Static, *predicate)
+            } => CallableContractClause::trait_satisfaction(ordinal, subject, application),
+            bray_symbols::CheckedConstraintKind::Predicate(predicate) => {
+                CallableContractClause::new(ordinal, CallableContractClauseKind::Static, predicate)
+            }
+            // Type equality is enforced by the owning generic constraint, without a value predicate.
+            bray_symbols::CheckedConstraintKind::TypeEquality { .. } => continue,
         };
 
         predicates.push(clause);
@@ -1296,9 +1402,7 @@ pub(in crate::compilation) fn direct_contract_clauses(
             SyntaxKind::EnsuresClause => node
                 .cast::<EnsuresClauseSyntax>()
                 .map(ContractClauseSyntax::Ensures),
-            SyntaxKind::WithClause => node
-                .cast::<WithClauseSyntax>()
-                .map(ContractClauseSyntax::With),
+            SyntaxKind::WithClause => Some(ContractClauseSyntax::With),
             SyntaxKind::UsesClause => node
                 .cast::<UsesClauseSyntax>()
                 .map(ContractClauseSyntax::Uses),
@@ -1318,13 +1422,6 @@ pub(in crate::compilation) fn direct_contract_clauses(
     clauses
 }
 
-fn publish_catalog_result<T>(
-    value: T,
-    diagnostics: DiagnosticBag,
-) -> BindingQueryResult<DiagnosticResult<T>> {
-    Ok(DiagnosticResult::new(value, diagnostics))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -1333,37 +1430,18 @@ mod tests {
     use bray_binder::SymbolQueryProvider;
     use bray_bound_tree::SemanticSelection;
     use bray_compiler_known::ImplementationHook;
-    use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
-        DiagnosticRelatedLocationKind, SeverityKind,
-    };
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticRelatedLocationKind};
     use bray_symbols::{
         CallableContractTemplate, CallableContractsQuery, CallablePhaseBehavior, CallableSymbolId,
         DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolQueryRequest,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::publish_catalog_result;
     use crate::test_support::{
         compilation, compilation_with_options, diagnostic_kinds, only_call_selection,
         source_callable_body_key, source_function,
     };
     use crate::{Compilation, CompilationOptions, WorkerBudget};
-
-    #[test]
-    fn binding_diagnostics_remain_owned_by_the_published_result() {
-        let diagnostic = Diagnostic::new(
-            DiagnosticId::new(1),
-            DiagnosticKind::BindingUnresolvedName,
-            SeverityKind::Error,
-        );
-
-        let result = publish_catalog_result((), DiagnosticBag::single(diagnostic.clone()));
-
-        let result = result.unwrap_or_else(|error| panic!("query must publish: {error:?}"));
-
-        assert_eq!(result.diagnostics(), &DiagnosticBag::single(diagnostic));
-    }
 
     #[test]
     fn conjunctive_contracts_keep_trust_on_its_exact_operand() {
@@ -1908,7 +1986,7 @@ mod tests {
                 false,
             ),
         ] {
-            let application = crate::test_support::compilation(source);
+            let application = compilation(source);
             let diagnostics = application.check_diagnostics();
 
             if valid {

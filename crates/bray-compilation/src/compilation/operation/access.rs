@@ -32,6 +32,7 @@ use super::super::binder::{
     CompilationBindingContext, binding_query_error, type_binder, type_scope,
     visible_generic_parameters,
 };
+use super::super::checker::CompilationCheckerContext;
 use super::super::implementation::{
     implementation_callable_instance, implementation_fulfillments,
     implementation_match_query_error, match_implementation_subject,
@@ -891,8 +892,12 @@ impl Compilation {
             subject_type,
         )?;
 
-        let signature =
-            normalize_callable_type_equalities(binding_context, signature, constraints)?;
+        let signature = normalize_callable_type_equalities(
+            binding_context,
+            signature,
+            constraints,
+            diagnostics,
+        )?;
 
         let result_type = signature.callable_type();
         let defaults = self.resolve_callable_defaults(binding_context, &signature, diagnostics)?;
@@ -1416,11 +1421,18 @@ impl Compilation {
             return Ok(None);
         };
 
-        binding_context
+        let ty = binding_context
             .semantic_values()
             .substitute_type(ty, substitution)
-            .map(Some)
-            .map_err(FactQueryError::SemanticValueStore)
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        bray_checker::normalize_type_valued_members(
+            &CompilationCheckerContext::new(*binding_context),
+            ty,
+            diagnostics,
+        )
+        .map(Some)
+        .map_err(FactQueryError::from)
     }
 
     pub(super) fn resolve_index_operation(

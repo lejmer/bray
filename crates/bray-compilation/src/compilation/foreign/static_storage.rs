@@ -305,8 +305,6 @@ mod tests {
     use bray_symbols::{StaticSymbolId, SymbolId, SymbolOrigin};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
-    use crate::fact::FactQueryError;
     use crate::test_support::compilation;
 
     fn foreign_static_diagnostics(source: &str) -> DiagnosticBag {
@@ -371,21 +369,16 @@ mod tests {
         let compilation = compilation("module app;\n");
         let declaration = StaticSymbolId::from_symbol_id(SymbolId::new(37));
 
-        let error = compilation
-            .foreign_static_contract(declaration)
-            .expect_err("unknown static declaration must fail its foreign query");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.foreign_static_contract(declaration)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let FactQueryError::Foreign(error) = error else {
-            panic!("missing static declaration must retain the foreign-query boundary")
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            error.cause(),
-            &ForeignQueryFailure::Missing {
-                context: ForeignQueryContext::Static(declaration),
-                data: ForeignDataKind::StaticBindingRecord,
-            }
-        );
+        assert!(message.contains("StaticBindingRecord"));
+        assert!(message.contains("37"));
     }
 
     #[test]

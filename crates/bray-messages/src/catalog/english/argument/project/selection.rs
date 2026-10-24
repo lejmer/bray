@@ -85,9 +85,6 @@ pub(crate) fn format_english_project_selection_problem(
         Problem::MissingTestCatalogOutput => {
             "the completed test build did not publish its test catalog".to_owned()
         }
-        Problem::MissingTestHost => {
-            "the completed test build did not publish its test host".to_owned()
-        }
         Problem::MissingReusableBuildIdentity(product) => format!(
             "the retained test product {} has no reusable build identity",
             format_english_quoted_text(product),

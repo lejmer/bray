@@ -2,18 +2,16 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractClauseKind, CallableSignatureQuery, CallableSymbolId,
-    LocalSymbolRegionId, MemberLookupResult, PredicateSemanticSummary, TrustedCapabilitySymbolId,
+    AnySymbolId, CallableContractClauseKind, CallableSymbolId, LocalSymbolRegionId,
+    MemberLookupResult, TrustedCapabilitySymbolId,
 };
-use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
+use bray_syntax::{SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
 use crate::binder::Binder;
-use crate::binding::{
-    BindingError, ExpressionBinder, callable_normal_completion_has_value, push_contract_scope,
-};
-use crate::lookup::{NameAccess, PathBindingContext};
+use crate::binding::{BindingError, push_contract_scope};
+use crate::lookup::PathBindingContext;
 use crate::unit::BoundUnitLocalBuilder;
-use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
+use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult};
 
 /// The declaration-surface role of one predicate-bearing clause.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,13 +20,6 @@ pub enum PredicateClauseBindingContext {
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
     CallableContract(CallableContractClauseKind),
-}
-
-#[derive(Clone, Copy)]
-enum SurfaceUnitKind {
-    Constraint,
-    ContractClause,
-    CapabilityClause,
 }
 
 /// One trusted capability resolved from an exact source path in a `uses` clause.
@@ -55,73 +46,6 @@ impl BoundTrustedCapability {
     }
 }
 
-/// Binds one declaration-surface predicate clause through the ordinary expression binder.
-pub fn bind_predicate_clause<C>(
-    binding_context: &C,
-    owner: AnySymbolId,
-    clause: SyntaxNodeView<'_>,
-    expressions: impl IntoIterator<Item = ExpressionSyntax>,
-    context: PredicateClauseBindingContext,
-) -> BindingQueryResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>, C::UpstreamError>
-where
-    C: BindingQueryContext + ?Sized,
-    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
-{
-    let has_result = match context {
-        PredicateClauseBindingContext::CallableContract(CallableContractClauseKind::Ensures) => {
-            callable_normal_completion_has_value(binding_context, owner)?
-        }
-        PredicateClauseBindingContext::GenericConstraint
-        | PredicateClauseBindingContext::CallableContract(
-            CallableContractClauseKind::Requires | CallableContractClauseKind::Static,
-        ) => false,
-    };
-
-    let syntax_anchor = SyntaxAnchor::from_node(&clause);
-
-    bind_surface(
-        binding_context,
-        owner,
-        clause,
-        match context {
-            PredicateClauseBindingContext::GenericConstraint => SurfaceUnitKind::Constraint,
-            PredicateClauseBindingContext::CallableContract(_) => SurfaceUnitKind::ContractClause,
-        },
-        move |binder, path| {
-            let path = match context {
-                PredicateClauseBindingContext::GenericConstraint => path,
-                PredicateClauseBindingContext::CallableContract(_) => {
-                    let scope =
-                        push_contract_scope(binder, path.scope(), syntax_anchor, has_result)?;
-
-                    path.with_scope(scope)
-                }
-            };
-
-            let error_type = binding_context
-                .semantic_values()
-                .intern_type(bray_symbols::TypeData::Error)
-                .map_err(BindingError::SemanticValue)?;
-
-            let mut expression_binder = ExpressionBinder::new(path, error_type);
-            let mut predicates = Vec::new();
-
-            let dependency = binding_context
-                .semantic_values()
-                .empty_dependency_contract_template()
-                .map_err(BindingError::SemanticValue)?;
-
-            for expression in expressions {
-                expression_binder.bind_expression(binder, path.scope(), Some(&expression))?;
-
-                predicates.push(PredicateSemanticSummary::new(dependency));
-            }
-
-            Ok(predicates.into_boxed_slice())
-        },
-    )
-}
-
 /// Resolves one callable `uses(...)` clause through ordinary symbol lookup.
 pub fn bind_trusted_capability_clause<C>(
     binding_context: &C,
@@ -131,13 +55,11 @@ pub fn bind_trusted_capability_clause<C>(
 ) -> BindingQueryResult<DiagnosticResult<Box<[BoundTrustedCapability]>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
-    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     bind_surface(
         binding_context,
         owner,
         syntax_node_view(clause),
-        SurfaceUnitKind::CapabilityClause,
         |binder, path| {
             let path = if let Some(parameters) = parameters {
                 let scope = push_contract_scope(
@@ -195,7 +117,6 @@ fn bind_surface<C, T>(
     binding_context: &C,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
-    unit_kind: SurfaceUnitKind,
     bind: impl FnOnce(
         &mut Binder<'_, C>,
         PathBindingContext,
@@ -203,7 +124,6 @@ fn bind_surface<C, T>(
 ) -> BindingQueryResult<DiagnosticResult<T>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
-    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     if binding_context.is_cancelled() {
         return Err(BindingQueryError::Cancelled);
@@ -223,16 +143,9 @@ where
     // The transient bound unit owns its immutable key independently of the symbol graph.
     let owner_key = owner_key.clone();
 
-    let key = match unit_kind {
-        SurfaceUnitKind::Constraint => BoundUnitKey::constraint(owner_key, source),
-        SurfaceUnitKind::ContractClause | SurfaceUnitKind::CapabilityClause => {
-            BoundUnitKey::contract_clause(owner_key, source)
-        }
-    }
-    .ok_or(BindingQueryError::Binding(BindingError::InvalidUnitKey {
-        source,
-        owner,
-    }))?;
+    let key = BoundUnitKey::contract_clause(owner_key, source).ok_or(
+        BindingQueryError::Binding(BindingError::InvalidUnitKey { source, owner }),
+    )?;
 
     let unit = BoundUnitId::new(0);
     let region = LocalSymbolRegionId::new(unit.raw());
@@ -245,29 +158,11 @@ where
 
     // Capability lookup needs lexical names, but never runtime input types.
     // Keep shadowing without demanding the signature currently being constructed.
-    if matches!(unit_kind, SurfaceUnitKind::CapabilityClause)
-        && let Some(callable) = CallableSymbolId::try_from_any(owner)
-    {
+    if let Some(callable) = CallableSymbolId::try_from_any(owner) {
         crate::entry::push_callable_input_names_for(&mut binder, scope, callable);
     }
 
-    if matches!(unit_kind, SurfaceUnitKind::ContractClause)
-        && let Some(callable) = CallableSymbolId::try_from_any(owner)
-    {
-        crate::entry::push_callable_inputs_for(&mut binder, scope, callable)
-            .map_err(bound_unit_error)?;
-    }
-
-    let path = match symbols.containing_module(owner) {
-        Some(module) => {
-            PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Local)
-        }
-        None => PathBindingContext::without_module(
-            scope,
-            symbols.compiler_known_environment().id().into(),
-            NameAccess::Local,
-        ),
-    };
+    let path = crate::entry::path_context(&binder, scope);
 
     let value = bind(&mut binder, path).map_err(binding_error)?;
 
@@ -276,39 +171,6 @@ where
     let (_, diagnostics, _) = output.into_parts();
 
     Ok(DiagnosticResult::new(value, diagnostics))
-}
-
-fn bound_unit_error<Upstream>(
-    error: crate::BoundUnitBindingError<Upstream>,
-) -> BindingQueryError<Upstream> {
-    match error {
-        crate::BoundUnitBindingError::Cancelled => BindingQueryError::Cancelled,
-        crate::BoundUnitBindingError::SemanticValue(error) => {
-            BindingQueryError::SemanticValue(error)
-        }
-        crate::BoundUnitBindingError::Upstream(error) => BindingQueryError::Upstream(error),
-        crate::BoundUnitBindingError::Construction(error) => BindingQueryError::Construction(error),
-        crate::BoundUnitBindingError::Binding(error) => BindingQueryError::Binding(error),
-        crate::BoundUnitBindingError::InvalidUnitKey => BindingQueryError::DependencyUnavailable,
-        crate::BoundUnitBindingError::MissingSyntax { source } => {
-            BindingQueryError::MissingSyntax { source }
-        }
-        crate::BoundUnitBindingError::MissingOwner {
-            source,
-            owner,
-            symbol,
-        } => BindingQueryError::MissingOwner {
-            source,
-            owner,
-            symbol,
-        },
-        crate::BoundUnitBindingError::MissingModule { source, owner } => {
-            BindingQueryError::MissingModule { source, owner }
-        }
-        crate::BoundUnitBindingError::InvalidSurfaceName { source, symbol } => {
-            BindingQueryError::InvalidSurfaceName { source, symbol }
-        }
-    }
 }
 
 fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<Upstream> {

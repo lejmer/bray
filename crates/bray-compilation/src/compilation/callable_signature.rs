@@ -180,10 +180,48 @@ impl Compilation {
         instance: CallableInstanceData,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
+        let Some(signature) =
+            self.resolve_callable_signature_types(binding_context, instance, diagnostics)?
+        else {
+            return Ok(None);
+        };
+
         let callable = instance.definition().callable_symbol();
 
+        let predicates = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::CallablePredicateContractsQuery,
+            >::new(callable))
+            .map_err(binding_query_error)?;
+
+        diagnostics.add_range(predicates.diagnostics().iter().cloned());
+
+        let signature = signature
+            .with_predicate_contracts(
+                binding_context.semantic_values(),
+                predicates.value(),
+                instance.substitution(),
+            )
+            .map_err(FactQueryError::from)?;
+
+        bray_checker::normalize_numeric_requirements(
+            &super::checker::CompilationCheckerContext::new(*binding_context),
+            signature,
+        )
+        .map(Some)
+        .map_err(FactQueryError::from)
+    }
+
+    pub(in crate::compilation) fn resolve_callable_signature_types(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        instance: CallableInstanceData,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
         let result = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+                instance.definition().callable_symbol(),
+            ))
             .map_err(binding_query_error)?;
 
         *diagnostics = diagnostics.merged(result.diagnostics());
@@ -216,22 +254,7 @@ impl Compilation {
         )
         .map_err(FactQueryError::from)?;
 
-        let predicates = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<
-                bray_symbols::CallablePredicateContractsQuery,
-            >::new(callable))
-            .map_err(binding_query_error)?;
-
-        diagnostics.add_range(predicates.diagnostics().iter().cloned());
-
-        signature
-            .with_predicate_contracts(
-                binding_context.semantic_values(),
-                predicates.value(),
-                instance.substitution(),
-            )
-            .map(Some)
-            .map_err(Into::into)
+        Ok(Some(signature))
     }
 }
 

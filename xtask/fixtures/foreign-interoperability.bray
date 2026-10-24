@@ -526,6 +526,7 @@ trusted func main() -> i32
     trusted audit_callbacks();
     trusted audit_dynamic_library();
     trusted audit_native_data();
+    trusted audit_numeric_truncation();
 
     return 0;
 }
@@ -946,4 +947,147 @@ trusted func audit_predicate_computation()
     };
 
     let _: PanicReport = std.testing.assert_error<unit, PanicReport>(rejected);
+}
+
+
+@symbol(name = "bray_foreign_real_from_bits")
+@abi(c)
+extern trusted func native_real_from_bits(pos bits: u64) -> r64
+    uses(foreign_call);
+
+const POSITIVE_INFINITY_BITS: u64 = 0x7ff0_0000_0000_0000;
+const NEGATIVE_INFINITY_BITS: u64 = 0xfff0_0000_0000_0000;
+const QUIET_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
+const SIGNALING_NAN_BITS: u64 = 0x7ff0_0000_0000_0001;
+const MINIMUM_FRACTION_BITS: u64 = 0xc060_1800_0000_0000;
+const NEGATIVE_FRACTION_BITS: u64 = 0xbfe8_0000_0000_0000;
+const MAXIMUM_FRACTION_BITS: u64 = 0x405f_f000_0000_0000;
+const SIGNED_LOWER_BOUND_BITS: u64 = 0xc060_2000_0000_0000;
+const SIGNED_UPPER_BOUND_BITS: u64 = 0x4060_0000_0000_0000;
+const UNSIGNED_UPPER_BOUND_BITS: u64 = 0x4070_0000_0000_0000;
+const WIDE_REAL_BITS: u64 = 0x4630_0000_0000_0000;
+const WIDE_INTEGER: i128 = 1_267_650_600_228_229_401_496_703_205_376;
+const WIDE_UNSIGNED: u128 = std.numeric.truncate_to<u128>(WIDE_INTEGER);
+
+callable Narrow = const func(pos source: r64) -> i8
+    requires(source > -129.0 && source < 128.0);
+
+callable QueriedNarrow = const func(pos source: r64) -> i8
+    requires(std.numeric.in_truncation_domain<i8>(source));
+
+trusted func reject_numeric_domain(pos bits: u64)
+    uses(foreign_call)
+{
+    let value: r64 = trusted native_real_from_bits(bits);
+    let selected: Narrow = std.numeric.truncate_to<i8, r64>;
+
+    assert(!std.numeric.in_truncation_domain<i8>(value));
+    assert(!std.numeric.in_truncation_domain<u8>(value));
+
+    let direct: Result<i8, PanicReport> = catch
+    {
+        yield std.numeric.truncate_to<i8>(value);
+    };
+
+    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(direct);
+
+    let indirect: Result<i8, PanicReport> = catch
+    {
+        yield selected(value);
+    };
+
+    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(indirect);
+
+    let generic: Result<i8, PanicReport> = catch
+    {
+        yield truncate<i8, r64>(value);
+    };
+
+    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(generic);
+
+    let generic_indirect: Result<i8, PanicReport> = catch
+    {
+        yield truncate_indirect<i8, r64>(value);
+    };
+
+    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(generic_indirect);
+
+    let unsigned: Result<u8, PanicReport> = catch
+    {
+        yield std.numeric.truncate_to<u8>(value);
+    };
+
+    let _: PanicReport = std.testing.assert_error<u8, PanicReport>(unsigned);
+}
+
+func runtime_single(pos value: r32) -> r32
+{
+    return value;
+}
+
+func truncate<Target, Source>(pos source: Source) -> Target
+    with(Source: Copyable, std.numeric.supports_truncation<Target, Source>())
+{
+    return std.numeric.truncate_to<Target>(source);
+}
+
+func truncate_indirect<Target, Source>(pos source: Source) -> Target
+    with(Source: Copyable, std.numeric.supports_truncation<Target, Source>())
+{
+    let selected: const func(pos source: Source) -> Target
+        requires(std.numeric.in_truncation_domain<Target, Source>(source)) = std.numeric.truncate_to<Target, Source>;
+
+    return selected(source);
+}
+
+trusted func audit_numeric_truncation()
+    uses(foreign_call)
+{
+    let minimum: r64 = trusted native_real_from_bits(MINIMUM_FRACTION_BITS);
+    let negative: r64 = trusted native_real_from_bits(NEGATIVE_FRACTION_BITS);
+    let maximum: r64 = trusted native_real_from_bits(MAXIMUM_FRACTION_BITS);
+    let wide: r64 = trusted native_real_from_bits(WIDE_REAL_BITS);
+    let supported: const func() -> bool = std.numeric.supports_truncation<i8, r64>;
+    let domain: const func(pos source: r64) -> bool = std.numeric.in_truncation_domain<i8, r64>;
+
+    assert(supported());
+    assert(!std.numeric.supports_truncation<i8, bool>());
+
+    let unsupported: const func() -> bool = std.numeric.supports_truncation<i8, bool>;
+
+    assert(!unsupported());
+    assert(domain(minimum));
+    let selected: Narrow = std.numeric.truncate_to<i8, r64>;
+    let queried: QueriedNarrow = std.numeric.truncate_to<i8, r64>;
+
+    assert(std.numeric.truncate_to<i8>(minimum) == std.numeric.I8_MIN);
+    assert(truncate<i8, r64>(minimum) == std.numeric.I8_MIN);
+    assert(truncate_indirect<i8, r64>(minimum) == std.numeric.I8_MIN);
+    assert(std.numeric.truncate_to<u8>(negative) == 0);
+    assert(selected(maximum) == std.numeric.I8_MAX);
+    assert(queried(minimum) == std.numeric.I8_MIN);
+    assert(std.numeric.truncate_to<r64>(runtime_single(127.75)) == 127.75);
+    assert(std.numeric.truncate_to<i32>(runtime_single(127.75)) == 127);
+    assert(std.numeric.truncate_to<r64>(runtime_integer(127)) == 127.0);
+    assert(std.numeric.truncate_to<i128>(wide) == WIDE_INTEGER);
+    assert(std.numeric.truncate_to<u128>(wide) == WIDE_UNSIGNED);
+    assert(std.numeric.truncate_to<u8>(runtime_unsigned(std.numeric.U64_MAX)) == std.numeric.U8_MAX);
+
+    trusted reject_numeric_domain(SIGNED_LOWER_BOUND_BITS);
+    trusted reject_numeric_domain(POSITIVE_INFINITY_BITS);
+    trusted reject_numeric_domain(NEGATIVE_INFINITY_BITS);
+    trusted reject_numeric_domain(QUIET_NAN_BITS);
+    trusted reject_numeric_domain(SIGNALING_NAN_BITS);
+    trusted reject_numeric_domain(UNSIGNED_UPPER_BOUND_BITS);
+
+    let upper: r64 = trusted native_real_from_bits(SIGNED_UPPER_BOUND_BITS);
+
+    assert(!domain(upper));
+
+    let rejected: Result<i8, PanicReport> = catch
+    {
+        yield selected(upper);
+    };
+
+    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(rejected);
 }

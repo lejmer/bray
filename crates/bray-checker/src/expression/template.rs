@@ -307,6 +307,8 @@ where
 
         signature = signature
             .with_predicate_contracts(values, predicates.value(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
+
+        signature = crate::normalize_numeric_requirements(request.context(), signature)?;
     }
 
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);
@@ -431,11 +433,23 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let mut resolved = Vec::with_capacity(arguments.len());
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
 
     for argument in arguments {
         match argument {
             bray_symbols::GenericArgumentTemplate::Resolved(argument) => {
-                resolved.push(*argument);
+                let argument = match argument {
+                    GenericArgument::Type(ty) => {
+                        GenericArgument::Type(normalizer.normalize_type(*ty)?)
+                    }
+                    GenericArgument::Constant(term) => {
+                        GenericArgument::Constant(normalizer.normalize_term(*term)?)
+                    }
+                };
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                resolved.push(argument);
             }
             bray_symbols::GenericArgumentTemplate::Type(ty) => {
                 let TemplateResolution::Resolved(ty) =
@@ -459,7 +473,11 @@ where
 
                 // Candidate preparation owns dependency diagnostics after the query result drops.
                 diagnostics.extend(result.diagnostics().iter().cloned());
-                resolved.push(GenericArgument::Constant(*result.value()));
+
+                let term = normalizer.normalize_term(*result.value())?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+                resolved.push(GenericArgument::Constant(term));
             }
         }
     }

@@ -27,14 +27,7 @@ impl DiagnosticEmissionFailureJson {
             Failure::Planning(failure) => planning_failure_context(failure),
             Failure::PackageInterface(failure) => package_interface_failure_context(failure),
             Failure::Evaluation(failure) => evaluation_failure_context(failure),
-            Failure::TestCatalog(failure) => match failure {
-                bray_diagnostics::DiagnosticTestCatalogFailure::UnsupportedVersion(version) => {
-                    vec![count_u64_field("version", u64::from(*version))]
-                }
-                bray_diagnostics::DiagnosticTestCatalogFailure::Io
-                | bray_diagnostics::DiagnosticTestCatalogFailure::Malformed
-                | bray_diagnostics::DiagnosticTestCatalogFailure::ResourceLimit => Vec::new(),
-            },
+            Failure::TestCatalogCapacityExceeded => Vec::new(),
             Failure::Codegen(failure) => codegen_failure_context(failure),
             Failure::Staging(failure) => staging_failure_context(failure),
             Failure::NativeIndexSizeLimitExceeded => Vec::new(),
@@ -111,7 +104,6 @@ pub(super) enum DiagnosticEmissionFieldValueJson {
     Natural(String),
     Path(DiagnosticPathJson),
     OutputSink(DiagnosticOutputSinkJson),
-    Problem(DiagnosticProblemJson),
     ProductKind(&'static str),
     Signed(i64),
     Text(String),

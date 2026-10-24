@@ -89,4 +89,11 @@ pub enum DiagnosticUnsupportedEmissionReason {
     },
     /// A required closed host environment value is absent.
     MissingHostEnvironment(DiagnosticHostEnvironmentVariable),
+    /// A required host path is present but does not name an absolute path.
+    InvalidHostEnvironment {
+        /// Exact environment variable whose value was rejected.
+        variable: DiagnosticHostEnvironmentVariable,
+        /// Exact rejected path value.
+        value: std::path::PathBuf,
+    },
 }

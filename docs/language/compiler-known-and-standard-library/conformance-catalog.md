@@ -181,6 +181,8 @@ The recognized numeric-policy declarations under `std.numeric` are:
 - `RoundingRule.TowardPositiveInfinity`,
 - `RoundingRule.AwayFromZero`,
 - `round_to<Target, Source>(source, rule = RoundingRule.NearestEven)`,
+- `supports_truncation<Target, Source>()`,
+- `in_truncation_domain<Target, Source>(source)`,
 - `truncate_to<Target, Source>(source)`,
 - `saturate_to<Target, Source>(source)`,
 - `wrap_to<Target, Source>(source)`.

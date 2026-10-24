@@ -45,60 +45,9 @@ impl Compilation {
         }
 
         if role == RepresentationRole::Atomic {
-            let values = self.semantic_value_store()?;
-
-            let substitution = values.generic_substitution_data(substitution);
-
-            let [binding] = substitution.bindings() else {
-                return Err(CodegenPreparationError::UnresolvedType(ty));
-            };
-
-            let GenericArgument::Type(value) = binding.argument() else {
-                return Err(CodegenPreparationError::UnresolvedType(ty));
-            };
-
-            self.codegen_type(value, target, cancellation, mappings, pending)?;
-
-            let representation = atomic_representation_for_type(self, value, target, cancellation)?
-                .ok_or(CodegenPreparationError::UnsupportedType(value))?;
-
-            let storage_type = match atomic_storage_role(representation) {
-                Some(role) => self.codegen_representation_type(role)?,
-                None => value,
-            };
-
-            self.codegen_type(storage_type, target, cancellation, mappings, pending)?;
-
-            let storage_mapping = mappings
-                .get(&storage_type)
-                .ok_or(CodegenPreparationError::UnresolvedType(storage_type))?;
-
-            let storage_layout = storage_mapping
-                .layout()
-                .ok_or(CodegenPreparationError::UnsizedTypeByValue(storage_type))?;
-
-            let binding_context = target
-                .profile()
-                .properties()
-                .atomics()
-                .representation(representation);
-
-            if !binding_context.operations().any() {
-                return Err(CodegenPreparationError::UnsupportedType(value));
-            }
-
-            return Ok(Some(
-                CodegenTypeMapping::new(
-                    ty,
-                    TargetValueLayout::new(
-                        storage_layout.size(),
-                        binding_context.required_alignment(),
-                        storage_layout.contract(),
-                    ),
-                    storage_mapping.kind().clone(),
-                )
-                .with_backend_type(storage_type),
-            ));
+            return self
+                .codegen_atomic_type(ty, substitution, target, cancellation, mappings, pending)
+                .map(Some);
         }
 
         if let Some(scalar) = super::super::super::representation::target_scalar(role) {
@@ -122,13 +71,18 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(values, role, ty)
-                    .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+                    .unwrap_or_else(|| {
+                        panic!("checked native UnresolvedType contract failed: {:?}", ty)
+                    });
 
                 self.codegen_type(element, target, cancellation, mappings, pending)?;
 
-                let element_mapping = mappings
-                    .get(&element)
-                    .ok_or(CodegenPreparationError::UnresolvedType(element))?;
+                let element_mapping = mappings.get(&element).unwrap_or_else(|| {
+                    panic!(
+                        "checked native UnresolvedType contract failed: {:?}",
+                        element
+                    )
+                });
 
                 Ok(Some(element_mapping.representation_for(ty)))
             }
@@ -139,7 +93,9 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(self.semantic_value_store()?, role, ty)
-                    .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+                    .unwrap_or_else(|| {
+                        panic!("checked native UnresolvedType contract failed: {:?}", ty)
+                    });
 
                 self.codegen_aggregate_type(
                     ty,
@@ -219,7 +175,9 @@ impl Compilation {
             RepresentationRole::BooleanTrue
             | RepresentationRole::BooleanFalse
             | RepresentationRole::UnitValue
-            | RepresentationRole::NoneValue => Err(CodegenPreparationError::UnresolvedType(ty)),
+            | RepresentationRole::NoneValue => {
+                panic!("checked native UnresolvedType contract failed: {:?}", ty)
+            }
             RepresentationRole::Unit
             | RepresentationRole::Never
             | RepresentationRole::Atomic
@@ -247,8 +205,79 @@ impl Compilation {
             | RepresentationRole::ScalarC32
             | RepresentationRole::ScalarC64
             | RepresentationRole::ScalarC128
-            | RepresentationRole::ScalarC256 => Err(CodegenPreparationError::UnresolvedType(ty)),
+            | RepresentationRole::ScalarC256 => {
+                panic!("checked native UnresolvedType contract failed: {:?}", ty)
+            }
         }
+    }
+
+    fn codegen_atomic_type(
+        &self,
+        ty: TypeId,
+        substitution: GenericSubstitutionId,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        pending: &mut BTreeSet<TypeId>,
+    ) -> Result<CodegenTypeMapping, CodegenPreparationError> {
+        let values = self.semantic_value_store()?;
+
+        let substitution = values.generic_substitution_data(substitution);
+
+        let [binding] = substitution.bindings() else {
+            panic!("checked native UnresolvedType contract failed: {:?}", ty);
+        };
+
+        let GenericArgument::Type(value) = binding.argument() else {
+            panic!("checked native UnresolvedType contract failed: {:?}", ty);
+        };
+
+        self.codegen_type(value, target, cancellation, mappings, pending)?;
+
+        let representation = atomic_representation_for_type(self, value, target, cancellation)?
+            .ok_or(CodegenPreparationError::UnsupportedType(value))?;
+
+        let storage_type = match atomic_storage_role(representation) {
+            Some(role) => self.codegen_representation_type(role)?,
+            None => value,
+        };
+
+        self.codegen_type(storage_type, target, cancellation, mappings, pending)?;
+
+        let storage_mapping = mappings.get(&storage_type).unwrap_or_else(|| {
+            panic!(
+                "checked native UnresolvedType contract failed: {:?}",
+                storage_type
+            )
+        });
+
+        let storage_layout = storage_mapping.layout().unwrap_or_else(|| {
+            panic!(
+                "checked native UnsizedTypeByValue contract failed: {:?}",
+                storage_type
+            )
+        });
+
+        let binding_context = target
+            .profile()
+            .properties()
+            .atomics()
+            .representation(representation);
+
+        if !binding_context.operations().any() {
+            return Err(CodegenPreparationError::UnsupportedType(value));
+        }
+
+        Ok(CodegenTypeMapping::new(
+            ty,
+            TargetValueLayout::new(
+                storage_layout.size(),
+                binding_context.required_alignment(),
+                storage_layout.contract(),
+            ),
+            storage_mapping.kind().clone(),
+        )
+        .with_backend_type(storage_type))
     }
 
     fn codegen_indirect_pointer_type(
@@ -263,18 +292,18 @@ impl Compilation {
             .generic_substitution_data(substitution);
 
         let [binding] = substitution.bindings() else {
-            return Err(CodegenPreparationError::UnresolvedType(ty));
+            panic!("checked native UnresolvedType contract failed: {:?}", ty);
         };
 
         let GenericArgument::Type(pointee) = binding.argument() else {
-            return Err(CodegenPreparationError::UnresolvedType(ty));
+            panic!("checked native UnresolvedType contract failed: {:?}", ty);
         };
 
         let address_space = match role {
             RepresentationRole::RawPointer => TargetAddressSpaceKind::Default,
             RepresentationRole::FunctionPointer => TargetAddressSpaceKind::Function,
             RepresentationRole::DevicePointer => TargetAddressSpaceKind::Device,
-            _ => return Err(CodegenPreparationError::UnresolvedType(ty)),
+            _ => panic!("checked native UnresolvedType contract failed: {:?}", ty),
         };
 
         // Pointer layout is independent of the pointee. Operations demanding the

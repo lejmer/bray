@@ -355,3 +355,311 @@ fn has_value_kind(analysis: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bo
         | DeclaredValueTypeTerm::BoxStoragePolicy(_) => false,
     })
 }
+
+#[test]
+fn closed_array_extents_share_literal_named_and_computed_types() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const COUNT: usize = 1;
+        const NARROW_COUNT: u8 = 1;
+
+        const func count(pos value: usize) -> usize
+        {
+            return value;
+        }
+
+        const VALUES: [u8; NARROW_COUNT as usize] = [7];
+
+        func literal(pos value: [u8; 1]) {}
+
+        func sample()
+        {
+            let named: [u8; COUNT] = [7];
+            let computed: [u8; count(COUNT)] = [7; COUNT];
+            let widened: [u8; NARROW_COUNT as usize] = VALUES;
+
+            literal(named);
+            literal(computed);
+            literal(widened);
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn substituted_array_extents_close_before_callable_and_field_comparison() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Items<const count: usize>
+        {
+            values: [u8; count + 1];
+        }
+
+        func retain<const count: usize>(pos values: [u8; count + 1]) -> [u8; count + 1]
+        {
+            return values;
+        }
+
+        func sample() -> u8
+        {
+            let pair: [u8; 2] = retain<1>([2, 3]);
+            let items: Items<1> = { values = pair, };
+
+            return items.values[1];
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn invalid_closed_array_extents_preserve_their_source_diagnostics() {
+    use bray_diagnostics::DiagnosticKind;
+
+    for (source, expected) in [
+        (
+            r#"
+            module app;
+            const COUNT: usize = 2;
+
+            func sample()
+            {
+                let values: [u8; COUNT] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        ),
+        (
+            r#"
+            module app;
+
+            func sample()
+            {
+                let values: [u8; -1] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingConstantLiteralNotRepresentable,
+        ),
+        (
+            r#"
+            module app;
+
+            func sample()
+            {
+                let values: [u8; true] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        ),
+        (
+            r#"
+            module app;
+            const COUNT: usize = 1 << 64;
+
+            func sample()
+            {
+                let values: [u8; COUNT] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingConstantValueNotRepresentable,
+        ),
+        (
+            r#"
+            module app;
+            const FIRST: usize = SECOND;
+            const SECOND: usize = FIRST;
+
+            func sample()
+            {
+                let values: [u8; FIRST] = [0];
+            }
+        "#,
+            DiagnosticKind::CheckingCyclicConstantDefinition,
+        ),
+    ] {
+        let compilation = compilation(source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), expected);
+    }
+}
+
+#[test]
+fn const_array_extents_normalize_signatures_nodes_defaults_and_anonymous_calls() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const COUNT: usize = 1;
+        const SOURCE: [u8; COUNT] = [7];
+
+        const func make() -> [u8; COUNT]
+        {
+            return SOURCE;
+        }
+
+        const func retain<const count: usize>(pos values: [u8; count + 1]) -> [u8; count + 1]
+        {
+            return values;
+        }
+
+        const func defaulted(pos values: [u8; COUNT] = SOURCE) -> [u8; COUNT]
+        {
+            return values;
+        }
+
+        const func anonymous() -> [u8; COUNT]
+        {
+            let factory = const lambda () -> [u8; COUNT]
+            {
+                return [7];
+            };
+
+            return factory();
+        }
+
+        const VALUES: [u8; 1] = make();
+        const PAIR: [u8; 2] = retain<1>([2, 3]);
+        const DEFAULTED: [u8; 1] = defaulted();
+        const ANONYMOUS: [u8; 1] = anonymous();
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn nested_generic_array_extents_close_computed_helper_arguments() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const func extent<const amount: usize>() -> usize
+        {
+            return amount;
+        }
+
+        func retain<const count: usize>(
+            pos values: [u8; extent<count + 1>()],
+        ) -> [u8; extent<count + 1>()]
+        {
+            return values;
+        }
+
+        func sample() -> u8
+        {
+            let pair: [u8; 2] = retain<1>([2, 3]);
+
+            return pair[1];
+        }
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn closed_generic_array_extents_check_even_unused_helper_arguments() {
+    for (count, valid) in [(1, true), (255, false)] {
+        let source = format!(
+            r#"
+            module app;
+
+            const func extent<const amount: u8>() -> usize
+            {{
+                return 1;
+            }}
+
+            func accept<const count: u8>(pos values: [u8; extent<count + 1>()]) {{}}
+
+            func sample()
+            {{
+                accept<{count}>([0]);
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        if valid {
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{:#?}",
+                compilation.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable,
+            );
+
+            let diagnostic = compilation
+                .check_diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable)
+                .next()
+                .expect("invalid u8 argument has a conversion diagnostic");
+
+            assert!(
+                diagnostic
+                    .args()
+                    .contains(&bray_diagnostics::DiagnosticArg::actual_type(
+                        bray_diagnostics::DiagnosticType::U8,
+                    ))
+            );
+        }
+    }
+}
+
+#[test]
+fn const_array_extents_normalize_mutated_component_types() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Items<const count: usize>
+        {
+            mut values: [u8; count + 1];
+        }
+
+        const func update<const count: usize>(pos input: Items<count>) -> Items<count>
+        {
+            let mut changed = input;
+            changed.values = changed.values;
+
+            return changed;
+        }
+
+        const PAIR: [u8; 2] = [2, 3];
+        const INPUT: Items<1> = { values = PAIR };
+        const VALUES: Items<1> = update<1>(INPUT);
+    "#,
+    );
+
+    assert!(
+        !compilation.check_diagnostics().has_errors(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}

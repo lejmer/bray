@@ -50,7 +50,7 @@ internal struct WaitRegistration<T>
     trusted destruct()
         requires(
             !self.active || (trusted std.channel.owner.valid(&self.instance) && trusted std.sync.spin_lock.valid(
-                &self.shared.state.instance
+                &self.shared.state.prepared.instance
             ) && trusted std.channel.owner.valid(&self.shared.instance))
         )
         when(!self.active)
@@ -107,12 +107,12 @@ internal struct ChannelWaitWake<T>
 
 trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: WaiterKind) -> WaitRegistration<T>
     requires(
-        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.sync.spin_lock.valid(&shared.state.prepared.instance),
         trusted std.channel.owner.valid(&shared.instance)
     )
     ensures(
         trusted std.channel.owner.valid(&result.instance),
-        trusted std.sync.spin_lock.valid(&result.shared.state.instance),
+        trusted std.sync.spin_lock.valid(&result.shared.state.prepared.instance),
         trusted std.channel.owner.valid(&result.shared.instance)
     )
 {
@@ -147,10 +147,13 @@ trusted internal func register_waiter<T>(pos shared: &ChannelCore<T>, pos kind: 
 
 trusted internal func withdraw_waiter<T>(pos shared: &ChannelCore<T>, pos ticket: usize, pos kind: WaiterKind)
     requires(
-        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.sync.spin_lock.valid(&shared.state.prepared.instance),
         trusted std.channel.owner.valid(&shared.instance)
     )
-    ensures(trusted std.sync.spin_lock.valid(&shared.state.instance), trusted std.channel.owner.valid(&shared.instance))
+    ensures(
+        trusted std.sync.spin_lock.valid(&shared.state.prepared.instance),
+        trusted std.channel.owner.valid(&shared.instance)
+    )
 {
     let discarded: T? =
     {
@@ -235,7 +238,10 @@ trusted internal func channel_owner_pointer<T>(pos owner: &std.channel.owner.Own
 
 trusted internal func channel_core<T>(pos owner: &std.channel.owner.Owner<T>) -> &ChannelCore<T>
     requires(trusted std.channel.owner.access(&owner.instance))
-    ensures(trusted std.sync.spin_lock.valid(&result.state.instance), trusted std.channel.owner.valid(&result.instance))
+    ensures(
+        trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
+        trusted std.channel.owner.valid(&result.instance)
+    )
     uses(raw_memory, unchecked_alias)
 {
     let pointer: DataPointer<ChannelCore<T>> = trusted internal channel_owner_pointer<T>(owner);
@@ -283,7 +289,7 @@ trusted internal func release_sender<T>(pos shared: &ChannelCore<T>)
 
 trusted internal func release_receiver<T>(pos shared: &ChannelCore<T>)
     requires(
-        trusted std.sync.spin_lock.valid(&shared.state.instance),
+        trusted std.sync.spin_lock.valid(&shared.state.prepared.instance),
         trusted std.channel.owner.valid(&shared.instance)
     )
 {

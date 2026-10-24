@@ -115,19 +115,19 @@ fn capture_output(
     cancellation: &dyn Cancellation,
 ) -> Result<ExternalToolOutput, ExternalToolFailure> {
     let Some(stdout) = child.take_stdout() else {
-        terminate_and_reap(child)?;
+        let cleanup = terminate_and_reap(child);
 
-        return Err(ExternalToolFailure::MissingOutputPipe(
-            ExternalToolStream::StandardOutput,
-        ));
+        panic!(
+            "spawned native tool must retain its configured StandardOutput pipe: cleanup={cleanup:?}"
+        );
     };
 
     let Some(stderr) = child.take_stderr() else {
-        terminate_and_reap(child)?;
+        let cleanup = terminate_and_reap(child);
 
-        return Err(ExternalToolFailure::MissingOutputPipe(
-            ExternalToolStream::StandardError,
-        ));
+        panic!(
+            "spawned native tool must retain its configured StandardError pipe: cleanup={cleanup:?}"
+        );
     };
 
     thread::scope(|scope| {
@@ -138,8 +138,8 @@ fn capture_output(
             scope.spawn(move || read_output(stderr, ExternalToolStream::StandardError));
 
         let status = wait_for_process(child, cancellation);
-        let stdout = join_output(stdout_reader, ExternalToolStream::StandardOutput);
-        let stderr = join_output(stderr_reader, ExternalToolStream::StandardError);
+        let stdout = join_output(stdout_reader);
+        let stderr = join_output(stderr_reader);
 
         let status = status?;
         let stdout = stdout?;
@@ -176,11 +176,10 @@ fn read_output(
 
 fn join_output(
     reader: thread::ScopedJoinHandle<'_, Result<Vec<u8>, ExternalToolFailure>>,
-    stream: ExternalToolStream,
 ) -> Result<Vec<u8>, ExternalToolFailure> {
     reader
         .join()
-        .map_err(|_| ExternalToolFailure::OutputReaderTerminated(stream))?
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
 }
 
 fn wait_for_process(
@@ -333,6 +332,21 @@ mod tests {
     const CHILD_MARKER_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_MARKER";
     const CHILD_RESPONSE_FILE_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_RESPONSE_FILE";
     const CHILD_VALUE_VARIABLE: &str = "BRAY_EXTERNAL_TOOL_CHILD_VALUE";
+
+    #[test]
+    fn output_reader_preserves_the_original_panic_payload() {
+        let panic = std::panic::catch_unwind(|| {
+            std::thread::scope(|scope| {
+                let reader = scope.spawn(|| std::panic::panic_any(21_u64));
+
+                super::join_output(reader)
+            })
+        })
+        .err()
+        .expect("compiler invariant must panic");
+
+        assert_eq!(panic.downcast_ref::<u64>(), Some(&21));
+    }
 
     #[test]
     fn native_host_uses_controlled_environment_and_captures_output() {

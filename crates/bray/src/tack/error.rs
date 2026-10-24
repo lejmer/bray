@@ -4,7 +4,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolOperation, DiagnosticId,
     DiagnosticIoErrorKind, DiagnosticKind, DiagnosticProjectCommandFailure,
     DiagnosticProjectOperation, DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
-    DiagnosticToolProtocolFailure, DiagnosticToolStream, SeverityKind,
+    DiagnosticToolStream, SeverityKind,
 };
 use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
 
@@ -70,14 +70,6 @@ pub(crate) fn tool_execution_failure(
         ToolExecutionError::Platform { program, error } => {
             process_failure(operation, program, error)
         }
-        ToolExecutionError::MissingStream(stream) => {
-            DiagnosticProjectCommandFailure::ToolProtocol {
-                operation,
-                failure: DiagnosticToolProtocolFailure::MissingStream(diagnostic_tool_stream(
-                    stream,
-                )),
-            }
-        }
         ToolExecutionError::StreamIo { stream, error } => {
             DiagnosticProjectCommandFailure::ToolStreamIo {
                 operation,
@@ -91,20 +83,11 @@ pub(crate) fn tool_execution_failure(
                 stream: diagnostic_tool_stream(stream),
             }
         }
-        ToolExecutionError::StreamThreadPanicked(stream) => {
-            DiagnosticProjectCommandFailure::ToolProtocol {
-                operation,
-                failure: DiagnosticToolProtocolFailure::StreamThreadPanicked(
-                    diagnostic_tool_stream(stream),
-                ),
-            }
-        }
     }
 }
 
 const fn diagnostic_tool_stream(stream: ToolStream) -> DiagnosticToolStream {
     match stream {
-        ToolStream::StandardInput => DiagnosticToolStream::StandardInput,
         ToolStream::StandardOutput => DiagnosticToolStream::StandardOutput,
         ToolStream::StandardError => DiagnosticToolStream::StandardError,
     }
@@ -160,13 +143,13 @@ mod tests {
             DiagnosticKind::ProjectCommandSelectionInvalid,
         );
 
-        let defect = operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+        let defect = operation_diagnostics(DiagnosticProjectCommandFailure::CapacityExceeded(
             DiagnosticProjectOperation::GitClone,
         ));
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &defect,
-            DiagnosticKind::ProjectCompilerDefect,
+            DiagnosticKind::ProjectCommandFailed,
         );
     }
 

@@ -8,7 +8,7 @@ use bray_symbols::{
     CallableSymbolId, ConstantDeclaredTypeQuery, ConstantDefinitionQuery,
     DeclarationDirectivesQuery, ExactSymbolId, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
-    ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
+    GenericTypeConstraintsQuery, ImplementationCoherenceQuery, ImplementationHeadTemplateQuery,
     ImplementationOverloadTemplateQuery, ImplementationSubjectQuery, ImplementationSymbolId,
     ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery, ModuleSurfaceQuery,
     ModuleSymbolId, PredicateDefinitionQuery, PredicateDefinitionSymbolId,
@@ -45,6 +45,13 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
             }
             SymbolQueryKind::Directives => {
                 evaluate_typed::<DeclarationDirectivesQuery>(self, request.symbol())
+            }
+            SymbolQueryKind::GenericTypeConstraints => {
+                let owner = GenericOwnerId::try_new(request.symbol()).ok_or_else(|| {
+                    unexpected_symbol_category(request, SemanticSymbolCategory::GenericOwner)
+                })?;
+
+                evaluate_typed::<GenericTypeConstraintsQuery>(self, owner)
             }
             SymbolQueryKind::GenericConstraints => {
                 let owner = GenericOwnerId::try_new(request.symbol()).ok_or_else(|| {
@@ -388,11 +395,7 @@ mod tests {
     use crate::compilation::binder::symbol::test_support::{
         resolved_query, symbol_graph, type_data,
     };
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-        SemanticSymbolCategory,
-    };
-    use crate::fact::{FactQueryError, SymbolQueryKey};
+
     use crate::test_support::compilation;
 
     #[test]
@@ -413,16 +416,15 @@ mod tests {
 
         let query = SymbolCompletionQuery::new(symbol, SymbolQueryKind::GenericConstraints);
 
-        assert_eq!(
-            SymbolCompletionEvaluator::evaluate(&binding_context, query),
-            Err(expected_query_error(
-                query,
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::GenericOwner,
-                    actual: symbol.kind(),
-                },
-            ))
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            SymbolCompletionEvaluator::evaluate(&binding_context, query)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("UnexpectedSymbolKind"));
     }
 
     #[test]
@@ -448,13 +450,15 @@ mod tests {
         ] {
             let query = SymbolCompletionQuery::new(symbol, kind);
 
-            assert_eq!(
-                SymbolCompletionEvaluator::evaluate(&binding_context, query),
-                Err(expected_query_error(
-                    query,
-                    SemanticQueryViolation::Unsupported(SemanticDataKind::SymbolQuery(kind)),
-                ))
-            );
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                SymbolCompletionEvaluator::evaluate(&binding_context, query)
+            }))
+            .err()
+            .expect("compiler invariant must panic");
+
+            let message = bray_testing::panic_payload_text(panic.as_ref());
+
+            assert!(message.contains("Unsupported"));
         }
     }
 
@@ -658,16 +662,5 @@ mod tests {
             Some(symbol) => symbol,
             None => panic!("compiler-known declaration must have the requested symbol kind"),
         }
-    }
-
-    fn expected_query_error(
-        query: SymbolCompletionQuery,
-        violation: SemanticQueryViolation,
-    ) -> FactQueryError {
-        SemanticQueryFailure::contract(
-            SemanticQueryContext::SymbolQuery(SymbolQueryKey::new(query.symbol(), query.kind())),
-            violation,
-        )
-        .into()
     }
 }

@@ -41,13 +41,13 @@ pub(super) fn probe(target: &TargetDescription, digest: &str) -> String {
 
     source.push('\n');
 
-    writeln!(source, "#include <stddef.h>").expect("writing to a string must succeed");
-    writeln!(source, "#include <stdint.h>").expect("writing to a string must succeed");
-    writeln!(source, "#include <string.h>").expect("writing to a string must succeed");
-
     for definition in &target.sdk.probe_definitions {
         writeln!(source, "#define {definition}").expect("writing to a string must succeed");
     }
+
+    writeln!(source, "#include <stddef.h>").expect("writing to a string must succeed");
+    writeln!(source, "#include <stdint.h>").expect("writing to a string must succeed");
+    writeln!(source, "#include <string.h>").expect("writing to a string must succeed");
 
     for header in &target.sdk.headers {
         writeln!(source, "#include <{header}>").expect("writing to a string must succeed");
@@ -332,30 +332,25 @@ fn render_probe_function(
     target: &TargetDescription,
     function: &FunctionDescription,
 ) {
+    let mut parameters = native_parameters(&function.parameters);
+
     if function.variadic {
-        writeln!(
-            source,
-            "static __typeof__(&{}) bray_probe_{} = &{};",
-            function.native, function.name, function.native
-        )
-        .expect("writing to a string must succeed");
-    } else {
-        let parameters = native_parameters(&function.parameters);
-
-        writeln!(
-            source,
-            "typedef {} (*bray_probe_{}_type)({});",
-            function.native_result, function.name, parameters
-        )
-        .expect("writing to a string must succeed");
-
-        writeln!(
-            source,
-            "_Static_assert(__builtin_types_compatible_p(__typeof__(&{}), bray_probe_{}_type), \"{} signature\");",
-            function.native, function.name, function.native
-        )
-        .expect("writing to a string must succeed");
+        parameters.push_str(", ...");
     }
+
+    writeln!(
+        source,
+        "typedef {} (*bray_probe_{}_type)({});",
+        function.native_result, function.name, parameters
+    )
+    .expect("writing to a string must succeed");
+
+    writeln!(
+        source,
+        "_Static_assert(__builtin_types_compatible_p(__typeof__(&{}), bray_probe_{}_type), \"{} signature\");",
+        function.native, function.name, function.native
+    )
+    .expect("writing to a string must succeed");
 
     render_function_symbol(source, target, function);
 }

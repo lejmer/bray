@@ -56,14 +56,14 @@ impl Compilation {
 
         let source_graph = self
             .product_source_graph()
-            .map_err(super::super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::super::fact_query_export_error)?;
 
         if self.source_diagnostics().has_errors()
             || self.syntax_tree_result().diagnostics().has_errors()
             || source_graph.diagnostics().has_errors()
             || self
                 .execution_guarantee_diagnostics()
-                .map_err(super::super::super::invalid_compilation_fact_error)?
+                .map_err(super::super::super::fact_query_export_error)?
                 .has_errors()
             || self.imported_diagnostics().has_errors()
         {
@@ -73,7 +73,7 @@ impl Compilation {
 
         let product = self
             .product_semantics()
-            .map_err(super::super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::super::fact_query_export_error)?;
 
         if product.diagnostics().has_errors() || product.value().is_recovered() {
             // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
@@ -82,11 +82,11 @@ impl Compilation {
 
         let symbols = self
             .symbol_graph()
-            .map_err(super::super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::super::fact_query_export_error)?;
 
         let dependencies = self
             .loaded_interface_views(&self.state.cancellation)
-            .map_err(super::super::super::invalid_compilation_fact_error)?
+            .map_err(super::super::super::fact_query_export_error)?
             .ok_or_else(|| {
                 super::super::super::export_contract_error(
                     super::super::super::PackageInterfaceExportContract::MissingLoadedDependencies,
@@ -121,7 +121,7 @@ impl Compilation {
             identity.relationships,
             identity.exports,
         )
-        .map_err(PackageInterfaceExportError::Surface)?;
+        .map_err(super::super::super::error::surface_error)?;
 
         let (semantics, constant_callable_bodies, executable_templates, native_boundaries) =
             super::super::super::semantic::build_semantics(
@@ -135,11 +135,9 @@ impl Compilation {
         let implementation_configuration = self
             .package_implementation_configuration(None)
             .map_err(|cause| {
-                PackageInterfaceExportError::InvalidCompilationCause(
-                    super::super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(
-                        cause,
-                    ),
-                )
+                super::super::super::fact_query_export_error(crate::fact::FactQueryError::from(
+                    cause,
+                ))
             })?;
 
         PackageInterfaceExportBundle::try_new(
@@ -152,6 +150,6 @@ impl Compilation {
         .and_then(|bundle| bundle.with_executable_templates(executable_templates))
         .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
         .map(Arc::new)
-        .map_err(PackageInterfaceExportError::Bundle)
+        .map_err(super::super::super::error::bundle_error)
     }
 }

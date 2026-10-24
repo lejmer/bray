@@ -24,8 +24,8 @@ pub(in crate::compilation::product::realization) fn native_boundary_mapping(
     direction: ForeignCallableDirection,
     binding: NativeSymbolBinding,
 ) -> Result<NativeBoundaryMapping, CodegenPreparationError> {
-    let name =
-        BinarySymbolName::try_new(symbol).ok_or(CodegenPreparationError::InvalidSymbolName)?;
+    let name = BinarySymbolName::try_new(symbol)
+        .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
     let linkage = match (direction, binding) {
         (ForeignCallableDirection::Import, NativeSymbolBinding::Strong) => CodegenLinkage::Import,
@@ -75,5 +75,10 @@ pub(in crate::compilation::product::realization) fn dependency_symbol(
         .iter()
         .find(|dependency| dependency.instance() == instance)
         .map(|dependency| CodegenSymbolKey::Instance(dependency.instance().clone()))
-        .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))
+        .ok_or_else(|| {
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference
+            )
+        })
 }

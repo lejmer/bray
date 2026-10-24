@@ -581,7 +581,7 @@ fn publish_package_interface(
             bundle,
             bray_package_interface::InterfaceValidationLimits::default(),
         )
-        .map_err(|error| failure(ProductEmissionErrorKind::PackageImplementation(error)))?;
+        .map_err(|error| failure(ProductEmissionErrorKind::from(error)))?;
 
     publish_artifact(destination, artifact.bytes(), diagnostic_id)
         .map_err(DiagnosticBag::single)?;

@@ -81,6 +81,39 @@ impl BoundUnit {
         &self.nested_units
     }
 
+    /// Returns the complete declaration expression selected inside a source clause.
+    /// Parentheses and postfix syntax may give the bound root a narrower source range.
+    /// Returns `None` for callable bodies or a clause absent from an expression sequence.
+    pub fn declaration_expression(
+        &self,
+        syntax: bray_declarations::SyntaxAnchor,
+    ) -> Option<BoundExpressionId> {
+        let block = match self.root {
+            BoundUnitRoot::Expression(root) => return Some(root),
+            BoundUnitRoot::ExpressionSequence(block) => block,
+            _ => return None,
+        };
+
+        self.tree
+            .block(block)
+            .expect("bound expression sequence retains its root block")
+            .items()
+            .iter()
+            .filter_map(|item| item.expression())
+            .find(|id| {
+                let source = self
+                    .tree
+                    .expression(*id)
+                    .expect("bound expression sequence retains each expression")
+                    .origin()
+                    .source_anchor()
+                    .syntax();
+
+                source.source_id() == syntax.source_id()
+                    && syntax.full_range().contains_range(source.full_range())
+            })
+    }
+
     /// Returns the exact bound node that starts this unit.
     pub const fn root(&self) -> BoundUnitRoot {
         self.root

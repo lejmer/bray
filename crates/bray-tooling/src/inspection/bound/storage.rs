@@ -9,8 +9,8 @@ use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
 
 use crate::inspection::{
-    InspectionSourceError, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
-    InspectionType, TypeInspectionError,
+    InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor, InspectionType,
+    TypeInspectionError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,14 +19,7 @@ pub(super) enum StorageInspectionError {
         resource: &'static str,
         actual: usize,
     },
-    Source(InspectionSourceError),
     Type(TypeInspectionError),
-}
-
-impl From<InspectionSourceError> for StorageInspectionError {
-    fn from(error: InspectionSourceError) -> Self {
-        Self::Source(error)
-    }
 }
 
 impl From<TypeInspectionError> for StorageInspectionError {
@@ -276,7 +269,7 @@ impl InspectionStorageProvenance {
                     source: InspectionSyntaxAnchor::from_anchor(
                         sources,
                         origin.source_anchor().syntax(),
-                    )?,
+                    ),
                     synthesis_role: synthesis.map(|origin| origin.role().as_str()),
                     synthesis_ordinal: synthesis.map(|origin| origin.ordinal().raw()),
                 })
@@ -289,7 +282,7 @@ impl InspectionStorageProvenance {
                 alternative: alternative.ordinal(),
             }),
             StorageIdentity::Error(source) => Ok(Self::Error {
-                source: InspectionSyntaxAnchor::from_anchor(sources, source.syntax())?,
+                source: InspectionSyntaxAnchor::from_anchor(sources, source.syntax()),
             }),
         }
     }
@@ -327,7 +320,7 @@ impl InspectionStorageAccess {
                 symbols,
                 access.reached_type(),
             )?,
-            source: InspectionSyntaxAnchor::from_anchor(sources, access.source().syntax())?,
+            source: InspectionSyntaxAnchor::from_anchor(sources, access.source().syntax()),
             recovered: access.is_recovered(),
         })
     }
@@ -571,7 +564,7 @@ impl InspectionBorrowCapability {
             borrow_kind: capability.kind().as_str(),
             access: capability.access().ordinal(),
             parent: capability.parent().map(|parent| parent.ordinal()),
-            source: InspectionSyntaxAnchor::from_anchor(sources, capability.source().syntax())?,
+            source: InspectionSyntaxAnchor::from_anchor(sources, capability.source().syntax()),
             recovered: capability.is_recovered(),
         })
     }

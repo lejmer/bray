@@ -83,7 +83,8 @@ pub(super) fn binary_symbol_name(
         let _ = write!(name, "{byte:02x}");
     }
 
-    BinarySymbolName::try_new(name).ok_or(CodegenPreparationError::InvalidSymbolName)
+    BinarySymbolName::try_new(name)
+        .ok_or_else(|| panic!("checked native InvalidSymbolName contract failed"))
 }
 
 /// Native address paired with an unnamed Bray body, including imported native bodies.

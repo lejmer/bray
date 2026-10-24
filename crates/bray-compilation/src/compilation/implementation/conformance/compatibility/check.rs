@@ -462,11 +462,11 @@ fn callable_signature_error(
     callable: bray_symbols::AnySymbolId,
     cause: bray_symbols::CallableSignatureTemplateError,
 ) -> FactQueryError {
-    crate::compilation::SemanticQueryFailure::CallableSignature {
-        callable: Some(callable),
-        cause,
-    }
-    .into()
+    panic!(
+        "semantic CallableSignature construction failed: callable={:?}, cause={:?}",
+        Some(callable),
+        cause
+    )
 }
 
 fn generic_surfaces_are_compatible(

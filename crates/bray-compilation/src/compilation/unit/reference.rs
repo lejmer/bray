@@ -29,7 +29,11 @@ impl Compilation {
         bound: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         semantic_context: &bray_checker::SemanticUnitContext,
-        checker_context: &impl bray_checker::CheckerRequestContext<UpstreamError = FactQueryError>,
+        checker_context: &(
+             impl bray_checker::CheckerRequestContext<UpstreamError = FactQueryError>
+             + bray_checker::CheckerSemanticQueryProvider<bray_symbols::GenericConstraintsQuery>
+             + bray_checker::CheckerSemanticQueryProvider<bray_symbols::GenericTypeConstraintsQuery>
+         ),
     ) -> Result<(Vec<SemanticSelectionEntry>, DiagnosticBag), FactQueryError> {
         let binding_context = self.binding_context_for(key, cancellation)?;
 
@@ -90,6 +94,31 @@ impl Compilation {
             else {
                 continue;
             };
+
+            if matches!(reference, NamedReference::Callable(_)) && !callees.contains(&expression) {
+                let obligation = bray_symbols::GenericConstraintObligationKey::new(
+                    GenericOwnerId::try_new(symbol)
+                        .expect("callable reference has a generic owner"),
+                    substitution,
+                );
+
+                let outcome =
+                    bray_checker::generic_constraint_outcome(unit, obligation, &mut diagnostics)
+                        .map_err(FactQueryError::from)?;
+
+                if outcome != bray_symbols::ProofOutcome::Proven {
+                    if outcome != bray_symbols::ProofOutcome::Recovered {
+                        let source = name.origin().source_anchor().syntax();
+
+                        diagnostics.add(static_constraint_diagnostic(Some(SourceSpan::new(
+                            source.source_id(),
+                            source.full_range(),
+                        ))));
+                    }
+
+                    continue;
+                }
+            }
 
             let selection = match reference {
                 NamedReference::Callable(definition) => SemanticSelection::CallableReference(
@@ -294,4 +323,25 @@ impl Compilation {
             .map(Some)
             .map_err(FactQueryError::SemanticValueStore)
     }
+}
+
+pub(super) fn static_constraint_diagnostic(
+    source: Option<SourceSpan>,
+) -> bray_diagnostics::Diagnostic {
+    let mut diagnostic = bray_diagnostics::Diagnostic::new(
+        bray_diagnostics::DiagnosticId::new(source.map_or(0, |span| span.start().bytes())),
+        bray_diagnostics::DiagnosticKind::CheckingStaticConstraintUnsatisfied,
+        bray_diagnostics::SeverityKind::Error,
+    );
+
+    if let Some(span) = source {
+        diagnostic = diagnostic.with_primary_span(span).with_label(
+            bray_diagnostics::DiagnosticLabel::primary(
+                bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+                span,
+            ),
+        );
+    }
+
+    diagnostic
 }

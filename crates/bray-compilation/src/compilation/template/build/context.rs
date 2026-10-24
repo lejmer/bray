@@ -79,12 +79,15 @@ pub(in crate::compilation) fn build_source_template(
 
         builder.callable_body(block, result)?
     } else {
-        let root = source_expression_root(request.unit, request.expression).unwrap_or_else(|| {
-            panic!(
-                "checked source template {:?} retains expression {:?}",
-                request.kind, request.expression
-            )
-        });
+        let root = request
+            .unit
+            .declaration_expression(request.expression)
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked source template {:?} retains expression {:?}",
+                    request.kind, request.expression
+                )
+            });
 
         let result_type = request
             .types
@@ -139,35 +142,6 @@ pub(in crate::compilation) fn build_source_template(
         result,
         request.behavior,
     ))
-}
-
-fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
-    let block = match unit.root() {
-        bray_bound_tree::BoundUnitRoot::Expression(root) => return Some(root),
-        bray_bound_tree::BoundUnitRoot::ExpressionSequence(block) => block,
-        root => panic!("checked declaration template requires an expression root, found {root:?}"),
-    };
-
-    // Binding already selected each complete clause expression. Parentheses and
-    // postfix syntax may give its root a narrower anchor than the source clause.
-    unit.view()
-        .block(block)
-        .expect("bound expression sequence retains its root block")
-        .items()
-        .iter()
-        .filter_map(|item| item.expression())
-        .find(|id| {
-            let source = unit
-                .view()
-                .expression(*id)
-                .expect("bound expression sequence retains each expression")
-                .origin()
-                .source_anchor()
-                .syntax();
-
-            source.source_id() == syntax.source_id()
-                && syntax.full_range().contains_range(source.full_range())
-        })
 }
 
 pub(in crate::compilation) struct SourceTemplateBuilder<'context, 'compilation, 'unit> {

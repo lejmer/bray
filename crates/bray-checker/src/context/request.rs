@@ -18,6 +18,17 @@ use std::sync::Arc;
 
 use super::errors::CheckerQueryResult;
 
+/// The already-established generic premises available to one lexical checking unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenericConstraintScope {
+    /// The unit is a prerequisite of its owner's type header.
+    Unavailable,
+    /// Type and trait premises are established, but source predicates are being checked.
+    TypeHeader,
+    /// The owner's complete checked constraint set is available.
+    Complete,
+}
+
 /// One recognized implementation hook and its availability for the selected target.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ImplementationHookResolution {
@@ -89,6 +100,18 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
+
+    /// Returns checked type equalities available in this lexical checking context.
+    fn type_equalities(&self) -> DiagnosticResult<&[(TypeId, TypeId)]> {
+        DiagnosticResult::new(&[], bray_diagnostics::DiagnosticBag::new())
+    }
+
+    /// Identifies which owner premises precede the current checking unit.
+    fn generic_constraint_scope(
+        &self,
+        context: &SemanticUnitContext,
+        owner: bray_symbols::GenericOwnerId,
+    ) -> CheckerQueryResult<DiagnosticResult<GenericConstraintScope>, Self::UpstreamError>;
 
     /// Matches inherited named-type arguments to an inherent callable's implementation header.
     fn inherited_callable_substitution(
@@ -279,6 +302,12 @@ pub trait CheckerRequestContext: Sync {
     fn checked_constant_expression(
         &self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
+
+    /// Normalizes a closed array extent while retaining unresolved generic terms.
+    fn normalize_array_length(
+        &self,
+        term: bray_symbols::ConstantTermId,
     ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
 
     /// Proves the static constraints for one exact generic declaration instance.

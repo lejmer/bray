@@ -1,3 +1,5 @@
+use super::context::Substitution;
+
 use super::super::{
     CallableDependencyContracts, ConstantTermData, DependencyGuard, DependencyProjection,
     DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
@@ -7,6 +9,98 @@ use super::super::{
 use crate::{GenericOwnerId, GenericParameterSymbolId};
 
 impl SemanticValueStore {
+    /// Rewrites type identities throughout a constant term without evaluating it.
+    pub fn replace_term_types(
+        &self,
+        term: crate::ConstantTermId,
+        types: &std::collections::BTreeMap<crate::TypeId, crate::TypeId>,
+    ) -> Result<crate::ConstantTermId, SemanticValueStoreError> {
+        self.substitute_constant_term_data(term, &Substitution::Types(types))
+    }
+
+    /// Rewrites predicate type identities without changing its domain or value subjects.
+    pub fn replace_predicate_types(
+        &self,
+        predicate: crate::PredicateSemanticSummary,
+        types: &std::collections::BTreeMap<crate::TypeId, crate::TypeId>,
+    ) -> Result<crate::PredicateSemanticSummary, SemanticValueStoreError> {
+        self.substitute_predicate_data(predicate, &Substitution::Types(types))
+    }
+
+    /// Rewrites types throughout phases using the same traversal as generic instantiation.
+    pub fn replace_phase_types(
+        &self,
+        phases: &crate::CallablePhaseBehaviors,
+        types: &std::collections::BTreeMap<crate::TypeId, crate::TypeId>,
+    ) -> Result<crate::CallablePhaseBehaviors, SemanticValueStoreError> {
+        self.substitute_callable_phase_behaviors(phases, &Substitution::Types(types))
+    }
+
+    pub(super) fn substitute_predicate_data(
+        &self,
+        predicate: crate::PredicateSemanticSummary,
+        substitution: &Substitution<'_>,
+    ) -> Result<crate::PredicateSemanticSummary, SemanticValueStoreError> {
+        Ok(crate::PredicateSemanticSummary::new(
+            self.substitute_dependency_contract_data(
+                predicate.dependency_contract(),
+                substitution,
+            )?,
+        )
+        .with_condition(
+            predicate
+                .condition()
+                .map(|term| self.substitute_constant_term_data(term, substitution))
+                .transpose()?,
+            predicate.domain(),
+        ))
+    }
+
+    pub(super) fn substitute_callable_phase_behaviors(
+        &self,
+        phases: &crate::CallablePhaseBehaviors,
+        substitution: &Substitution<'_>,
+    ) -> Result<crate::CallablePhaseBehaviors, SemanticValueStoreError> {
+        let dependencies = self.substitute_callable_dependency_contracts(
+            phases.dependency_contracts(),
+            substitution,
+        )?;
+
+        // Phase behavior is immutable and Arc-backed. Preserve unchanged execution properties.
+        let phase_behaviors = phases
+            .clone()
+            .try_with_dependency_contracts(dependencies)
+            .expect("substitution preserves callable phase contracts");
+
+        let body = phases
+            .deferred_execution()
+            .unwrap_or_else(|| phases.invocation());
+
+        let phase_behaviors = phase_behaviors.with_receiver_cleanup(
+            body.receiver_cleanup()
+                .iter()
+                .map(|ty| self.substitute_type_data(*ty, substitution))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        let phase_behaviors = phase_behaviors.with_predicates(
+            phases
+                .invocation()
+                .predicate_requirements()
+                .iter()
+                .copied()
+                .map(|predicate| self.substitute_predicate_data(predicate, substitution))
+                .collect::<Result<Vec<_>, _>>()?,
+            body.predicate_guarantees()
+                .iter()
+                .copied()
+                .map(|predicate| self.substitute_predicate_data(predicate, substitution))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        Ok(phase_behaviors)
+    }
+
     /// Applies one generic substitution throughout a dependency contract.
     pub fn substitute_dependency_contract(
         &self,
@@ -15,7 +109,7 @@ impl SemanticValueStore {
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution);
 
-        self.substitute_dependency_contract_data(contract, &substitution)
+        self.substitute_dependency_contract_data(contract, &Substitution::Generic(&substitution))
     }
 
     /// Reports whether a generic parameter occurs anywhere in a dependency contract.
@@ -47,7 +141,7 @@ impl SemanticValueStore {
     pub(super) fn substitute_callable_dependency_contracts(
         &self,
         contracts: CallableDependencyContracts,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<CallableDependencyContracts, SemanticValueStoreError> {
         let invocation =
             self.substitute_dependency_contract_data(contracts.invocation(), substitution)?;
@@ -64,7 +158,7 @@ impl SemanticValueStore {
     pub(super) fn substitute_dependency_contract_data(
         &self,
         template: super::super::DependencyContractTemplateId,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(template);
 
@@ -183,7 +277,7 @@ impl SemanticValueStore {
     fn substitute_dependency_call_inputs(
         &self,
         inputs: &[super::super::DependencyCallInput],
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<Vec<super::super::DependencyCallInput>, SemanticValueStoreError> {
         inputs
             .iter()
@@ -208,7 +302,7 @@ impl SemanticValueStore {
     fn substitute_dependency_requirement(
         &self,
         requirement: &DependencyRequirement,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
             DependencyRequirement::FixedPoint {
@@ -291,7 +385,7 @@ impl SemanticValueStore {
     fn substitute_dependency_guard(
         &self,
         guard: &DependencyGuard,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<DependencyGuard, SemanticValueStoreError> {
         match guard {
             DependencyGuard::NullablePresent(subject) => Ok(DependencyGuard::NullablePresent(
@@ -309,7 +403,7 @@ impl SemanticValueStore {
     fn substitute_dependency_subject(
         &self,
         subject: &DependencySubject,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<DependencySubject, SemanticValueStoreError> {
         let root = match subject.subject_root() {
             DependencySubjectRoot::ImplementationWitness(instance) => {
@@ -332,13 +426,138 @@ impl SemanticValueStore {
     fn substitute_dependency_projection(
         &self,
         projection: &DependencyProjection,
-        substitution: &GenericSubstitutionData,
+        substitution: &Substitution<'_>,
     ) -> Result<DependencyProjection, SemanticValueStoreError> {
         match projection {
             DependencyProjection::Element(index) => self
                 .substitute_constant_term_data(*index, substitution)
                 .map(DependencyProjection::Element),
             projection => Ok(*projection),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::{
+        CallableDefinitionId, CallableInstanceData, CallablePhaseBehavior, CallablePhaseBehaviors,
+        ConstantTermData, DependencyContractTemplateData, DependencyRequirement,
+        DependencyRequirementKind, DependencySubject, DependencySubjectRoot, FunctionSymbolId,
+        GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+        GenericTypeParameterSymbolId, PredicateDomain, PredicateSemanticSummary,
+        SemanticValueStore, SymbolId, SymbolOrdinal, TypeData,
+    };
+
+    #[test]
+    fn type_replacement_preserves_predicate_domains_and_value_subjects() {
+        let store = SemanticValueStore::try_new().unwrap();
+        let source_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let target_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let formal = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let source = store
+            .intern_type(TypeData::TypeParameter(source_parameter))
+            .unwrap();
+
+        let target = store
+            .intern_type(TypeData::TypeParameter(target_parameter))
+            .unwrap();
+
+        let definition = CallableDefinitionId::try_new(
+            FunctionSymbolId::from_symbol_id(SymbolId::new(1)).into(),
+        )
+        .unwrap();
+
+        let owner = GenericOwnerId::try_new(definition.symbol()).unwrap();
+
+        let argument = store
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .unwrap();
+
+        let other = store
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
+            .unwrap();
+
+        let condition = |ty, argument| {
+            let substitution = store
+                .intern_generic_substitution(
+                    GenericSubstitutionData::try_new(
+                        owner,
+                        [GenericParameterSymbolId::Type(formal)],
+                        [GenericArgument::Type(ty)],
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let callable = store
+                .intern_callable_instance(CallableInstanceData::new(definition, substitution))
+                .unwrap();
+
+            store
+                .intern_constant_term(ConstantTermData::call(callable, None, [argument]))
+                .unwrap()
+        };
+
+        let dependency = store
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(
+                        0,
+                    ))),
+                    DependencyRequirementKind::StorageAlive,
+                ),
+            ]))
+            .unwrap();
+
+        let replacements = BTreeMap::from([(source, target)]);
+
+        for domain in [
+            PredicateDomain::Value,
+            PredicateDomain::Trusted,
+            PredicateDomain::Execution,
+        ] {
+            let original = PredicateSemanticSummary::new(dependency)
+                .with_condition(Some(condition(source, argument)), domain);
+
+            let expected = PredicateSemanticSummary::new(dependency)
+                .with_condition(Some(condition(target, argument)), domain);
+
+            let different = PredicateSemanticSummary::new(dependency)
+                .with_condition(Some(condition(target, other)), domain);
+
+            assert_eq!(
+                store
+                    .replace_predicate_types(original, &replacements)
+                    .unwrap(),
+                expected
+            );
+
+            assert_ne!(
+                store
+                    .replace_predicate_types(original, &replacements)
+                    .unwrap(),
+                different
+            );
+
+            let phases = CallablePhaseBehaviors::asynchronous(
+                CallablePhaseBehavior::empty(dependency),
+                CallablePhaseBehavior::empty(dependency),
+            )
+            .with_predicates([original], [original])
+            .with_receiver_cleanup([source]);
+
+            let expected_phases = phases
+                .clone()
+                .with_predicates([expected], [expected])
+                .with_receiver_cleanup([target]);
+
+            assert_eq!(
+                store.replace_phase_types(&phases, &replacements).unwrap(),
+                expected_phases
+            );
         }
     }
 }

@@ -8,29 +8,20 @@ use serde::Serialize;
 
 use crate::OutputFormat;
 use crate::inspection::{
-    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor, TreeWriter,
-    push_report_value, push_text_diagnostic, render_pretty_json,
+    InspectionOutput, InspectionSources, InspectionSyntaxAnchor, TreeWriter, push_report_value,
+    push_text_diagnostic, render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DeclarationInspectionRenderError {
-    Container,
-    Declaration,
-    ModulePart,
-    Source,
-    SourceIndex,
     SourceIndexOverflow(bray_source::TextSizeOverflow),
     Json(String),
 }
 
-impl From<InspectionSourceError> for DeclarationInspectionRenderError {
-    fn from(error: InspectionSourceError) -> Self {
-        match error {
-            InspectionSourceError::Source => Self::Source,
-            InspectionSourceError::SourceIndex => Self::SourceIndex,
-            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
-        }
+impl From<bray_source::TextSizeOverflow> for DeclarationInspectionRenderError {
+    fn from(error: bray_source::TextSizeOverflow) -> Self {
+        Self::SourceIndexOverflow(error)
     }
 }
 
@@ -78,9 +69,9 @@ impl DeclarationInspectionReport {
 
         let root = table
             .container(table.root_container())
-            .ok_or(DeclarationInspectionRenderError::Container)?;
+            .expect("retained declaration.rs relationships must provide Container");
 
-        let root = InspectionContainer::from_record(&sources, table, root)?;
+        let root = InspectionContainer::from_record(&sources, table, root);
 
         let diagnostic_jsons = diagnostic_jsons(diagnostics, Some(compilation.sources()));
 
@@ -111,17 +102,20 @@ impl InspectionContainer {
         sources: &InspectionSources<'_>,
         table: &DeclarationTable,
         container: &ContainerRecord,
-    ) -> Result<Self, DeclarationInspectionRenderError> {
+    ) -> Self {
         let contributions = container
             .module_parts()
             .iter()
             .map(|id| {
-                table
-                    .module_part(*id)
-                    .ok_or(DeclarationInspectionRenderError::ModulePart)
-                    .and_then(|part| InspectionModulePart::from_record(sources, table, part))
+                InspectionModulePart::from_record(
+                    sources,
+                    table,
+                    table
+                        .module_part(*id)
+                        .expect("declaration container must retain its module part"),
+                )
             })
-            .collect::<Result<_, _>>()?;
+            .collect();
 
         let declarations = if matches!(
             container.kind(),
@@ -133,33 +127,34 @@ impl InspectionContainer {
                 .declarations()
                 .iter()
                 .map(|id| {
-                    table
-                        .declaration(*id)
-                        .ok_or(DeclarationInspectionRenderError::Declaration)
-                        .and_then(|declaration| {
-                            InspectionDeclaration::from_record(sources, table, declaration)
-                        })
+                    InspectionDeclaration::from_record(
+                        sources,
+                        table,
+                        table
+                            .declaration(*id)
+                            .expect("declaration container must retain its member"),
+                    )
                 })
-                .collect::<Result<_, _>>()?
+                .collect()
         };
 
         let modules = if container.kind() == ContainerKind::Root {
             table
                 .module_containers()
                 .map(|module| Self::from_record(sources, table, module))
-                .collect::<Result<_, _>>()?
+                .collect()
         } else {
             Vec::new()
         };
 
-        Ok(Self {
+        Self {
             container_kind: container.kind().as_str(),
             id: container.id().raw(),
             module_path: container.module_path().map(|path| path.dotted()),
             contributions,
             declarations,
             modules,
-        })
+        }
     }
 
     fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
@@ -211,28 +206,29 @@ impl InspectionModulePart {
         sources: &InspectionSources<'_>,
         table: &DeclarationTable,
         part: &ModulePartRecord,
-    ) -> Result<Self, DeclarationInspectionRenderError> {
+    ) -> Self {
         let declarations = part
             .declarations()
             .iter()
             .map(|id| {
-                table
-                    .declaration(*id)
-                    .ok_or(DeclarationInspectionRenderError::Declaration)
-                    .and_then(|declaration| {
-                        InspectionDeclaration::from_record(sources, table, declaration)
-                    })
+                InspectionDeclaration::from_record(
+                    sources,
+                    table,
+                    table
+                        .declaration(*id)
+                        .expect("declaration container must retain its member"),
+                )
             })
-            .collect::<Result<_, _>>()?;
+            .collect();
 
-        Ok(Self {
+        Self {
             part_kind: "module_contribution",
             id: part.id().raw(),
             declaration_id: part.declaration().raw(),
-            anchor: InspectionSyntaxAnchor::from_anchor(sources, part.syntax_anchor())?,
-            surface: InspectionSurface::from_surface(sources, part.surface())?,
+            anchor: InspectionSyntaxAnchor::from_anchor(sources, part.syntax_anchor()),
+            surface: InspectionSurface::from_surface(sources, part.surface()),
             declarations,
-        })
+        }
     }
 
     fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
@@ -285,22 +281,21 @@ impl InspectionDeclaration {
         sources: &InspectionSources<'_>,
         table: &DeclarationTable,
         declaration: &DeclarationRecord,
-    ) -> Result<Self, DeclarationInspectionRenderError> {
+    ) -> Self {
         let child_container = declaration
             .child_container()
             .map(|id| inspection_container(sources, table, id))
-            .transpose()?
             .map(Box::new);
 
-        Ok(Self {
+        Self {
             declaration_kind: declaration.kind().as_str(),
             id: declaration.id().raw(),
             name: declaration.name().map(InspectionDeclarationName::from_name),
             owning_container: declaration.owning_container().raw(),
-            anchor: InspectionSyntaxAnchor::from_anchor(sources, declaration.syntax_anchor())?,
-            surface: InspectionSurface::from_surface(sources, declaration.surface())?,
+            anchor: InspectionSyntaxAnchor::from_anchor(sources, declaration.syntax_anchor()),
+            surface: InspectionSurface::from_surface(sources, declaration.surface()),
             child_container,
-        })
+        }
     }
 
     fn push_text(&self, writer: &mut TreeWriter, is_last: bool) {
@@ -350,10 +345,10 @@ fn inspection_container(
     sources: &InspectionSources<'_>,
     table: &DeclarationTable,
     id: ContainerId,
-) -> Result<InspectionContainer, DeclarationInspectionRenderError> {
+) -> InspectionContainer {
     let container = table
         .container(id)
-        .ok_or(DeclarationInspectionRenderError::Container)?;
+        .expect("retained declaration.rs relationships must provide Container");
 
     InspectionContainer::from_record(sources, table, container)
 }
@@ -410,26 +405,22 @@ struct InspectionSurface {
 }
 
 impl InspectionSurface {
-    fn from_surface(
-        sources: &InspectionSources<'_>,
-        surface: &DeclarationSurface,
-    ) -> Result<Self, DeclarationInspectionRenderError> {
-        Ok(Self {
+    fn from_surface(sources: &InspectionSources<'_>, surface: &DeclarationSurface) -> Self {
+        Self {
             visibility: surface.visibility().map(|kind| kind.as_str()),
             modifiers: surface
                 .modifiers()
                 .iter()
                 .map(|kind| kind.as_str())
                 .collect(),
-            directives: inspection_anchors(sources, surface.directives())?,
-            constraints: inspection_anchors(sources, surface.constraints())?,
-            contract_clauses: inspection_anchors(sources, surface.contract_clauses())?,
+            directives: inspection_anchors(sources, surface.directives()),
+            constraints: inspection_anchors(sources, surface.constraints()),
+            contract_clauses: inspection_anchors(sources, surface.contract_clauses()),
             runtime_default: surface
                 .runtime_default()
-                .map(|anchor| InspectionSyntaxAnchor::from_anchor(sources, anchor))
-                .transpose()?,
-            overload_arms: inspection_anchors(sources, surface.overload_arms())?,
-        })
+                .map(|anchor| InspectionSyntaxAnchor::from_anchor(sources, anchor)),
+            overload_arms: inspection_anchors(sources, surface.overload_arms()),
+        }
     }
 
     fn text_entries(&self) -> Vec<String> {
@@ -460,11 +451,11 @@ impl InspectionSurface {
 fn inspection_anchors(
     sources: &InspectionSources<'_>,
     anchors: &[SyntaxAnchor],
-) -> Result<Vec<InspectionSyntaxAnchor>, DeclarationInspectionRenderError> {
+) -> Vec<InspectionSyntaxAnchor> {
     anchors
         .iter()
-        .map(|anchor| InspectionSyntaxAnchor::from_anchor(sources, *anchor).map_err(Into::into))
-        .collect::<Result<_, _>>()
+        .map(|anchor| InspectionSyntaxAnchor::from_anchor(sources, *anchor))
+        .collect()
 }
 
 fn push_anchor_entries(entries: &mut Vec<String>, label: &str, anchors: &[InspectionSyntaxAnchor]) {

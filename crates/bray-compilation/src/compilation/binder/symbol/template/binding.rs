@@ -47,7 +47,7 @@ impl CompilationSymbolQueryEvaluator<GenericDeclarationTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<GenericDeclarationTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <GenericDeclarationTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -65,7 +65,7 @@ impl CompilationSymbolQueryEvaluator<CallableContractTemplateQuery> for Compilat
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<CallableContractTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <CallableContractTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -85,7 +85,7 @@ impl CompilationSymbolQueryEvaluator<PredicateSignatureTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<PredicateSignatureTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <PredicateSignatureTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -105,7 +105,7 @@ impl CompilationSymbolQueryEvaluator<ImplementationHeadTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<ImplementationHeadTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <ImplementationHeadTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -257,10 +257,10 @@ fn bind_generic_declaration_template(
                                 right.value().clone(),
                             )
                         }
-                        _ => source_constraint(symbol, ordinal, unit, &expression),
+                        _ => source_constraint(symbol, ordinal, &expression),
                     }
                 } else {
-                    source_constraint(symbol, ordinal, unit, &expression)
+                    source_constraint(symbol, ordinal, &expression)
                 };
 
                 constraints.push(constraint);
@@ -277,12 +277,11 @@ fn bind_generic_declaration_template(
 fn source_constraint(
     owner: AnySymbolId,
     ordinal: bray_symbols::SymbolOrdinal,
-    unit: SyntaxAnchor,
     expression: &ExpressionSyntax,
 ) -> GenericConstraintTemplate {
     GenericConstraintTemplate::new(
         ordinal,
-        unit,
+        SyntaxAnchor::from_node(expression),
         DeclarationExpressionTemplate::new(owner, SyntaxAnchor::from_node(expression)),
     )
 }
@@ -301,28 +300,33 @@ fn bind_callable_contract_template(
         let mut expressions = Vec::new();
         let mut capabilities = Vec::new();
 
-        let mut traversal_error = None;
-
-        walk_direct_child_nodes(&root, |node| {
-            if let Err(error) =
-                push_callable_contract_child(symbol, &node, &mut expressions, &mut capabilities)
-            {
-                traversal_error = Some(error);
-
-                return SyntaxWalkControl::Stop;
-            }
-
-            SyntaxWalkControl::Continue
-        });
-
-        if let Some(error) = traversal_error {
-            return Err(error);
-        }
+        push_callable_contract_children(symbol, &root, &mut expressions, &mut capabilities)?;
 
         Ok(DiagnosticResult::without_diagnostics(
             CallableContractTemplate::source(owner, expressions, capabilities),
         ))
     })
+}
+
+fn push_callable_contract_children(
+    owner: AnySymbolId,
+    root: &impl bray_syntax::SyntaxWalkRoot,
+    expressions: &mut Vec<CallableContractExpressionTemplate>,
+    capabilities: &mut Vec<DeclarationCapabilityTemplate>,
+) -> BindingQueryResult<()> {
+    let mut failure = None;
+
+    walk_direct_child_nodes(root, |node| {
+        if let Err(error) = push_callable_contract_child(owner, &node, expressions, capabilities) {
+            failure = Some(error);
+
+            return SyntaxWalkControl::Stop;
+        }
+
+        SyntaxWalkControl::Continue
+    });
+
+    failure.map_or(Ok(()), Err)
 }
 
 fn push_callable_contract_child(
@@ -350,6 +354,9 @@ fn push_callable_contract_child(
             node,
             expressions,
         ),
+        SyntaxKind::WhenClause => {
+            push_callable_contract_children(owner, node, expressions, capabilities)
+        }
         SyntaxKind::UsesClause => push_capabilities(node, capabilities),
         _ => Ok(()),
     }
@@ -1043,7 +1050,7 @@ overload choose_any = {fast}
     }
 
     fn expression_text(
-        compilation: &crate::Compilation,
+        compilation: &Compilation,
         expression: Option<bray_symbols::DeclarationExpressionTemplate>,
     ) -> &str {
         let Some(expression) = expression else {

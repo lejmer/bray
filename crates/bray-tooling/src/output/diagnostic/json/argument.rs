@@ -445,12 +445,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::RuntimeSelectionIncompatible(detail)
             | Kind::RuntimeSelectionMissingRoleOwner(detail)
             | Kind::RuntimeSelectionMissingCapabilityOwner(detail)
-            | Kind::PartitionMissingCompatibility(detail)
-            | Kind::PartitionInvalidUnit(detail)
-            | Kind::ExecutableHostDuplicateRole(detail)
-            | Kind::ExecutableHostRuntimeOwnedBinding(detail)
-            | Kind::ExecutableHostIncompatibleRuntime(detail)
-            | Kind::ExecutableHostMissingRole(detail)
             | Kind::CodegenBackendUnsupportedArtifact(detail)
             | Kind::CodegenBackendUnsupportedTargetDetail(detail)
             | Kind::CodegenBackendInvalidConfigurationDetail(detail)
@@ -459,18 +453,7 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendArtifactRead(detail)
             | Kind::CodegenBackendArtifactConstruction(detail)
             | Kind::CodegenBackendResourceLimit(detail)
-            | Kind::CodegenMirUnavailable(detail)
-            | Kind::CodegenInvalidInstance(detail)
-            | Kind::CodegenInvalidUnit(detail)
-            | Kind::CodegenUnitMismatch(detail)
-            | Kind::CodegenMissingRuntimeRole(detail)
-            | Kind::CodegenOpenConstantTerm(detail)
-            | Kind::CodegenInvalidArrayLength(detail)
-            | Kind::CodegenRecursiveValueType(detail)
-            | Kind::CodegenUnresolvedType(detail)
-            | Kind::CodegenUnsizedTypeByValue(detail)
             | Kind::CodegenUnsupportedType(detail)
-            | Kind::CodegenMissingHelperInstance(detail)
             | Kind::CodegenLayoutOverflow(detail)
             | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
                 diagnostic_failure_context(detail.context())
@@ -489,48 +472,16 @@ impl DiagnosticNativeProductFailureJson {
                 ),
             ]),
             Kind::CodegenBackendNotSelected
-            | Kind::MissingProductRoot
-            | Kind::InvalidEntryResult
             | Kind::MissingRuntime
             | Kind::EvaluationCancelled
             | Kind::EvaluationSemanticValueStoreCreate
-            | Kind::EvaluationConstantCallableBodyUnavailable
-            | Kind::EvaluationConstantCallableRootUnavailable
-            | Kind::EvaluationAtomicRepresentationTypeUnavailable
-            | Kind::EvaluationAtomicRepresentationArgumentsUnavailable
-            | Kind::EvaluationAtomicInitializerArgumentUnavailable
-            | Kind::EvaluationAtomicInitializerResultUnavailable
-            | Kind::EvaluationUninitInitializerResultUnavailable
-            | Kind::EvaluationImportedExecutableTemplateMismatch
             | Kind::CodegenTargetUnsupportedProfile
-            | Kind::CodegenTargetEmptyTriple
-            | Kind::CodegenTargetEmptyCpu
-            | Kind::CodegenTargetEmptyFeature
-            | Kind::ReachabilityEmptyRoots
-            | Kind::ReachabilityDuplicateInstance
-            | Kind::ReachabilityUndemandedInstance
-            | Kind::ReachabilityIncomplete
-            | Kind::InstanceTemplateMismatch
-            | Kind::InstanceTargetMismatch
-            | Kind::InstanceDependencyTargetMismatch
-            | Kind::UnitEmpty
-            | Kind::UnitDuplicateInstance
-            | Kind::UnitMissingCompatibility
-            | Kind::UnitTargetMismatch
-            | Kind::UnitWorkBoundExceeded
-            | Kind::UnitRecipeMismatch
-            | Kind::ExecutableHostMissingRuntime
-            | Kind::ExecutableHostMissingMainThreadLane
-            | Kind::ExecutableHostMissingProtectedFrameAbi
-            | Kind::LinkTargetEmptyTriple
             | Kind::CodegenBackendUnsupportedTarget
             | Kind::CodegenBackendInvalidConfiguration
             | Kind::CodegenBackendResourceExhausted
             | Kind::CodegenBackendUnavailable
-            | Kind::CodegenMissingEntrypoint
             | Kind::CodegenMirCapacityExceeded
-            | Kind::CodegenInvalidAbiMapping(None)
-            | Kind::CodegenInvalidSymbolName => Vec::new(),
+            | Kind::CodegenInvalidAbiMapping(None) => Vec::new(),
         };
 
         Self {

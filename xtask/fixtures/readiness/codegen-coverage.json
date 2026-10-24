@@ -285,6 +285,14 @@
       }
     },
     {
+      "name": "ObserveFrameCancellation",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirAsyncOperation::ObserveFrameCancellation"
+      }
+    },
+    {
       "name": "ResolveTask",
       "disposition": "translated",
       "production": {
@@ -317,14 +325,6 @@
       }
     },
     {
-      "name": "ObserveFrameCancellation",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
-        "symbol": "MirAsyncOperation::ObserveFrameCancellation"
-      }
-    },
-    {
       "name": "TransferCleanupIncident",
       "disposition": "translated",
       "production": {
@@ -348,14 +348,6 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host/core.rs",
         "symbol": "MirHostOperation::InitializeRuntime"
-      }
-    },
-    {
-      "name": "BeginProductEntry",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host/core.rs",
-        "symbol": "MirHostOperation::BeginProductEntry"
       }
     },
     {
@@ -407,6 +399,14 @@
       }
     },
     {
+      "name": "BeginProductEntry",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host/core.rs",
+        "symbol": "MirHostOperation::BeginProductEntry"
+      }
+    },
+    {
       "name": "ReportCleanupIncidents",
       "disposition": "translated",
       "production": {
@@ -446,14 +446,6 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
         "symbol": "MirTerminatorKind::PatternBranch"
-      }
-    },
-    {
-      "name": "TakeCallReport",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
-        "symbol": "MirTerminatorKind::TakeCallReport"
       }
     },
     {
@@ -518,6 +510,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
         "symbol": "MirTerminatorKind::CheckCallOutcome"
+      }
+    },
+    {
+      "name": "TakeCallReport",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::TakeCallReport"
       }
     },
     {
@@ -612,7 +612,7 @@
     },
     {
       "name": "MirBinaryOperator",
-      "variants": ["Add", "Subtract", "Multiply", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight", "Exponentiate"],
+      "variants": ["Add", "Subtract", "Multiply", "Exponentiate", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
         "symbol": "translate_binary"
@@ -628,7 +628,7 @@
     },
     {
       "name": "MirCallTarget",
-      "variants": ["Direct", "DefaultValue", "Indirect", "Runtime", "Predicate"],
+      "variants": ["Direct", "DefaultValue", "Indirect", "Predicate", "Runtime"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/call/translation.rs",
         "symbol": "call.target()"
@@ -676,7 +676,7 @@
     },
     {
       "name": "MirImmediateValue",
-      "variants": ["Boolean", "Unit", "NullableAbsent", "EmptyPanicReport"],
+      "variants": ["Boolean", "Unit", "EmptyPanicReport", "NullableAbsent"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/value.rs",
         "symbol": "MirImmediateValue::"

@@ -33,6 +33,16 @@ impl CargoMetadata {
                     package.manifest_path.display()
                 )
             })?;
+
+            for target in &mut package.targets {
+                target.src_path = target.src_path.canonicalize().map_err(|error| {
+                    format!(
+                        "could not resolve readiness target {} at {}: {error}",
+                        target.name,
+                        target.src_path.display()
+                    )
+                })?;
+            }
         }
 
         Ok(metadata)
@@ -55,9 +65,22 @@ impl CargoMetadata {
 pub(super) struct PackageDependencies {
     manifest_path: PathBuf,
     dependencies: Vec<Dependency>,
+    targets: Vec<CargoTarget>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct CargoTarget {
+    pub(super) name: String,
+    pub(super) kind: Vec<String>,
+    pub(super) src_path: PathBuf,
+    pub(super) test: bool,
 }
 
 impl PackageDependencies {
+    pub(super) fn targets(&self) -> &[CargoTarget] {
+        &self.targets
+    }
+
     // Build dependencies also belong to the production boundary, even on another target.
     pub(super) fn contains_production(&self, name: &str) -> bool {
         self.dependencies.iter().any(|dependency| {
@@ -87,7 +110,7 @@ enum DependencyKind {
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
 
     #[test]
     fn cargo_dependency_identity_ignores_text_and_preserves_declaration_kinds() {
@@ -135,6 +158,32 @@ mod tests {
         assert!(dependencies.contains_production("bray-source"));
         assert!(!dependencies.contains_normal("bray-parser"));
         assert!(!dependencies.contains_normal("bray-source"));
+    }
+
+    #[test]
+    fn cargo_target_sources_share_the_resolved_workspace_root() {
+        let (directory, workspace) = dependency_workspace(&[("boundary", "")]);
+
+        let root = directory
+            .path()
+            .canonicalize()
+            .expect("resolved workspace root");
+
+        let package = workspace
+            .package_dependencies("crates/boundary/Cargo.toml")
+            .expect("package dependencies");
+
+        let [target] = package.targets() else {
+            panic!("fixture package must have exactly one library target");
+        };
+
+        assert_eq!(
+            target
+                .src_path
+                .strip_prefix(&root)
+                .expect("target belongs to the resolved workspace"),
+            std::path::Path::new("crates/boundary/src/lib.rs")
+        );
     }
 
     #[test]

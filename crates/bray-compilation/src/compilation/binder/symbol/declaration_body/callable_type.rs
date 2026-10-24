@@ -229,7 +229,17 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
                 .map(|capability| capability.requirement()),
         );
 
-    Ok(DiagnosticResult::new(phases, diagnostics))
+    let normalized = bray_checker::normalize_numeric_phase_requirements(
+        &crate::compilation::checker::CompilationCheckerContext::new(*context),
+        &phases,
+    )
+    .map_err(crate::fact::FactQueryError::from)
+    .map_err(super::super::binding::binder_error)?;
+
+    Ok(DiagnosticResult::new(
+        normalized.unwrap_or(phases),
+        diagnostics,
+    ))
 }
 
 fn callable_type_clauses(

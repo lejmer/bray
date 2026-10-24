@@ -4,7 +4,7 @@ use bray_binder::SymbolQueryProvider;
 use bray_checker::{
     CheckerRequestContext, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstantCall,
-    evaluate_constant_callable_template,
+    evaluate_constant_call,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -107,7 +107,7 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
                 )
                 .map_err(checker_call_query_error)?
             }
-            _ => request.substitution(),
+            _ => request.target().substitution(),
         };
 
         let selected = self
@@ -412,38 +412,12 @@ impl Compilation {
             "checked constant invocation retains its selected result type for {target:?}"
         );
 
-        if let bray_checker::ConstantCallTarget::Declaration(callable) = target {
-            let evaluated = self.compiler_known_constant_call(
-                *callable,
-                key.arguments(),
-                key.result_type(),
-                key.limits(),
-                cancellation,
-            )?;
-
-            if evaluated.value().is_some() || evaluated.diagnostics().has_errors() {
-                assert!(
-                    contract.requirements().is_empty(),
-                    "fixed constant operation retains its requirement-free catalog contract: {callable:?}"
-                );
-
-                let (value, diagnostics) = evaluated.into_parts();
-
-                return Ok(DiagnosticResult::new(
-                    value,
-                    checked_contract.diagnostics().merged(&diagnostics),
-                ));
-            }
-        }
-
         let (template, span) = self.constant_invocation_template(target, cancellation)?;
 
-        let Some(body) = template.value() else {
-            return Ok(DiagnosticResult::new(None, template.into_parts().1));
-        };
+        let body = template.value().as_ref();
 
         if matches!(target, bray_checker::ConstantCallTarget::Default(_, _))
-            && !body.behavior().execution().constant_eligible()
+            && body.is_some_and(|body| !body.behavior().execution().constant_eligible())
         {
             return Ok(DiagnosticResult::new(None, template.into_parts().1));
         }
@@ -466,17 +440,32 @@ impl Compilation {
         )
         .with_observation(key.is_observation());
 
-        let evaluated = checker_result(evaluate_constant_callable_template(
+        let evaluated = checker_result(evaluate_constant_call(
             &context,
             body,
             &request,
             &resolver,
             span,
             contract.requirements(),
+            || match target {
+                bray_checker::ConstantCallTarget::Declaration(callable) => {
+                    match self.compiler_known_constant_call(
+                        *callable,
+                        key.arguments(),
+                        key.result_type(),
+                        key.limits(),
+                        cancellation,
+                    ) {
+                        Ok(result) => bray_checker::CheckerOutcome::Complete(result),
+                        Err(error) => bray_checker::CheckerOutcome::UpstreamFailure(error),
+                    }
+                }
+                _ => bray_checker::CheckerOutcome::without_diagnostics(None),
+            },
         ))?;
 
         Ok(DiagnosticResult::new(
-            Some(evaluated.value().clone()),
+            evaluated.value().clone(),
             DiagnosticBag::merged_all([
                 checked_contract.diagnostics(),
                 template.diagnostics(),
@@ -520,6 +509,23 @@ impl Compilation {
                 let Some(address) = address else {
                     return Ok((DiagnosticResult::without_diagnostics(None), None));
                 };
+
+                let signature = binding
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+                        callable.definition().callable_symbol(),
+                    ))
+                    .map_err(binding_query_error)?;
+
+                if !signature.value().has_body() {
+                    let span = self
+                        .dependency_interface_input(address.interface())
+                        .and_then(crate::request::DependencyInterfaceInput::dependency_span);
+
+                    return Ok((
+                        DiagnosticResult::new(None, signature.diagnostics().clone()),
+                        span,
+                    ));
+                }
 
                 let body =
                     self.imported_constant_callable_body_with_cancellation(address, cancellation)?;

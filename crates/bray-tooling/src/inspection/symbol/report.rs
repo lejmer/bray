@@ -3,16 +3,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compilation::{Compilation, FactQueryError};
-use bray_declarations::{DeclarationId, DeclarationTable, SyntaxAnchor};
+use bray_declarations::{DeclarationTable, SyntaxAnchor};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, SemanticValueStore, SymbolGraph, SymbolOrigin};
 use serde::Serialize;
 
 use crate::OutputFormat;
 use crate::inspection::{
-    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError, push_report_value,
-    push_text_diagnostic, render_pretty_json,
+    InspectionOutput, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
+    InspectionType, TreeWriter, TypeInspectionError, push_report_value, push_text_diagnostic,
+    render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
@@ -23,25 +23,15 @@ use super::relationship::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SymbolInspectionRenderError {
-    Declaration,
     Evaluation(FactQueryError),
     Json(String),
-    Source(InspectionSourceError),
-    SourceIndex,
     SourceIndexOverflow(bray_source::TextSizeOverflow),
-    Symbol,
-    SymbolCycle,
     Type(TypeInspectionError),
-    UnsupportedRelationship,
 }
 
-impl From<InspectionSourceError> for SymbolInspectionRenderError {
-    fn from(error: InspectionSourceError) -> Self {
-        match error {
-            InspectionSourceError::Source => Self::Source(error),
-            InspectionSourceError::SourceIndex => Self::SourceIndex,
-            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
-        }
+impl From<bray_source::TextSizeOverflow> for SymbolInspectionRenderError {
+    fn from(error: bray_source::TextSizeOverflow) -> Self {
+        Self::SourceIndexOverflow(error)
     }
 }
 
@@ -223,15 +213,16 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         id: AnySymbolId,
         ancestors: &mut BTreeSet<AnySymbolId>,
     ) -> Result<InspectionSymbol, SymbolInspectionRenderError> {
-        if !ancestors.insert(id) {
-            return Err(SymbolInspectionRenderError::SymbolCycle);
-        }
+        assert!(
+            ancestors.insert(id),
+            "symbol ownership must be acyclic: symbol={id:?}, ancestors={ancestors:?}"
+        );
 
         let mut relationships = Vec::<InspectionRelationship>::new();
         let children = self.children.get(&id).cloned().unwrap_or_default();
 
         for child in children {
-            let relationship_kind = relationship_kind(id.kind(), child.kind())?;
+            let relationship_kind = relationship_kind(id.kind(), child.kind());
             let child = self.symbol(child, ancestors)?;
 
             match relationships
@@ -246,7 +237,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
             }
         }
 
-        let overload_references = self.overload_references(id)?;
+        let overload_references = self.overload_references(id);
 
         if !overload_references.is_empty() {
             relationships.push(InspectionRelationship::with_references(
@@ -260,9 +251,10 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         let origin = self
             .symbols
             .symbol_origin(id)
-            .ok_or(SymbolInspectionRenderError::Symbol)?;
+            .expect("retained symbol/report.rs relationships must provide Symbol");
 
-        let declaration_origins = self.declaration_origins(id)?;
+        let (declaration_origins, modifiers) = self.declaration_surface(id);
+
         let surface = self.surface(id)?;
 
         Ok(InspectionSymbol {
@@ -272,11 +264,11 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
                 .symbols
                 .symbol_visibility(id)
                 .map(|visibility| visibility.as_str()),
-            modifiers: self.modifiers(id)?,
+            modifiers,
             recovered: self
                 .symbols
                 .symbol_is_recovered(id)
-                .ok_or(SymbolInspectionRenderError::Symbol)?,
+                .expect("retained symbol/report.rs relationships must provide Symbol"),
             surface,
             declaration_origins,
             relationships,
@@ -356,57 +348,35 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         Ok(None)
     }
 
-    fn declaration_origins(
+    fn declaration_surface(
         &self,
         id: AnySymbolId,
-    ) -> Result<Vec<InspectionSyntaxAnchor>, SymbolInspectionRenderError> {
+    ) -> (Vec<InspectionSyntaxAnchor>, Vec<&'static str>) {
+        let declaration = self.symbols.symbol_declaration(id);
+
         let declarations = match id {
             AnySymbolId::Module(module) => self
                 .symbols
                 .module(module)
-                .ok_or(SymbolInspectionRenderError::Symbol)?
-                .declarations()
-                .to_vec(),
-            _ => self.symbols.symbol_declaration(id).into_iter().collect(),
+                .unwrap_or_else(|| {
+                    panic!("inspected module must belong to its graph: module={module:?}")
+                })
+                .declarations(),
+            _ => declaration.as_slice(),
         };
 
-        declarations
-            .into_iter()
-            .map(|declaration| self.declaration_origin(declaration))
-            .collect()
-    }
-
-    fn declaration_origin(
-        &self,
-        declaration: DeclarationId,
-    ) -> Result<InspectionSyntaxAnchor, SymbolInspectionRenderError> {
-        let declaration = self
-            .declarations
-            .declaration(declaration)
-            .ok_or(SymbolInspectionRenderError::Declaration)?;
-
-        InspectionSyntaxAnchor::from_anchor(&self.sources, declaration.syntax_anchor())
-            .map_err(Into::into)
-    }
-
-    fn modifiers(&self, id: AnySymbolId) -> Result<Vec<&'static str>, SymbolInspectionRenderError> {
-        let declarations = match id {
-            AnySymbolId::Module(module) => self
-                .symbols
-                .module(module)
-                .ok_or(SymbolInspectionRenderError::Symbol)?
-                .declarations()
-                .to_vec(),
-            _ => self.symbols.symbol_declaration(id).into_iter().collect(),
-        };
-
+        let mut origins = Vec::with_capacity(declarations.len());
         let mut modifiers = BTreeSet::new();
 
-        for declaration in declarations {
-            let declaration = self
-                .declarations
-                .declaration(declaration)
-                .ok_or(SymbolInspectionRenderError::Declaration)?;
+        for declaration_id in declarations {
+            let declaration = self.declarations.declaration(*declaration_id).unwrap_or_else(|| {
+                panic!("inspected symbol must retain its declaration: symbol={id:?}, declaration={declaration_id:?}")
+            });
+
+            origins.push(InspectionSyntaxAnchor::from_anchor(
+                &self.sources,
+                declaration.syntax_anchor(),
+            ));
 
             modifiers.extend(
                 declaration
@@ -417,19 +387,16 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
             );
         }
 
-        Ok(modifiers.into_iter().collect())
+        (origins, modifiers.into_iter().collect())
     }
 
-    fn overload_references(
-        &self,
-        id: AnySymbolId,
-    ) -> Result<Vec<InspectionSymbolReference>, SymbolInspectionRenderError> {
+    fn overload_references(&self, id: AnySymbolId) -> Vec<InspectionSymbolReference> {
         match id {
             AnySymbolId::CallableOverload(id) => {
                 let overload = self
                     .symbols
                     .callable_overload(id)
-                    .ok_or(SymbolInspectionRenderError::Symbol)?;
+                    .expect("retained symbol/report.rs relationships must provide Symbol");
 
                 self.references(overload.arm_syntax(), overload.arms())
             }
@@ -437,11 +404,11 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
                 let overload = self
                     .symbols
                     .implementation_overload(id)
-                    .ok_or(SymbolInspectionRenderError::Symbol)?;
+                    .expect("retained symbol/report.rs relationships must provide Symbol");
 
                 self.references(overload.arm_syntax(), overload.arms())
             }
-            _ => Ok(Vec::new()),
+            _ => Vec::new(),
         }
     }
 
@@ -449,15 +416,16 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         &self,
         syntax: &[SyntaxAnchor],
         symbols: &[AnySymbolId],
-    ) -> Result<Vec<InspectionSymbolReference>, SymbolInspectionRenderError> {
+    ) -> Vec<InspectionSymbolReference> {
         let mut references = syntax
             .iter()
             .map(|anchor| {
-                InspectionSyntaxAnchor::from_anchor(&self.sources, *anchor)
-                    .map(InspectionSymbolReference::Syntax)
-                    .map_err(Into::into)
+                InspectionSymbolReference::Syntax(InspectionSyntaxAnchor::from_anchor(
+                    &self.sources,
+                    *anchor,
+                ))
             })
-            .collect::<Result<Vec<_>, SymbolInspectionRenderError>>()?;
+            .collect::<Vec<_>>();
 
         references.extend(symbols.iter().copied().map(|symbol| {
             InspectionSymbolReference::Symbol(InspectionSymbolIdentity::from_symbol(
@@ -466,7 +434,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
             ))
         }));
 
-        Ok(references)
+        references
     }
 }
 

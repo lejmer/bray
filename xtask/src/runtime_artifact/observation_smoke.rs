@@ -1,7 +1,9 @@
 use std::fs;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
+
+use subprocess::Exec;
 
 use bray_compilation::{
     BuildConfiguration, Compilation, CompilationOptions, CompilationRequest, SelectedTarget,
@@ -143,13 +145,17 @@ fn smoke_test_direct_hooks(
     }
 
     let missing = command_output(
-        Command::new(&executable)
+        Exec::cmd(&executable)
             .arg("empty")
             .env_remove(bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT),
         "observation missing path",
     )?;
 
-    require_failure(&missing, "performance observation output path is missing")?;
+    require_failure(
+        &executable,
+        &missing,
+        "performance observation output path is missing",
+    )?;
 
     let invalid = directory.join("runtime-observation-invalid.bin");
 
@@ -218,12 +224,11 @@ fn smoke_test_generated_products(
         })?;
 
     let ordinary_execution = command_output(
-        Command::new(&ordinary)
-            .env_remove(bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT),
+        Exec::cmd(&ordinary).env_remove(bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT),
         "ordinary generated observation product",
     )?;
 
-    require_clean_success("ordinary generated product", &ordinary_execution)?;
+    require_clean_success(&ordinary, "ordinary generated product", &ordinary_execution)?;
     audit_unobserved_link_map(&ordinary_map)?;
 
     let (memory, memory_map) =
@@ -392,14 +397,14 @@ fn require_mode_failure(
     expected: &str,
 ) -> Result<(), CommandError> {
     let execution = command_output(
-        Command::new(executable).arg(mode).env(
+        Exec::cmd(executable).arg(mode).env(
             bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
             output,
         ),
         "observation invalid mode",
     )?;
 
-    require_failure(&execution, expected)
+    require_failure(executable, &execution, expected)
 }
 
 fn require_mode_success(
@@ -407,47 +412,52 @@ fn require_mode_success(
     mode: Option<&str>,
     output: &Path,
 ) -> Result<(), CommandError> {
-    let mut command = Command::new(executable);
-
-    command.env(
+    let mut command = Exec::cmd(executable).env(
         bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
         output,
     );
 
     if let Some(mode) = mode {
-        command.arg(mode);
+        command = command.arg(mode);
     }
 
-    let execution = command_output(&mut command, "observation")?;
+    let execution = command_output(command, "observation")?;
 
-    require_clean_success(mode.unwrap_or("generated product"), &execution)
+    require_clean_success(executable, mode.unwrap_or("generated product"), &execution)
 }
 
-fn require_clean_success(name: &str, execution: &Output) -> Result<(), CommandError> {
-    if !execution.status.success() {
-        return Err(CommandError::ObservationSmoke(format!(
-            "{name} session failed: {}",
-            String::from_utf8_lossy(&execution.stderr).trim()
-        )));
-    }
-
-    if !execution.stdout.is_empty() || !execution.stderr.is_empty() {
-        return Err(CommandError::ObservationSmoke(format!(
-            "{name} session changed program output"
+fn require_clean_success(
+    executable: &Path,
+    name: &str,
+    execution: &Output,
+) -> Result<(), CommandError> {
+    if !execution.status.success() || !execution.stdout.is_empty() || !execution.stderr.is_empty() {
+        return Err(CommandError::ObservationSmoke(crate::command::failure(
+            &format!(
+                "{name} ({}) expected success with no program output",
+                executable.display()
+            ),
+            execution,
         )));
     }
 
     Ok(())
 }
 
-fn require_failure(execution: &Output, expected: &str) -> Result<(), CommandError> {
+fn require_failure(
+    executable: &Path,
+    execution: &Output,
+    expected: &str,
+) -> Result<(), CommandError> {
     let stderr = String::from_utf8_lossy(&execution.stderr);
 
     if execution.status.success() || !stderr.contains(expected) {
-        return Err(CommandError::ObservationSmoke(format!(
-            "expected fatal diagnostic {expected:?}, got status {} and stderr {:?}",
-            execution.status,
-            stderr.trim(),
+        return Err(CommandError::ObservationSmoke(crate::command::failure(
+            &format!(
+                "{} expected fatal diagnostic {expected:?}",
+                executable.display()
+            ),
+            execution,
         )));
     }
 

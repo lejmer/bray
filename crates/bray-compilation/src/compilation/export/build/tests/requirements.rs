@@ -1920,3 +1920,90 @@ fn wrapping_power_uses_its_machine_domain_and_preserves_exact_predicate_limits()
         );
     }
 }
+
+#[test]
+fn closed_callable_requirements_share_one_helper_across_caller_contexts() {
+    let source = r#"
+        module api;
+
+        callable Required = func(pos value: bool)
+            requires(value);
+
+        public func first(pos operation: Required, pos value: bool)
+        {
+            operation(value);
+        }
+
+        public func second(pos operation: Required, pos value: bool)
+        {
+            operation(value);
+        }
+
+        func generic_first<T>(pos operation: Required, pos value: bool, marker: &T)
+        {
+            marker;
+            operation(value);
+        }
+
+        func generic_second<T>(pos operation: Required, pos value: bool, marker: &T)
+        {
+            marker;
+            operation(value);
+        }
+
+        public func generic_roots(pos operation: Required, pos value: bool)
+        {
+            let marker: i32 = 0;
+
+            generic_first<i32>(operation, value, marker = &marker);
+            generic_second<i32>(operation, value, marker = &marker);
+        }
+    "#;
+
+    let provider = compilation(source);
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        public func first(pos operation: example.package.api.Required, pos value: bool)
+        {
+            operation(value);
+        }
+
+        public func second(pos operation: example.package.api.Required, pos value: bool)
+        {
+            operation(value);
+        }
+
+        public func generic_roots(pos operation: example.package.api.Required, pos value: bool)
+        {
+            let marker: i32 = 0;
+
+            example.package.api.generic_first<i32>(operation, value, marker = &marker);
+            example.package.api.generic_second<i32>(operation, value, marker = &marker);
+        }
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    for compilation in [&provider, &consumer] {
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        assert_eq!(
+            compilation
+                .codegen_instance_count_for_test(|key| matches!(
+                    key,
+                    bray_ir::MirUnitKey::Predicate(_)
+                ))
+                .expect("closed requirements have one realization independently of their callers"),
+            1
+        );
+    }
+}

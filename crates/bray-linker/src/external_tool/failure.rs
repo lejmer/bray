@@ -26,8 +26,6 @@ pub enum ExternalToolResponseFileOperation {
 pub enum ExternalToolFailure {
     /// Cancellation was observed before a complete result was available.
     Cancelled,
-    /// Shared process-budget state could not be used.
-    ProcessBudgetUnavailable,
     /// A response-file operation failed.
     ResponseFile {
         /// Exact response-file path.
@@ -39,8 +37,6 @@ pub enum ExternalToolFailure {
     },
     /// A native child-process operation failed.
     Process(PlatformError),
-    /// A required output pipe was not available.
-    MissingOutputPipe(ExternalToolStream),
     /// Reading one captured output stream failed.
     OutputCapture {
         /// Stream whose capture failed.
@@ -48,6 +44,4 @@ pub enum ExternalToolFailure {
         /// Stable host I/O failure category.
         kind: io::ErrorKind,
     },
-    /// A compiler-owned output reader terminated unexpectedly.
-    OutputReaderTerminated(ExternalToolStream),
 }

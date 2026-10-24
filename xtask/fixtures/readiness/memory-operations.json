@@ -43,12 +43,6 @@
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteAddress" }
     },
     {
-      "name": "UninitFrom",
-      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitFrom" },
-      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
-      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::UninitFrom" }
-    },
-    {
       "name": "AddressOf",
       "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::AddressOf" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
@@ -119,6 +113,12 @@
       "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitNew" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_new" }
+    },
+    {
+      "name": "UninitFrom",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitFrom" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_protected_value" }
     },
     {
       "name": "UninitPointer",

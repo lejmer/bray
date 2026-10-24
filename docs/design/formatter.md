@@ -21,6 +21,12 @@ The formatter receives immutable, resolved configuration. Independently configur
 identities and explicit defaults. The rule model describes owned decisions, parameters, dependencies, and conflicts, so
 configuration does not depend on incidental registry order.
 
+One exhaustive typed registry owns rule identity, defaults, parameter schemas, decision ownership, dependencies, and
+conflicts. Configuration decoding and the generated rule reference consume this contract. Dependencies belong to
+individual decisions so disabling wrapping does not disable a list rule's spacing policy. Competing owners resolve by
+explicit precedence within a stage, independent of declaration or configuration order. Shared ownership without a
+recorded conflict is an internal invariant failure.
+
 Recovery preservation takes precedence over formatting. Optional syntax rewrites precede layout. Comment ownership and
 structural breaks constrain groups, spacing operates within those groups, and wrapping chooses among legal breaks.
 Output encoding and newline policy serialize the result.

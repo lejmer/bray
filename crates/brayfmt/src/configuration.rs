@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
-use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
 use bray_diagnostics::DiagnosticDocumentParseKind;
-use bray_formatter::{FormatterConfiguration, FormatterRule};
+use bray_formatter::{FormatterConfiguration, FormatterParameter, FormatterRule};
 use serde::Deserialize;
 
 #[derive(Debug)]
@@ -58,9 +57,9 @@ pub(crate) fn load_configuration(
     let mut configuration = FormatterConfiguration::default();
 
     if let Some(maximum_line_width) = file.maximum_line_width {
-        let maximum_line_width = u16::try_from(maximum_line_width)
-            .ok()
-            .and_then(NonZeroU16::new)
+        let maximum_line_width = FormatterParameter::MaximumLineWidth
+            .schema()
+            .validate(maximum_line_width)
             .ok_or_else(|| ConfigurationError::InvalidMaximumLineWidth {
                 path: path.to_path_buf(),
                 maximum_line_width,
@@ -109,6 +108,21 @@ mod tests {
         assert_eq!(configuration.maximum_line_width(), 88);
         assert!(!configuration.is_enabled(FormatterRule::Indentation));
         assert!(configuration.is_enabled(FormatterRule::SimplifyNestedIf));
+    }
+
+    #[test]
+    fn configuration_decoding_accepts_the_complete_rule_inventory() {
+        for rule in FormatterRule::ALL {
+            let enabled = !rule.descriptor().enabled_by_default;
+            let document = serde_json::json!({"rules": {rule.as_str(): enabled}});
+            let bytes = serde_json::to_vec(&document).expect("configuration must serialize");
+            let file = TemporaryFile::write("rule.json", &bytes);
+
+            let configuration = load_configuration(file.path())
+                .unwrap_or_else(|error| panic!("{} must decode: {error:?}", rule.as_str()));
+
+            assert_eq!(configuration.is_enabled(*rule), enabled);
+        }
     }
 
     #[test]

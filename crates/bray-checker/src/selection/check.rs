@@ -71,16 +71,7 @@ where
             selection,
         ),
         Ok(None) => CheckerOutcome::Cancelled,
-        Err(error) => query_outcome(error),
-    }
-}
-
-fn query_outcome<T, Upstream>(
-    error: impl Into<CheckerQueryError<Upstream>>,
-) -> CheckerOutcome<T, Upstream> {
-    match error.into() {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
+        Err(error) => CheckerOutcome::from_query_error(error),
     }
 }
 
@@ -103,7 +94,7 @@ where
             selection,
         ),
         Ok(None) => CheckerOutcome::Cancelled,
-        Err(error) => query_outcome(error),
+        Err(error) => CheckerOutcome::from_query_error(error),
     }
 }
 
@@ -158,7 +149,7 @@ where
 
         let retained = match retained {
             Ok(candidates) => candidates,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         let diagnostic_candidates =
@@ -167,7 +158,6 @@ where
         let diagnostic_candidates = match diagnostic_candidates {
             Ok(candidates) => candidates,
             Err(_) => {
-                // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact candidate count is retained")
                 panic!(
                     "A diagnostic selection summary cannot represent the complete candidate count. in complete, kind: {:?}, count: {:?}",
                     "candidates",
@@ -185,7 +175,7 @@ where
             span,
         ) {
             Ok(related) => related,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         for location in related {
@@ -205,7 +195,7 @@ where
 
         let retained = match retained {
             Ok(rejections) => rejections,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         let diagnostic_rejections = match DiagnosticSelectionRejections::try_from_prefix(
@@ -214,7 +204,6 @@ where
         ) {
             Ok(rejections) => rejections,
             Err(_) => {
-                // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact rejection count is retained")
                 panic!(
                     "A diagnostic selection summary cannot represent the complete candidate count. in complete, kind: {:?}, count: {:?}",
                     "rejections",
@@ -235,7 +224,7 @@ where
 
         let related = match selection_candidate_locations(request, &retained_candidates, span) {
             Ok(related) => related,
-            Err(error) => return query_outcome(error),
+            Err(error) => return CheckerOutcome::from_query_error(error),
         };
 
         for location in related {

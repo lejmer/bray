@@ -110,11 +110,12 @@ fn probe(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
         compiler_root.as_deref(),
     )?;
 
-    require_success(
-        Command::new(&executable),
-        "running the native OS binding probe",
+    crate::validation_process::success(
+        subprocess::Exec::cmd(&executable),
+        crate::validation_process::TIMEOUT,
     )
     .map(|_| ())
+    .map_err(|error| format!("running the native OS binding probe: {error}"))
 }
 
 fn set_once<T>(slot: &mut Option<T>, value: T, option: &str) -> Result<(), String> {

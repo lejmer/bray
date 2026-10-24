@@ -6,6 +6,7 @@ mod contextual_self;
 mod dependency;
 mod error;
 mod id;
+mod numeric;
 mod store;
 mod substitution;
 mod substitution_apply;
@@ -42,3 +43,5 @@ pub use ty::{
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
     CallableTrust, CallableTypeData, SelfTypeContext, TypeData,
 };
+
+pub use numeric::NumericTruncation;

@@ -93,7 +93,7 @@ fn require_emitter_boundary(workspace: &RustWorkspace) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
     use super::{FORBIDDEN_DEPENDENCIES, require_emitter_boundary};
 
     #[test]

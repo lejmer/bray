@@ -69,11 +69,11 @@ fn finish_codegen_reachability(
             }
             std::collections::btree_map::Entry::Occupied(entry) => {
                 if entry.get() != &realization {
-                    return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                        context: ProductQueryContext::Instance(key),
-                        data: ProductDataKind::ReachabilityRealization,
-                    })
-                    .into());
+                    panic!(
+                        "product Conflict construction failed: context={:?}, data={:?}",
+                        key,
+                        ProductDataKind::ReachabilityRealization
+                    );
                 }
             }
         }
@@ -89,11 +89,11 @@ fn finish_codegen_reachability(
         }
 
         if evaluations.insert(key.clone(), evaluation).is_some() {
-            return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                context: ProductQueryContext::Instance(key),
-                data: ProductDataKind::ReachabilityEvaluation,
-            })
-            .into());
+            panic!(
+                "product Conflict construction failed: context={:?}, data={:?}",
+                key,
+                ProductDataKind::ReachabilityEvaluation
+            );
         }
     }
 
@@ -124,21 +124,23 @@ fn finish_codegen_reachability(
                     builder.push_instance(instance)
                 }
             }
-            .map_err(NativeProductPlanningError::InvalidReachability)?;
+            .unwrap_or_else(|cause| {
+                panic!("native InvalidReachability construction failed: {cause:?}")
+            });
         }
     }
 
     if let Some(key) = evaluations.keys().next() {
-        return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-            context: ProductQueryContext::Instance(key.clone()),
-            data: ProductDataKind::ReachabilityEvaluation,
-        })
-        .into());
+        panic!(
+            "product Conflict construction failed: context={:?}, data={:?}",
+            key,
+            ProductDataKind::ReachabilityEvaluation
+        );
     }
 
-    let graph = builder
-        .finish()
-        .map_err(NativeProductPlanningError::InvalidReachability)?;
+    let graph = builder.finish().unwrap_or_else(|cause| {
+        panic!("native InvalidReachability construction failed: {cause:?}")
+    });
 
     Ok(ConcreteCodegenReachability::new(
         execution_requirements,
@@ -310,7 +312,9 @@ impl Compilation {
             Some(previous) => CodegenReachabilityBuilder::try_extend(previous.graph(), root_keys),
             None => CodegenReachabilityBuilder::try_new(root_keys),
         }
-        .map_err(NativeProductPlanningError::InvalidReachability)?;
+        .unwrap_or_else(|cause| {
+            panic!("native InvalidReachability construction failed: {cause:?}")
+        });
 
         let mut completed = self
             .state
@@ -353,7 +357,7 @@ impl Compilation {
                             )?
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
-                            self.codegen_heap_method_mir(
+                            self.codegen_compiler_provided_mir(
                                 &realization,
                                 MirUnitId::new(0),
                                 cancellation,
@@ -418,7 +422,11 @@ impl Compilation {
                             .collect::<Vec<_>>();
 
                         let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
-                            .map_err(NativeProductPlanningError::InvalidCodegenInstance)?;
+                            .unwrap_or_else(|cause| {
+                                panic!(
+                                    "native InvalidCodegenInstance construction failed: {cause:?}"
+                                )
+                            });
 
                         let scheduled = concrete_dependencies
                             .iter()
@@ -489,7 +497,7 @@ impl Compilation {
             .selected_target()
             .target()
             .codegen_target()
-            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
+            .map_err(FactQueryError::from)?;
 
         let semantic = self.product_semantics()?;
 

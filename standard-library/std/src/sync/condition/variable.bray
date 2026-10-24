@@ -56,7 +56,7 @@ struct ConditionVariable
         let queue = trusted std.memory.read<SpinLock<std.sync.condition.Queue>>(pointer);
 
         let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
-            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            ensures(trusted std.sync.spin_lock.valid(&queue.prepared.instance))
             executes(pure, total) {};
 
         authorize_queue(&queue);
@@ -91,7 +91,7 @@ struct ConditionVariable
         let queue = trusted std.memory.borrow_from<SpinLock<std.sync.condition.Queue>, Self>(&self, pointer);
 
         let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
-            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            ensures(trusted std.sync.spin_lock.valid(&queue.prepared.instance))
             executes(pure, total) {};
 
         authorize_queue(queue);
@@ -220,7 +220,7 @@ struct ConditionVariable
         let queue = trusted std.memory.borrow_from<SpinLock<std.sync.condition.Queue>, Self>(&self, pointer);
 
         let authorize_queue = trusted lambda(pos queue: &SpinLock<std.sync.condition.Queue>)
-            ensures(trusted std.sync.spin_lock.valid(&queue.instance))
+            ensures(trusted std.sync.spin_lock.valid(&queue.prepared.instance))
             executes(pure, total) {};
 
         authorize_queue(queue);

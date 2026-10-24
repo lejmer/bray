@@ -141,7 +141,7 @@ impl Compilation {
                     .identity()
                     .name()
                     .and_then(BinarySymbolName::try_new)
-                    .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+                    .unwrap_or_else(|| panic!("checked native InvalidSymbolName contract failed"));
 
                 mappings.push(CodegenNativeStaticMapping::new(
                     instance.key().clone(),
@@ -202,11 +202,11 @@ impl Compilation {
         let bray_package_interface::InterfaceNativeBoundaryKind::Static { duration, .. } =
             boundary.kind()
         else {
-            return Err(ProductQueryFailure::NativeBoundaryKindMismatch {
-                reference: reference.clone(),
-                actual: boundary.kind(),
-            }
-            .into());
+            panic!(
+                "product NativeBoundaryKindMismatch construction failed: reference={:?}, actual={:?}",
+                reference,
+                boundary.kind()
+            );
         };
 
         Ok(Some(NativeStaticContract {

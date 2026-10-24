@@ -146,9 +146,12 @@ impl Compilation {
             direct_lifecycle,
             implementations,
         )
-        .map_err(|cause| {
-            crate::compilation::SemanticQueryFailure::TypeAssociatedSurface { subject, cause }
-        })?;
+        .unwrap_or_else(|cause| {
+            panic!(
+                "semantic TypeAssociatedSurface construction failed: subject={:?}, cause={:?}",
+                subject, cause
+            )
+        });
 
         diagnostics.add_range(
             lifecycle_slot_diagnostics(&binding_context, &surface)?

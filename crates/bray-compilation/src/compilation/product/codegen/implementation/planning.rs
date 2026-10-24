@@ -17,7 +17,7 @@ use bray_symbols::{CallableDefinitionId, ProductIdentity, ProductKind};
 use super::super::error::NativeProductPlanningError;
 use super::super::plan::NativeProductPlan;
 use crate::Compilation;
-use crate::fact::{CancellationToken, CompilationFactKey, NativeProductQueryKey};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductQueryKey};
 
 pub(in super::super) const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
@@ -136,7 +136,7 @@ impl Compilation {
             .selected_target()
             .target()
             .codegen_target()
-            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
+            .map_err(FactQueryError::from)?;
 
         let options = configuration.codegen_options();
 
@@ -403,7 +403,7 @@ pub(in super::super) fn bound_template(
     key: &CodegenInstanceKey,
 ) -> Result<bray_bound_tree::BoundUnitKey, NativeProductPlanningError> {
     let MirUnitKey::Bound(template) = key.template() else {
-        return Err(NativeProductPlanningError::MissingProductRoot);
+        panic!("checked product must retain its selected executable root");
     };
 
     Ok(template.clone())

@@ -24,7 +24,7 @@ const LIBRARY_PRODUCT: &str = "library";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 162;
+const API_TEST_COUNT: usize = 170;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -1008,6 +1008,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
             "asynchronous_file_operations_preserve_data_and_metadata",
             "buffered_file_io_preserves_order_and_flushes",
             "create_or_truncate_replaces_existing_contents",
+            "failed_file_close_retains_the_native_handle_for_retry",
             "file_transfers_preserve_empty_requests_partial_reads_and_eof",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",

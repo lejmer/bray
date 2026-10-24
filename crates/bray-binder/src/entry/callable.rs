@@ -32,7 +32,7 @@ where
 
     let execution = push_callable_inputs(&mut binder, root_scope)?;
 
-    let path_context = super::support::path_context(&binder, root_scope)?;
+    let path_context = super::support::path_context(&binder, root_scope);
     let error_type = error_type(binding_context)?;
 
     let block = binder
@@ -90,7 +90,7 @@ where
         .bind_anonymous_callable_boundary(root_scope, &syntax)
         .map_err(map_binding_error)?;
 
-    let path_context = super::support::path_context(&binder, boundary.scope())?;
+    let path_context = super::support::path_context(&binder, boundary.scope());
     let error_type = error_type(binding_context)?;
     let body = syntax.callable_body_block_expression().block_expression();
 

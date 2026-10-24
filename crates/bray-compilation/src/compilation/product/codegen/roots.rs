@@ -198,7 +198,7 @@ impl Compilation {
         }
 
         if roots.is_empty() && semantic.kind() == ProductKind::Executable {
-            return Err(NativeProductPlanningError::MissingProductRoot);
+            panic!("checked product must retain its selected executable root");
         }
 
         Ok(roots)

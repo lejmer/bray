@@ -73,7 +73,7 @@ pub enum ProductEmissionErrorKind {
     /// The completed package-interface input could not be encoded.
     PackageInterfaceEncoding(InterfaceValidationError),
     /// The implementation payload companion could not be assembled.
-    PackageImplementation(bray_package_interface::PackageImplementationArtifactBuildError),
+    PackageImplementationValidation(InterfaceValidationError),
     /// The implementation companion cannot be represented as artifact content.
     PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
     /// The native index exceeds its bounded wire format.

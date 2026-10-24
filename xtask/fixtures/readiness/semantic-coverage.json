@@ -90,7 +90,7 @@
       "diagnostic_source_tests": ["operation_selection_reports_invalid_indexing"],
       "valid_source_tests": ["source_index_selections_preserve_slice_bounds_and_custom_storage"],
       "boundary_tests": ["built_in_index_candidates_publish_their_selected_target"],
-      "published": ["SemanticResolution"]
+      "published": ["CheckedSemanticSelections"]
     },
     {
       "name": "conversions",
@@ -140,7 +140,7 @@
     },
     {
       "name": "control-flow-and-refinement",
-      "production": ["check_control_flow", "publish_refinements"],
+      "production": ["check_control_flow", "prepare_refinements", "publish_refinements"],
       "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
       "valid_source_tests": ["refinements_are_lazy_cached_and_retain_branch_conditions"],
       "boundary_tests": ["recovered_nodes_produce_typed_recovery_operations_edges_and_exits"],
@@ -184,7 +184,7 @@
     },
     {
       "name": "dependencies-effects-and-trust",
-      "production": ["check_dependency_contracts", "transfer_result_dependencies", "collect_exit_references"],
+      "production": ["check_dependency_contracts", "infer_reachable_results"],
       "diagnostic_source_tests": ["trusted_callable_contracts_reject_unused_capabilities"],
       "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies", "returned_values_preserve_caller_storage_and_owned_results"],
       "boundary_tests": ["hidden_iteration_calls_instantiate_receiver_and_result_dependencies", "returned_values_preserve_default_wrapper_dependencies_in_interfaces"],

@@ -14,6 +14,13 @@ struct Marker
 {
 }
 
+// Immutable fields keep the returned witness carrier paired with its prepared storage.
+struct Prepared<T>
+{
+    instance: Marker;
+    storage: Uninit<State<T>>;
+}
+
 trusted predicate acquired(marker: &Marker);
 
 trusted predicate valid(marker: &Marker);

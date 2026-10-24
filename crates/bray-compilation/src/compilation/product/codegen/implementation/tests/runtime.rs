@@ -11,9 +11,7 @@ use crate::compilation::product::codegen::NativeProductPlanningError;
 use crate::{SelectedTarget, WorkerBudget};
 use bray_codegen::{BackendArtifactKind, CodegenLinkage};
 use bray_ir::MirUnitKey;
-use bray_runtime_interface::{
-    ExecutableHostContractBuildError, RuntimeAbiRole, RuntimeCompatibilityError,
-};
+use bray_runtime_interface::{RuntimeAbiRole, RuntimeCompatibilityError};
 use bray_symbols::ProductKind;
 use bray_testing::TemporaryFile;
 use std::sync::Arc;
@@ -49,8 +47,8 @@ fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
     assert!(
         matches!(
             error.as_ref(),
-            NativeProductPlanningError::InvalidExecutableHost(
-                ExecutableHostContractBuildError::IncompatibleRuntime(
+            NativeProductPlanningError::InvalidRuntimeSelection(
+                bray_runtime_interface::RuntimeArtifactSelectionError::IncompatibleRuntime(
                     RuntimeCompatibilityError::MissingRole(RuntimeAbiRole::PanicPropagation)
                 )
             )

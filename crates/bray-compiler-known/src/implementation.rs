@@ -250,6 +250,10 @@ define_catalog_enum! {
         CharacterIsWhitespace => "CharacterIsWhitespace",
         /// Truncates a numeric value to the selected target representation.
         NumericTruncate => "NumericTruncate",
+        /// Checks the supported scalar type domain of numeric truncation.
+        NumericTruncationSupported => "NumericTruncationSupported",
+        /// Observes whether a scalar value belongs to its selected truncation domain.
+        NumericTruncationDomain => "NumericTruncationDomain",
         /// Copies a shared range into its iteration cursor.
         RangeSharedIterate => "RangeSharedIterate",
         /// Moves a range into its iteration cursor.
@@ -262,6 +266,16 @@ define_catalog_enum! {
 }
 
 impl ImplementationHook {
+    /// Whether this hook implements the recognized numeric truncation contract.
+    pub const fn is_numeric_policy(self) -> bool {
+        matches!(
+            self,
+            Self::NumericTruncate
+                | Self::NumericTruncationSupported
+                | Self::NumericTruncationDomain
+        )
+    }
+
     /// Fixed operations that observe supplied values deterministically and always complete.
     /// This excludes ambient identity, memory access requiring authority, allocation and mutation.
     pub const fn is_value_observation(self) -> bool {
@@ -451,6 +465,8 @@ mod tests {
             ImplementationHook::CharacterIsNumeric,
             ImplementationHook::CharacterIsWhitespace,
             ImplementationHook::NumericTruncate,
+            ImplementationHook::NumericTruncationSupported,
+            ImplementationHook::NumericTruncationDomain,
             ImplementationHook::RangeSharedIterate,
             ImplementationHook::RangeMoveIterate,
             ImplementationHook::RangeNext,

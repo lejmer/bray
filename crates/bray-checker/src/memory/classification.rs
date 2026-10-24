@@ -206,6 +206,8 @@ where
         | ImplementationHook::CharacterIsNumeric
         | ImplementationHook::CharacterIsWhitespace
         | ImplementationHook::NumericTruncate
+        | ImplementationHook::NumericTruncationSupported
+        | ImplementationHook::NumericTruncationDomain
         | ImplementationHook::RangeSharedIterate
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
@@ -425,7 +427,7 @@ where
     };
 
     let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from_query_error)?;
 
     let data = request.semantic_values().type_data(pointee);
 
@@ -473,10 +475,10 @@ where
     };
 
     let fixed = crate::representation::type_supports_complete_fixed_layout(request, *ty)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from_query_error)?;
 
     let flexible = crate::representation::type_supports_flexible_c_layout(request, *ty)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from_query_error)?;
 
     let valid = match kind {
         MemoryLayoutQueryKind::Alignment => fixed || flexible,
@@ -517,15 +519,6 @@ where
     diagnostics.add(diagnostic);
 
     Ok(false)
-}
-
-fn query_outcome<Upstream>(
-    error: crate::CheckerQueryError<Upstream>,
-) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
-    match error {
-        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 fn validate_callable_address_type<C>(
@@ -591,9 +584,7 @@ where
                 DiagnosticLabelKind::ExecutionGuaranteeFailure,
                 span,
             ))
-            .with_arg(bray_diagnostics::DiagnosticArg::referenced_name(
-                property.as_str(),
-            )),
+            .with_arg(DiagnosticArg::referenced_name(property.as_str())),
         );
 
         return Ok(false);

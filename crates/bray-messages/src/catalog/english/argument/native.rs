@@ -4,17 +4,15 @@ mod document;
 mod external;
 mod foreign_query;
 mod linking;
-mod product_failure;
 mod product_query;
 mod standard_library;
 mod toolchain;
 
-pub(super) use super::super::format_internal_compiler_error;
 pub(crate) use artifact::format_english_semantic_value_failure_detail;
 pub(super) use artifact::{
     format_artifact_failure, format_english_emission_evaluation_failure,
     format_english_native_product_failure, format_english_runtime_artifact_problem,
-    format_unit_failure,
+    format_failure_detail, format_unit_failure,
 };
 pub(super) use dependency::{
     format_english_dependency_requirement, format_english_dependency_subject,

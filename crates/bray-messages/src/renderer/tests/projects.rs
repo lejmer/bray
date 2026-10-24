@@ -82,3 +82,44 @@ fn renderer_preserves_both_target_predicate_failure_shapes() {
         "target predicate property 'target.pointer.BITS' in target predicate of bray-package.json accepts unsigned integer values, but received a string value"
     );
 }
+
+#[test]
+fn test_host_file_failures_preserve_the_path_and_specific_cause() {
+    use bray_diagnostics::DiagnosticProjectCommandFailure as Failure;
+
+    for (failure, expected) in [
+        (
+            Failure::MalformedTestCatalog {
+                path: "tests.braytest".into(),
+            },
+            "the test catalog at tests.braytest has malformed contents",
+        ),
+        (
+            Failure::UnsupportedTestCatalogVersion {
+                path: "tests.braytest".into(),
+                actual: 2,
+                supported: 1,
+            },
+            "the test catalog at tests.braytest uses format version 2, but this compiler supports version 1",
+        ),
+        (
+            Failure::TestCatalogCapacityExceeded {
+                path: "tests.braytest".into(),
+            },
+            "the test catalog at tests.braytest exceeds the supported size limits",
+        ),
+        (
+            Failure::TestHostChanged {
+                path: "tests.exe".into(),
+            },
+            "the test host file at tests.exe changed before execution",
+        ),
+    ] {
+        let diagnostic = failure.diagnostic(DiagnosticId::new(0));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            format!("project command failed: {expected}")
+        );
+    }
+}

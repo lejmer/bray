@@ -328,7 +328,7 @@ fn require_backend_neutral_boundaries(workspace: &RustWorkspace) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::super::workspace::tests::dependency_workspace;
+    use super::super::workspace::dependency_workspace;
     use super::require_backend_neutral_boundaries;
 
     #[test]

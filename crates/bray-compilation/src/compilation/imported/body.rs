@@ -79,7 +79,7 @@ impl super::super::Compilation {
 
                 let configuration = self
                     .package_implementation_configuration(None)
-                    .map_err(FactQueryError::CodegenTarget)?;
+                    .map_err(FactQueryError::from)?;
 
                 let artifact = artifact
                     .validate_interface(validated, surface)

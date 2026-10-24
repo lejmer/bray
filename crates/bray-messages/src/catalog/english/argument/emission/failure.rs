@@ -1,5 +1,3 @@
-use super::super::super::format_internal_compiler_error;
-use super::super::interface::format_english_interface_symbol_graph_problem;
 use super::super::native::{
     format_artifact_failure, format_english_emission_evaluation_failure, format_unit_failure,
 };
@@ -34,8 +32,8 @@ pub(crate) fn format_english_emission_failure(
         ),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
         Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
-        Failure::TestCatalog(_) => {
-            format_internal_compiler_error("the test catalog could not be encoded")
+        Failure::TestCatalogCapacityExceeded => {
+            "the test catalog exceeds its supported encoding size".to_owned()
         }
         Failure::MissingContribution(artifact) => format!(
             "the required {} artifact #{} has no generated content",
@@ -181,9 +179,7 @@ fn format_english_package_interface_failure(
 ) -> String {
     use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
-    use crate::catalog::english::argument::interface::{
-        format_english_interface_symbol_identity, format_english_interface_symbol_reference,
-    };
+    use crate::catalog::english::argument::interface::format_english_interface_symbol_identity;
 
     match failure {
         Failure::Unavailable => {
@@ -192,180 +188,61 @@ fn format_english_package_interface_failure(
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
-        Failure::InvalidCompilationCause { .. } => format_internal_compiler_error(
-            "package-interface export could not satisfy an internal compilation contract",
-        ),
+        Failure::InvalidCompilationCause { reason, context } => {
+            let message = match *reason {
+                "invalid_compilation_capacity" => {
+                    "the library interface exceeds a supported declaration or expression limit"
+                }
+                "invalid_compilation_runtime_identity_mismatch" => {
+                    "the exported declarations require different runtimes"
+                }
+                "invalid_compilation_runtime_abi_mismatch" => {
+                    "the exported declarations require incompatible runtime interfaces"
+                }
+                "invalid_compilation_runtime_frame_abi_mismatch" => {
+                    "the exported declarations require incompatible execution interfaces"
+                }
+                "invalid_compilation_runtime_target_mismatch" => {
+                    "the exported declarations require different target platforms"
+                }
+                "invalid_compilation_runtime_panic_abi_mismatch" => {
+                    "the exported declarations require incompatible panic interfaces"
+                }
+                _ => {
+                    "the requested library identity or product does not match the selected compilation"
+                }
+            };
+
+            super::super::native::format_failure_detail(message, context)
+        }
         Failure::SemanticValueStoreCreate => format_english_package_interface_store_create(),
-        Failure::SemanticValue(failure) => format_english_package_interface_semantic_value(*failure),
+        Failure::SemanticValue(failure) => {
+            format_english_package_interface_semantic_value(*failure)
+        }
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
-        Failure::ConstantCallableEvaluation { declaration, .. } => format_internal_compiler_error(format!(
-            "constant body preparation could not complete for {}",
-            format_english_interface_symbol_identity(declaration)
-        )),
-        Failure::ExecutableTemplateEvaluation { declaration, .. } => format_internal_compiler_error(format!(
-            "executable-template preparation could not complete for {}",
-            format_english_interface_symbol_identity(declaration)
-        )),
-        Failure::IncompletePublicDeclaration(kind) => format_internal_compiler_error(format!(
-            "complete data was unavailable for a reachable public {kind} declaration"
-        )),
-        Failure::DuplicateSymbol(kind) => {
-            format!("the export surface contains a duplicate stable {kind} identity")
-        }
-        Failure::MissingSymbol(kind) => {
-            format!("the export surface references an unselected {kind} symbol")
-        }
-        Failure::SymbolCountOverflow => {
-            "the export surface exceeds the compact symbol identity range".to_owned()
-        }
-        Failure::SymbolGraph(problem) => {
-            format_english_interface_symbol_graph_problem(problem)
-        }
-        Failure::MissingDeclarationData(declaration) => format_internal_compiler_error(format!(
-            "complete declaration data was unavailable for exported {}",
-            format_english_interface_symbol_identity(declaration)
-        )),
-        Failure::LostDeclarationReference {
-            declaration,
-            table,
-            reference,
-        } => format_english_package_interface_declaration_reference_failure(
-            PackageInterfaceDeclarationReferenceFailure::Missing,
-            declaration.as_ref(),
-            table,
-            *reference,
+        Failure::ConstantCallableEvaluation { declaration, cause } => format!(
+            "constant evaluation for {} could not complete because {}",
+            format_english_interface_symbol_identity(declaration),
+            format_english_emission_evaluation_failure(cause),
         ),
-        Failure::DuplicateDeclarationIdentity {
-            first,
-            second,
-            identity,
-        } => format!(
-            "exported declarations {} and {} both resolve to stable identity {}",
-            format_english_interface_symbol_identity(first),
-            format_english_interface_symbol_identity(second),
-            format_english_interface_symbol_identity(identity)
+        Failure::ExecutableTemplateEvaluation { declaration, cause } => format!(
+            "native preparation for {} could not complete because {}",
+            format_english_interface_symbol_identity(declaration),
+            format_english_emission_evaluation_failure(cause),
         ),
-        Failure::RecursiveDeclarationData {
-            declaration,
-            table,
-            reference,
-        } => format_english_package_interface_declaration_reference_failure(
-            PackageInterfaceDeclarationReferenceFailure::Recursive,
-            declaration.as_ref(),
-            table,
-            *reference,
-        ),
-        Failure::DeclarationDiscoveryFailure { .. } => format_internal_compiler_error(
-            "package-interface export could not complete declaration discovery",
-        ),
-        Failure::MissingPackageReference { table, reference } => {
-            format_internal_compiler_error(format!(
-                "{table} entry {reference} has no associated package interface"
-            ))
+        Failure::DeclarationDiscoveryFailure { .. } => {
+            String::from("package-interface export could not complete declaration discovery")
         }
-        Failure::MisassignedPackageRecord(table) => format_internal_compiler_error(format!(
-            "package-level {table} data belongs to one exported declaration"
-        )),
-        Failure::ConflictingDeclarationRecord { kind, owner } => format_internal_compiler_error(format!(
-            "conflicting {kind} data exists for {}",
-            format_english_interface_symbol_reference(owner)
-        )),
-        Failure::RecursiveDeclarationReference(table) => {
-            format_internal_compiler_error(format!(
-                "the {table} data table contains a recursive reference"
-            ))
-        }
-        Failure::SemanticTableOverflow { table, maximum } => format!(
-            "package-interface export requires more than {maximum} {table} records, which the file format cannot represent"
-        ),
-        Failure::DuplicateConstantCallableBody(owner) => {
-            format!("two constant callable bodies claim callable record {owner}")
-        }
-        Failure::DuplicateExecutableTemplate(owner) => {
-            format!("two executable templates claim callable record {owner}")
-        }
-        Failure::InvalidExecutableTemplateFamily(owner) => format!(
-            "the executable templates for callable record {owner} do not form one contiguous root-first family"
-        ),
-        Failure::DuplicateNativeBoundary(owner) => {
-            format!("two native boundaries claim function record {owner}")
-        }
-        Failure::ImplementationDuplicateCallableBody(owner) => {
-            format!("two implementation payloads claim callable record {owner}")
-        }
-        Failure::ImplementationDuplicateExecutableTemplate(owner) => {
-            format!("two implementation templates claim declaration record {owner}")
-        }
-        Failure::ImplementationInvalidExecutableTemplateFamily(owner) => format!(
-            "the implementation templates for declaration record {owner} do not form one contiguous root-first family"
-        ),
-        Failure::ImplementationDuplicateNativeBoundary(owner) => {
-            format!("two implementation native boundaries claim declaration record {owner}")
-        }
-        Failure::ImplementationDuplicateNativeBinding(owner) => {
-            format!("native implementation binding for declaration #{owner} occurs more than once")
-        }
-        Failure::ImplementationInvalidNativeBinding(owner) => {
-            format!("native implementation binding for declaration #{owner} has a mismatched identity or unit")
-        }
-        Failure::ImplementationDuplicateSpecialization => {
-            "two implementation payloads claim the same specialization".to_owned()
-        }
-        Failure::ImplementationSpecializationIdentityMismatch => {
-            "an implementation specialization does not belong to this package configuration and dependency set".to_owned()
-        }
-        Failure::ImplementationInvalidExecutableOwner(owner) => format!(
-            "executable template owner record {owner} is missing or cannot own executable code"
-        ),
-        Failure::ImplementationInvalidNativeBoundaryOwner(owner) => {
-            format!("native boundary owner record {owner} is missing or is not a function")
-        }
-        Failure::ImplementationInvalidCallableOwner(owner) => format!(
-            "implementation owner record {owner} is missing, non-callable, or has the wrong body category"
-        ),
         Failure::ImplementationContentTooLarge => {
             "the implementation payload exceeds the representable artifact length".to_owned()
         }
     }
 }
 
-enum PackageInterfaceDeclarationReferenceFailure {
-    Missing,
-    Recursive,
-}
-
-fn format_english_package_interface_declaration_reference_failure(
-    failure: PackageInterfaceDeclarationReferenceFailure,
-    declaration: Option<&bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
-    table: &str,
-    reference: u32,
-) -> String {
-    use crate::catalog::english::argument::interface::format_english_interface_symbol_identity;
-
-    let detail = match (failure, declaration) {
-        (PackageInterfaceDeclarationReferenceFailure::Missing, Some(declaration)) => format!(
-            "{table} entry {reference} was unavailable while preparing exported {}",
-            format_english_interface_symbol_identity(declaration)
-        ),
-        (PackageInterfaceDeclarationReferenceFailure::Missing, None) => format!(
-            "{table} entry {reference} was unavailable while preparing an exported declaration"
-        ),
-        (PackageInterfaceDeclarationReferenceFailure::Recursive, Some(declaration)) => format!(
-            "recursive {table} entry {reference} exists while preparing exported {}",
-            format_english_interface_symbol_identity(declaration)
-        ),
-        (PackageInterfaceDeclarationReferenceFailure::Recursive, None) => format!(
-            "recursive {table} entry {reference} exists while preparing the package interface"
-        ),
-    };
-
-    format_internal_compiler_error(detail)
-}
-
 fn format_english_package_interface_store_create() -> String {
-    format_internal_compiler_error(
+    String::from(
         "semantic-value store identity capacity was exhausted while preparing the package interface",
     )
 }
@@ -373,7 +250,7 @@ fn format_english_package_interface_store_create() -> String {
 fn format_english_package_interface_semantic_value(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
 ) -> String {
-    format_internal_compiler_error(format!(
+    String::from(format!(
         "package-interface preparation failed because {}",
         super::super::native::format_english_semantic_value_failure_detail(failure),
     ))
@@ -386,81 +263,18 @@ mod tests {
         DiagnosticPackageInterfaceFailure,
     };
 
-    use super::format_english_package_interface_failure;
-
-    fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
-        DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
-    }
-
     #[test]
-    fn package_interface_failures_render_actionable_context() {
-        let conflict = format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::DuplicateDeclarationIdentity {
-                first: package("example.first"),
-                second: package("example.second"),
-                identity: package("example.shared"),
-            },
-        );
-
-        assert!(conflict.contains("example.first"));
-        assert!(conflict.contains("example.second"));
-        assert!(conflict.contains("example.shared"));
-        assert!(!conflict.contains(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-
-        let recursive = format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::RecursiveDeclarationData {
-                declaration: Some(package("example.value")),
-                table: "type".to_owned(),
-                reference: 19,
-            },
-        );
-
-        assert!(recursive.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-        assert!(recursive.contains("type entry 19"));
-        assert!(recursive.contains("example.value"));
-
-        let cycle = format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
-                cause: DiagnosticEmissionEvaluationFailure::Cycle(
-                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
-                ),
-                cycle: ["declaration_table".to_owned(), "symbol_graph".to_owned()].into(),
-            },
-        );
-
-        assert!(cycle.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-        assert!(!cycle.contains("declaration_table"));
-        assert!(!cycle.contains("symbol_graph"));
-
-        let executable = format_english_package_interface_failure(
+    fn package_evaluation_reports_the_declaration_and_capacity_cause() {
+        let message = super::format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
-                declaration: package("example.run"),
-                cause: DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable,
+                declaration: DiagnosticInterfaceSymbolIdentity::Package("example.run".to_owned()),
+                cause: DiagnosticEmissionEvaluationFailure::MirCapacity,
             },
         );
 
-        assert!(executable.contains("example.run"));
-        assert!(executable.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-
-        assert_eq!(
-            executable
-                .matches(crate::catalog::english::INTERNAL_COMPILER_ERROR)
-                .count(),
-            1,
-        );
-
-        assert!(!executable.contains("the compiler "));
-
-        let overflow = format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::SemanticTableOverflow {
-                table: "type".to_owned(),
-                maximum: u32::MAX,
-            },
-        );
-
-        assert!(overflow.contains("4294967295"));
-        assert!(overflow.contains("type"));
-        assert!(!overflow.contains(';'));
+        assert!(message.contains("example.run"));
+        assert!(message.contains("identity limit"));
+        assert!(!message.contains("internal compiler error"));
     }
 }
 
@@ -472,14 +286,6 @@ fn format_english_emission_codegen_failure(
     match failure {
         Failure::Incomplete => {
             "native-code generation could not supply all requested artifact content".to_owned()
-        }
-        Failure::DuplicateUnit(unit) => format_unit_failure("appears more than once", unit),
-        Failure::DuplicateMappings(unit) => {
-            format_unit_failure("has more than one source-to-native mapping set", unit)
-        }
-        Failure::MissingUnit(unit) => format_unit_failure("is unavailable", unit),
-        Failure::MissingMappings(unit) => {
-            format_unit_failure("has no source-to-native mappings", unit)
         }
         Failure::Request(unit) => format_unit_failure("could not be requested", unit),
         Failure::Generation(unit) => {

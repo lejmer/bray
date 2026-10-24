@@ -99,7 +99,10 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         match data.as_ref() {
             ConstantTermData::Value(value) => Ok(*value),
             ConstantTermData::Typed { term, .. } => self.predicate_constant(*term),
-            _ => Err(CodegenPreparationError::OpenConstantTerm(term)),
+            _ => panic!(
+                "checked native OpenConstantTerm contract failed: {:?}",
+                term
+            ),
         }
     }
     fn predicate_declaration(

@@ -148,8 +148,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
 
     let failures = [
         Kind::CodegenBackendNotSelected,
-        Kind::MissingProductRoot,
-        Kind::InvalidEntryResult,
         Kind::MissingRuntime,
         Kind::InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure::InvalidRequirement {
             name: "native".to_owned(),
@@ -159,37 +157,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
         Kind::CodegenTargetUnsupportedProfile,
-        Kind::CodegenTargetEmptyTriple,
-        Kind::CodegenTargetEmptyCpu,
-        Kind::CodegenTargetEmptyFeature,
-        Kind::ReachabilityEmptyRoots,
-        Kind::ReachabilityDuplicateInstance,
-        Kind::ReachabilityUndemandedInstance,
-        Kind::ReachabilityIncomplete,
-        Kind::InstanceTemplateMismatch,
-        Kind::InstanceTargetMismatch,
-        Kind::InstanceDependencyTargetMismatch,
-        Kind::UnitEmpty,
-        Kind::UnitDuplicateInstance,
-        Kind::UnitMissingCompatibility,
-        Kind::UnitTargetMismatch,
-        Kind::UnitWorkBoundExceeded,
-        Kind::UnitRecipeMismatch,
-        Kind::PartitionMissingCompatibility(native_product_detail(
-            "partition_missing_compatibility",
-        )),
-        Kind::PartitionInvalidUnit(native_product_detail("partition_invalid_unit")),
-        Kind::ExecutableHostDuplicateRole(native_product_detail("executable_host_duplicate_role")),
-        Kind::ExecutableHostMissingRuntime,
-        Kind::ExecutableHostRuntimeOwnedBinding(native_product_detail(
-            "executable_host_runtime_owned_binding",
-        )),
-        Kind::ExecutableHostIncompatibleRuntime(native_product_detail(
-            "executable_host_incompatible_runtime",
-        )),
-        Kind::ExecutableHostMissingMainThreadLane,
-        Kind::ExecutableHostMissingProtectedFrameAbi,
-        Kind::ExecutableHostMissingRole(native_product_detail("executable_host_missing_role")),
         Kind::RuntimeSelectionIncompatible(native_product_detail(
             "runtime_selection_runtime_identity_mismatch",
         )),
@@ -199,7 +166,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::RuntimeSelectionMissingCapabilityOwner(native_product_detail(
             "runtime_selection_missing_capability_owner",
         )),
-        Kind::LinkTargetEmptyTriple,
         Kind::CodegenBackendUnsupportedTarget,
         Kind::CodegenBackendUnsupportedArtifact(native_product_detail(
             "codegen_backend_unsupported_artifact",
@@ -214,25 +180,10 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             "codegen_backend_artifact_construction",
         )),
         Kind::CodegenBackendUnavailable,
-        Kind::CodegenMirUnavailable(native_product_detail("codegen_mir_unavailable")),
-        Kind::CodegenMissingEntrypoint,
-        Kind::CodegenInvalidInstance(native_product_detail("codegen_invalid_instance")),
-        Kind::CodegenInvalidUnit(native_product_detail("codegen_invalid_unit")),
-        Kind::CodegenUnitMismatch(native_product_detail("codegen_unit_mismatch")),
         Kind::CodegenMirCapacityExceeded,
-        Kind::CodegenMissingRuntimeRole(native_product_detail("codegen_missing_runtime_role")),
-        Kind::CodegenOpenConstantTerm(native_product_detail("codegen_open_constant_term")),
-        Kind::CodegenInvalidArrayLength(native_product_detail("codegen_invalid_array_length")),
-        Kind::CodegenRecursiveValueType(native_product_detail("codegen_recursive_value_type")),
-        Kind::CodegenUnresolvedType(native_product_detail("codegen_unresolved_type")),
-        Kind::CodegenUnsizedTypeByValue(native_product_detail("codegen_unsized_type_by_value")),
         Kind::CodegenInvalidAbiMapping(None),
         Kind::CodegenUnsupportedType(native_product_detail("codegen_unsupported_type")),
-        Kind::CodegenMissingHelperInstance(native_product_detail(
-            "codegen_missing_helper_instance",
-        )),
         Kind::CodegenLayoutOverflow(native_product_detail("codegen_layout_overflow")),
-        Kind::CodegenInvalidSymbolName,
     ];
 
     let keys = failures

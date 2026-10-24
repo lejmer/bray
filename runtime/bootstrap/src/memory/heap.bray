@@ -143,7 +143,7 @@ trusted internal func grow<T>(
 
     if let ?replacement = prepared
     {
-        if replacement.capacity < required || replacement.initialized != 0
+        if replacement.capacity < required || replacement.capacity < buffer.initialized || replacement.initialized != 0
         {
             return Error(required);
         }

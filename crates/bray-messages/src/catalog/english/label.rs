@@ -2,6 +2,10 @@ use bray_diagnostics::{DiagnosticArgName, DiagnosticLabelKind, DiagnosticLabelSt
 
 use crate::catalog::{MessageTemplate, MessageTemplatePart};
 
+const COMPILER_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "this construct exceeds the supported compiler limit",
+)];
+
 const INVALID_CHARACTER: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("invalid character "),
     MessageTemplatePart::Arg(DiagnosticArgName::Character),
@@ -198,9 +202,6 @@ const INVALID_TRUSTED_CAPABILITY_REQUIREMENT: &[MessageTemplatePart] =
 
 const CONFLICTING_MODULE_DECLARATION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("conflicting module declaration")];
-const COMPILER_DEFECT_SOURCE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "highlighted Bray code involved in the failed compilation",
-)];
 
 pub(crate) const fn style(style: DiagnosticLabelStyle) -> &'static str {
     match style {
@@ -274,6 +275,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::UnsupportedTargetRequirement => {
             MessageTemplate::new(UNSUPPORTED_TARGET_REQUIREMENT)
+        }
+        DiagnosticLabelKind::CompilerCapacityExceeded => {
+            MessageTemplate::new(COMPILER_CAPACITY_EXCEEDED)
         }
         DiagnosticLabelKind::RefinementCapacityExceeded => {
             MessageTemplate::new(REFINEMENT_CAPACITY_EXCEEDED)
@@ -371,6 +375,5 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::ConflictingModuleDeclaration => {
             MessageTemplate::new(CONFLICTING_MODULE_DECLARATION)
         }
-        DiagnosticLabelKind::CompilerDefectSource => MessageTemplate::new(COMPILER_DEFECT_SOURCE),
     }
 }

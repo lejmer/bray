@@ -190,32 +190,46 @@ pub(in crate::compilation) fn map_binding_error(
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
         BoundUnitBindingError::Upstream(error) => error,
         BoundUnitBindingError::InvalidUnitKey => {
-            FactQueryError::Binding(BoundUnitBindingError::InvalidUnitKey)
+            panic!(
+                "checked binding contract failed: {:?}",
+                BoundUnitBindingError::<std::convert::Infallible>::InvalidUnitKey
+            )
         }
         BoundUnitBindingError::MissingSyntax { source } => {
-            FactQueryError::Binding(BoundUnitBindingError::MissingSyntax { source })
+            panic!(
+                "checked binding contract failed: {:?}",
+                BoundUnitBindingError::<std::convert::Infallible>::MissingSyntax { source }
+            )
         }
         BoundUnitBindingError::MissingOwner {
             source,
             owner,
             symbol,
-        } => FactQueryError::Binding(BoundUnitBindingError::MissingOwner {
-            source,
-            owner,
-            symbol,
-        }),
+        } => panic!(
+            "checked binding contract failed: {:?}",
+            BoundUnitBindingError::<std::convert::Infallible>::MissingOwner {
+                source,
+                owner,
+                symbol,
+            }
+        ),
         BoundUnitBindingError::MissingModule { source, owner } => {
-            FactQueryError::Binding(BoundUnitBindingError::MissingModule { source, owner })
+            panic!(
+                "checked binding contract failed: {:?}",
+                BoundUnitBindingError::<std::convert::Infallible>::MissingModule { source, owner }
+            )
         }
         BoundUnitBindingError::InvalidSurfaceName { source, symbol } => {
-            FactQueryError::Binding(BoundUnitBindingError::InvalidSurfaceName { source, symbol })
+            panic!(
+                "checked binding contract failed: {:?}",
+                BoundUnitBindingError::<std::convert::Infallible>::InvalidSurfaceName {
+                    source,
+                    symbol
+                }
+            )
         }
-        BoundUnitBindingError::SemanticValue(error) => {
-            FactQueryError::Binding(BoundUnitBindingError::SemanticValue(error))
-        }
-        BoundUnitBindingError::Construction(error) => {
-            FactQueryError::Binding(BoundUnitBindingError::Construction(error))
-        }
+        BoundUnitBindingError::SemanticValue(error) => FactQueryError::SemanticValueStore(error),
+        BoundUnitBindingError::Construction(error) => FactQueryError::BindingCapacity(error),
         BoundUnitBindingError::Binding(error) => binding_error(error),
     }
 }

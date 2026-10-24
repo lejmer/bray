@@ -68,17 +68,29 @@ pub(in crate::compilation::product) fn closed_array_length(
             let data = values.constant_value_data(*value);
 
             let ConstantValueKind::Integer(value) = data.kind() else {
-                return Err(CodegenPreparationError::InvalidArrayLength(term_id));
+                panic!(
+                    "checked native InvalidArrayLength contract failed: {:?}",
+                    term_id
+                );
             };
 
-            value
-                .to_u64()
-                .ok_or(CodegenPreparationError::InvalidArrayLength(term_id))
+            value.to_u64().ok_or_else(|| {
+                panic!(
+                    "checked native InvalidArrayLength contract failed: {:?}",
+                    term_id
+                )
+            })
         }
-        ConstantTermData::IntegerLiteral { value, .. } => value
-            .to_u64()
-            .ok_or(CodegenPreparationError::InvalidArrayLength(term_id)),
-        _ => Err(CodegenPreparationError::OpenConstantTerm(term_id)),
+        ConstantTermData::IntegerLiteral { value, .. } => value.to_u64().ok_or_else(|| {
+            panic!(
+                "checked native InvalidArrayLength contract failed: {:?}",
+                term_id
+            )
+        }),
+        _ => panic!(
+            "checked native OpenConstantTerm contract failed: {:?}",
+            term_id
+        ),
     }
 }
 

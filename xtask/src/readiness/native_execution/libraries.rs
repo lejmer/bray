@@ -78,7 +78,8 @@ pub(super) fn audit_native_libraries(
 
             if !result.status.success() || result.stdout != expected || !result.stderr.is_empty() {
                 return Err(format!(
-                    "native library {case}/{configuration} expected {:?} and exit 0, got {result:?}",
+                    "native library {case}/{configuration} ({}) expected {:?} and exit 0, got {result:?}",
+                    executable.display(),
                     String::from_utf8_lossy(expected)
                 ));
             }

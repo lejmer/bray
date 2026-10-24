@@ -55,11 +55,7 @@ pub(crate) const fn format_english_external_tool_failure(
             "host synchronization state is unavailable"
         }
         DiagnosticExternalToolFailureKind::Unsupported => "operation is unsupported on this host",
-        DiagnosticExternalToolFailureKind::MissingOutputPipe => "required output pipe is missing",
         DiagnosticExternalToolFailureKind::OutputCapture => "output capture failed",
-        DiagnosticExternalToolFailureKind::OutputReaderTerminated => {
-            "output reader terminated unexpectedly"
-        }
     }
 }
 

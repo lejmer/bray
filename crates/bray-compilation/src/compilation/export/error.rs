@@ -1,36 +1,29 @@
 use bray_diagnostics::DiagnosticInterfaceSymbolIdentity;
 use bray_package_interface::{
-    InterfaceSemanticCommitError, InterfaceSemanticTableKind, PackageInterfaceExportBuildError,
+    InterfaceSemanticCommitError, PackageInterfaceExportBuildError,
     PackageInterfaceExportSurfaceError,
 };
-use bray_source::SourceSpan;
 use bray_symbols::{
-    CallableSignatureTemplateError, ExternalSymbolKey, SemanticValueStoreCreateError,
-    SemanticValueStoreError, SymbolKind,
+    CallableSignatureTemplateError, SemanticValueStoreCreateError, SemanticValueStoreError,
+    SymbolKind,
 };
 
 use crate::fact::FactQueryError;
 
-/// Exact internal compilation contract that prevented package-interface export.
+/// Exact capacity, runtime compatibility or request failure preventing package-interface export.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceInvalidCompilationCause {
-    /// The selected target could not form its backend-neutral code generation contract.
-    CodegenTarget(bray_codegen::CodegenTargetBuildError),
     /// One compact package-interface field cannot represent the requested value.
     Capacity { field: &'static str, actual: String },
     /// Runtime requirements selected by executable templates are mutually incompatible.
     RuntimeRequirements(bray_runtime_interface::RuntimeRequirementsMergeError),
-    /// Checked-template export violated one exact internal semantic contract.
-    CheckedTemplate { reason: &'static str },
-    /// Executable-template export violated one exact internal MIR contract.
-    ExecutableTemplate { reason: &'static str },
-    /// Package-interface traversal violated one exact export contract.
-    ExportContract(PackageInterfaceExportContract),
+    /// The requested library identity or product differs from the selected compilation.
+    ExportRequestMismatch,
 }
 
 /// Exact package-interface traversal contract that could not be satisfied.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum PackageInterfaceExportContract {
+pub(in crate::compilation::export) enum PackageInterfaceExportContract {
     /// The export request does not describe the compilation's library product.
     RequestMismatch,
     /// Dependency loading completed without an interface-view collection.
@@ -39,8 +32,6 @@ pub enum PackageInterfaceExportContract {
     MissingOverloadArm,
     /// The compilation symbol graph does not contain its package symbol.
     MissingPackageSymbol,
-    /// A selected constant callable cannot identify a generic owner.
-    MissingGenericOwner,
     /// A selected constant callable resolved to an imported interface symbol.
     NonLocalConstantCallable,
     /// A selected symbol does not have its exported declaration identity.
@@ -57,32 +48,18 @@ pub enum PackageInterfaceExportContract {
     MissingRuntimeDefaultOwnerKey,
 }
 
-impl PackageInterfaceExportContract {
-    /// Returns the stable machine-readable contract name.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::RequestMismatch => "request_mismatch",
-            Self::MissingLoadedDependencies => "missing_loaded_dependencies",
-            Self::MissingOverloadArm => "missing_overload_arm",
-            Self::MissingPackageSymbol => "missing_package_symbol",
-            Self::MissingGenericOwner => "missing_generic_owner",
-            Self::NonLocalConstantCallable => "non_local_constant_callable",
-            Self::MissingExportedDeclaration => "missing_exported_declaration",
-            Self::NonLocalNativeBoundary => "non_local_native_boundary",
-            Self::NonLocalExecutableTemplate => "non_local_executable_template",
-            Self::MissingCompilerKnownTargetProperty => "missing_compiler_known_target_property",
-            Self::MissingNestedExecutableTemplate => "missing_nested_executable_template",
-            Self::MissingRuntimeDefaultOwnerKey => "missing_runtime_default_owner_key",
-        }
-    }
-}
-
-pub(in crate::compilation::export) const fn export_contract_error(
+#[track_caller]
+pub(in crate::compilation::export) fn export_contract_error(
     contract: PackageInterfaceExportContract,
 ) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::InvalidCompilationCause(
-        PackageInterfaceInvalidCompilationCause::ExportContract(contract),
-    )
+    match contract {
+        PackageInterfaceExportContract::RequestMismatch => {
+            PackageInterfaceExportError::InvalidCompilationCause(
+                PackageInterfaceInvalidCompilationCause::ExportRequestMismatch,
+            )
+        }
+        _ => panic!("checked interface export contract failed: {contract:?}"),
+    }
 }
 
 pub(in crate::compilation::export) fn capacity_export_error(
@@ -109,7 +86,7 @@ pub enum PackageInterfaceExportError {
     /// Source or semantic errors make the product invalid.
     // rust-style: broad-failure
     InvalidCompilation,
-    /// An exact internal compilation contract prevented export.
+    /// A capacity, runtime compatibility or request failure prevented export.
     InvalidCompilationCause(PackageInterfaceInvalidCompilationCause),
     /// The semantic-value store identity space was exhausted while preparing the interface.
     SemanticValueStoreCreate(SemanticValueStoreCreateError),
@@ -127,38 +104,8 @@ pub enum PackageInterfaceExportError {
         declaration: DiagnosticInterfaceSymbolIdentity,
         cause: FactQueryError,
     },
-    /// A reachable public declaration does not have complete serializable semantics.
-    IncompletePublicDeclarationSemantics(SymbolKind),
-    /// A resolved fragment omitted a value required by its declaration records.
-    IncompleteSemanticFragment {
-        declaration: Option<DiagnosticInterfaceSymbolIdentity>,
-        table: InterfaceSemanticTableKind,
-        reference: u32,
-    },
-    /// A resolved fragment's stable symbol identity is absent from the compilation symbol graph.
-    MissingSemanticFragmentSymbol(ExternalSymbolKey),
-    /// Two independently resolved fragments use one stable symbol identity.
-    ConflictingSemanticFragment {
-        first: DiagnosticInterfaceSymbolIdentity,
-        second: DiagnosticInterfaceSymbolIdentity,
-        first_span: Option<SourceSpan>,
-        second_span: Option<SourceSpan>,
-        identity: ExternalSymbolKey,
-    },
-    /// A semantic value graph contains a cycle that cannot be represented in table order.
-    CyclicSemanticFragment {
-        declaration: Option<DiagnosticInterfaceSymbolIdentity>,
-        table: InterfaceSemanticTableKind,
-        reference: u32,
-    },
     /// Compiler coordination could not complete fragment discovery.
     FragmentCoordination(FactQueryError),
-    /// Stable fragment commit rejected a reference or declaration record.
-    FragmentCommit(InterfaceSemanticCommitError),
-    /// Canonical identity-surface validation rejected the selected graph.
-    Surface(PackageInterfaceExportSurfaceError),
-    /// Semantic or support-graph validation rejected the export bundle.
-    Bundle(PackageInterfaceExportBuildError),
 }
 
 pub(in crate::compilation::export) fn source_diagnostic_export_error(
@@ -226,29 +173,13 @@ pub(in crate::compilation::export) fn binding_query_export_error<Upstream>(
     error: bray_binder::BindingQueryError<Upstream>,
 ) -> PackageInterfaceExportError
 where
-    Upstream: Into<FactQueryError>,
+    Upstream: Into<FactQueryError> + std::fmt::Debug,
 {
     fact_query_export_error(crate::compilation::binder::binding_query_error(error))
 }
 
-pub(in crate::compilation::export) fn invalid_compilation_fact_error(
-    error: FactQueryError,
-) -> PackageInterfaceExportError {
-    fact_query_export_error(error)
-}
-
-pub(in crate::compilation::export) fn invalid_compilation_binding_error<Upstream>(
-    error: bray_binder::BindingQueryError<Upstream>,
-) -> PackageInterfaceExportError
-where
-    Upstream: Into<FactQueryError>,
-{
-    binding_query_export_error(error)
-}
-
 #[cfg(test)]
 mod tests {
-    use bray_binder::BoundUnitBindingError;
 
     use bray_symbols::{SemanticValueKind, SemanticValueStoreCreateError, SemanticValueStoreError};
 
@@ -258,6 +189,26 @@ mod tests {
         fact_query_export_error, fragment_coordination_export_error,
     };
     use crate::fact::{CompilationFactKey, FactCycle, FactQueryError, FactRuntimeFailure};
+
+    #[test]
+    fn semantic_commit_invariants_fail_at_the_export_boundary() {
+        let panic = std::panic::catch_unwind(|| {
+            super::commit_error(
+                bray_package_interface::InterfaceSemanticCommitError::MissingReference {
+                    table: bray_package_interface::InterfaceSemanticTableKind::Type,
+                    reference: 7,
+                },
+            )
+        })
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("MissingReference"));
+        assert!(message.contains("Type"));
+        assert!(message.contains("7"));
+    }
 
     #[test]
     fn fact_query_export_preserves_direct_and_nested_semantic_value_failures() {
@@ -272,7 +223,10 @@ mod tests {
             expected(FactQueryError::SemanticValueStore(semantic))
         );
 
-        let binding = FactQueryError::Binding(BoundUnitBindingError::SemanticValue(semantic));
+        let binding =
+            crate::compilation::binder::binding_query_error(bray_binder::BindingQueryError::<
+                FactQueryError,
+            >::SemanticValue(semantic));
 
         assert_eq!(fact_query_export_error(binding.clone()), expected(binding));
 
@@ -285,9 +239,8 @@ mod tests {
 
     #[test]
     fn fact_query_export_preserves_coordination_failures_and_cancellation() {
-        let runtime = FactQueryError::from(FactRuntimeFailure::WorkerTerminated {
-            worker: Some(2),
-            item: None,
+        let runtime = FactQueryError::from(FactRuntimeFailure::UnitSourceCapacityExhausted {
+            source_count: usize::MAX,
         });
 
         assert_eq!(
@@ -374,5 +327,52 @@ mod tests {
             super::source_diagnostic_export_error(&bray_diagnostics::DiagnosticBag::new()),
             None
         );
+    }
+}
+
+#[track_caller]
+pub(in crate::compilation::export) fn commit_error(
+    cause: InterfaceSemanticCommitError,
+) -> PackageInterfaceExportError {
+    match cause {
+        InterfaceSemanticCommitError::IdentityOverflow(table) => {
+            capacity_export_error(table.as_str(), u64::from(u32::MAX) + 1)
+        }
+        _ => panic!("compiler-assembled semantic fragment commit failed: {cause:?}"),
+    }
+}
+
+#[track_caller]
+pub(in crate::compilation::export) fn surface_error(
+    cause: PackageInterfaceExportSurfaceError,
+) -> PackageInterfaceExportError {
+    match cause {
+        PackageInterfaceExportSurfaceError::SymbolCountOverflow
+        | PackageInterfaceExportSurfaceError::Surface(
+            bray_package_interface::PackageInterfaceSurfaceBuildError::Identity(
+                bray_symbols::ImportedIdentitySurfaceError::SymbolCountOverflow,
+            ),
+        ) => capacity_export_error("declarations", u64::from(u32::MAX) + 1),
+        PackageInterfaceExportSurfaceError::Surface(
+            bray_package_interface::PackageInterfaceSurfaceBuildError::DependencyCountOverflow,
+        ) => capacity_export_error("dependencies", u64::from(u32::MAX) + 1),
+        _ => panic!("compiler-assembled interface surface failed: {cause:?}"),
+    }
+}
+
+#[track_caller]
+pub(in crate::compilation::export) fn bundle_error(
+    cause: PackageInterfaceExportBuildError,
+) -> PackageInterfaceExportError {
+    match cause {
+        PackageInterfaceExportBuildError::Validation(
+            cause @ (bray_package_interface::InterfaceValidationError::ResourceLimitExceeded {
+                ..
+            }
+            | bray_package_interface::InterfaceValidationError::AllocationUnavailable {
+                ..
+            }),
+        ) => fact_query_export_error(cause.into()),
+        _ => panic!("compiler-assembled interface bundle failed: {cause:?}"),
     }
 }

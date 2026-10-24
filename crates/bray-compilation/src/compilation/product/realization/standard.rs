@@ -128,7 +128,10 @@ impl Compilation {
 }
 
 fn missing_helper(reference: &MirHelperReference) -> CodegenPreparationError {
-    CodegenPreparationError::MissingHelperInstance(reference.clone())
+    panic!(
+        "checked native MissingHelperInstance contract failed: {:?}",
+        reference
+    )
 }
 
 fn standard_library_helper_key(helper: MirStandardLibraryHelper) -> &'static str {

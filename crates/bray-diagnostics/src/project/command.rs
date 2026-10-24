@@ -53,8 +53,6 @@ pub enum DiagnosticProjectSelectionProblem {
     MissingTestExecutableOutput,
     /// A required test catalog output path is absent.
     MissingTestCatalogOutput,
-    /// A required published test host is absent.
-    MissingTestHost,
     /// A retained product predates reusable build identities.
     MissingReusableBuildIdentity(String),
     /// One exact identity in a retained product differs from the current inputs.
@@ -158,7 +156,7 @@ pub enum DiagnosticProjectOperation {
     TestBatchRequest,
     TestConcurrency,
     TestExecutionPlan,
-    TestHostPublication,
+    TestHostLoad,
     TestFilter,
     TestHostLocation,
     TestAdmission,
@@ -206,15 +204,6 @@ pub enum DiagnosticToolStream {
     StandardOutput,
     /// Tool standard error.
     StandardError,
-}
-
-/// Exact compiler-owned child-process protocol invariant that failed.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticToolProtocolFailure {
-    /// A configured piped stream was absent after process creation.
-    MissingStream(DiagnosticToolStream),
-    /// A compiler-owned stream pump terminated by panicking.
-    StreamThreadPanicked(DiagnosticToolStream),
 }
 
 impl DiagnosticProjectProcessFailure {
@@ -369,6 +358,30 @@ pub enum DiagnosticProjectCommandFailure {
         /// Stable host I/O failure category.
         error: DiagnosticIoErrorKind,
     },
+    /// A test catalog has malformed binary contents.
+    MalformedTestCatalog {
+        /// Exact catalog file that could not be decoded.
+        path: PathBuf,
+    },
+    /// A test catalog uses a different binary format version.
+    UnsupportedTestCatalogVersion {
+        /// Exact catalog file carrying the version.
+        path: PathBuf,
+        /// Version recorded in the catalog.
+        actual: u32,
+        /// Version accepted by the current decoder.
+        supported: u32,
+    },
+    /// A test catalog exceeds the decoder's supported resource bounds.
+    TestCatalogCapacityExceeded {
+        /// Exact catalog file exceeding decoder limits.
+        path: PathBuf,
+    },
+    /// A test-host file changed after its publication identity was established.
+    TestHostChanged {
+        /// Exact executable or catalog whose contents changed.
+        path: PathBuf,
+    },
     /// The host could not identify the current Bray executable.
     CurrentExecutable {
         /// Command operation resolving the executable.
@@ -451,13 +464,6 @@ pub enum DiagnosticProjectCommandFailure {
         /// Exact child-tool stream.
         stream: DiagnosticToolStream,
     },
-    /// Compiler-owned child-process stream setup violated its invariant.
-    ToolProtocol {
-        /// Project command operation owning the tool.
-        operation: DiagnosticProjectOperation,
-        /// Exact rejected process protocol contract.
-        failure: DiagnosticToolProtocolFailure,
-    },
     /// Structured command input or output could not be encoded or decoded.
     Document {
         /// Command operation owning the document.
@@ -484,8 +490,6 @@ pub enum DiagnosticProjectCommandFailure {
     },
     /// A selected test has no published host executable.
     MissingTestHostLocation(String),
-    /// A completed compiler/build result omitted a required typed value.
-    MissingResult(DiagnosticProjectOperation),
     /// A finite command count exceeded its compact representation.
     CapacityExceeded(DiagnosticProjectOperation),
     /// Compilation loading exhausted the compact diagnostic identity space.
@@ -495,58 +499,19 @@ pub enum DiagnosticProjectCommandFailure {
     },
     /// The host diagnostic count exceeds the locale-neutral protocol representation.
     CompilationDiagnosticCountUnrepresentable,
-    /// Compiler-owned native linker composition violated an internal contract.
-    NativeLinkerConstruction {
-        /// Canonical target triple whose linker composition failed.
-        target: String,
-        /// Exact rejected linker composition contract.
-        failure: DiagnosticNativeLinkerBuildFailure,
-    },
     /// Compiler inspection report construction violated an internal contract.
     Inspection(DiagnosticInspectionFailure),
-    /// A command state transition contradicted an already validated invariant.
-    Invariant(DiagnosticProjectOperation),
 }
 
 impl DiagnosticProjectCommandFailure {
-    /// Returns whether this failure means Bray violated a previously validated invariant.
-    pub const fn is_compiler_defect(&self) -> bool {
-        matches!(
-            self,
-            Self::MissingResult(_)
-                | Self::NativeLinkerConstruction { .. }
-                | Self::Inspection(_)
-                | Self::ToolProtocol { .. }
-                | Self::Invariant(_)
-                | Self::CompilerOutputMissing { .. }
-                | Self::CompilerOutputInvalid { .. }
-                | Self::Document {
-                    operation: DiagnosticProjectOperation::CompilerJsonOutput,
-                    ..
-                }
-        )
-    }
-
-    /// Converts this failure into its exact project or compiler-defect diagnostic.
+    /// Converts an input or operational command failure into its structured diagnostic.
     pub fn diagnostic(self, id: DiagnosticId) -> Diagnostic {
-        let defect = self.is_compiler_defect();
-
-        let kind = if defect {
-            DiagnosticKind::ProjectCompilerDefect
-        } else {
-            DiagnosticKind::ProjectCommandFailed
-        };
-
-        let diagnostic = Diagnostic::new(id, kind, SeverityKind::Error)
-            .with_arg(DiagnosticArg::project_command_failure(self));
-
-        if defect {
-            diagnostic.with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ReportCompilerDefect,
-            ))
-        } else {
-            diagnostic
-        }
+        Diagnostic::new(
+            id,
+            DiagnosticKind::ProjectCommandFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::project_command_failure(self))
     }
 }
 
@@ -599,7 +564,7 @@ impl DiagnosticProjectOperation {
             Self::TestBatchRequest => "test_batch_request",
             Self::TestConcurrency => "test_concurrency",
             Self::TestExecutionPlan => "test_execution_plan",
-            Self::TestHostPublication => "test_host_publication",
+            Self::TestHostLoad => "test_host_load",
             Self::TestFilter => "test_filter",
             Self::TestHostLocation => "test_host_location",
             Self::TestAdmission => "test_admission",
@@ -613,65 +578,5 @@ use std::path::PathBuf;
 
 use crate::{
     Diagnostic, DiagnosticArg, DiagnosticDocumentParseKind, DiagnosticExternalToolOperation,
-    DiagnosticId, DiagnosticInspectionFailure, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    DiagnosticId, DiagnosticInspectionFailure, DiagnosticIoErrorKind, DiagnosticKind, SeverityKind,
 };
-
-/// Exact immutable linker-capability contract rejected during compiler setup.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticLinkerCapabilityBuildFailure {
-    /// The driver category cannot own the declared capability family.
-    DriverKindMismatch,
-    /// The configured target is incompatible with the driver command family.
-    UnsupportedTarget,
-    /// The driver declares no supported target.
-    MissingTargets,
-    /// One architecture and object-format pair occurs more than once.
-    DuplicateTarget,
-}
-
-/// Exact external-tool template contract rejected during compiler setup.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticInvocationBuildFailure {
-    /// The executable path is empty.
-    EmptyProgram,
-    /// The selected working directory is empty.
-    EmptyCurrentDirectory,
-    /// An environment variable name is empty.
-    EmptyEnvironmentVariableName,
-    /// An environment variable name occurs more than once.
-    DuplicateEnvironmentVariableName,
-    /// More than one response file uses the same path.
-    DuplicateResponseFile,
-}
-
-/// Exact compiler-owned linker composition contract that failed.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticNativeLinkerBuildFailure {
-    /// The compiler-owned archiver identity is invalid.
-    ArchiveIdentity,
-    /// The archive driver identity selects the wrong driver category.
-    ArchiveDriverKindMismatch,
-    /// The archive driver's capability record is invalid.
-    ArchiveCapabilities(DiagnosticLinkerCapabilityBuildFailure),
-    /// The archive driver program path is not explicit.
-    ArchiveProgramPathNotExplicit,
-    /// The archive driver invocation template is invalid.
-    ArchiveInvocation(DiagnosticInvocationBuildFailure),
-    /// The compiler-owned system-linker identity is invalid.
-    SystemIdentity,
-    /// The selected target cannot form a linker target identity.
-    TargetIdentity,
-    /// The system-linker program path is not explicit.
-    SystemProgramPathNotExplicit,
-    /// The system-linker invocation template is invalid.
-    SystemInvocation(DiagnosticInvocationBuildFailure),
-    /// The system-linker ThinLTO cache root is empty.
-    SystemThinLtoCacheRootEmpty,
-    /// The system-linker driver identity selects the wrong category.
-    SystemDriverKindMismatch,
-    /// The system-linker driver's capability record is invalid.
-    SystemCapabilities(DiagnosticLinkerCapabilityBuildFailure),
-    /// The compiler-host linker registry repeats one exact driver identity.
-    DuplicateDriver,
-}

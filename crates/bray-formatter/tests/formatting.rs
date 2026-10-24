@@ -766,6 +766,180 @@ fn disabled_rules_preserve_source_policy_while_other_rules_apply() {
 }
 
 #[test]
+fn every_catalog_rule_composes_with_the_other_defaults() {
+    let source = r#"
+module app;
+
+func choose<T>(pos values: &[T], ready: bool, enabled: bool)
+{
+    // Preserve the selection boundary.
+    let selected = values[0..3];
+
+    if ready
+    {
+        if enabled
+        {
+            inspect(selected, -1, 2);
+        }
+    }
+
+    match selected
+    {
+        case _ { return; }
+    }
+}
+
+"#;
+
+    for rule in FormatterRule::ALL {
+        for enabled in [false, true] {
+            let configuration = FormatterConfiguration::default().with_rule(*rule, enabled);
+            let output = formatted_with_configuration(source, &configuration);
+            let snapshot = test_source_snapshot(output.text());
+            let parsed = parse_source_unit(&snapshot);
+
+            assert!(
+                parsed.diagnostics().is_empty(),
+                "{}={enabled}: {:?}\n{}",
+                rule.as_str(),
+                parsed.diagnostics(),
+                output.text(),
+            );
+
+            assert!(
+                output
+                    .text()
+                    .contains("// Preserve the selection boundary.")
+            );
+
+            assert_eq!(
+                formatted_with_configuration(output.text(), &configuration).text(),
+                output.text(),
+                "{}={enabled} must be idempotent",
+                rule.as_str(),
+            );
+        }
+    }
+}
+
+#[test]
+fn pattern_boundary_spacing_is_independent_of_wrapping() {
+    for (pattern, gap, expected_prefix) in [
+        ("?(_, 0)", " ", "?"),
+        (".Variant", "", ".Variant"),
+        (".Variant(_)", "", ".Variant"),
+        ("Variant(_)", " ", "Variant"),
+        ("(0, _)", " ", "("),
+        ("[_, ..]", " ", "["),
+        ("box(_)", " ", "box"),
+        ("_", " ", "_"),
+    ] {
+        let source = format!(
+            r#"
+module app;
+
+func check()
+{{
+    assert(value matches{gap}{pattern});
+}}
+"#,
+        );
+
+        for wrapping in [false, true] {
+            for operators in [false, true] {
+                for words in [false, true] {
+                    let configuration = FormatterConfiguration::default()
+                        .with_rule(FormatterRule::LineWrapping, wrapping)
+                        .with_rule(FormatterRule::OperatorSpacing, operators)
+                        .with_rule(FormatterRule::WordSpacing, words);
+
+                    let output = formatted_with_configuration(&source, &configuration);
+
+                    let expected_gap = if gap.is_empty() && !words { "" } else { " " };
+
+                    assert!(
+                        output
+                            .text()
+                            .contains(&format!("matches{expected_gap}{expected_prefix}")),
+                        "pattern={pattern}, wrapping={wrapping}, operators={operators}, words={words}: {}",
+                        output.text(),
+                    );
+
+                    assert_eq!(syntax_tokens(&source), syntax_tokens(output.text()));
+
+                    assert_eq!(
+                        formatted_with_configuration(output.text(), &configuration).text(),
+                        output.text(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn leading_dot_operands_use_their_enclosing_boundary_spacing() {
+    let source = r#"
+module app;
+
+func build()
+{
+    let selected: Value = .Variant;
+    inspect(.Variant,.Variant);
+    let values = [.Variant,.Variant];
+
+    return.Variant;
+}
+"#;
+
+    let _ = syntax_tokens(source);
+
+    for wrapping in [false, true] {
+        for operators in [false, true] {
+            for words in [false, true] {
+                for members in [false, true] {
+                    let configuration = FormatterConfiguration::default()
+                        .with_rule(FormatterRule::LineWrapping, wrapping)
+                        .with_rule(FormatterRule::OperatorSpacing, operators)
+                        .with_rule(FormatterRule::WordSpacing, words)
+                        .with_rule(FormatterRule::MemberAccessSpacing, members);
+
+                    let output = formatted_with_configuration(source, &configuration);
+                    let word_gap = if words { " " } else { "" };
+
+                    assert!(output.text().contains("= .Variant"), "{}", output.text());
+
+                    assert!(
+                        output.text().contains("inspect(.Variant, .Variant)"),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert!(
+                        output.text().contains("[.Variant, .Variant]"),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert!(
+                        output.text().contains(&format!("return{word_gap}.Variant")),
+                        "{}",
+                        output.text()
+                    );
+
+                    assert_eq!(syntax_tokens(source), syntax_tokens(output.text()));
+
+                    assert_eq!(
+                        formatted_with_configuration(output.text(), &configuration).text(),
+                        output.text()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn opt_in_nested_conditionals_simplify_only_with_syntax_local_proof() {
     let configuration =
         FormatterConfiguration::default().with_rule(FormatterRule::SimplifyNestedIf, true);

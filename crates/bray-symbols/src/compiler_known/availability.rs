@@ -256,6 +256,24 @@ impl AvailableCompilerKnownSymbols {
             .filter_map(I::try_from_any)
     }
 
+    /// Returns the compiler-known representation of an already checked semantic type.
+    pub fn type_representation(
+        &self,
+        values: &crate::SemanticValueStore,
+        ty: crate::TypeId,
+    ) -> Option<RepresentationRole> {
+        let data = values.type_data(ty);
+
+        let crate::TypeData::Named { definition, .. } = data.as_ref() else {
+            return None;
+        };
+
+        match definition {
+            NamedTypeSymbolId::Struct(definition) => self.symbol_representation(*definition),
+            NamedTypeSymbolId::Union(definition) => self.symbol_representation(*definition),
+        }
+    }
+
     /// Returns the representation role carried by an available exact symbol.
     pub fn symbol_representation<I: ExactSymbolId>(&self, symbol: I) -> Option<RepresentationRole> {
         if !self.contains(symbol.into()) {
