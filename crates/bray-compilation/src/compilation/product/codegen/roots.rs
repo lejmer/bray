@@ -246,13 +246,19 @@ impl Compilation {
             );
         }
 
+        let instance = bray_symbols::StaticInstanceKey::new(
+            bray_symbols::StaticInstanceTemplateId::new(declaration),
+            substitution,
+            witnesses.iter().copied(),
+            target.profile().identity().clone(),
+        );
+
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
         let specialization = self.codegen_specialization(substitution)?;
 
         Ok(Some(ConcreteCodegenInstance::static_initializer(
             MirUnitKey::Bound(initializer),
-            declaration,
-            substitution,
+            instance,
             specialization,
             &witnesses,
             bray_ir::MirTargetContract::new(

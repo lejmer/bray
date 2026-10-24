@@ -608,8 +608,7 @@ impl Compilation {
 
         let initializer = ConcreteCodegenInstance::static_initializer(
             initializer_template,
-            declaration,
-            instance.substitution(),
+            instance.clone(),
             specialization,
             &witnesses,
             owner.key().target().clone(),

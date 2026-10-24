@@ -124,19 +124,41 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
             "wrapping buffers transfers their existing allowances without readmission"
         );
 
-        let boxed = compilation.lowered_unit(source_function_body_key(&compilation, "dispose_boxed")).unwrap();
+        let boxed = compilation
+            .lowered_unit(source_function_body_key(&compilation, "dispose_boxed"))
+            .unwrap();
 
-        let boxed = boxed.value().as_ref().unwrap().mir().unwrap().storages().iter()
-            .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0))).unwrap().ty();
+        let boxed = boxed
+            .value()
+            .as_ref()
+            .unwrap()
+            .mir()
+            .unwrap()
+            .storages()
+            .iter()
+            .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0)))
+            .unwrap()
+            .ty();
 
-        let frames = compilation.owner_outgoing_calls(boxed, &cancellation).unwrap()
-            .iter().filter_map(|(instance, _, _)| match instance.generated_lifecycle_reference() {
-                Some(MirHelperReference::LifecycleFrame { role, .. }) => Some(*role),
-                _ => None,
-            }).collect::<Vec<_>>();
+        let frames = compilation
+            .owner_outgoing_calls(boxed, &cancellation)
+            .unwrap()
+            .iter()
+            .filter_map(
+                |(instance, _, _)| match instance.generated_lifecycle_reference() {
+                    Some(MirHelperReference::LifecycleFrame { role, .. }) => Some(*role),
+                    _ => None,
+                },
+            )
+            .collect::<Vec<_>>();
 
-        assert_eq!(frames, [MirGeneratedLifecycleRole::Destroy(bray_ir::MirDestructionDisposition::Dynamic)],
-            "retain storage-policy call allowances and only the selected consuming traversal frame");
+        assert_eq!(
+            frames,
+            [MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Dynamic
+            )],
+            "retain storage-policy call allowances and only the selected consuming traversal frame"
+        );
 
         for (function, suspends) in [("plain", false), ("recursive", true), ("shared", true)] {
             if suspends {

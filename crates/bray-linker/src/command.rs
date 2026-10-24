@@ -232,8 +232,24 @@ fn arguments_for_with_directory(
     push_symbol_arguments(&mut arguments, plan, flavor);
     push_search_paths(&mut arguments, plan, flavor, current_directory)?;
 
+    let rescan_archives = flavor == LldFlavor::Elf
+        && plan.inputs().iter().any(|input| {
+            input.kind() == LinkInputKind::Archive
+                || matches!(input.source(), LinkInputSource::StaticNativeLibrary(_))
+        });
+
+    if rescan_archives {
+        // Dependency cycles have no one-pass archive order. Rescan required members
+        // while preserving ordinary archive extraction and the planned input order.
+        arguments.push("--start-group".into());
+    }
+
     for input in plan.inputs() {
         push_input(&mut arguments, input, plan, flavor, current_directory)?;
+    }
+
+    if rescan_archives {
+        arguments.push("--end-group".into());
     }
 
     Ok(arguments)
@@ -1041,6 +1057,124 @@ mod tests {
                 OsString::from("second.o"),
                 OsString::from("-lpthread"),
             ])
+        );
+    }
+
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[ignore = "requires cc, GNU ld, ar, nm and native process execution"]
+    fn cyclic_archive_dependencies_link_without_retaining_unused_members() {
+        use crate::test_support::TestOutput;
+        use std::process::Command;
+
+        let mut objects = Vec::new();
+
+        for (name, source) in [
+            (
+                "main",
+                "int first(void); int main(void) { return first() != 42; }",
+            ),
+            (
+                "first",
+                "int second(void); int first(void) { return second(); }",
+            ),
+            (
+                "second",
+                "int tail(void); int second(void) { return tail(); }",
+            ),
+            ("tail", "int tail(void) { return 42; }"),
+            (
+                "unused",
+                "int bray_unused_archive_member(void) { return 99; }",
+            ),
+        ] {
+            let source =
+                bray_testing::TemporaryFile::write(&format!("{name}.c"), source.as_bytes());
+
+            let object = TestOutput::new(&format!("{name}.o"));
+
+            let compiled = Command::new("cc")
+                .arg("-c")
+                .arg(source.path())
+                .arg("-o")
+                .arg(object.path())
+                .output()
+                .expect("compile archive fixture");
+
+            assert!(compiled.status.success(), "{compiled:?}");
+            objects.push(object);
+        }
+
+        let first = TestOutput::new("first.a");
+        let second = TestOutput::new("second.a");
+
+        for (archive, members) in [(&first, [1, 3]), (&second, [2, 4])] {
+            let archived = Command::new("ar")
+                .arg("crs")
+                .arg(archive.path())
+                .args(members.map(|index| objects[index].path()))
+                .output()
+                .expect("archive fixture members");
+
+            assert!(archived.status.success(), "{archived:?}");
+        }
+
+        let output = TestOutput::new("application");
+        let mut builder = link_plan_builder();
+
+        builder.push_input(link_input(0, objects[0].path().to_str().unwrap()));
+
+        for (index, archive) in [&first, &second].into_iter().enumerate() {
+            builder.push_input(
+                LinkInput::try_new(
+                    LinkInputId::new(u32::try_from(index + 1).unwrap()),
+                    LinkInputKind::Archive,
+                    LinkInputSource::file(archive.path()),
+                    LinkInputProvenance::HostConfiguration,
+                    LinkInputMode::Ordinary,
+                )
+                .unwrap(),
+            );
+        }
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            output.path().to_str().unwrap(),
+        ));
+
+        builder.set_entry_point(symbol("main"));
+
+        let plan = builder.finish().unwrap();
+        let arguments = system_arguments_for(&plan, SystemLinkerFamily::GnuCompiler, None).unwrap();
+
+        let linked = Command::new("cc")
+            .arg("-fuse-ld=bfd")
+            .args(arguments)
+            .output()
+            .expect("link cyclic archives");
+
+        assert!(linked.status.success(), "{linked:?}");
+
+        assert!(
+            Command::new(output.path())
+                .status()
+                .expect("execute cyclic archive fixture")
+                .success()
+        );
+
+        let symbols = Command::new("nm")
+            .arg(output.path())
+            .output()
+            .expect("inspect retained archive members");
+
+        assert!(symbols.status.success());
+
+        assert!(
+            !String::from_utf8(symbols.stdout)
+                .unwrap()
+                .contains("bray_unused_archive_member")
         );
     }
 

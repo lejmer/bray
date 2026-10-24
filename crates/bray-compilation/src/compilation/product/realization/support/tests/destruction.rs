@@ -570,16 +570,37 @@ fn owned_indirection_uses_storage_policy_teardown() {
         }
     }));
 
-    assert!(compilation.codegen_lifecycle_is_trivial(&MirHelperReference::Cleanup {
-        phase: MirCleanupPhase::TaskCancellation, ty: owned,
-    }, &cancellation).unwrap(), "task-free stored targets do not need a projection for broadcast");
+    assert!(
+        compilation
+            .codegen_lifecycle_is_trivial(
+                &MirHelperReference::Cleanup {
+                    phase: MirCleanupPhase::TaskCancellation,
+                    ty: owned,
+                },
+                &cancellation
+            )
+            .unwrap(),
+        "task-free stored targets do not need a projection for broadcast"
+    );
 
-    let future = compilation.available_compiler_known_symbols()
-        .unary_representation_type(values, bray_compiler_known::RepresentationRole::Future,
-            compilation.compiler_known_type(bray_compiler_known::RepresentationRole::Unit).unwrap())
-        .unwrap().unwrap();
+    let future = compilation
+        .available_compiler_known_symbols()
+        .unary_representation_type(
+            values,
+            bray_compiler_known::RepresentationRole::Future,
+            compilation
+                .compiler_known_type(bray_compiler_known::RepresentationRole::Unit)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
 
-    let cancellable = values.intern_type(TypeData::OwnedIndirection { storage, target: future }).unwrap();
+    let cancellable = values
+        .intern_type(TypeData::OwnedIndirection {
+            storage,
+            target: future,
+        })
+        .unwrap();
 
     let broadcast = generated_lifecycle(
         &compilation,

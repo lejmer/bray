@@ -42,7 +42,7 @@ pub(super) struct ConcreteCodegenInstance {
     key: CodegenInstanceKey,
     callable: Option<CallableInstanceData>,
     anonymous_callable_type: Option<bray_symbols::TypeId>,
-    static_initializer: Option<bray_symbols::StaticSymbolId>,
+    static_initializer: Option<StaticInstanceKey>,
     lifecycle: Option<MirHelperReference>,
     substitution: Option<GenericSubstitutionId>,
     witnesses: Arc<[ImplementationInstanceId]>,
@@ -264,12 +264,13 @@ impl ConcreteCodegenInstance {
 
     pub(super) fn static_initializer(
         template: MirUnitKey,
-        declaration: bray_symbols::StaticSymbolId,
-        substitution: GenericSubstitutionId,
+        instance: StaticInstanceKey,
         specialization: CodegenSpecialization,
         witnesses: &[(CodegenImplementationWitness, ImplementationInstanceId)],
         target: MirTargetContract,
     ) -> Self {
+        let substitution = instance.substitution();
+
         Self {
             key: CodegenInstanceKey::new(
                 template,
@@ -279,7 +280,7 @@ impl ConcreteCodegenInstance {
             ),
             callable: None,
             anonymous_callable_type: None,
-            static_initializer: Some(declaration),
+            static_initializer: Some(instance),
             lifecycle: None,
             substitution: Some(substitution),
             witnesses: witnesses
@@ -351,8 +352,14 @@ impl ConcreteCodegenInstance {
         self.anonymous_callable_type
     }
 
-    pub(super) const fn static_declaration(&self) -> Option<bray_symbols::StaticSymbolId> {
+    pub(super) fn static_declaration(&self) -> Option<bray_symbols::StaticSymbolId> {
         self.static_initializer
+            .as_ref()
+            .map(|instance| instance.template().declaration())
+    }
+
+    pub(super) fn static_instance(&self) -> Option<&StaticInstanceKey> {
+        self.static_initializer.as_ref()
     }
 
     pub(super) fn substitution(&self) -> Option<GenericSubstitutionId> {

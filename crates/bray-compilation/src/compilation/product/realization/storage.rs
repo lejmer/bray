@@ -5,7 +5,6 @@ use bray_codegen::{
     CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget,
     demanded_runtime_references_for_mir,
 };
-use bray_ir::{MirStorageKind, MirUnit};
 use bray_runtime_interface::{
     BinarySymbolName, ExecutionLaneRequirement, RuntimeArtifact, RuntimeArtifactPlan,
 };
@@ -54,38 +53,23 @@ impl Compilation {
     pub(in crate::compilation::product) fn codegen_static_definition(
         &self,
         owner: &ConcreteCodegenInstance,
-        mir: &MirUnit,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<
         Option<(BinarySymbolName, bray_symbols::NativeSymbolBinding)>,
         CodegenPreparationError,
     > {
-        let Some(declaration) = owner.static_declaration() else {
+        let Some(instance) = owner.static_instance() else {
             return Ok(None);
         };
 
-        let reference = mir
-            .storages()
-            .iter()
-            .find_map(|storage| match storage.kind() {
-                MirStorageKind::Static(reference) | MirStorageKind::NativeStatic(reference)
-                    if reference.template().declaration() == declaration =>
-                {
-                    Some(reference)
-                }
-                _ => None,
-            })
-            .expect("emitted static initializer must contain its own storage");
-
-        let (instance, _, _) =
-            self.concrete_codegen_static_selection(owner, reference, cancellation)?;
+        let reference = StaticReferenceSelection::Closed(instance.clone());
 
         let (_, symbol) =
-            self.codegen_static_identity(owner, reference, &instance, target, cancellation)?;
+            self.codegen_static_identity(owner, &reference, instance, target, cancellation)?;
 
         let binding = self
-            .optional_native_static_contract(reference, cancellation)?
+            .optional_native_static_contract(&reference, cancellation)?
             .map_or(bray_symbols::NativeSymbolBinding::Strong, |native| {
                 native.symbol.binding()
             });
