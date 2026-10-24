@@ -80,12 +80,12 @@ trusted internal func open_unix_library(
         case _ { return Error(internal std.platform.invalid_input_status()); }
     };
 
-    let _: DataPointer<u8> = trusted std.os.unix.dlerror();
+    _ = trusted std.os.unix.dlerror();
     let library: DataPointer<u8> = trusted std.os.unix.dlopen(name, mode = flags);
 
     if std.memory.is_null<u8>(library)
     {
-        let _: DataPointer<u8> = trusted std.os.unix.dlerror();
+        _ = trusted std.os.unix.dlerror();
 
         return Error(internal std.platform.not_found_status());
     }
@@ -128,7 +128,7 @@ trusted internal func prepare_dynamic_library_symbol(
     {
         case Ok(terminated_name)
         {
-            let _: DataPointer<u8> = trusted std.os.unix.dlerror();
+            _ = trusted std.os.unix.dlerror();
             let library: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
             let resolved_address: DataPointer<u8> = trusted std.os.unix.dlsym(library, name = terminated_name.pointer);
             let error: DataPointer<u8> = trusted std.os.unix.dlerror();
@@ -149,11 +149,11 @@ trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.pla
     requires(blocking_execution())
 {
     let library: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
-    let _: DataPointer<u8> = trusted std.os.unix.dlerror();
+    _ = trusted std.os.unix.dlerror();
 
     if trusted std.os.unix.dlclose(library) != 0
     {
-        let _: DataPointer<u8> = trusted std.os.unix.dlerror();
+        _ = trusted std.os.unix.dlerror();
 
         return internal std.platform.other_status();
     }

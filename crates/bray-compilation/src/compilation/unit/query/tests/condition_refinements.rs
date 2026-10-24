@@ -10,7 +10,7 @@ fn pattern_conditions_publish_both_nullable_outcomes_and_common_alternative_refi
         "value matches ?0 | ?1",
     ] {
         let source = format!(
-            "module app; func main(pos value: i32?) {{ if {condition} {{ value; }} else {{ value; }} }}"
+            "module app; func main(pos value: i32?) {{ if {condition} {{ _ = value; }} else {{ _ = value; }} }}"
         );
 
         let compilation = compilation(&source);
@@ -88,7 +88,7 @@ fn pattern_conditions_refine_exact_paths_and_preserve_only_common_outcomes() {
         ),
     ] {
         let source = format!(
-            "module app; func main(pos value: (i32?, i32?)) {{ if {condition} {{ 11; }} else {{ 22; }} 33; }}"
+            "module app; func main(pos value: (i32?, i32?)) {{ if {condition} {{ _ = 11; }} else {{ _ = 22; }} _ = 33; }}"
         );
 
         let compilation = compilation(&source);
@@ -152,39 +152,39 @@ fn pattern_conditions_refine_exact_paths_and_preserve_only_common_outcomes() {
 fn boolean_condition_refinements_respect_later_operand_mutation() {
     for (body, expected) in [
         (
-            "if !(value matches none || { value = none; yield false; }) { 11; }",
+            "if !(value matches none || { value = none; yield false; }) { _ = 11; }",
             None,
         ),
         (
-            "if !(value matches ?_ && { value = none; yield true; }) {} else { 11; }",
+            "if !(value matches ?_ && { value = none; yield true; }) {} else { _ = 11; }",
             None,
         ),
         (
-            "if value matches ?_ && ({ value = none; yield true; }) { 11; }",
+            "if value matches ?_ && ({ value = none; yield true; }) { _ = 11; }",
             None,
         ),
         (
-            "assert(!(value matches none || { value = none; yield false; })); 11;",
+            "assert(!(value matches none || { value = none; yield false; })); _ = 11;",
             None,
         ),
         (
-            "match true { case true when !(value matches none || { value = none; yield false; }) { 11; } case _ {} }",
+            "match true { case true when !(value matches none || { value = none; yield false; }) { _ = 11; } case _ {} }",
             None,
         ),
         (
-            "while !(value matches none || { value = none; yield false; }) { 11; break; }",
+            "while !(value matches none || { value = none; yield false; }) { _ = 11; break; }",
             None,
         ),
         (
-            "let result = (value matches none || { value = none; yield false; }) || { 11; yield false; };",
+            "let result = (value matches none || { value = none; yield false; }) || { _ = 11; yield false; };",
             None,
         ),
         (
-            "if !(value matches none || { other = none; yield false; }) { 11; }",
+            "if !(value matches none || { other = none; yield false; }) { _ = 11; }",
             Some(PatternPredicate::NullablePresent),
         ),
         (
-            "if !(value matches none || false) { 11; }",
+            "if !(value matches none || false) { _ = 11; }",
             Some(PatternPredicate::NullablePresent),
         ),
     ] {
@@ -254,7 +254,7 @@ fn calls_preserve_unexposed_scalar_refinements() {
                     if value matches ?_
                     {{
                         {call}
-                        11;
+                        _ = 11;
                     }}
                 }}
                 "#

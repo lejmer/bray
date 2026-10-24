@@ -160,7 +160,7 @@ fn initialized_protected_storage_transfers_and_consumes_its_witness() {
     for (intervening, valid) in [
         ("", true),
         (
-            "let _ = trusted core.memory.move_initialized<u32>(&mut storage);",
+            "_ = trusted core.memory.move_initialized<u32>(&mut storage);",
             false,
         ),
         ("storage = core.memory.uninit<u32>();", false),
@@ -223,7 +223,7 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
                 trusted destruct() requires(trusted acquired(&self)) executes(total) {{
                     if self.active {{
                         let decrement: u32 = ~0;
-                        let _: u32 = core.atomic.fetch_add<u32, 2>(self.lock, decrement);
+                        _ = core.atomic.fetch_add<u32, 2>(self.lock, decrement);
                     }}
                 }}
             }}
@@ -420,7 +420,7 @@ fn returned_terminal_storage_keeps_initialization_with_its_owner() {
                 ensures(result.0 != 1 || trusted core.memory.uninit_initialized<u32>(storage = &result.1))
             {{
                 let mut storage: Uninit<u32> = core.memory.uninit<u32>();
-                let _: &mut u32 = core.memory.uninit_write<u32>(&mut storage, 7);
+                _ = core.memory.uninit_write<u32>(&mut storage, 7);
                 return (1, storage);
             }}
             trusted func consume_terminal() -> u32
@@ -453,42 +453,42 @@ fn conditional_initialization_guarantees_from_field_observers() {
     for (status, branch, valid) in [
         (
             "1",
-            "if state == 1 { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
+            "if state == 1 { _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
             true,
         ),
         (
             "COMPLETE",
-            "if state == COMPLETE { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
+            "if state == COMPLETE { _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
             true,
         ),
         (
             "1",
-            "match state { case 1 { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
+            "match state { case 1 { _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
             true,
         ),
         (
             "COMPLETE",
-            "match state { case COMPLETE { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
+            "match state { case COMPLETE { _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
             true,
         ),
         (
             "COMPLETE",
-            "if state == OTHER { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
+            "if state == OTHER { _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
             false,
         ),
         (
             "COMPLETE",
-            "match state { case OTHER { let _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
+            "match state { case OTHER { _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
             false,
         ),
         (
             "COMPLETE",
-            "if state == COMPLETE { storage.value = core.memory.uninit<T>(); let _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
+            "if state == COMPLETE { storage.value = core.memory.uninit<T>(); _ = trusted core.memory.move_initialized<T>(&mut storage.value); }",
             false,
         ),
         (
             "COMPLETE",
-            "match state { case COMPLETE { storage.value = core.memory.uninit<T>(); let _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
+            "match state { case COMPLETE { storage.value = core.memory.uninit<T>(); _ = trusted core.memory.move_initialized<T>(&mut storage.value); } case _ {} }",
             false,
         ),
     ] {
@@ -547,7 +547,7 @@ fn conditional_initialization_guarantees_reach_borrowed_fields() {
                 ensures(result != 1 || trusted core.memory.uninit_initialized<u8>(storage = &storage.value))
             {{
                 if fail {{ return 0; }}
-                let _ = core.memory.uninit_write<u8>(&mut storage.value, 42);
+                _ = core.memory.uninit_write<u8>(&mut storage.value, 42);
                 return 1;
             }}
 
@@ -556,7 +556,7 @@ fn conditional_initialization_guarantees_reach_borrowed_fields() {
             {{
                 let state: u32 = trusted initialize(storage, fail = fail);
                 {mutation}
-                if {guard} {{ let _ = trusted core.memory.move_initialized<u8>(&mut storage.value); }}
+                if {guard} {{ _ = trusted core.memory.move_initialized<u8>(&mut storage.value); }}
             }}
         "#
         );
@@ -740,7 +740,7 @@ fn checked_nonempty_ranges_supply_one_element_obligations() {
 
 #[test]
 fn borrowed_addresses_establish_live_access_conditions() {
-    for nested in ["", "{ let scratch: u8 = 0; let _ = scratch; };"] {
+    for nested in ["", "{ let scratch: u8 = 0; _ = scratch; };"] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
@@ -815,7 +815,7 @@ fn copied_range_extents_describe_storage_without_owning_it() {
             let pointer = core.memory.address_of<u8>(&value);
             let count: usize = extent(pointer);
             let copied: usize = count;
-            let _ = copied;
+            _ = copied;
         }
     "#,
     );
@@ -1050,7 +1050,7 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
                 let pointer: FunctionPointer<Callback> = {producer};
                 let copied: FunctionPointer<Callback> = pointer;
                 let callback: Callback = core.memory.callable_from_pointer<Callback>(copied);
-                let _ = callback;
+                _ = callback;
             }}
             "#
         ));
@@ -1344,7 +1344,7 @@ fn scoped_exit_must_explicitly_transfer_trusted_authority() {
                 requires(trusted live(value)) executes(pure) {{}}
             func caller(pos resource: &Resource)
             {{
-                with lease = resource {{ let copied = lease.tag; let _ = copied; }};
+                with lease = resource {{ let copied = lease.tag; _ = copied; }};
                 observe({observation}resource.tag);
             }}
             "#,
@@ -3333,7 +3333,7 @@ fn deferred_body_effects_apply_when_driven_and_harmless_await_preserves_evidence
 fn deferred_completion_guarantees_do_not_escape_a_caught_panic() {
     for (body, valid) in [
         ("await produce(&value);", true),
-        ("let _ = catch { await produce(&value); };", false),
+        ("_ = catch { await produce(&value); };", false),
     ] {
         let source = format!(
             r#"
@@ -3373,7 +3373,7 @@ fn deferred_completion_guarantees_do_not_escape_a_caught_panic() {
 fn failing_cleanup_does_not_publish_normal_completion_guarantees_to_a_catch() {
     for (body, valid) in [
         ("{ let value = Producer {}; };", true),
-        ("let _ = catch { let value = Producer {}; };", false),
+        ("_ = catch { let value = Producer {}; };", false),
     ] {
         let source = format!(
             r#"
@@ -3408,7 +3408,7 @@ fn failing_cleanup_does_not_publish_normal_completion_guarantees_to_a_catch() {
 fn failing_scoped_exit_does_not_publish_guarantees_to_a_catch() {
     for (body, valid) in [
         ("with lease = resource {};", true),
-        ("let _ = catch { with lease = resource {}; };", false),
+        ("_ = catch { with lease = resource {}; };", false),
     ] {
         let source = format!(
             r#"
@@ -3540,7 +3540,7 @@ fn slice_descriptor_preservation_does_not_preserve_element_authority() {
 fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacement() {
     for (body, valid) in [
         (
-            "let count = slice.length(); let mut index: usize = 0; while index < count { slice[index] = 1; let _ = slice[index]; index += 1; }",
+            "let count = slice.length(); let mut index: usize = 0; while index < count { slice[index] = 1; _ = slice[index]; index += 1; }",
             true,
         ),
         (
@@ -3641,7 +3641,7 @@ fn nested_slice_bounds_require_descriptor_storage_separation() {
                 let mut index: usize = 0;
                 while index < count {{
                     holder.values[index] = 1;
-                    let _ = holder.values[index];
+                    _ = holder.values[index];
                     index += 1;
                 }}
             }}

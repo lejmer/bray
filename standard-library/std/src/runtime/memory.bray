@@ -35,7 +35,7 @@ trusted internal func try_allocate(pos bytes: usize, pos align: usize) -> DataPo
 
 trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos align: usize) -> unit
 {
-    let _: usize = bytes;
+    _ = bytes;
 
     assert(
         !std.memory.is_null<u8>(pointer) && align != 0 && align & (align - 1) == 0,

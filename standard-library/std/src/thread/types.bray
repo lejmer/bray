@@ -126,7 +126,7 @@ internal struct NativeThreadStart<State, T>
     {
         if !std.memory.is_null<TransferredThreadValue<ThreadStart<State, T>>>(self.work)
         {
-            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+            _ = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
         }
     }
 }
@@ -140,14 +140,12 @@ internal struct ThreadConstruction<State, T>
     {
         if !std.memory.is_null<TransferredThreadValue<NativeThreadStart<State, T>>>(self.native)
         {
-            let _: NativeThreadStart<State, T> = trusted internal take_transferred_value<NativeThreadStart<State, T>>(
-                self.native
-            );
+            _ = trusted internal take_transferred_value<NativeThreadStart<State, T>>(self.native);
         }
 
         if !std.memory.is_null<TransferredThreadValue<ThreadStorage<T>>>(self.storage)
         {
-            let _: ThreadStorage<T> = trusted internal take_transferred_value<ThreadStorage<T>>(self.storage);
+            _ = trusted internal take_transferred_value<ThreadStorage<T>>(self.storage);
         }
     }
 }
@@ -207,13 +205,13 @@ struct Thread<T>
             {
                 case RunResult.Completed(value)
                 {
-                    let _: T = value;
+                    _ = value;
                 }
                 case RunResult.Cancelled {}
                 case RunResult.Panicked(report)
                 {
                     let panicked: RunResult<T> = .Panicked(report);
-                    let _: T = try panicked;
+                    _ = try panicked;
                 }
             }
         }

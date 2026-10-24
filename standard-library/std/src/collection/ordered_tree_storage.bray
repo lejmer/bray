@@ -319,7 +319,7 @@ trusted internal func ordered_tree_clear_storage<Item>(
 
             if occupied
             {
-                let _: Item = trusted internal std.collection.slot.take<Item>(items, index = index);
+                _ = trusted internal std.collection.slot.take<Item>(items, index = index);
             }
 
             let entries: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(nodes);

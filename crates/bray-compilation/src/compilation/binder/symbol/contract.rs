@@ -1551,7 +1551,7 @@ mod tests {
                 )
                     {declaration}
                 {{
-                    let _: u32 = trusted entry();
+                    _ = trusted entry();
                 }}
                 "#
             ));

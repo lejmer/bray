@@ -297,7 +297,7 @@ trusted internal func compose(
 
             if disposition != 0
             {
-                trusted bray.runtime.bootstrap.activation.abandon(attached);
+                _ = trusted bray.runtime.bootstrap.activation.abandon(attached);
             }
         }
     };

@@ -114,7 +114,7 @@ struct OrderedSet<Value>
             value = value,
         };
 
-        let _: usize = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
+        _ = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
 
         return Ok(true);
     }
@@ -161,7 +161,7 @@ struct OrderedSet<Value>
             value = value,
         };
 
-        let _: usize = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
+        _ = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
 
         return Ok(none);
     }

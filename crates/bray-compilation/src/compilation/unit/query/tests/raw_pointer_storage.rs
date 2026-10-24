@@ -207,14 +207,14 @@ fn terminal_destructor_rejects_protected_payload_initialization() {
 
             trusted destruct()
             {
-                let _: &mut Child = std.memory.uninit_write<Child>(
+                _ = std.memory.uninit_write<Child>(
                     &mut self.slot,
                     Child
                     {
                     }
                 );
 
-                let _: Child = trusted std.memory.move_initialized<Child>(&mut self.slot);
+                _ = trusted std.memory.move_initialized<Child>(&mut self.slot);
             }
         }
         "#,

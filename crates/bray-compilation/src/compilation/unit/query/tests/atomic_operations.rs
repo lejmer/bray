@@ -304,7 +304,7 @@ fn atomic_value_initialization_is_pure_but_observation_and_mutation_are_not() {
     for (operation, valid) in [
         ("return core.atomic.initialize<u32>(7);", true),
         (
-            "let _: u32 = core.atomic.load<u32, 0>(existing); return core.atomic.initialize<u32>(7);",
+            "_ = core.atomic.load<u32, 0>(existing); return core.atomic.initialize<u32>(7);",
             false,
         ),
         (

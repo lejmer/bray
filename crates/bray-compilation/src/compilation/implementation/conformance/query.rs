@@ -1538,13 +1538,13 @@ mod tests {
         ] {
             for execution in ["", "async "] {
                 let raw = if provided.contains("raw_memory") {
-                    "let _: i32 = trusted core.memory.read<i32>(pointer);"
+                    "_ = trusted core.memory.read<i32>(pointer);"
                 } else {
                     ""
                 };
 
                 let initialization = if provided.contains("unchecked_init") {
-                    "let _: i32 = trusted core.memory.move_initialized<i32>(storage);"
+                    "_ = trusted core.memory.move_initialized<i32>(storage);"
                 } else {
                     ""
                 };

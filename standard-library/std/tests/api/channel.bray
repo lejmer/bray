@@ -13,7 +13,7 @@ internal struct ChannelCleanupProbe
 
     finalize()
     {
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&CHANNEL_CLEANUP_COUNT, 1);
+        _ = core.atomic.fetch_add<u32, 3>(&CHANNEL_CLEANUP_COUNT, 1);
     }
 
     destruct() {}

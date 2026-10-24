@@ -70,8 +70,8 @@ internal async func cross_reusable_barrier(
 
     while remaining > 0
     {
-        let _: std.sync.BarrierWait = barrier.wait();
-        let _: u32 = crossings.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+        _ = barrier.wait();
+        _ = crossings.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 
         remaining -= 1;
         await std.task.yield_now();
@@ -148,7 +148,7 @@ func concurrency_model_failed_once_initialization_can_be_retried()
 {
     let once: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
-    let _: i32 = std.testing.assert_error< &i32, i32>(once.get_or_try_init<i32>(failed_initialization));
+    _ = std.testing.assert_error< &i32, i32>(once.get_or_try_init<i32>(failed_initialization));
 
     assert(once.get_or_init(initialized_value) == 37);
 }
@@ -202,10 +202,10 @@ async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progre
 
     let panicked: Task<unit> = panic_while_holding_mutex(&counter).start();
 
-    let _: PanicReport = std.testing.assert_panicked<unit>(await panicked.join());
+    _ = std.testing.assert_panicked<unit>(await panicked.join());
 
     {
-        let _: std.sync.MutexGuard<u32> = std.testing.assert_present<std.sync.MutexGuard<u32>>(counter.try_lock());
+        _ = std.testing.assert_present<std.sync.MutexGuard<u32>>(counter.try_lock());
     }
 
     let mut acquired: std.sync.MutexGuard<u32> = std.testing.assert_present<std.sync.MutexGuard<u32>>(
@@ -277,12 +277,12 @@ internal func catch_once_reentry() -> i32
 {
     let caught: Result<unit, PanicReport> = catch
     {
-        let _: &i32 = REENTERED_ONCE.get_or_init(initialized_value);
+        _ = REENTERED_ONCE.get_or_init(initialized_value);
 
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     return 99;
 }
@@ -292,12 +292,12 @@ func once_caught_reentry_rejects_publication_and_allows_retry()
 {
     let caught: Result<unit, PanicReport> = catch
     {
-        let _: &i32 = REENTERED_ONCE.get_or_init(catch_once_reentry);
+        _ = REENTERED_ONCE.get_or_init(catch_once_reentry);
 
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(REENTERED_ONCE.get_or_init(initialized_value) == 37);
 }

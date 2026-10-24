@@ -8,6 +8,29 @@ use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
 #[test]
+fn formats_discard_shorthand_and_preserves_its_comments() {
+    let output = formatted(
+        "module app;func main(){_=first();_/* reason */=trusted second();let _:i32=third();}",
+    );
+
+    assert!(output.text().contains("_ = first();"), "{}", output.text());
+
+    assert!(
+        output.text().contains("_ /* reason */ = trusted second();"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains("let _: i32 = third();"),
+        "{}",
+        output.text()
+    );
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
 fn formats_byte_literals_without_changing_their_spelling() {
     let output = formatted(r#"module app;func main(){let data:bytes=b"é\xFF\0";}"#);
 

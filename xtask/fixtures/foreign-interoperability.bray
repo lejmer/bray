@@ -148,7 +148,7 @@ struct NativeResource
     {
         if self.is_owned_value
         {
-            let _: i32 = trusted native_resource_release(self.handle_value, fail = false);
+            _ = trusted native_resource_release(self.handle_value, fail = false);
         }
     }
 
@@ -409,7 +409,7 @@ trusted func audit_resources()
 
         assert(trusted native_resource_live_count() == 2);
 
-        let _: NativeResourceError = std.testing.assert_error<unit, NativeResourceError>(
+        _ = std.testing.assert_error<unit, NativeResourceError>(
             trusted failed.close(fail = true),
         );
 
@@ -479,7 +479,7 @@ trusted func audit_dynamic_library()
             trusted library.symbol<NativeRecordTransform>(&name[..]),
         );
 
-        let _: &std.dynamic.DynamicLibrary = symbol.library();
+        _ = symbol.library();
     }
 
     {
@@ -580,7 +580,7 @@ trusted func audit_requirements()
 
         yield value;
     };
-    let _: PanicReport = std.testing.assert_error<i32, PanicReport>(failed);
+    _ = std.testing.assert_error<i32, PanicReport>(failed);
 
     assert(trusted native_requirement_entries() == 0);
     assert(trusted native_resource_live_count() == 0);
@@ -601,7 +601,7 @@ trusted func audit_requirements()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(failed_transfer);
+    _ = std.testing.assert_error<unit, PanicReport>(failed_transfer);
 
     assert(trusted native_resource_release_calls() == transfer_release_count + 1);
 
@@ -614,7 +614,7 @@ trusted func audit_requirements()
         yield trusted callback(runtime_integer(0));
     };
 
-    let _: PanicReport = std.testing.assert_error<i32, PanicReport>(indirect);
+    _ = std.testing.assert_error<i32, PanicReport>(indirect);
 
     assert(trusted native_requirement_entries() == 1);
     assert(trusted callback(runtime_integer(9)) == 9);
@@ -634,7 +634,7 @@ trusted func audit_requirements()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(reversed);
+    _ = std.testing.assert_error<unit, PanicReport>(reversed);
 
     require_quotient(
         runtime_unsigned(std.numeric.U64_MAX),
@@ -740,7 +740,7 @@ trusted func audit_requirement_scopes()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(entry);
+    _ = std.testing.assert_error<unit, PanicReport>(entry);
 
     assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
 
@@ -754,7 +754,7 @@ trusted func audit_requirement_scopes()
         };
     };
 
-    let _: PanicReport = std.testing.assert_error<NativeResource, PanicReport>(exit_failure);
+    _ = std.testing.assert_error<NativeResource, PanicReport>(exit_failure);
 
     assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
     assert(trusted native_resource_live_count() == 0);
@@ -770,7 +770,7 @@ trusted func audit_requirement_scopes()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(receiver);
+    _ = std.testing.assert_error<unit, PanicReport>(receiver);
 
     assert(core.atomic.load<usize, 1>(&REQUIREMENT_CALLS) == 0);
     accepted.selected();
@@ -846,7 +846,7 @@ func audit_operator_requirements()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(rejected);
+    _ = std.testing.assert_error<unit, PanicReport>(rejected);
 }
 
 
@@ -946,7 +946,7 @@ trusted func audit_predicate_computation()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(rejected);
+    _ = std.testing.assert_error<unit, PanicReport>(rejected);
 }
 
 
@@ -989,35 +989,35 @@ trusted func reject_numeric_domain(pos bits: u64)
         yield std.numeric.truncate_to<i8>(value);
     };
 
-    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(direct);
+    _ = std.testing.assert_error<i8, PanicReport>(direct);
 
     let indirect: Result<i8, PanicReport> = catch
     {
         yield selected(value);
     };
 
-    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(indirect);
+    _ = std.testing.assert_error<i8, PanicReport>(indirect);
 
     let generic: Result<i8, PanicReport> = catch
     {
         yield truncate<i8, r64>(value);
     };
 
-    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(generic);
+    _ = std.testing.assert_error<i8, PanicReport>(generic);
 
     let generic_indirect: Result<i8, PanicReport> = catch
     {
         yield truncate_indirect<i8, r64>(value);
     };
 
-    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(generic_indirect);
+    _ = std.testing.assert_error<i8, PanicReport>(generic_indirect);
 
     let unsigned: Result<u8, PanicReport> = catch
     {
         yield std.numeric.truncate_to<u8>(value);
     };
 
-    let _: PanicReport = std.testing.assert_error<u8, PanicReport>(unsigned);
+    _ = std.testing.assert_error<u8, PanicReport>(unsigned);
 }
 
 func runtime_single(pos value: r32) -> r32
@@ -1089,5 +1089,5 @@ trusted func audit_numeric_truncation()
         yield selected(upper);
     };
 
-    let _: PanicReport = std.testing.assert_error<i8, PanicReport>(rejected);
+    _ = std.testing.assert_error<i8, PanicReport>(rejected);
 }

@@ -21,7 +21,7 @@ trusted internal func platform_wait_word_for(
         nanoseconds = ((timeout_milliseconds % 1_000) as i64) * 1_000_000,
     };
 
-    let _: isize = trusted std.os.linux.syscall(
+    _ = trusted std.os.linux.syscall(
         std.os.linux.SYS_FUTEX,
         address,
         std.os.linux.FUTEX_WAIT_PRIVATE,

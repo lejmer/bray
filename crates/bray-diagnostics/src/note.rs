@@ -99,6 +99,8 @@ pub enum DiagnosticNoteKind {
     GenericApplicationRequiresDeclaredName,
     /// Type-inference recovery guidance.
     TypeInferenceNeedsConstraint,
+    /// Explicit acknowledgement of an intentionally unused expression result.
+    ExplicitDiscardAcknowledgesResult,
     /// Compile-time expression recovery guidance.
     ConstantExpressionMustBeEvaluable,
     /// Constant-evaluation resource-limit recovery guidance.
@@ -206,6 +208,7 @@ impl DiagnosticNoteKind {
                 "generic_application_requires_declared_name"
             }
             Self::TypeInferenceNeedsConstraint => "type_inference_needs_constraint",
+            Self::ExplicitDiscardAcknowledgesResult => "explicit_discard_acknowledges_result",
             Self::ConstantExpressionMustBeEvaluable => "constant_expression_must_be_evaluable",
             Self::ConstantEvaluationMustFitLimits => "constant_evaluation_must_fit_limits",
             Self::TypeLayoutDirectiveForms => "type_layout_directive_forms",

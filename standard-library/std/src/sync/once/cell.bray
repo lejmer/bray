@@ -81,7 +81,7 @@ struct Once<T>
 
             authorize(pointer);
 
-            let _: T = trusted std.memory.read<T>(pointer);
+            _ = trusted std.memory.read<T>(pointer);
         }
     }
 

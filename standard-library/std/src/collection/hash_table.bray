@@ -196,7 +196,7 @@ trusted internal func hash_table_transfer_at<Item>(
 {
     let hash = trusted hash_table_hash(&source.buckets, index = index);
     let item = trusted hash_table_take<Item>(&mut source, index = index);
-    let _: usize = trusted hash_table_insert_available<Item>(&mut destination, item, hash = hash);
+    _ = trusted hash_table_insert_available<Item>(&mut destination, item, hash = hash);
 }
 
 trusted internal func hash_table_find_hash<Item>(pos table: &HashTable<Item>, pos after: usize?, hash: usize) -> usize?
@@ -399,7 +399,7 @@ trusted internal func hash_table_clear_storage<Item>(
     {
         if trusted hash_table_occupied(&buckets, index = index)
         {
-            let _: Item = trusted hash_table_take_storage<Item>(buckets, items, index = index);
+            _ = trusted hash_table_take_storage<Item>(buckets, items, index = index);
         }
 
         index += 1;

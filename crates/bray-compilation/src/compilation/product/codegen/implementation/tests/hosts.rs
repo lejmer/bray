@@ -297,21 +297,21 @@ fn direct_checked_calls_forward_outcomes_without_copying_reports() {
 
             func void_result(pos value: i32)
             {
-                checked(value);
-                checked(value);
+                _ = checked(value);
+                _ = checked(value);
             }
 
             func scalar_result(pos value: i32) -> i32
             {
-                checked(value);
+                _ = checked(value);
 
                 return checked(value);
             }
 
             func indirect_result(pos value: i32) -> [i32; 8]
             {
-                checked(value);
-                checked(value);
+                _ = checked(value);
+                _ = checked(value);
 
                 return [value; 8];
             }

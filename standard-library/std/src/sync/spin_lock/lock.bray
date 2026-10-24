@@ -62,7 +62,7 @@ struct SpinLock<T>
 
         initialized(&state.value);
 
-        let _: T = trusted std.memory.assume_initialized<T>(state.value);
+        _ = trusted std.memory.assume_initialized<T>(state.value);
     }
 
     trusted func lock() -> SpinLockGuard<T>

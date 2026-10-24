@@ -41,7 +41,7 @@ struct Deque<T>
                 logical_index = remaining,
             );
 
-            let _: T = trusted internal std.collection.slot.take<T>(&mut storage, index = index);
+            _ = trusted internal std.collection.slot.take<T>(&mut storage, index = index);
         }
     }
 
@@ -218,7 +218,7 @@ struct Deque<T>
     {
         while self.count > 0
         {
-            let _: T = trusted take_deque_back<T>(&mut self);
+            _ = trusted take_deque_back<T>(&mut self);
         }
     }
 }

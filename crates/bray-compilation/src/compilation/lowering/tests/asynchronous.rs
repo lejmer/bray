@@ -181,7 +181,7 @@ func take(pos value: Guard) {}
 async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: Future<i32>)
 {
     take(values[index][0]);
-    let _ = await pending;
+    _ = await pending;
 }
 "#,
     );

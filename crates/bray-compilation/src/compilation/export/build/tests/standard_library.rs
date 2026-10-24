@@ -97,7 +97,7 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
     for (initialized, access) in [
         (
             1,
-            "let _ = trusted std.memory.initialized_slice<u8>(&buffer);",
+            "_ = trusted std.memory.initialized_slice<u8>(&buffer);",
         ),
         (
             0,
@@ -377,7 +377,7 @@ func conflict<S>(pos pair: &mut Pair<S>)
 
     pair.sink.write(pending);
 
-    let _: &mut [u8] = replacement;
+    _ = replacement;
 }
     "#;
 
@@ -874,7 +874,7 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
                 let pointer: DataPointer<u8> = trusted native_directory(destination, capacity);
                 {guard}
 
-                let _: DataPointer<u8> = trusted preserve_text(pointer);
+                _ = trusted preserve_text(pointer);
             }}
         "#
         );
@@ -976,7 +976,7 @@ using std.numeric;
 {}
 {}
 {}
-trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_text_cursor_entry(&cursor); }}"#,
+trusted internal func observe_cursor() {{ BODY _ = trusted internal native_text_cursor_entry(&cursor); }}"#,
         section(
             unix,
             "internal struct NativeTextCursor",
@@ -1034,7 +1034,7 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
     windows_native.push('}');
 
     let mut windows_platform = format!(
-        "trusted internal module std.platform; using core.memory; using std.memory; using std.numeric; using std.os.windows; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_environment_entry(&owner); }}",
+        "trusted internal module std.platform; using core.memory; using std.memory; using std.numeric; using std.os.windows; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY _ = trusted internal native_environment_entry(&owner); }}",
         section(
             representation,
             "@copy\n@layout(c)\ninternal struct PlatformStatus",
@@ -1115,7 +1115,7 @@ trusted internal func observe_cursor() {{ BODY let _ = trusted internal native_t
             &windows_native,
             &windows_platform,
             [
-                "{ let arguments: LocalAllocation = trusted internal native_arguments(); if arguments.count > 0 { let _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = trusted internal native_environment();",
+                "{ let arguments: LocalAllocation = trusted internal native_arguments(); if arguments.count > 0 { _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = trusted internal native_environment();",
                 "let original = trusted internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
                 "let owner: EnvironmentBlock = { identity = NativeTextOwner {}, pointer = std.memory.null<u16>(), current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
             ],
@@ -1530,12 +1530,12 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         trusted internal func read_after_pointer_and_scalar_calculations(pos bytes: &[u8]) -> u8 uses(raw_memory) {
             if !(1 <= bytes.length()) { panic("source empty"); }
             let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = 1);
-            let _: DataPointer<u8> = offset(byte_pointer, elements = 1);
-            let _: DataPointer<u8> = byte_offset(byte_pointer, bytes = 1);
-            let _: bool = is_null(null<u8>());
-            let _: usize = size_of<u32>();
-            let _: usize = align_of<u32>();
-            let _: u32 = std.numeric.truncate_to<u32>(bytes.length());
+            _ = offset(byte_pointer, elements = 1);
+            _ = byte_offset(byte_pointer, bytes = 1);
+            _ = is_null(null<u8>());
+            _ = size_of<u32>();
+            _ = align_of<u32>();
+            _ = std.numeric.truncate_to<u32>(bytes.length());
             return trusted internal byte_buffer_read(byte_pointer, index = 0);
         }
 
@@ -1545,7 +1545,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
             let mut index: usize = 0;
 
             while index < count && index != std.numeric.USIZE_MAX {
-                let _: u8 = trusted internal byte_buffer_read(byte_pointer, index = index);
+                _ = trusted internal byte_buffer_read(byte_pointer, index = index);
                 index += 1;
             }
         }
@@ -1629,7 +1629,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
 
             while index < count && index != std.numeric.USIZE_MAX {
                 index = count;
-                let _: u8 = trusted internal byte_buffer_read(byte_pointer, index = index);
+                _ = trusted internal byte_buffer_read(byte_pointer, index = index);
             }
         }
         "#,
@@ -1753,7 +1753,7 @@ fn copying_raw_reads_preserve_initialization() {
                 let value: i32 = 7;
                 let pointer: DataPointer<i32> = std.memory.address_of<i32>(&value);
                 let first: i32 = trusted std.memory.read<i32>(pointer);
-                let _: u32 = core.atomic.load<u32, 0>(&state);
+                _ = core.atomic.load<u32, 0>(&state);
                 let second: i32 = trusted std.memory.read<i32>(pointer);
 
                 return first + second;
@@ -1905,7 +1905,7 @@ func duplicate()
     let first = trusted std.memory.allocate(std.memory.MemoryLayout {{ bytes = 8, align = 8 }});
     let resource: Resource = {{ pointer = first.pointer, bytes = first.bytes, align = first.align }};
 
-    with lease = resource {{ let _ = lease; }};
+    with lease = resource {{ _ = lease; }};
 }}
 "#
         );
@@ -3400,7 +3400,7 @@ using std.memory.function;
                         )
                     );
 
-                    let _ = trusted std.os.{system}.pthread_create(
+                    _ = trusted std.os.{system}.pthread_create(
                         output,
                         attributes = std.memory.null<std.os.{system}.PThreadAttribute>(),
                         entry = native_entry,
@@ -3567,7 +3567,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
                     storage = std.memory.uninit<std.sync.spin_lock.State<u32>>(),
                 },
             };
-            let _ = owner.lock();
+            _ = owner.lock();
         }
         func fabricated_owner() {
             let owner: std.sync.SpinLock<u32> = {
@@ -3576,19 +3576,19 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
                     storage = std.memory.uninit<std.sync.spin_lock.State<u32>>(),
                 },
             };
-            let _ = owner.lock();
+            _ = owner.lock();
         }
         func fabricated_guard() {
             let owner = std.sync.SpinLock<u32>(7);
             let mut guard: std.sync.SpinLockGuard<u32> = {
                 lock = &owner, acquisition = std.sync.spin_lock.Marker {},
             };
-            let _ = guard.get();
+            _ = guard.get();
         }
         func replaced_storage() {
             let mut owner = std.sync.SpinLock<u32>(7);
             owner.prepared.storage = std.memory.uninit<std.sync.spin_lock.State<u32>>();
-            let _ = owner.lock();
+            _ = owner.lock();
         }
     "#;
 

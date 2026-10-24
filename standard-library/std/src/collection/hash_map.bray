@@ -153,7 +153,7 @@ struct HashMap<Key, Value>
             value = value,
         };
 
-        let _: usize = trusted hash_table_insert_available<MapItem<Key, Value>>(&mut self.table, item, hash = hash);
+        _ = trusted hash_table_insert_available<MapItem<Key, Value>>(&mut self.table, item, hash = hash);
 
         return Ok(none);
     }

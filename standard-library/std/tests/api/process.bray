@@ -10,8 +10,8 @@ using std.process.current_environment_value;
 @test
 func process_context_accessors_observe_one_snapshot()
 {
-    let _: std.process.Id = std.process.current_id();
-    let _: std.path.Path = std.process.current_directory();
+    _ = std.process.current_id();
+    _ = std.process.current_directory();
     let arguments: std.process.Arguments = std.process.arguments();
     let argument_count: usize = arguments.length();
 
@@ -19,7 +19,7 @@ func process_context_accessors_observe_one_snapshot()
 
     if argument_count > 0
     {
-        let _: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(arguments.value_at(0));
+        _ = std.testing.assert_present<std.path.NativeText>(arguments.value_at(0));
     }
 
     let environment: std.process.Environment = std.process.environment();
@@ -32,7 +32,7 @@ func process_context_accessors_observe_one_snapshot()
         let first_entry: std.process.EnvironmentEntry? = environment.entry_at(0);
 
         let entry: std.process.EnvironmentEntry = std.testing.assert_present<std.process.EnvironmentEntry>(first_entry);
-        let _: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(environment.value(&entry.key));
+        _ = std.testing.assert_present<std.path.NativeText>(environment.value(&entry.key));
     }
 }
 

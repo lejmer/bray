@@ -187,7 +187,7 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
         "@abi(c)\n",
         "trusted internal func attachment_identity(pos descriptor: DataPointer<u8>) -> u64\n",
         "{\n",
-        "    let _: DataPointer<u8> = descriptor;\n",
+        "    _ = descriptor;\n",
         "    return 7;\n",
         "}\n",
     );
@@ -240,7 +240,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
             trusted module app;
             @abi(c)
             trusted internal func register(pos callback: DataPointer<u8>) -> u32
-            {{ let _ = callback; {body} }}
+            {{ _ = callback; {body} }}
         "#
             );
 
@@ -314,7 +314,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
         trusted module app;
         @abi(c)
         trusted internal func register(pos callback: DataPointer<u8>) -> u32 {
-            let _ = callback;
+            _ = callback;
             let outcome: RunResult<unit> = Cancelled;
             try outcome;
             return 0;
@@ -371,10 +371,10 @@ internal static STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 @abi(c)
 trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
 {
-    let _: usize = timer_capacity;
+    _ = timer_capacity;
     if worker_capacity == 0
     {
-        let _: u32 = core.atomic.load<u32, 1>(&STATE);
+        _ = core.atomic.load<u32, 1>(&STATE);
     }
     return core.atomic.load<u32, 1>(&STATE);
 }
@@ -1131,10 +1131,10 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         trusted internal func invoke(pos callback: DataPointer<u8>, pos context: usize,
             pos main: u32, pos outcome: DataPointer<u8>) -> u32
             requires(trusted native_entry()) {
-            let _ = callback;
-            let _ = context;
-            let _ = main;
-            let _ = outcome;
+            _ = callback;
+            _ = context;
+            _ = main;
+            _ = outcome;
             panic("entry cleanup");
         }
     "#;

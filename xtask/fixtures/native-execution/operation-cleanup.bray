@@ -72,7 +72,7 @@ impl SourceConversion = Source(ConvertTo<Target>)
         {
         };
 
-        let _ = with lease = resource
+        _ = with lease = resource
         {
             return Target
             {
@@ -133,7 +133,7 @@ func default_value() -> usize
     {
     };
 
-    let _ = with lease = resource
+    _ = with lease = resource
     {
         return 619;
     };
@@ -153,7 +153,7 @@ struct Constructed
         {
         };
 
-        let _ = with lease = resource
+        _ = with lease = resource
         {
             return
             {
@@ -198,7 +198,7 @@ impl ElementAccess = Indexed(ElementIndex<usize>)
         {
         };
 
-        let _ = with lease = resource
+        _ = with lease = resource
         {
             return &self.value;
         };
@@ -217,7 +217,7 @@ impl SliceAccess = Indexed(SliceIndex<usize>)
         {
         };
 
-        let _ = with lease = resource
+        _ = with lease = resource
         {
             return &self.value;
         };
@@ -290,7 +290,7 @@ func main() -> i32
     let empty_targets = empty as[Target; 0];
 
     {
-        let _ = catch
+        _ = catch
         {
             let pair = (
                 Source
@@ -366,7 +366,7 @@ func main() -> i32
     assert(core.atomic.load<usize, 1>(&INCIDENTS) == 17, "operation composition lost a retained exit report");
 
     {
-        let _ = catch
+        _ = catch
         {
             let values = (
                 Source
@@ -390,7 +390,7 @@ func main() -> i32
     assert_cleanup_counts(9, 8, 18);
 
     {
-        let _ = catch
+        _ = catch
         {
             let values = [
                 Source
@@ -414,7 +414,7 @@ func main() -> i32
     assert_cleanup_counts(12, 9, 19);
 
     {
-        let _ = catch
+        _ = catch
         {
             let present: Source? = Source
             {

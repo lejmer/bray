@@ -2719,7 +2719,7 @@ fn barrier_preserves_its_nested_mutex_authority() {
         using std.sync;
         func caller() requires(blocking_execution()) {
             match consume std.sync.Barrier(participants = 1) {
-                case Ok(barrier) { let _ = barrier.wait(); }
+                case Ok(barrier) { _ = barrier.wait(); }
                 case Error(_) {}
             }
         }
@@ -3117,8 +3117,8 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         func genuine() -> Result<unit, std.channel.ChannelError> {
             let (sender, receiver) = try std.channel.bounded<u32>(capacity = 2);
             let duplicate = sender.duplicate();
-            let _ = duplicate.try_send(7);
-            let _ = receiver.try_receive();
+            _ = duplicate.try_send(7);
+            _ = receiver.try_receive();
             duplicate.close();
             receiver.close();
             sender.close();
@@ -3128,7 +3128,7 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
             let sender: std.channel.Sender<u32> = {
                 owner = { instance = std.channel.owner.Marker {}, core = pointer },
             };
-            let _ = sender.try_send(1);
+            _ = sender.try_send(1);
         }
         func expose_protocol(pos sender: &std.channel.Sender<u32>)
             requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance)) {
@@ -3137,7 +3137,7 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         func change_kind(pos sender: std.channel.Sender<u32>)
             requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance)) {
             let receiver: std.channel.Receiver<u32> = { owner = sender.owner };
-            let _ = receiver.try_receive();
+            _ = receiver.try_receive();
         }
         "#,
     );
@@ -3420,7 +3420,7 @@ fn nullable_propagation_keeps_only_the_successful_carriers_authority() {
 fn loop_cleanup_keeps_independent_complete_carriers() {
     for operation in [
         "opaque();",
-        "let _: T = take<T>(&mut pending);",
+        "_ = take<T>(&mut pending);",
         "await suspend();",
     ] {
         let application = compilation(&format!(
@@ -3498,7 +3498,7 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
         "payload.inner.change();",
         "touch<Payload<T>>(payload);",
         "opaque();",
-        "let _: T = take<T>(&mut pending);",
+        "_ = take<T>(&mut pending);",
         "await suspend();",
     ] {
         let application = production_sync_compilation(&format!(
@@ -3754,8 +3754,8 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         static ONCE: std.sync.Once<u32> = { prepared = std.sync.Once<u32>.prepare() };
         func initialized_value() -> u32 { return 37; }
         func static_once_case() requires(blocking_execution()) {
-            let _ = catch { let _ = ONCE.get_or_init(initialized_value); };
-            let _ = ONCE.get_or_init(initialized_value);
+            _ = catch { _ = ONCE.get_or_init(initialized_value); };
+            _ = ONCE.get_or_init(initialized_value);
         }
         func pair() {
             let (sender, receiver) = std.testing.assert_ok<
@@ -3767,17 +3767,17 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         func barrier_case() requires(blocking_execution()) {
             let barrier = std.testing.assert_ok<std.sync.Barrier, std.sync.BarrierError>(
                 std.sync.Barrier(participants = 1));
-            let _ = barrier.wait();
+            _ = barrier.wait();
         }
         func once_case(pos callback: func() -> u32) requires(blocking_execution()) {
             let once = std.sync.Once<u32>.empty();
-            let _ = once.get_or_init(callback);
+            _ = once.get_or_init(callback);
         }
         async func channel_wait_case() {
             let (sender, receiver) = std.testing.assert_ok<
                 (std.channel.Sender<u32>, std.channel.Receiver<u32>), std.channel.ChannelError
             >(std.channel.bounded<u32>(capacity = 1));
-            let _ = catch { let _ = await sender.send(1); };
+            _ = catch { _ = await sender.send(1); };
         }
         func completed_file_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
             requires(blocking_execution()) {
@@ -3786,8 +3786,8 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
             let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(
                 std.fs.File.open(path, options = options));
             let mut buffer: bytes<1> = [0];
-            let _ = file.read(&mut buffer[..]);
-            let _ = file.write(&buffer[..]);
+            _ = file.read(&mut buffer[..]);
+            _ = file.write(&buffer[..]);
             std.testing.assert_ok<unit, std.io.IoError>(file.close());
             assert(file.is_complete());
             std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(path));
@@ -4089,7 +4089,7 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             "let task = work(&value).start(); opaque(); value = 1;",
             false,
         ),
-        ("let _ = work(&value).start(); opaque(); value = 1;", false),
+        ("_ = work(&value).start(); opaque(); value = 1;", false),
         (
             "let task = work(&value).start(); let moved = task; opaque(); value = 1;",
             false,
@@ -4160,13 +4160,13 @@ fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication()
             "SpinLock",
             "std.sync.SpinLock<u32>.prepare(7)",
             "spin_lock",
-            "let _ = moved.lock();",
+            "_ = moved.lock();",
         ),
         (
             "Once",
             "std.sync.Once<u32>.prepare()",
             "once",
-            "let _ = moved.get_or_init(callback);",
+            "_ = moved.get_or_init(callback);",
         ),
     ] {
         let replacement =

@@ -303,8 +303,8 @@ trusted func socket_pair() -> (i32, [i32; 2])
         let error_location: DataPointer<i32> = trusted std.os.darwin.error_location();
         let error: i32 = trusted internal std.platform.read_native_i32(error_location);
 
-        let _: i32 = trusted std.os.darwin.close(first);
-        let _: i32 = trusted std.os.darwin.close(second);
+        _ = trusted std.os.darwin.close(first);
+        _ = trusted std.os.darwin.close(second);
 
         let restored_error_location: DataPointer<i32> = trusted std.os.darwin.error_location();
 

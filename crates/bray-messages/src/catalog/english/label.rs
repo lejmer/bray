@@ -255,6 +255,11 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::SelectionFailure => MessageTemplate::new(SELECTION_FAILURE),
         DiagnosticLabelKind::TraitFulfillment => MessageTemplate::new(TRAIT_FULFILLMENT),
+        DiagnosticLabelKind::IgnoredExpressionResult => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this expression produces an unused value",
+            )])
+        }
         DiagnosticLabelKind::UnconstrainedExpression => {
             MessageTemplate::new(UNCONSTRAINED_EXPRESSION)
         }

@@ -1495,7 +1495,7 @@ fn generic_nullable_requirements_keep_instantiated_literal_types() {
         {
             if value matches ?_
             {
-                let _ = accepted<u8>(value);
+                _ = accepted<u8>(value);
             }
         }
     "#;
@@ -1518,7 +1518,7 @@ fn generic_nullable_requirements_keep_instantiated_literal_types() {
         {
             if value matches ?_
             {
-                let _ = example.package.api.accepted<u8>(value);
+                _ = example.package.api.accepted<u8>(value);
             }
         }
     "#,
@@ -1544,7 +1544,7 @@ fn staged_reborrows_follow_source_and_imported_result_contracts() {
         (
             "DataPointer<Value>",
             "core.memory.address_of_mut<Value>(value)",
-            "let left = selected(value); value.state = 1; let right = selected(value); let _ = (left, right);",
+            "let left = selected(value); value.state = 1; let right = selected(value); _ = (left, right);",
             true,
         ),
     ] {

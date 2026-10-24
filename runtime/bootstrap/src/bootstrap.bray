@@ -70,7 +70,7 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 
     if initialized != STATUS_SUCCESS && !existing_host
     {
-        let _: u32 = trusted bray.runtime.bootstrap.host.shutdown_host();
+        _ = trusted bray.runtime.bootstrap.host.shutdown_host();
     }
 
     return initialized;

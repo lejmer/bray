@@ -21,6 +21,9 @@ pub(crate) const fn template(kind: DiagnosticSuggestionKind) -> MessageTemplate 
         DiagnosticSuggestionKind::ReplaceWithLineFeed => REPLACE_WITH_LINE_FEED,
         DiagnosticSuggestionKind::AddTerminator => ADD_TERMINATOR,
         DiagnosticSuggestionKind::FormatSource => FORMAT_SOURCE,
+        DiagnosticSuggestionKind::ExplicitlyDiscardResult => &[MessageTemplatePart::Text(
+            "explicitly discard this expression result",
+        )],
     };
 
     MessageTemplate::new(parts)

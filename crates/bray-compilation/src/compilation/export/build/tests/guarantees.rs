@@ -1356,11 +1356,11 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
 
     for (body, valid) in [
         (
-            "let value = example.package.api.create(); let _ = example.package.api.observe(&value);",
+            "let value = example.package.api.create(); _ = example.package.api.observe(&value);",
             true,
         ),
         (
-            "let value: Result<u32, u32> = Error(7); let _ = example.package.api.observe(&value);",
+            "let value: Result<u32, u32> = Error(7); _ = example.package.api.observe(&value);",
             false,
         ),
     ] {

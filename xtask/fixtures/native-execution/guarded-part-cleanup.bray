@@ -94,7 +94,7 @@ impl InlineStorage<T>(Storage<T>)
         core.atomic.store<usize, 4>(&CONSTRUCTION_OPTIONS, previous + options);
 
         let mut storage: Uninit<T> = core.memory.uninit<T>();
-        let _: &mut T = core.memory.uninit_write<T>(&mut storage, value);
+        _ = core.memory.uninit_write<T>(&mut storage, value);
 
         return
         {

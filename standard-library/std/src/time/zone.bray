@@ -61,7 +61,7 @@ struct TimeZone
     trusted destruct()
         uses(foreign_call)
     {
-        let _: std.platform.PlatformStatus = trusted platform_time_zone_close(self.state.handle);
+        _ = trusted platform_time_zone_close(self.state.handle);
     }
 
     func name() -> string
@@ -240,7 +240,7 @@ trusted internal func zone_from_owned_handle(pos handle: u64) -> Result<TimeZone
         }
         case Error(error)
         {
-            let _: std.platform.PlatformStatus = trusted platform_time_zone_close(handle);
+            _ = trusted platform_time_zone_close(handle);
 
             return Error(error);
         }

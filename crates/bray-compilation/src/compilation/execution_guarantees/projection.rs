@@ -210,7 +210,7 @@ mod tests {
 using core.atomic;
 
  func operation(pos storage: &core.atomic.Atomic<u32>)
-                 executes(total) {{ let _ = {operation}; }}"#
+                 executes(total) {{ _ = {operation}; }}"#
             ));
 
             assert!(
@@ -235,7 +235,7 @@ using core.atomic;
 using core.atomic;
 
  func operation(pos storage: &core.atomic.Atomic<u32>)
-                 requires(blocking_execution()) executes({property}) {{ let _ = {operation}; }}"#
+                 requires(blocking_execution()) executes({property}) {{ _ = {operation}; }}"#
             ));
 
             assert!(

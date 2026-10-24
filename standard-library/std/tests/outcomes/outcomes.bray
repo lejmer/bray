@@ -27,7 +27,7 @@ internal struct PanickingBufferElement
 
     destruct()
     {
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&RAW_BUFFER_CLEANUP_COUNT, 1);
+        _ = core.atomic.fetch_add<u32, 3>(&RAW_BUFFER_CLEANUP_COUNT, 1);
 
         panic("raw buffer element cleanup panic");
     }
@@ -52,14 +52,14 @@ trusted internal func initialized_panicking_buffer() -> std.memory.RawBuffer<Pan
 
 internal func initialize_first_once() -> i32
 {
-    let _: &i32 = SECOND_ONCE.get_or_init(initialize_second_once);
+    _ = SECOND_ONCE.get_or_init(initialize_second_once);
 
     return 1;
 }
 
 internal func initialize_second_once() -> i32
 {
-    let _: &i32 = FIRST_ONCE.get_or_init(initialize_first_once);
+    _ = FIRST_ONCE.get_or_init(initialize_first_once);
 
     return 2;
 }
@@ -74,14 +74,14 @@ func assertion_failure()
 trusted func invalid_allocation_alignment()
     uses(manual_alloc)
 {
-    let _: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 3);
+    _ = trusted core.memory.allocate(bytes = 8, align = 3);
 }
 
 @test
 trusted func allocation_size_overflow()
     uses(manual_alloc)
 {
-    let _: DataPointer<u8> = trusted core.memory.allocate(bytes = ~0, align = 8);
+    _ = trusted core.memory.allocate(bytes = ~0, align = 8);
 }
 
 @test
@@ -137,7 +137,7 @@ trusted func raw_buffer_replace_preserves_destructor_panic()
 @test
 trusted func raw_buffer_implicit_release_preserves_destructor_panic()
 {
-    let _: std.memory.RawBuffer<PanickingBufferElement> = trusted internal initialized_panicking_buffer();
+    _ = trusted internal initialized_panicking_buffer();
 }
 
 @test
@@ -172,7 +172,7 @@ trusted func raw_buffer_release_finishes_each_element_once()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(core.atomic.load<u32, 1>(&RAW_BUFFER_CLEANUP_COUNT) == 2);
     assert(std.memory.initialized_count<PanickingBufferElement>(&buffer) == 0);
@@ -190,19 +190,19 @@ func explicit_failure()
 @test
 func assert_ok_rejects_an_error()
 {
-    let _: unit = std.testing.assert_ok<unit, unit>(Error(unit));
+    _ = std.testing.assert_ok<unit, unit>(Error(unit));
 }
 
 @test
 func assert_error_rejects_success()
 {
-    let _: unit = std.testing.assert_error<unit, unit>(Ok(unit));
+    _ = std.testing.assert_error<unit, unit>(Ok(unit));
 }
 
 @test
 func assert_present_rejects_absence()
 {
-    let _: unit = std.testing.assert_present<unit>(none);
+    _ = std.testing.assert_present<unit>(none);
 }
 
 @test
@@ -216,13 +216,13 @@ func assert_absent_rejects_presence()
 @test
 func assert_completed_rejects_cancellation()
 {
-    let _: unit = std.testing.assert_completed<unit>(RunResult.Cancelled);
+    _ = std.testing.assert_completed<unit>(RunResult.Cancelled);
 }
 
 @test
 func assert_panicked_rejects_completion()
 {
-    let _: PanicReport = std.testing.assert_panicked<unit>(RunResult.Completed(unit));
+    _ = std.testing.assert_panicked<unit>(RunResult.Completed(unit));
 }
 
 @test
@@ -257,7 +257,7 @@ func checked_call_panic_preserves_report()
 @test
 func once_indirect_reentry_panics()
 {
-    let _: &i32 = FIRST_ONCE.get_or_init(initialize_first_once);
+    _ = FIRST_ONCE.get_or_init(initialize_first_once);
 }
 
 @test
@@ -321,7 +321,7 @@ func channel_close_finishes_each_panicking_element_once()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(core.atomic.load<u32, 1>(&RAW_BUFFER_CLEANUP_COUNT) == 3);
     sender.close();

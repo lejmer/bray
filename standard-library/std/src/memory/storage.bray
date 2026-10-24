@@ -28,7 +28,7 @@ trusted func destroy_initialized<T>(pos storage: &mut Uninit<T>) -> unit
     requires(trusted core.memory.uninit_initialized<T>(storage = &storage))
     uses(unchecked_init)
 {
-    let _: T = trusted move_initialized<T>(storage);
+    _ = trusted move_initialized<T>(storage);
 }
 
 extern trusted func borrow_from<T, Owner>(pos owner: &Owner, pos pointer: DataPointer<T>) -> &T
@@ -95,7 +95,7 @@ struct Output<T>
 trusted internal func write_out<T>(pos mut storage: Uninit<T>, pos value: T) -> T
     uses(unchecked_init)
 {
-    let _: &mut T = uninit_write<T>(&mut storage, value);
+    _ = uninit_write<T>(&mut storage, value);
 
     return trusted assume_initialized<T>(storage);
 }

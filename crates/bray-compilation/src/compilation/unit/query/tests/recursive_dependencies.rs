@@ -757,7 +757,7 @@ fn deferred_and_scoped_calls_without_normal_returns_do_not_create_result_origins
         struct Leaving { value: bool; }
         impl Leaving {
             enter() -> &bool { return &self.value; }
-            exit(pos lease: &bool) { let _: &bool = forever(lease); }
+            exit(pos lease: &bool) { _ = forever(lease); }
         }
         func exiting(pos resource: &Leaving) -> &bool {
             return with lease = resource { yield lease; };

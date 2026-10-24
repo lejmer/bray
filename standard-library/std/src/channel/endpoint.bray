@@ -128,7 +128,7 @@ struct Sender<T>
                     }
                     else
                     {
-                        let _: bool = channel.send_waiters.remove(registration.ticket);
+                        _ = channel.send_waiters.remove(registration.ticket);
 
                         yield trusted pending.take();
                     };

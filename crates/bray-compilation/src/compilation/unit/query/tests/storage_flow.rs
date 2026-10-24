@@ -45,7 +45,7 @@ fn normal_reports_follow_calls_and_consumed_futures() {
         }
         Executionfunc collect(pos resource: &Resource) -> Result<unit, Failure>
         {
-            let _ = with lease = resource
+            _ = with lease = resource
             {
                 return Ok(unit);
             };
@@ -53,7 +53,7 @@ fn normal_reports_follow_calls_and_consumed_futures() {
         }
         async func caller(pos resource: &Resource)
         {
-            let _ = Invocation;
+            _ = Invocation;
         }
         "#
         .replace("Execution", execution)
@@ -152,7 +152,7 @@ fn retained_scoped_exit_errors_keep_borrowed_origins_alive() {
         }
         async func caller(pos resource: ResourceInput) -> Result<unit, Failure>
         {
-            let _ = with lease = resource
+            _ = with lease = resource
             {
                 return Ok(unit);
             };
@@ -203,7 +203,7 @@ fn callable_reports_preserve_borrows_absent_from_the_explicit_result_type() {
             func retain(pos input: &bool) -> Result<Value<bool>, Failure>
             {
                 let resource = Resource { value = input };
-                let _ = with lease = resource
+                _ = with lease = resource
                 {
                     return Ok({ values = [true, true] });
                 };
@@ -278,9 +278,9 @@ fn operator_reports_preserve_the_same_operand_borrows_as_method_calls() {
                 let mut first = Value { value = true };
                 let second = Value { value = false };
                 {
-                    let _ = catch
+                    _ = catch
                     {
-                        let _ = Invocation;
+                        _ = Invocation;
                         first.value = false;
                         panic("");
                         yield unit;
@@ -297,9 +297,9 @@ fn operator_reports_preserve_the_same_operand_borrows_as_method_calls() {
                 let mut first = Value { value = true };
                 let second = Value { value = false };
                 {
-                    let _ = catch
+                    _ = catch
                     {
-                        let _ = Invocation;
+                        _ = Invocation;
                         panic("");
                         yield unit;
                     };
@@ -341,7 +341,7 @@ fn operator_reports_preserve_the_same_operand_borrows_as_method_calls() {
             func add(pos rhs: &Value) -> Value
             {
                 let resource = Resource { value = &self.value };
-                let _ = with lease = resource
+                _ = with lease = resource
                 {
                     return Value { value = rhs.value };
                 };
@@ -430,7 +430,7 @@ fn conversion_reports_retain_borrows_across_composite_inputs() {
                 consume func convert() -> Target
                 {
                     let resource = Resource { value = self.value };
-                    let _ = with lease = resource
+                    _ = with lease = resource
                     {
                         return Target { value = self.value };
                     };
@@ -443,7 +443,7 @@ fn conversion_reports_retain_borrows_across_composite_inputs() {
                 let source = Source { value = input };
                 let second = Source { value = input };
                 let present: Source? = Source { value = input };
-                let _ = Invocation;
+                _ = Invocation;
             }
             "#
             .replace("Parameter", parameter)
@@ -519,7 +519,7 @@ fn custom_index_reports_retain_the_selector_borrow() {
         func index(pos selector: &i32) -> &i32
         {
             let resource = Resource { value = selector };
-            let _ = with lease = resource
+            _ = with lease = resource
             {
                 return &self.value;
             };
@@ -1251,7 +1251,7 @@ fn non_cancelling_calls_keep_panicking_reports_inside_the_catch_owner() {
         func collect(pos value: &Value, pos fail: bool)
         {
             let resource = Resource { value = &value.value };
-            let _ = with lease = resource
+            _ = with lease = resource
             {
                 if fail
                 {
@@ -1264,7 +1264,7 @@ fn non_cancelling_calls_keep_panicking_reports_inside_the_catch_owner() {
         {
             let mut value = Value { value = true };
             {
-                let _ = catch
+                _ = catch
                 {
                     collect(&value, true);
                     panic("");

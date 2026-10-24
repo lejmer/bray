@@ -2440,7 +2440,7 @@ fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
                 }}
                 async func caller(pos resource: Resource) -> Result<unit, Failure>
                 {{
-                    let _ = with lease = resource {{ {body} }};
+                    _ = with lease = resource {{ {body} }};
 
                     return Ok(unit);
                 }}
@@ -2496,7 +2496,7 @@ fn scoped_error_quiescence_requires_an_async_caller_even_for_sync_exit() {
         }
         func caller(pos resource: Resource) -> Result<unit, Failure>
         {
-            let _ = with lease = resource { return Ok(unit); };
+            _ = with lease = resource { return Ok(unit); };
 
             return Ok(unit);
         }
@@ -2531,7 +2531,7 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
 
             destruct()
             {
-                let _ = self.marker;
+                _ = self.marker;
             }
         }
 
@@ -2629,7 +2629,7 @@ fn scoped_result_completion_reaches_the_following_return() {
 
                 {execution}func caller() -> usize
                 {{
-                    let _ = with capability = Resource {{}}
+                    _ = with capability = Resource {{}}
                     {{
                         yield unit;
                     }};
@@ -2679,5 +2679,91 @@ fn scoped_result_completion_reaches_the_following_return() {
                 "the checked with result must continue to its following return: {source}"
             );
         }
+    }
+}
+
+#[test]
+fn discard_spellings_preserve_owned_storage_and_lifecycle_requirements() {
+    for prefix in ["let _", "_"] {
+        for (declaration, expected) in [
+            ("struct Value { destruct() {} }", None),
+            (
+                "struct Value { finalize() -> Result<unit, bool> executes(total) { return Error(true); } }",
+                Some(bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization),
+            ),
+            (
+                "struct Value { async finalize() executes(total) {} }",
+                Some(
+                    bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+                ),
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                {declaration}
+                func root(pos value: Value)
+                {{
+                    {prefix} = value;
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let key = source_function_body_key(&compilation, "root");
+            let lowered = compilation.lowered_unit(key.clone()).unwrap();
+
+            match expected {
+                Some(kind) => {
+                    bray_testing::assert_goal_state_diagnostic_kind(lowered.diagnostics(), kind);
+                    assert!(lowered.value().is_none());
+                }
+                None => {
+                    assert!(lowered.diagnostics().is_empty(), "{source}: {lowered:#?}");
+                    assert!(lowered.value().is_some());
+
+                    let storage = compilation.storage_plan(key).unwrap();
+
+                    assert!(
+                        storage
+                            .value()
+                            .bindings()
+                            .iter()
+                            .any(|(target, _)| matches!(
+                                target,
+                                bray_bound_tree::StorageBindingTarget::PatternDiscard(_)
+                            ))
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn discard_spellings_preserve_copy_borrow_and_trusted_expression_rules() {
+    for prefix in ["let _", "_"] {
+        let source = format!(
+            r#"
+            module app;
+            trusted func number() -> i32 {{ return 1; }}
+            func root(pos value: i32)
+            {{
+                {prefix} = value;
+                {prefix} = &value;
+                {prefix} = trusted number();
+                let copy = value;
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "root"))
+            .unwrap();
+
+        assert!(lowered.diagnostics().is_empty(), "{source}: {lowered:#?}");
+        assert!(lowered.value().is_some());
     }
 }

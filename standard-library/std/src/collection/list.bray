@@ -199,7 +199,7 @@ trusted func truncate<T>(pos list: &mut List<T>, new_length: usize) -> unit
 {
     while list.storage.initialized > new_length
     {
-        let _: T = trusted take_last<T>(&mut list);
+        _ = trusted take_last<T>(&mut list);
     }
 }
 

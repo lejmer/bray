@@ -79,7 +79,7 @@ trusted internal func windows_terminated_text(
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
     uses(raw_memory)
 {
-    let _: usize = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
+    _ = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
     let bytes: usize = text.length();
 
     if bytes == 0

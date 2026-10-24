@@ -67,7 +67,7 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = BlockItemSyntax::builder(self.syntax_source(), start);
 
-        if self.at(SyntaxKind::LetKeyword) {
+        if self.at(SyntaxKind::LetKeyword) || self.at_discard_shorthand() {
             builder.push_local_binding_declaration(self.parse_local_binding_declaration());
         } else if self.at_constant_declaration_start() {
             builder.push_constant_declaration(self.parse_constant_declaration());
@@ -87,7 +87,12 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = LocalBindingDeclarationSyntax::builder(self.syntax_source(), start);
 
-        builder.push_let_keyword(self.expect(SyntaxKind::LetKeyword));
+        let let_keyword = self.consume_if(SyntaxKind::LetKeyword);
+        let has_let = let_keyword.is_some();
+
+        if let Some(keyword) = let_keyword {
+            builder.push_let_keyword(keyword);
+        }
 
         let mut at_pattern_boundary = Parser::at_local_binding_pattern_boundary;
 
@@ -95,7 +100,7 @@ impl Parser {
             self.parse_irrefutable_pattern_until(&mut at_pattern_boundary),
         );
 
-        if self.at(SyntaxKind::ColonToken) {
+        if has_let && self.at(SyntaxKind::ColonToken) {
             let mut at_type_boundary = Parser::at_local_binding_type_boundary;
 
             builder.push_type_annotation(self.parse_type_annotation_until(&mut at_type_boundary));
@@ -181,11 +186,17 @@ impl Parser {
     }
 
     fn at_block_item_end_or_following_declaration(&mut self) -> bool {
-        self.at_any(&BLOCK_ITEM_END_KINDS) || self.at_following_block_declaration_start()
+        self.at_any(&BLOCK_ITEM_END_KINDS)
+            || self.at_following_block_declaration_start()
+            || self.at_discard_shorthand()
     }
 
     fn at_unknown_block_item_boundary(&mut self) -> bool {
-        self.at_any(&BLOCK_ITEM_END_KINDS) || self.at_following_block_declaration_start()
+        self.at_block_item_end_or_following_declaration()
+    }
+
+    fn at_discard_shorthand(&mut self) -> bool {
+        self.at(SyntaxKind::UnderscoreToken) && self.lookahead(1).kind() == SyntaxKind::EqualsToken
     }
 
     fn at_following_block_declaration_start(&mut self) -> bool {
@@ -195,7 +206,7 @@ impl Parser {
     }
 
     fn at_block_expression_item_start(&mut self) -> bool {
-        self.at_any(&EXPRESSION_START_KINDS)
+        self.at_any(&EXPRESSION_START_KINDS) || self.at(SyntaxKind::UnderscoreToken)
     }
 }
 
@@ -209,6 +220,97 @@ mod tests {
     use crate::test_support::{diagnostic_kinds, marker_offset, source};
 
     use super::super::state::Parser;
+
+    #[test]
+    fn discard_shorthand_reuses_the_local_pattern_syntax_without_a_let_token() {
+        let text =
+            "{ _ = first(); _ /* acknowledgement */ = trusted second(); let _: Value = third(); }";
+
+        let sources = source_store([text]);
+        let mut parser = Parser::new(source(&sources, 0));
+
+        let block = parser
+            .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+        assert!(parser.finish().is_empty());
+        assert_eq!(block.full_text(), text);
+
+        let declarations = block
+            .block_items()
+            .map(|item| item.local_binding_declaration().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(declarations.len(), 3);
+        assert!(declarations[0].let_keyword().is_none());
+        assert!(declarations[1].let_keyword().is_none());
+        assert!(declarations[2].let_keyword().is_some());
+        assert!(declarations[2].type_annotation().is_some());
+        assert!(!block.is_recovered());
+    }
+
+    #[test]
+    fn discard_recovery_preserves_following_discards_and_declarations() {
+        for text in [
+            "{ _ = first() _ = second(); let next = 1; }",
+            "{ _ = ; _ = second(); let next = 1; }",
+            "{ first() _ = second(); let next = 1; }",
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+
+            let block = parser
+                .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+            assert!(!parser.finish().is_empty(), "{text}");
+            assert_eq!(block.full_text(), text);
+
+            let items = block.block_items().collect::<Vec<_>>();
+
+            assert_eq!(items.len(), 3, "{text}");
+
+            assert!(
+                items[1]
+                    .local_binding_declaration()
+                    .unwrap()
+                    .let_keyword()
+                    .is_none()
+            );
+
+            assert!(
+                items[2]
+                    .local_binding_declaration()
+                    .unwrap()
+                    .let_keyword()
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn only_exact_discard_assignment_is_shorthand() {
+        for text in [
+            "{ _ += 1; }",
+            "{ _: Value = value; }",
+            "{ (_) = value; }",
+            "{ _ == value; }",
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+
+            let block = parser
+                .parse_block_expression_until(&mut |parser| parser.at(SyntaxKind::EndOfFileToken));
+
+            assert!(!parser.finish().is_empty(), "{text}");
+
+            assert!(
+                block
+                    .block_items()
+                    .all(|item| item.local_binding_declaration().is_none())
+            );
+
+            assert_eq!(block.full_text(), text);
+        }
+    }
 
     #[test]
     fn const_lambdas_do_not_start_a_following_constant_declaration() {

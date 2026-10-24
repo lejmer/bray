@@ -448,27 +448,27 @@ fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
 fn native_exit_authority_is_required_by_actual_production_operations() {
     for (operation, valid) in [
         (
-            "let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope(); let _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
+            "let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope(); _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
             false,
         ),
         (
-            "let scope: bray.runtime.bootstrap.thread.destruction.ExitScope = { identity = 1, native = true }; let _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
+            "let scope: bray.runtime.bootstrap.thread.destruction.ExitScope = { identity = 1, native = true }; _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);",
             false,
         ),
         (
-            "let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope(); let fake: bray.runtime.bootstrap.thread.destruction.ExitScope = { identity = scope.identity, native = true }; let _ = trusted bray.runtime.bootstrap.host.finish_attachment(&fake);",
+            "let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope(); let fake: bray.runtime.bootstrap.thread.destruction.ExitScope = { identity = scope.identity, native = true }; _ = trusted bray.runtime.bootstrap.host.finish_attachment(&fake);",
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.thread.destruction.native_exit_scope(std.memory.null<u8>());",
+            "_ = trusted bray.runtime.bootstrap.thread.destruction.native_exit_scope(std.memory.null<u8>());",
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_leave();",
+            "_ = trusted bray.runtime.bootstrap.host.thread_attachment_leave();",
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_enter();",
+            "_ = trusted bray.runtime.bootstrap.host.thread_attachment_enter();",
             false,
         ),
         (
@@ -476,15 +476,15 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();",
+            "_ = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();",
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>(), std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>());",
+            "_ = trusted bray.runtime.bootstrap.entry.bridge.install(std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>(), std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>());",
             false,
         ),
         (
-            "let _ = trusted bray.runtime.bootstrap.entry.bridge.current();",
+            "_ = trusted bray.runtime.bootstrap.entry.bridge.current();",
             false,
         ),
         (
@@ -541,7 +541,7 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
     for (body, valid) in [
         ("let owner = trusted acquire();", true),
         (
-            "let owner = trusted acquire(); let _ = trusted finish(owner);",
+            "let owner = trusted acquire(); _ = trusted finish(owner);",
             true,
         ),
         (
@@ -2090,19 +2090,19 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
     for (body, valid) in [
         (
-            "let _ = trusted bray.runtime.bootstrap.activation.execution.read(original);",
+            "_ = trusted bray.runtime.bootstrap.activation.execution.read(original);",
             true,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = other }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = other }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = original.pointer }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = original.pointer }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; let _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
     ] {
@@ -2467,7 +2467,7 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
                     trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
                 )
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, {operation}, 0);
+                _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, {operation}, 0);
                 let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
                 return progress;
             }}
@@ -2524,7 +2524,7 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
                 return;
             }
 
-            let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
+            _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
         }
         "#,
     );
@@ -3112,7 +3112,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 )
                 {requirement}
             {{
-                let _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 4, destination);
+                _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 4, destination);
             }}
         "#
         );
@@ -3145,7 +3145,7 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
 
     for (body, valid) in [
         (
-            "let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor); let _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);",
+            "_ = trusted bray.runtime.bootstrap.activation.execution.read(cursor); _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);",
             true,
         ),
         (
@@ -3278,7 +3278,7 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
                 )
             {{
-                let _ = trusted resolve(cursor, callback, ready, false, outcome);
+                _ = trusted resolve(cursor, callback, ready, false, outcome);
             }}
             "#,
         );

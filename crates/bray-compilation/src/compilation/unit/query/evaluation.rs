@@ -309,7 +309,14 @@ impl Compilation {
                     operation_expressions(&binding_context, bound.result().value(), cancellation)?;
 
                 if !has_iterations && operations.is_empty() {
-                    return Ok((provisional.result().as_ref().clone(), Box::new([])));
+                    let result = self.finish_expression_diagnostics(
+                        &key,
+                        bound.result().value(),
+                        provisional.result().as_ref().clone(),
+                        cancellation,
+                    )?;
+
+                    return Ok((result, Box::new([])));
                 }
 
                 let mut operation_resolutions = Vec::<SemanticResolution>::new();
@@ -360,6 +367,13 @@ impl Compilation {
                                 &operation_diagnostics,
                             ]),
                         );
+
+                        result.0 = self.finish_expression_diagnostics(
+                            &key,
+                            bound.result().value(),
+                            result.0,
+                            cancellation,
+                        )?;
 
                         return Ok(result);
                     }

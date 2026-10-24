@@ -140,7 +140,7 @@ fn live_shared_custom_index_borrow_conflicts_with_mutable_indexing() {
     let mut values: Values = input;
     let selected: &Item = &values[0];
     values[0] = Item { value = 1 };
-    selected;
+    _ = selected;
 }
 "#,
     );
@@ -162,7 +162,7 @@ fn live_mutable_custom_index_borrow_conflicts_with_shared_indexing() {
     let mut values: Values = input;
     let selected: &mut Item = &mut values[0];
     let observed: i32 = values[0].value;
-    selected;
+    _ = selected;
 }
 "#,
     );
@@ -204,7 +204,7 @@ fn custom_index_result_contract_retains_the_receiver_borrow_lifetime() {
         r#"func select(pos values: Values)
 {
     let selected: &Item = &values[0];
-    selected;
+    _ = selected;
 }
 "#,
     );
@@ -396,7 +396,7 @@ fn custom_slice_without_a_bound_type_reports_selection_failure() {
         }
         func caller(pos value: &Values)
         {
-            let _ = value[..];
+            _ = value[..];
         }
         "#,
     );

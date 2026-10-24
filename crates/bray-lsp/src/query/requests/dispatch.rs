@@ -67,6 +67,57 @@ pub(crate) fn execute(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ignored_results_offer_discard_quick_fixes_without_creating_a_symbol() {
+        let document = document("module app; func main() { 1; }");
+        let cancellation = bray_compilation::CancellationToken::new();
+        let report = diagnostics(&document, &cancellation).unwrap();
+
+        let warning = report
+            .items
+            .iter()
+            .find(|item| {
+                item.code
+                    == bray_diagnostics::DiagnosticKind::CheckingIgnoredExpressionResult
+                        .code()
+                        .raw()
+            })
+            .unwrap();
+
+        assert_eq!(warning.severity, 2);
+
+        let actions = super::code_actions(
+            &document,
+            warning.range,
+            &crate::model::CodeActionContext {
+                diagnostics: vec![crate::model::CodeActionContextDiagnostic {
+                    range: warning.range,
+                    code: warning.code,
+                    data: Some(warning.data),
+                }],
+                only: Some(vec!["quickfix".to_owned()]),
+            },
+            &cancellation,
+        )
+        .unwrap();
+
+        assert_eq!(actions.len(), 1);
+
+        assert_eq!(
+            actions[0].edit.changes["file:///test.bray"][0].new_text,
+            "_ = "
+        );
+
+        let fixed = self::document("module app; func main() { _ = 1; }");
+
+        assert!(diagnostics(&fixed, &cancellation).unwrap().items.is_empty());
+
+        assert!(!contains_symbol(
+            &document_symbols(&fixed, &cancellation).unwrap(),
+            "_"
+        ));
+    }
+
     use bray_compilation::{Compilation, CompilationOptions, CompilationRequest, WorkerBudget};
     use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};

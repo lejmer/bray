@@ -191,7 +191,7 @@ struct ChildProcess
             return Ok(unit);
         }
 
-        let _: ExitStatus = try trusted force_child_termination(&mut self);
+        _ = try trusted force_child_termination(&mut self);
 
         return Ok(unit);
     }
@@ -199,11 +199,11 @@ struct ChildProcess
     trusted destruct()
     {
         let mut state = self.state;
-        let _: Result<unit, ChildError> = trusted close_retained_pipes(&mut state);
+        _ = trusted close_retained_pipes(&mut state);
 
         if state.is_open
         {
-            let _: std.platform.PlatformStatus = trusted internal platform_child_dispose(state.handle);
+            _ = trusted internal platform_child_dispose(state.handle);
         }
     }
 
@@ -310,7 +310,7 @@ trusted internal func remove_environment_entry(
     {
         case ?index
         {
-            let _: EnvironmentEntry? = trusted std.collection.remove<EnvironmentEntry>(&mut values, index = index);
+            _ = trusted std.collection.remove<EnvironmentEntry>(&mut values, index = index);
         }
         case none {}
     }

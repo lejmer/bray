@@ -26,7 +26,7 @@ internal struct LocalAllocation
         executes(total)
         uses(foreign_call)
     {
-        let _: DataPointer<u8> = trusted std.os.windows.local_free(self.pointer);
+        _ = trusted std.os.windows.local_free(self.pointer);
     }
 }
 
@@ -43,7 +43,7 @@ internal struct EnvironmentBlock
     {
         if !std.memory.is_null<u16>(self.pointer)
         {
-            let _: i32 = trusted std.os.windows.free_environment_strings_w(self.pointer);
+            _ = trusted std.os.windows.free_environment_strings_w(self.pointer);
         }
     }
 }

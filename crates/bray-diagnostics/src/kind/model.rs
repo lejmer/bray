@@ -307,6 +307,8 @@ define_diagnostic_kinds! {
     CheckingCapacityExceeded,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
+    /// A standalone expression produces a value that is not explicitly discarded.
+    CheckingIgnoredExpressionResult,
     /// A half-open range uses an element type outside the integer representations.
     CheckingRangeElementTypeMustBeInteger,
     /// No enclosing boundary accepts the propagated value.
@@ -833,6 +835,7 @@ impl DiagnosticKind {
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCapacityExceeded => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
+            Self::CheckingIgnoredExpressionResult => 7131,
             Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,
@@ -1201,6 +1204,7 @@ impl DiagnosticKind {
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCapacityExceeded => "checking_capacity_exceeded",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
+            Self::CheckingIgnoredExpressionResult => "checking_ignored_expression_result",
             Self::CheckingRangeElementTypeMustBeInteger => {
                 "checking_range_element_type_must_be_integer"
             }

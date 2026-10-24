@@ -24,7 +24,7 @@ trait IteratorOperations
         {
             let skipped: Element? = self(Iterator).next();
 
-            let _: Element = skipped?;
+            _ = skipped?;
 
             current += 1;
         }

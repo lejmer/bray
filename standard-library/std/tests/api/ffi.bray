@@ -33,9 +33,7 @@ func c_scalar_wrappers_preserve_values_and_layouts()
     let value: std.ffi.c.Int = c_increment(std.ffi.c.int_wrapping(41));
     let checked: std.ffi.c.Int = std.testing.assert_ok<std.ffi.c.Int, ConversionError>(std.ffi.c.int_checked(42));
 
-    let _: ConversionError = std.testing.assert_error<std.ffi.c.Int, ConversionError>(
-        std.ffi.c.int_checked(2_147_483_648),
-    );
+    _ = std.testing.assert_error<std.ffi.c.Int, ConversionError>(std.ffi.c.int_checked(2_147_483_648));
 
     let wrapped: std.ffi.c.Int = std.ffi.c.int_wrapping(4_294_967_297);
 
@@ -80,7 +78,7 @@ trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryL
 
     assert(trusted entry(callback.context(), 41));
 
-    let _: &std.ffi.CallbackContext<i32> = internal callback.owner;
+    _ = internal callback.owner;
 
     return Ok(unit);
 }

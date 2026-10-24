@@ -1068,7 +1068,7 @@ mod tests {
 
             calls.push_str(&format!(
                 r#"
-                    let _: u32 = sample_{index}();
+                    _ = sample_{index}();
             "#
             ));
         }

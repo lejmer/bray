@@ -247,7 +247,7 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
 
     let result_pointer: DataPointer<Uninit<T>> = std.memory.address_of<Uninit<T>>(&storage.value.result);
     let result: &mut Uninit<T> = trusted internal transferred_value<Uninit<T>>(result_pointer);
-    let _: &mut T = std.memory.uninit_write<T>(result, value);
+    _ = std.memory.uninit_write<T>(result, value);
 }
 
 @abi(c)
@@ -522,7 +522,7 @@ trusted internal func resolve_thread_outcome_during_cancellation<T>(pos outcome:
     {
         case RunResult.Completed(value)
         {
-            let _: T = value;
+            _ = value;
         }
         case RunResult.Cancelled {}
         case RunResult.Panicked(report)

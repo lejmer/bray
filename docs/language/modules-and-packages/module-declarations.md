@@ -95,7 +95,7 @@ module net.tests
     @test
     func parses_minimal_packet()
     {
-        let _: net.Packet = net.parse_packet(minimal_packet_bytes());
+        _ = net.parse_packet(minimal_packet_bytes());
     }
 }
 ```

@@ -61,12 +61,12 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
 
             func main()
             {
-                first<i32>();
-                second<i32>();
-                first<bool>();
-                third<i32>();
-                fourth<i32>();
-                third<bool>();
+                _ = first<i32>();
+                _ = second<i32>();
+                _ = first<bool>();
+                _ = third<i32>();
+                _ = fourth<i32>();
+                _ = third<bool>();
             }
         "#,
         [dependency],

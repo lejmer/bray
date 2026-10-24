@@ -261,7 +261,7 @@ trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Re
 
     while value < 1024
     {
-        let _: u64? = try trusted ascending.insert(value, value);
+        _ = try trusted ascending.insert(value, value);
 
         value += 1;
     }
@@ -272,7 +272,7 @@ trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Re
     {
         value -= 1;
 
-        let _: bool = try trusted descending.insert(value);
+        _ = try trusted descending.insert(value);
     }
 
     value = 0;
@@ -348,7 +348,7 @@ trusted func ordered_collections_preserve_owning_values_through_cleanup() -> Res
 
         while identity < 12
         {
-            let _: OwnedOrderedValue? = try trusted partially_consumed.insert(
+            _ = try trusted partially_consumed.insert(
                 try owned_ordered_value(identity, 1),
                 try owned_ordered_value(identity + 100, 2),
             );

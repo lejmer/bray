@@ -35,7 +35,7 @@ struct MutexGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.mutex.State<T>, Mutex<T>>(self.mutex, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
+        _ = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
 
         core.atomic.notify_all<u32>(&state.tickets);
     }

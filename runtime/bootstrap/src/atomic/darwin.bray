@@ -18,7 +18,7 @@ trusted internal func wait(pos address: DataPointer<u32>, pos expected: u32)
 {
     let bytes = trusted core.memory.reinterpret<u8, u32>(address);
 
-    let _: i32 = trusted std.os.darwin.os_sync_wait_on_address(
+    _ = trusted std.os.darwin.os_sync_wait_on_address(
         bytes,
         expected = expected as u64,
         size = 4,
@@ -39,7 +39,7 @@ trusted internal func notify_one(pos address: DataPointer<u32>)
 {
     let bytes = trusted core.memory.reinterpret<u8, u32>(address);
 
-    let _: i32 = trusted std.os.darwin.os_sync_wake_by_address_any(
+    _ = trusted std.os.darwin.os_sync_wake_by_address_any(
         bytes,
         size = 4,
         flags = std.os.darwin.OS_SYNC_WAKE_BY_ADDRESS_NONE,
@@ -59,7 +59,7 @@ trusted internal func notify_all(pos address: DataPointer<u32>)
 {
     let bytes = trusted core.memory.reinterpret<u8, u32>(address);
 
-    let _: i32 = trusted std.os.darwin.os_sync_wake_by_address_all(
+    _ = trusted std.os.darwin.os_sync_wake_by_address_all(
         bytes,
         size = 4,
         flags = std.os.darwin.OS_SYNC_WAKE_BY_ADDRESS_NONE,

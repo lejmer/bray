@@ -525,7 +525,7 @@ trusted internal func platform_directory_close(pos directory: &mut Directory) ->
 
 trusted internal func platform_directory_discard(pos handle: u64) -> unit
 {
-    let _: i32 = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
+    _ = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
 }
 
 trusted internal func unix_status_storage(pos storage: &mut [u64; 18]) -> DataPointer<u8>

@@ -18,11 +18,11 @@ mod tests {
     #[test]
     fn construction_defaults_use_declaration_specialization_across_callers() {
         for source in [
-            "module app; struct Value { digit: i32 = 0; } func first() -> Value { return Value {}; } func second() -> Value { return Value {}; } func main() { first(); second(); }",
-            "module app; struct Value { digit: i32 = 0; } func first<T>(pos input: T) -> Value { return Value {}; } func second<T>(pos input: T) -> Value { return Value {}; } func main() { first<i32>(1); second<i32>(2); first<bool>(true); }",
-            "module app; struct Value<T> { marker: bool; data: T? = none; } func first<U>() -> Value<U> { return { marker = true }; } func second<U>() -> Value<U> { return { marker = true }; } func main() { first<i32>(); second<i32>(); first<bool>(); }",
-            "module app; struct Value<const count: i32> { marker: bool; digit: i32 = count; } func first<T>(pos input: T) -> Value<7> { return { marker = true }; } func second<T>(pos input: T) -> Value<7> { return { marker = true }; } func main() { first<i32>(1); second<i32>(2); }",
-            "module app; union Value<T> { Item(data: T? = none); } func first<U>() -> Value<U> { return Item(); } func second<U>() -> Value<U> { return Item(); } func main() { first<i32>(); second<i32>(); first<bool>(); }",
+            "module app; struct Value { digit: i32 = 0; } func first() -> Value { return Value {}; } func second() -> Value { return Value {}; } func main() { _ = first(); _ = second(); }",
+            "module app; struct Value { digit: i32 = 0; } func first<T>(pos input: T) -> Value { return Value {}; } func second<T>(pos input: T) -> Value { return Value {}; } func main() { _ = first<i32>(1); _ = second<i32>(2); _ = first<bool>(true); }",
+            "module app; struct Value<T> { marker: bool; data: T? = none; } func first<U>() -> Value<U> { return { marker = true }; } func second<U>() -> Value<U> { return { marker = true }; } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
+            "module app; struct Value<const count: i32> { marker: bool; digit: i32 = count; } func first<T>(pos input: T) -> Value<7> { return { marker = true }; } func second<T>(pos input: T) -> Value<7> { return { marker = true }; } func main() { _ = first<i32>(1); _ = second<i32>(2); }",
+            "module app; union Value<T> { Item(data: T? = none); } func first<U>() -> Value<U> { return Item(); } func second<U>() -> Value<U> { return Item(); } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
         ] {
             let compilation = crate::test_support::compilation(source);
 

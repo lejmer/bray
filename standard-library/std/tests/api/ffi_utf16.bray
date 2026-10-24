@@ -26,7 +26,7 @@ trusted func c_wide_strings_encode_and_validate_target_text() -> Result<unit, st
 
     let invalid: std.ffi.c.BorrowedWideString = try std.ffi.c.borrow_string(&invalid_units[..]);
 
-    let _: std.ffi.c.StringError = std.testing.assert_error<string, std.ffi.c.StringError>(trusted invalid.to_string());
+    _ = std.testing.assert_error<string, std.ffi.c.StringError>(trusted invalid.to_string());
 
     return Ok(unit);
 }
