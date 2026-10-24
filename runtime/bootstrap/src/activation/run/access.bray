@@ -97,5 +97,5 @@ trusted internal func begin_abandonment(pos cursor: &mut Cursor)
     }
 
     trusted begin_broadcast(cursor);
-    trusted abandon(cursor);
+    _ = trusted abandon(cursor);
 }
