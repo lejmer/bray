@@ -239,12 +239,15 @@ fn declare_static_accessor<'context>(
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let accessor_name = mapping.accessor_name();
 
-    if let Some(accessor) = module.get_function(&accessor_name) {
+    let pointer = pointer_type(types)?;
+
+    let accessor = module
+        .get_function(&accessor_name)
+        .unwrap_or_else(|| module.add_function(&accessor_name, pointer.fn_type(&[], false), None));
+
+    if accessor.count_basic_blocks() != 0 {
         return Ok(accessor);
     }
-
-    let pointer = pointer_type(types)?;
-    let accessor = module.add_function(&accessor_name, pointer.fn_type(&[], false), None);
 
     accessor.set_linkage(Linkage::WeakODR);
 

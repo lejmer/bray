@@ -7,7 +7,7 @@ use crate::fact::CancellationToken;
 use bray_compiler_known::CompilerKnownDeclarationKey;
 
 impl Compilation {
-    pub(in crate::compilation::product::realization) fn lifecycle_callable(
+    pub(in crate::compilation::product) fn lifecycle_callable(
         &self,
         ty: TypeId,
         slot: TypeAssociatedLifecycleSlot,

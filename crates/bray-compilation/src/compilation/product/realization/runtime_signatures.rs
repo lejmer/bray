@@ -29,7 +29,23 @@ impl Compilation {
             })
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+        let framed = matches!(reference, MirHelperReference::LifecycleFrame { .. });
+
+        let result = if framed {
+            let unit = self.codegen_representation_type(RepresentationRole::Unit)?;
+
+            let future = self
+                .available_compiler_known_symbols()
+                .unary_representation_type(
+                    self.semantic_value_store()?,
+                    RepresentationRole::Future,
+                    unit,
+                )
+                .map_err(FactQueryError::SemanticValueStore)?
+                .expect("cleanup frames use the compiler-known unit future");
+
+            CodegenResultMapping::direct(future, None, [])
+        } else if matches!(reference, MirHelperReference::StaticFinalize(_)) {
             let Some(bray_bound_tree::LifecycleCallable { result, .. }) =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
             else {
@@ -57,6 +73,12 @@ impl Compilation {
         if matches!(
             reference,
             MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
+                | MirHelperReference::LifecycleFrame {
+                    role: bray_ir::MirGeneratedLifecycleRole::Destroy(
+                        bray_ir::MirDestructionDisposition::Dynamic
+                    ) | bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer,
+                    ..
+                }
         ) {
             parameters.push(CodegenParameterMapping::direct(
                 self.codegen_representation_type(RepresentationRole::ScalarBool)?,
@@ -87,7 +109,7 @@ impl Compilation {
         let signature = CodegenCallableSignature::new(parameters, result, CallableAbi::Bray, false);
 
         Ok(
-            if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+            if framed || matches!(reference, MirHelperReference::StaticFinalize(_)) {
                 signature.with_panic_report_context()
             } else {
                 signature

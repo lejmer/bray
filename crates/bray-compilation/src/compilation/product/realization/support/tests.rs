@@ -5,6 +5,7 @@ mod destruction;
 mod lifecycle_fixtures;
 mod lifecycle_instances;
 mod representation;
+mod represented;
 mod runtime_contracts;
 mod targets;
 mod type_fixtures;

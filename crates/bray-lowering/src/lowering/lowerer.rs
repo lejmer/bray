@@ -8,7 +8,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirFrameDescriptor, MirFrameState,
     MirFrameStateId, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageId,
-    MirStorageKind, MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
 use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
 use bray_symbols::StaticReferenceSelection;
@@ -149,14 +149,6 @@ impl<'unit> Lowerer<'unit> {
 
         self.initialize_cleanup_guards(entry, &source)?;
         self.pending_reports = self.allocate_pending_reports(entry, &source, None)?;
-
-        if let Some((reference, ty)) = self.input.static_owner().cloned() {
-            self.builder.push_storage(
-                Self::retained_source(&source),
-                MirStorageKind::Static(reference),
-                ty,
-            )?;
-        }
 
         let completion = match root {
             BoundUnitRoot::CallableBody { body, .. }
@@ -1177,7 +1169,7 @@ mod tests {
         type Kind = CheckedMemoryOperationKind;
         type MemoryCase = (usize, fn(bray_symbols::TypeId) -> Kind);
 
-        let cases: [MemoryCase; 21] = [
+        let cases: [MemoryCase; 19] = [
             (1, |ty| Kind::Address {
                 kind: MemoryAddressKind::Shared,
                 pointee: ty,
@@ -1233,8 +1225,6 @@ mod tests {
             (3, |_| Kind::RawDeallocate),
             (1, |_| Kind::Allocate),
             (1, |_| Kind::Deallocate),
-            (1, |ty| Kind::RawBufferRelease { element: ty }),
-            (2, |ty| Kind::RawBufferReplace { element: ty }),
         ];
 
         for (index, (argument_count, kind)) in cases.into_iter().enumerate() {

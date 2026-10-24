@@ -5,7 +5,6 @@ use bray_codegen::{
     CodegenInstanceKey, CodegenStaticInstanceKey, CodegenTarget,
     demanded_runtime_references_for_mir,
 };
-use bray_ir::{MirStorageKind, MirUnit};
 use bray_runtime_interface::{
     BinarySymbolName, ExecutionLaneRequirement, RuntimeArtifact, RuntimeArtifactPlan,
 };
@@ -54,38 +53,23 @@ impl Compilation {
     pub(in crate::compilation::product) fn codegen_static_definition(
         &self,
         owner: &ConcreteCodegenInstance,
-        mir: &MirUnit,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<
         Option<(BinarySymbolName, bray_symbols::NativeSymbolBinding)>,
         CodegenPreparationError,
     > {
-        let Some(declaration) = owner.static_declaration() else {
+        let Some(instance) = owner.static_instance() else {
             return Ok(None);
         };
 
-        let reference = mir
-            .storages()
-            .iter()
-            .find_map(|storage| match storage.kind() {
-                MirStorageKind::Static(reference) | MirStorageKind::NativeStatic(reference)
-                    if reference.template().declaration() == declaration =>
-                {
-                    Some(reference)
-                }
-                _ => None,
-            })
-            .expect("emitted static initializer must contain its own storage");
-
-        let (instance, _, _) =
-            self.concrete_codegen_static_selection(owner, reference, cancellation)?;
+        let reference = StaticReferenceSelection::Closed(instance.clone());
 
         let (_, symbol) =
-            self.codegen_static_identity(owner, reference, &instance, target, cancellation)?;
+            self.codegen_static_identity(owner, &reference, instance, target, cancellation)?;
 
         let binding = self
-            .optional_native_static_contract(reference, cancellation)?
+            .optional_native_static_contract(&reference, cancellation)?
             .map_or(bray_symbols::NativeSymbolBinding::Strong, |native| {
                 native.symbol.binding()
             });
@@ -191,22 +175,22 @@ impl Compilation {
                     }
                 }
 
-                for storage in instance.mir().storages() {
-                    if let Some(reference) =
-                        self.codegen_static_reference(storage.kind(), cancellation)?
-                    {
-                        let (instance, _, _) =
-                            self.concrete_codegen_static_selection(owner, reference, cancellation)?;
+                for reference in
+                    self.codegen_static_references_for_mir(owner, instance.mir(), cancellation)
+                {
+                    let reference = reference?;
 
-                        let template =
-                            self.static_instance_template(instance.template().declaration())?;
+                    let (instance, _, _) =
+                        self.concrete_codegen_static_selection(owner, &reference, cancellation)?;
 
-                        effects.accesses.insert(CodegenStaticInstanceKey::new(
-                            self.static_cleanup_order_key(&instance, cancellation)?,
-                            key.target().clone(),
-                            template.value().duration(),
-                        ));
-                    }
+                    let template =
+                        self.static_instance_template(instance.template().declaration())?;
+
+                    effects.accesses.insert(CodegenStaticInstanceKey::new(
+                        self.static_cleanup_order_key(&instance, cancellation)?,
+                        key.target().clone(),
+                        template.value().duration(),
+                    ));
                 }
 
                 dependencies.extend(
@@ -304,12 +288,10 @@ impl Compilation {
                 .instance(instance.key())
                 .expect("reachable static consumer must have a concrete realization");
 
-            for storage in instance.mir().storages() {
-                let Some(reference) =
-                    self.codegen_static_reference(storage.kind(), cancellation)?
-                else {
-                    continue;
-                };
+            for reference in
+                self.codegen_static_references_for_mir(owner, instance.mir(), cancellation)
+            {
+                let reference = reference?;
 
                 let static_instance =
                     self.concrete_codegen_static(owner, &reference, target, cancellation)?;

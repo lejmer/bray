@@ -235,11 +235,8 @@ impl Compilation {
             }
         }
 
-        for storage in mir.storages() {
-            let Some(reference) = self.codegen_static_reference(storage.kind(), cancellation)?
-            else {
-                continue;
-            };
+        for reference in self.codegen_static_references_for_mir(owner, mir, cancellation) {
+            let reference = reference?;
 
             let static_realization =
                 self.concrete_codegen_static(owner, &reference, target, cancellation)?;
@@ -360,6 +357,13 @@ impl Compilation {
 
             let mut demanded = instance.mir().referenced_types();
 
+            demanded.extend(
+                static_storages
+                    .iter()
+                    .filter(|mapping| mapping.owner() == instance.key())
+                    .map(CodegenStaticStorageMapping::ty),
+            );
+
             demanded.extend(self.operation_referent_types(
                 instance.mir(),
                 realization,
@@ -473,64 +477,82 @@ impl Compilation {
                 )
             })?;
 
+            if let Some(definition) = owner.static_instance() {
+                mappings.push(self.codegen_static_storage_mapping(
+                    owner,
+                    &StaticReferenceSelection::Closed(definition.clone()),
+                    None,
+                    target,
+                    cancellation,
+                )?);
+            }
+
             for (storage, data) in instance.mir().storages_with_ids() {
                 let Some(reference) = self.codegen_static_reference(data.kind(), cancellation)?
                 else {
                     continue;
                 };
 
-                let realization =
-                    self.concrete_codegen_static(owner, &reference, target, cancellation)?;
-
-                let native_binding = self
-                    .optional_native_static_contract(&reference, cancellation)?
-                    .filter(|contract| {
-                        contract.direction == bray_symbols::ForeignCallableDirection::Export
-                    })
-                    .map(|contract| contract.symbol.binding());
-
-                let defines_storage = unit
-                    .instances()
-                    .iter()
-                    .any(|candidate| candidate.key() == realization.initializer.key());
-
-                mappings.push(CodegenStaticStorageMapping::new(
-                    instance.key().clone(),
-                    storage,
-                    match data.kind() {
-                        MirStorageKind::NativeStatic(_) => realization.ty,
-                        _ => data.ty(),
-                    },
-                    realization.key,
-                    realization.symbol,
-                    native_binding,
-                    defines_storage,
-                    realization.initial_value,
-                    realization.relocations,
-                    realization
-                        .outgoing_calls
-                        .into_iter()
-                        .map(|call| self.outgoing_requirement(call, cancellation))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    realization.finalization.map(|finalization| {
-                        CodegenStaticFinalization::new(
-                            finalization.execution,
-                            finalization.instance.key().clone(),
-                            finalization.result,
-                            finalization.selected,
-                            finalization.error_type_identity,
-                            finalization.source,
-                            finalization
-                                .incident_cleanup
-                                .map(|cleanup| cleanup.key().clone()),
-                        )
-                    }),
-                    realization.destroy.map(|destroy| destroy.key().clone()),
-                ));
+                mappings.push(self.codegen_static_storage_mapping(
+                    owner,
+                    reference,
+                    Some((storage, data)),
+                    target,
+                    cancellation,
+                )?);
             }
         }
 
         Ok(mappings)
+    }
+
+    fn codegen_static_storage_mapping(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &StaticReferenceSelection,
+        storage: Option<(bray_ir::MirStorageId, &bray_ir::MirStorage)>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenStaticStorageMapping, CodegenPreparationError> {
+        let realization = self.concrete_codegen_static(owner, reference, target, cancellation)?;
+
+        let native_binding = self
+            .optional_native_static_contract(reference, cancellation)?
+            .filter(|contract| contract.direction == bray_symbols::ForeignCallableDirection::Export)
+            .map(|contract| contract.symbol.binding());
+
+        Ok(CodegenStaticStorageMapping::new(
+            owner.key().clone(),
+            storage.map(|(id, _)| id),
+            storage.map_or(realization.ty, |(_, data)| match data.kind() {
+                MirStorageKind::NativeStatic(_) => realization.ty,
+                _ => data.ty(),
+            }),
+            realization.key,
+            realization.symbol,
+            native_binding,
+            realization.initial_value,
+            realization.relocations,
+            realization
+                .outgoing_calls
+                .into_iter()
+                .map(|call| self.outgoing_requirement(call, cancellation))
+                .collect::<Result<Vec<_>, _>>()?,
+            realization.finalization.map(|finalization| {
+                CodegenStaticFinalization::new(
+                    finalization.execution,
+                    finalization.instance.key().clone(),
+                    finalization.result,
+                    finalization.selected,
+                    finalization.error_type_identity,
+                    finalization.source,
+                    finalization
+                        .incident_cleanup
+                        .map(|cleanup| cleanup.key().clone()),
+                )
+            }),
+            realization.destroy.map(|destroy| destroy.key().clone()),
+        ))
     }
 
     pub(in crate::compilation::product) fn codegen_static_identity(
@@ -608,8 +630,7 @@ impl Compilation {
 
         let initializer = ConcreteCodegenInstance::static_initializer(
             initializer_template,
-            declaration,
-            instance.substitution(),
+            instance.clone(),
             specialization,
             &witnesses,
             owner.key().target().clone(),

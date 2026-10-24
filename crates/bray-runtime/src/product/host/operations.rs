@@ -897,9 +897,10 @@ mod tests {
         abandoned: u32,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
-        assert_eq!(abandoned, 0);
+        let previous = PRODUCT_DESTRUCTIONS.fetch_add(1, Ordering::SeqCst);
+
+        assert_eq!(abandoned, u32::from(previous == 0));
         record_product_phase(2);
-        PRODUCT_DESTRUCTIONS.fetch_add(1, Ordering::SeqCst);
     }
 
     fn record_product_phase(phase: usize) {

@@ -64,7 +64,6 @@ pub struct LoweringInput<'unit> {
         bray_runtime_interface::RuntimeAbiRole,
     )],
     native_static_templates: &'unit [bray_symbols::StaticInstanceTemplateId],
-    static_owner: Option<(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)>,
     unit_kind: MirUnitKind,
     target: MirTargetContract,
 }
@@ -263,7 +262,6 @@ impl<'unit> LoweringInput<'unit> {
             constant_reference_operands,
             runtime_calls: &[],
             native_static_templates: &[],
-            static_owner: None,
             unit_kind,
             target,
         }
@@ -510,17 +508,6 @@ impl<'unit> LoweringInput<'unit> {
         self.lifecycle_storage.contains(&storage)
     }
 
-    /// Adds the open self realization carried by one static initializer template.
-    pub fn with_static_owner(
-        mut self,
-        reference: bray_symbols::StaticReferenceSelection,
-        ty: bray_symbols::TypeId,
-    ) -> Self {
-        self.static_owner = Some((reference, ty));
-
-        self
-    }
-
     /// Adds explicit runtime imports resolved from trusted source bindings.
     pub fn with_runtime_calls(
         mut self,
@@ -557,13 +544,6 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns whether one selected static reference produces a native storage address.
     pub fn is_native_static(&self, template: bray_symbols::StaticInstanceTemplateId) -> bool {
         self.native_static_templates.contains(&template)
-    }
-
-    /// Returns the open self realization carried by a static initializer template.
-    pub const fn static_owner(
-        &self,
-    ) -> Option<&(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)> {
-        self.static_owner.as_ref()
     }
 
     /// Returns the closed value reached by one constant reference occurrence.

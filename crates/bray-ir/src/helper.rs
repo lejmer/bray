@@ -133,11 +133,20 @@ pub enum MirHelperReference {
     StaticFinalize(TypeId),
     /// Destroy a value of the retained type.
     Destroy(TypeId, MirDestructionDisposition),
+    /// Resolve buffer contents without ending the borrowed buffer owner's allowance.
+    ReleaseBuffer(TypeId),
     /// Run one checked cleanup phase for a value of the retained type.
     Cleanup {
         /// Cleanup phase being executed.
         phase: MirCleanupPhase,
         /// Type whose cleanup implementation is invoked.
+        ty: TypeId,
+    },
+    /// Create an admitted frame for a represented owner's selected cleanup role.
+    LifecycleFrame {
+        /// Selected lifecycle work performed by the frame.
+        role: crate::MirGeneratedLifecycleRole,
+        /// Owner retained by the borrowing cleanup frame.
         ty: TypeId,
     },
     /// Create one inactive protected frame.
@@ -168,7 +177,9 @@ impl MirHelperReference {
             | Self::Quiesce(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_, _)
+            | Self::ReleaseBuffer(_)
             | Self::Cleanup { .. }
+            | Self::LifecycleFrame { .. }
             | Self::CreateFrame(_)
             | Self::ComposeAwaitedFrame(_)
             | Self::CommitAwaitedCompletion(_)
@@ -182,7 +193,9 @@ impl MirHelperReference {
             Self::Quiesce(ty)
             | Self::StaticFinalize(ty)
             | Self::Destroy(ty, _)
-            | Self::Cleanup { ty, .. } => Some(*ty),
+            | Self::ReleaseBuffer(ty)
+            | Self::Cleanup { ty, .. }
+            | Self::LifecycleFrame { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
             | Self::DefaultValue(_)
@@ -221,7 +234,9 @@ impl MirHelperReference {
             | Self::Quiesce(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_, _)
+            | Self::ReleaseBuffer(_)
             | Self::Cleanup { .. }
+            | Self::LifecycleFrame { .. }
             | Self::CreateFrame(_) => None,
         }
     }
@@ -287,8 +302,18 @@ impl MirOperationKind {
                     // Helper identity shares immutable checked input types with the call.
                     helpers.push(MirHelperReference::Predicate(reference.clone()));
                 }
+
+                if let crate::MirCallTarget::Lifecycle { role, ty } = call.target() {
+                    helpers.push(MirHelperReference::LifecycleFrame {
+                        role: *role,
+                        ty: *ty,
+                    });
+                }
             }
             Self::Quiesce { place, .. } => helpers.push(MirHelperReference::Quiesce(place.ty())),
+            Self::ReleaseBuffer { place, .. } => {
+                helpers.push(MirHelperReference::ReleaseBuffer(place.ty()))
+            }
             Self::Destroy {
                 place, abandoned, ..
             } => helpers.push(MirHelperReference::Destroy(
@@ -300,6 +325,15 @@ impl MirOperationKind {
                 ty: place.ty(),
             }),
             Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
+                if let MirFrameInitializer::Callable(call) = initializer
+                    && let crate::MirCallTarget::Lifecycle { role, ty } = call.target()
+                {
+                    helpers.push(MirHelperReference::LifecycleFrame {
+                        role: *role,
+                        ty: *ty,
+                    });
+                }
+
                 if let MirFrameInitializer::TaskObservation { result, .. } = initializer {
                     for phase in [
                         MirCleanupPhase::TaskCancellation,
@@ -367,7 +401,8 @@ fn collect_memory_helpers(
             Some(MirStandardLibraryHelper::MemoryAllocate)
         }
         bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
-        | bray_bound_tree::CheckedMemoryOperationKind::Deallocate => {
+        | bray_bound_tree::CheckedMemoryOperationKind::Deallocate
+        | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. } => {
             Some(MirStandardLibraryHelper::MemoryDeallocate)
         }
         _ => None,
@@ -375,26 +410,6 @@ fn collect_memory_helpers(
 
     if let Some(standard) = standard {
         helpers.push(MirHelperReference::StandardLibrary(standard));
-    }
-
-    if let bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element }
-    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { element } = memory.kind()
-    {
-        helpers.push(MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::LifecycleResolution,
-            ty: element,
-        });
-
-        if memory.abandoned_cleanup().is_some() {
-            helpers.push(MirHelperReference::Destroy(
-                element,
-                crate::MirDestructionDisposition::Dynamic,
-            ));
-        }
-
-        helpers.push(MirHelperReference::StandardLibrary(
-            MirStandardLibraryHelper::MemoryDeallocate,
-        ));
     }
 }
 

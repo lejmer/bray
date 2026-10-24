@@ -92,6 +92,24 @@ impl Plan {
         Ok(())
     }
 
+    pub(super) fn select_buffer_cleanup(
+        &mut self,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        values: &bray_symbols::SemanticValueStore,
+        cleanup: &BTreeMap<TypeId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
+    ) {
+        for entry in selections.entries() {
+            if let Some(ty) = released_buffer_type(selections, entry.expression(), values)
+                && let Some(calls) = cleanup.get(&ty)
+            {
+                self.expression_cleanup_calls
+                    .entry(entry.expression())
+                    .or_default()
+                    .extend(calls.iter().cloned());
+            }
+        }
+    }
+
     pub(super) fn select_inputs(
         &mut self,
         unit: &bray_bound_tree::BoundUnit,
@@ -168,14 +186,14 @@ impl Plan {
             }
         }
 
-        self.input_cleanup_calls = selected;
+        self.expression_cleanup_calls = selected;
     }
 }
 
 pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
-    types: &bray_bound_tree::CheckedExpressionTypes,
+    expressions: &bray_bound_tree::CheckedExpressionSemantics,
     lifecycles: &mut BTreeSet<TypeId>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<
@@ -184,7 +202,7 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
 > {
     let mut inputs = BTreeMap::new();
 
-    for (_, expression) in request.unit().tree().expressions() {
+    for (id, expression) in request.unit().tree().expressions() {
         if !matches!(
             expression,
             bray_bound_tree::BoundExpression::Call(_)
@@ -194,14 +212,8 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        for input in expression.child_expressions() {
-            let Some(ty) = types.expression(input) else {
-                continue;
-            };
-
-            if inputs.contains_key(&ty.ty()) {
-                continue;
-            }
+        let arguments = expression.child_expressions().filter_map(|input| {
+            let ty = expressions.types().expression(input)?.ty();
 
             let source = request
                 .view()
@@ -210,8 +222,20 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
                 .origin()
                 .source_anchor();
 
+            Some((ty, source))
+        });
+
+        let released =
+            released_buffer_type(expressions.selections(), id, request.semantic_values())
+                .map(|ty| (ty, expression.origin().source_anchor()));
+
+        for (ty, source) in arguments.chain(released) {
+            if inputs.contains_key(&ty) {
+                continue;
+            }
+
             let (parts, additional) =
-                crate::asynchronous::full_cleanup_parts(cleanup_shapes, ty.ty(), source, false)?
+                crate::asynchronous::full_cleanup_parts(cleanup_shapes, ty, source, false)?
                     .into_parts();
 
             diagnostics.add_range(additional);
@@ -222,9 +246,46 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
                 }
             }
 
-            inputs.insert(ty.ty(), parts);
+            inputs.insert(ty, parts);
         }
     }
 
     Ok(inputs)
+}
+
+fn released_buffer_type(
+    selections: &bray_bound_tree::CheckedSemanticSelections,
+    expression: bray_bound_tree::BoundExpressionId,
+    values: &bray_symbols::SemanticValueStore,
+) -> Option<TypeId> {
+    let bray_bound_tree::SemanticSelection::Call(call) = selections.expression(expression)? else {
+        return None;
+    };
+
+    if !matches!(
+        call.implementation_hook(),
+        Some(
+            bray_compiler_known::ImplementationHook::RawBufferRelease
+                | bray_compiler_known::ImplementationHook::RawBufferReplace
+        )
+    ) {
+        return None;
+    }
+
+    let pointer = call
+        .arguments()
+        .iter()
+        .find_map(|argument| match argument {
+            bray_bound_tree::SelectedArgument::Explicit {
+                ordinal: 0,
+                conversion,
+                ..
+            } => Some(conversion.target_type()),
+            _ => None,
+        })?;
+
+    match values.type_data(pointer).as_ref() {
+        bray_symbols::TypeData::Borrow { target, .. } => Some(*target),
+        _ => None,
+    }
 }

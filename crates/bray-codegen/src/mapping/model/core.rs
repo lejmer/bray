@@ -332,7 +332,7 @@ impl CodegenMappings {
                 mapping
                     .owner()
                     .cmp(owner)
-                    .then_with(|| mapping.storage().cmp(&storage))
+                    .then_with(|| mapping.storage().cmp(&Some(storage)))
             })
             .ok()
             .map(|index| &self.static_storages[index])

@@ -363,20 +363,96 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
 }
 
 #[test]
+fn runtime_static_with_inactive_represented_children_emits_its_accessor() {
+    let source = r#"trusted module app;
+
+using core.memory;
+
+struct Resource
+{
+    destruct() {}
+}
+
+struct State
+{
+    items: Resource?;
+}
+
+internal static STATE: Uninit<State> = core.memory.uninit_from<State>({ items = none });
+
+@abi(c)
+trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+{
+    _ = worker_capacity;
+    _ = timer_capacity;
+    let pointer = core.memory.uninit_pointer<State>(&STATE);
+
+    if core.memory.is_null<State>(pointer)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+"#;
+
+    let role = RuntimeAbiRole::RuntimeInitialization;
+
+    let binding = bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.initialize")
+        .expect("runtime source binding must validate");
+
+    let (backend, plan) = runtime_native_plan_with_source_roles(
+        &[source],
+        ProductKind::Library,
+        SelectedTarget::baseline(),
+        [binding],
+    );
+
+    let accessor = plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .find(|mapping| mapping.defines_storage())
+        .expect("semantic static has a definition")
+        .accessor_name();
+
+    let definitions = generated_artifacts(&backend, &plan)
+        .iter()
+        .flat_map(|bytes| {
+            bray_native_artifact::scan_object_unit_summary(bytes)
+                .expect("generated object must scan")
+                .defined_symbols()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        definitions
+            .iter()
+            .any(|symbol| symbol.name() == Some(accessor.as_str()))
+    );
+}
+
+#[test]
 fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
     let source = r#"trusted module app;
 
 using core.atomic;
 internal static STATE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+func observed() -> u32
+{
+    return core.atomic.fetch_add<u32, 3>(&STATE, 1);
+}
 @abi(c)
 trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
 {
     _ = timer_capacity;
     if worker_capacity == 0
     {
-        _ = core.atomic.load<u32, 1>(&STATE);
+        _ = observed();
     }
-    return core.atomic.load<u32, 1>(&STATE);
+    return observed();
 }
 "#;
 
@@ -413,6 +489,31 @@ trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity:
             .iter()
             .all(|artifact| !artifact.is_empty())
     );
+
+    let definitions = generated_artifacts(&backend, &plan)
+        .iter()
+        .flat_map(|bytes| {
+            bray_native_artifact::scan_object_unit_summary(bytes)
+                .expect("generated object must scan")
+                .defined_symbols()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    for mapping in plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .filter(|mapping| mapping.defines_storage())
+    {
+        assert!(
+            definitions
+                .iter()
+                .any(|symbol| symbol.name() == Some(mapping.accessor_name().as_str())),
+            "a preceding reference declaration must not suppress its accessor definition"
+        );
+    }
 }
 
 #[test]

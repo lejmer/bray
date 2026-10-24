@@ -189,6 +189,15 @@ impl Compilation {
                         synchronous.and_then(|synchronous| {
                             let raw = synchronous.as_ref().unwrap_or(raw);
 
+                            let admitted = self.resolve_empty_admissions(
+                                realization,
+                                raw,
+                                target,
+                                cancellation,
+                            )?;
+
+                            let raw = admitted.as_ref().unwrap_or(raw);
+
                             self.expand_lifecycle_mir(realization, raw, cancellation)
                                 .and_then(|expanded| {
                                     let raw = expanded.as_ref().unwrap_or(raw);

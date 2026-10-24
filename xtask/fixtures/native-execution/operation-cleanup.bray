@@ -18,7 +18,7 @@ struct Incident
     {
         assert(self.value == 619, "operation cleanup lost its incident payload");
 
-        core.atomic.fetch_add<usize, 0>(&INCIDENTS, value = 1);
+        _ = core.atomic.fetch_add<usize, 0>(&INCIDENTS, value = 1);
     }
 }
 
@@ -28,7 +28,7 @@ struct Resource
 
     exit(pos lease: unit) -> Result<unit, Incident>
     {
-        core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
+        _ = core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
 
         return Error(
             Incident
@@ -45,7 +45,7 @@ struct Source
 
     destruct()
     {
-        core.atomic.fetch_add<usize, 0>(&SOURCES, value = 1);
+        _ = core.atomic.fetch_add<usize, 0>(&SOURCES, value = 1);
     }
 }
 
@@ -55,7 +55,7 @@ struct Target
 
     destruct()
     {
-        core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
+        _ = core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
     }
 }
 
@@ -169,7 +169,7 @@ struct Constructed
 
     destruct()
     {
-        core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
+        _ = core.atomic.fetch_add<usize, 0>(&TARGETS, value = 1);
     }
 }
 

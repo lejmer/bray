@@ -78,6 +78,13 @@ impl MirFrameRetention {
         self
     }
 
+    /// Extends a checked continuation with the broadcast entry for its selected cleanup work.
+    pub const fn with_broadcast(mut self, broadcast: MirBlockId) -> Self {
+        self.broadcast = broadcast;
+
+        self
+    }
+
     /// Marks entries belonging to completed-result disposal, including its continuations.
     pub const fn with_completion_cleanup(mut self, completion_cleanup: bool) -> Self {
         self.completion_cleanup = completion_cleanup;

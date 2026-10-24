@@ -1,10 +1,10 @@
-use bray_codegen::{CodegenFailure, CodegenHelperMapping};
+use bray_codegen::CodegenFailure;
 use bray_ir::{
     MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{BasicValueEnum, PointerValue};
 
 use super::super::core::UnitTranslator;
 use super::super::support::{extract_value, llvm, next_helper};
@@ -180,44 +180,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         buffer: &bray_ir::MirOperand,
         buffer_type: bray_symbols::TypeId,
         element: bray_symbols::TypeId,
-        abandoned: Option<&bray_ir::MirOperand>,
     ) -> Result<(), CodegenFailure> {
-        let borrowed = self
-            .unit
-            .operation(operation)
-            .expect("buffer operation exists")
-            .kind()
-            .cleanup_collection();
-
-        let owned = if borrowed.is_none() {
-            let outcome = self.checked_call_panic_report_context()?;
-
-            self.set_pending_call_context(outcome)?;
-
-            Some(outcome)
-        } else {
-            None
-        };
-
-        let collection = if let Some(borrowed) = borrowed {
-            [
-                self.place(borrowed.state())?,
-                self.place(borrowed.report())?,
-            ]
-        } else {
-            crate::mapping::cleanup::begin_collection(
-                self.module,
-                &self.builder,
-                owned.expect("buffer boundary owns its collection"),
-                self.types,
-            )?
-        };
-
         let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, buffer_type)?;
 
         let pointer = self.memory_aggregate_pointer(value, &fields, 0)?;
         let capacity = self.memory_aggregate_integer(value, &fields, 1)?;
-        let initialized = self.memory_aggregate_integer(value, &fields, 2)?;
         let stride = self.memory_layout(element).size();
 
         let alignment = self
@@ -247,6 +214,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .context()
             .append_basic_block(self.function, "memory.buffer.released");
 
+        // Even the empty branch publishes the initialized checked-call context.
+        let outcome = self.checked_call_panic_report_context()?;
+
+        self.set_pending_call_context(outcome)?;
+
         llvm(
             self.builder
                 .build_conditional_branch(present, release, done),
@@ -255,95 +227,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.builder.position_at_end(release);
 
         let helpers = self.operation_helpers(operation)?;
-        let mut helpers = helpers.iter();
 
-        let cleanup = next_helper(
-            &mut helpers,
-            &MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                ty: element,
-            },
-        );
-
-        let inherited = if let Some(abandoned) = abandoned {
-            let condition = super::super::support::int_value(self.operand(abandoned)?)
-                .expect("buffer destruction has a boolean abandonment argument");
-
-            Some((
-                next_helper(
-                    &mut helpers,
-                    &MirHelperReference::Destroy(
-                        element,
-                        bray_ir::MirDestructionDisposition::Dynamic,
-                    ),
-                ),
-                condition,
-            ))
-        } else {
-            None
-        };
-
-        self.destroy_raw_buffer_elements(
-            cleanup,
-            inherited,
-            buffer,
-            llvm_type,
-            &fields,
-            pointer,
-            initialized,
-            stride,
-            collection,
-        )?;
-
-        let deallocate = next_helper(
-            &mut helpers,
+        let helper = next_helper(
+            &mut helpers.iter(),
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
         );
 
-        self.invoke_buffer_cleanup_helper(
-            deallocate,
+        self.invoke_helper_with_panic_report_context(
+            helper,
             &[pointer.into(), bytes.into(), alignment.into()],
-            collection,
+            outcome,
         )?;
 
         llvm(self.builder.build_unconditional_branch(done))?;
         self.builder.position_at_end(done);
-
         llvm(self.builder.build_store(buffer, llvm_type.const_zero()))?;
-
-        if owned.is_some() {
-            crate::mapping::cleanup::publish_collection(
-                self.module,
-                &self.builder,
-                collection[0],
-                self.types,
-            )?;
-        }
 
         Ok(())
     }
 
     pub(super) fn translate_raw_buffer_replace(
         &mut self,
-        operation: MirOperationId,
         memory: &MirMemoryOperation,
-        element: bray_symbols::TypeId,
     ) -> Result<(), CodegenFailure> {
         let [destination, source] = memory.operands() else {
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let [destination_type, source_type] = memory.operand_types() else {
+        let [_, source_type] = memory.operand_types() else {
             panic!("checked MIR memory translation violated an established compiler contract");
         };
-
-        self.translate_raw_buffer_release(
-            operation,
-            destination,
-            *destination_type,
-            element,
-            None,
-        )?;
 
         let destination = self.memory_pointer(destination)?;
 
@@ -439,181 +352,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )?;
 
         llvm(self.builder.build_store(initialized_pointer, initialized))?;
-
-        Ok(())
-    }
-
-    fn destroy_raw_buffer_elements(
-        &mut self,
-        helper: &CodegenHelperMapping,
-        inherited: Option<(&CodegenHelperMapping, IntValue<'context>)>,
-        buffer: PointerValue<'context>,
-        llvm_type: BasicTypeEnum<'context>,
-        fields: &[bray_codegen::CodegenFieldLayout],
-        pointer: PointerValue<'context>,
-        initialized: IntValue<'context>,
-        stride: u64,
-        collection: [PointerValue<'context>; 2],
-    ) -> Result<(), CodegenFailure> {
-        if helper.symbol().is_none()
-            && inherited.is_none_or(|(destroy, _)| destroy.symbol().is_none())
-        {
-            return Ok(());
-        }
-
-        let entry = self
-            .builder
-            .get_insert_block()
-            .expect("checked MIR memory translation requires an established mapping or value");
-
-        let condition = self
-            .types
-            .context()
-            .append_basic_block(self.function, "memory.buffer.destroy.condition");
-
-        let body = self
-            .types
-            .context()
-            .append_basic_block(self.function, "memory.buffer.destroy.element");
-
-        let done = self
-            .types
-            .context()
-            .append_basic_block(self.function, "memory.buffer.destroy.done");
-
-        llvm(self.builder.build_unconditional_branch(condition))?;
-        self.builder.position_at_end(condition);
-
-        let index = llvm(
-            self.builder
-                .build_phi(self.pointer_integer_type(), "memory.buffer.index"),
-        )?;
-
-        index.add_incoming(&[(&initialized, entry)]);
-
-        let current = index.as_basic_value().into_int_value();
-
-        let remaining = llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            current,
-            self.pointer_integer_type().const_zero(),
-            "memory.buffer.has_element",
-        ))?;
-
-        llvm(self.builder.build_conditional_branch(remaining, body, done))?;
-        self.builder.position_at_end(body);
-
-        let previous = llvm(self.builder.build_int_sub(
-            current,
-            self.pointer_integer_type().const_int(1, false),
-            "memory.buffer.previous_index",
-        ))?;
-
-        let element = self.dynamic_offset_pointer(pointer, previous, stride)?;
-
-        self.store_raw_buffer_initialized_count(
-            buffer,
-            llvm_type,
-            fields,
-            previous.into(),
-            "memory.buffer.destroy.progress",
-        )?;
-
-        if let Some((destroy, abandoned)) = inherited {
-            let destruction = self
-                .types
-                .context()
-                .append_basic_block(self.function, "memory.buffer.abandoned");
-
-            let ordinary = self
-                .types
-                .context()
-                .append_basic_block(self.function, "memory.buffer.ordinary");
-
-            let completed = self
-                .types
-                .context()
-                .append_basic_block(self.function, "memory.buffer.element.done");
-
-            llvm(
-                self.builder
-                    .build_conditional_branch(abandoned, destruction, ordinary),
-            )?;
-
-            self.builder.position_at_end(destruction);
-
-            self.invoke_buffer_cleanup_helper(
-                destroy,
-                &[element.into(), abandoned.into()],
-                collection,
-            )?;
-
-            llvm(self.builder.build_unconditional_branch(completed))?;
-            self.builder.position_at_end(ordinary);
-            self.invoke_buffer_cleanup_helper(helper, &[element.into()], collection)?;
-            llvm(self.builder.build_unconditional_branch(completed))?;
-            self.builder.position_at_end(completed);
-        } else {
-            self.invoke_buffer_cleanup_helper(helper, &[element.into()], collection)?;
-        }
-
-        let body_end = self
-            .builder
-            .get_insert_block()
-            .expect("checked MIR memory translation requires an established mapping or value");
-
-        llvm(self.builder.build_unconditional_branch(condition))?;
-        index.add_incoming(&[(&previous, body_end)]);
-
-        self.builder.position_at_end(done);
-
-        Ok(())
-    }
-
-    fn invoke_buffer_cleanup_helper(
-        &mut self,
-        helper: &CodegenHelperMapping,
-        arguments: &[BasicValueEnum<'context>],
-        collection: [PointerValue<'context>; 2],
-    ) -> Result<(), CodegenFailure> {
-        let Some(key) = helper.symbol() else {
-            return Ok(());
-        };
-
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(key)
-            .expect("raw-buffer cleanup helper must have a mapped symbol");
-
-        if helper.reference().lifecycle_type().is_some() {
-            let mut arguments = arguments.to_vec();
-
-            arguments.extend(collection.map(BasicValueEnum::from));
-            self.invoke_helper(helper, &arguments)?;
-
-            return Ok(());
-        }
-
-        if !symbol.signature().has_panic_report_context() {
-            self.invoke_helper(helper, arguments)?;
-
-            return Ok(());
-        }
-
-        let incident = self.allocate_panic_report_context()?;
-
-        self.invoke_helper_with_panic_report_context(helper, arguments, incident)?;
-
-        crate::translation::collect_cleanup_outcome(
-            self.module,
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            self.unit.target().runtime_abi(),
-            collection,
-            incident,
-        )?;
 
         Ok(())
     }

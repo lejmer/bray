@@ -156,7 +156,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
     graph.select_cleanup_suspensions(
         &cleanup.asynchronous_scopes(storage),
         &cleanup.asynchronous_replacements(storage),
-        &cleanup.input_cleanup_calls,
+        &cleanup.expression_cleanup_calls,
     );
 
     let Some(values) =

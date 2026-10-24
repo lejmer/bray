@@ -4,7 +4,7 @@ use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLowering
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(super) fn push_array_lifecycle(
-        &self,
+        &mut self,
         builder: &mut bray_ir::MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &bray_ir::MirSourceAnchor,
@@ -31,11 +31,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             crate::operand::integer_constant(self.context.semantic_values(), integer, length)
                 .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        self.push_sequence_lifecycle(builder, block, source, role, place, element, length)
+        self.push_sequence_lifecycle(builder, block, source, role, place, element, length, None)
     }
 
     pub(super) fn push_sequence_lifecycle(
-        &self,
+        &mut self,
         builder: &mut bray_ir::MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &bray_ir::MirSourceAnchor,
@@ -43,6 +43,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         element: bray_symbols::TypeId,
         length: bray_ir::MirOperand,
+        progress: Option<bray_ir::MirOperand>,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let integer = builder.operand_type(&length);
 
@@ -54,6 +55,31 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             crate::operand::integer_constant(self.context.semantic_values(), integer, value)
                 .map_err(SyntheticLoweringError::SemanticValue)
         };
+
+        let phase = match role {
+            bray_ir::MirGeneratedLifecycleRole::Destroy(
+                bray_ir::MirDestructionDisposition::Ordinary
+                | bray_ir::MirDestructionDisposition::Dynamic,
+            )
+            | bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => {
+                bray_bound_tree::LifecyclePhase::Resolve
+            }
+            role => role.phase(),
+        };
+
+        if matches!(
+            self.context.lifecycle_action(element, phase)?,
+            bray_bound_tree::LifecycleAction::None
+        ) {
+            if let Some(buffer) = progress {
+                let retirement =
+                    super::storage::buffer_cleanup_progress(builder, buffer, constant(0)?);
+
+                self.push_lifecycle_operation(builder, block, source, retirement)?;
+            }
+
+            return Ok(block);
+        }
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
@@ -68,11 +94,63 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.capacity_error(cause))?;
 
+        let retained = if progress.is_none()
+            && self.frame.is_some()
+            && matches!(role, bray_ir::MirGeneratedLifecycleRole::Destroy(_))
+            && !matches!(
+                self.context
+                    .lifecycle_action(element, bray_bound_tree::LifecyclePhase::Cancel)?,
+                bray_bound_tree::LifecycleAction::None
+            ) {
+            let broadcast = builder
+                .push_block(source.clone(), bray_ir::MirBlockKind::CleanupBroadcast)
+                .map_err(|cause| self.capacity_error(cause))?;
+
+            let end = self.push_sequence_lifecycle(
+                builder,
+                broadcast,
+                source,
+                bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                    bray_ir::MirCleanupPhase::TaskCancellation,
+                ),
+                place.clone(),
+                element,
+                bray_ir::MirOperand::Copy(cleanup.counter.clone()),
+                None,
+            )?;
+
+            let collection = outcome.collection();
+
+            let retention = collection
+                .retention()
+                .expect("array cleanup retains its source contract");
+
+            builder.set_terminator(
+                end,
+                source.clone(),
+                bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(retention.broadcast(), [])),
+            );
+
+            outcome.clone().with_retention(Some(std::sync::Arc::new(
+                retention.as_ref().clone().with_broadcast(broadcast),
+            )))
+        } else {
+            outcome.clone()
+        };
+
         // The loop owns the counter while its indexed child retains the same storage identity.
         let child = place.project(
             MirProjectionKind::Index(bray_ir::MirOperand::Copy(cleanup.counter.clone())),
             element,
         );
+
+        let retirement = progress.map(|buffer| {
+            super::storage::buffer_cleanup_progress(
+                builder,
+                buffer,
+                bray_ir::MirOperand::Copy(cleanup.counter.clone()),
+            )
+        });
 
         let completed = self.push_child_lifecycle_operation(
             builder,
@@ -80,7 +158,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             role,
             child,
-            &outcome,
+            &retained,
+            retirement,
         )?;
 
         cleanup

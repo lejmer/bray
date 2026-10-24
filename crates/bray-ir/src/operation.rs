@@ -197,6 +197,10 @@ impl MirTextOperation {
 }
 
 /// One explicit compiler-provided memory operation with evaluated operands.
+///
+/// Buffer release frees an already resolved prefix's backing. Buffer replacement
+/// transfers representation into an already emptied destination. Source lowering
+/// resolves their owner obligations through the shared lifecycle before either effect.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirMemoryOperation {
     kind: CheckedMemoryOperationKind,
@@ -204,8 +208,6 @@ pub struct MirMemoryOperation {
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
     inline_assembly_symbols: Arc<[MirCallableReference]>,
-    pub(crate) abandoned_cleanup: Option<Box<MirOperand>>,
-    pub(crate) cleanup_collection: Option<Box<crate::MirCleanupCollection>>,
 }
 
 impl MirMemoryOperation {
@@ -222,49 +224,7 @@ impl MirMemoryOperation {
             operand_types: shared_slice(operand_types),
             result_type,
             inline_assembly_symbols: Arc::from([]),
-            abandoned_cleanup: None,
-            cleanup_collection: None,
         }
-    }
-
-    /// Carries inherited abandonment through compiler-owned buffer release.
-    pub fn with_abandoned_cleanup(mut self, value: MirOperand) -> Self {
-        assert!(
-            matches!(
-                self.kind,
-                CheckedMemoryOperationKind::RawBufferRelease { .. }
-            ),
-            "only buffer release carries inherited destruction"
-        );
-
-        self.abandoned_cleanup = Some(Box::new(value));
-
-        self
-    }
-
-    /// Borrows the enclosing collection while releasing represented buffer elements.
-    pub fn with_cleanup_collection(mut self, collection: crate::MirCleanupCollection) -> Self {
-        assert!(
-            matches!(
-                self.kind,
-                CheckedMemoryOperationKind::RawBufferRelease { .. }
-            ),
-            "only buffer release borrows a cleanup collection"
-        );
-
-        self.cleanup_collection = Some(Box::new(collection));
-
-        self
-    }
-
-    /// Returns the borrowed collection for represented buffer cleanup.
-    pub fn cleanup_collection(&self) -> Option<&crate::MirCleanupCollection> {
-        self.cleanup_collection.as_deref()
-    }
-
-    /// Returns the inherited destruction argument for buffer release.
-    pub fn abandoned_cleanup(&self) -> Option<&MirOperand> {
-        self.abandoned_cleanup.as_deref()
     }
 
     /// Retains closed callable symbols referenced by assembly operands in descriptor order.
@@ -295,16 +255,7 @@ impl MirMemoryOperation {
 
     /// Returns native runtime dependencies of the selected memory behavior.
     pub fn runtime_roles(&self) -> impl Iterator<Item = bray_runtime_interface::RuntimeAbiRole> {
-        let suppression = matches!(
-            self.kind,
-            CheckedMemoryOperationKind::RawBufferRelease { .. }
-                | CheckedMemoryOperationKind::RawBufferReplace { .. }
-        )
-        .then_some(bray_runtime_interface::RuntimeAbiRole::PanicReportSuppression);
-
-        [self.atomic_word_runtime_role(), suppression]
-            .into_iter()
-            .flatten()
+        self.atomic_word_runtime_role().into_iter()
     }
 
     /// Returns the checked memory behavior.
@@ -835,6 +786,13 @@ pub enum MirOperationKind {
         /// Enclosing collection, or a collection owned by this call boundary.
         collection: Option<Box<crate::MirCleanupCollection>>,
     },
+    /// Resolves buffer contents while retaining the live buffer's local allowance.
+    ReleaseBuffer {
+        /// Borrowed buffer whose contents and allocation are released.
+        place: MirPlace,
+        /// Enclosing outcome collection, or one owned by this boundary.
+        collection: Option<Box<crate::MirCleanupCollection>>,
+    },
     /// Destroy a storage place after its value is no longer live.
     Destroy {
         /// Storage whose initialized remainder is destroyed.
@@ -926,16 +884,9 @@ impl MirOperationKind {
         match self {
             Self::Async(MirAsyncOperation::TransferCleanupIncident { .. }) => true,
             Self::Quiesce { collection, .. }
+            | Self::ReleaseBuffer { collection, .. }
             | Self::Destroy { collection, .. }
             | Self::Cleanup { collection, .. } => collection.is_none(),
-            Self::Memory(memory) => {
-                memory.cleanup_collection.is_none()
-                    && matches!(
-                        memory.kind(),
-                        CheckedMemoryOperationKind::RawBufferRelease { .. }
-                            | CheckedMemoryOperationKind::RawBufferReplace { .. }
-                    )
-            }
             _ => false,
         }
     }
@@ -944,9 +895,9 @@ impl MirOperationKind {
     pub fn cleanup_collection(&self) -> Option<&crate::MirCleanupCollection> {
         match self {
             Self::Quiesce { collection, .. }
+            | Self::ReleaseBuffer { collection, .. }
             | Self::Destroy { collection, .. }
             | Self::Cleanup { collection, .. } => collection.as_deref(),
-            Self::Memory(memory) => memory.cleanup_collection.as_deref(),
             Self::Generator(
                 MirGeneratorOperation::CleanupBroadcast { collection, .. }
                 | MirGeneratorOperation::Destroy { collection, .. },
@@ -960,16 +911,9 @@ impl MirOperationKind {
     ) -> Option<&mut Option<Box<crate::MirCleanupCollection>>> {
         match self {
             Self::Quiesce { collection, .. }
+            | Self::ReleaseBuffer { collection, .. }
             | Self::Destroy { collection, .. }
             | Self::Cleanup { collection, .. } => Some(collection),
-            Self::Memory(memory)
-                if matches!(
-                    memory.kind(),
-                    CheckedMemoryOperationKind::RawBufferRelease { .. }
-                ) =>
-            {
-                Some(&mut memory.cleanup_collection)
-            }
             _ => None,
         }
     }

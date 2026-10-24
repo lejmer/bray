@@ -24,6 +24,7 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
         frame: None,
         frame_states: Vec::new(),
         continuation: None,
+        owner_retirement: None,
     }
     .lower_lifecycle(key, reference, unit, target)
 }
@@ -42,6 +43,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
         });
 
+        let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+            .expect("selected generated lifecycle has a concrete role");
+
+        let framed = matches!(reference, MirHelperReference::LifecycleFrame { .. });
+
+        if framed {
+            self.frame = Some(super::frame::frame_identity(&key, target));
+        }
+
         let values = self.context.semantic_values();
 
         let pointer = values
@@ -57,7 +67,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             unit,
             key,
             reference.clone(),
-            bray_ir::MirUnitKind::Synchronous,
+            self.frame.map_or(
+                bray_ir::MirUnitKind::Synchronous,
+                bray_ir::MirUnitKind::ProtectedAsyncFrame,
+            ),
             target.clone(),
         );
 
@@ -79,7 +92,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ty,
         );
 
-        if let MirHelperReference::Destroy(_, disposition) = reference {
+        let destruction = match role {
+            bray_ir::MirGeneratedLifecycleRole::Destroy(disposition) => Some(disposition),
+            bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => Some(if framed {
+                bray_ir::MirDestructionDisposition::Dynamic
+            } else {
+                bray_ir::MirDestructionDisposition::Ordinary
+            }),
+            _ => None,
+        };
+
+        if let Some(disposition) = destruction {
             let boolean = self
                 .context
                 .representation_type(RepresentationRole::ScalarBool)?;
@@ -94,7 +117,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 }
                 disposition => MirOperand::Immediate {
                     value: bray_ir::MirImmediateValue::Boolean(
-                        *disposition == bray_ir::MirDestructionDisposition::Abandoned,
+                        disposition == bray_ir::MirDestructionDisposition::Abandoned,
                     ),
                     ty: boolean,
                 },
@@ -105,10 +128,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             self.collection = Some(self.borrow_collection(
                 &mut builder,
                 &source,
-                if matches!(
-                    reference,
-                    MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
-                ) {
+                if destruction == Some(bray_ir::MirDestructionDisposition::Dynamic) {
                     2
                 } else {
                     1
@@ -116,24 +136,28 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )?);
         }
 
-        match reference {
-            MirHelperReference::Cleanup { phase, .. } => {
+        if framed {
+            self.begin_lifecycle_frame(&mut builder, entry, &source, storage, role)?;
+        }
+
+        match role {
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
                 self.lower_cleanup_body(
                     &mut builder,
                     entry,
                     &source,
                     reference,
-                    *phase,
+                    phase,
                     place,
                     target.runtime_abi(),
                 )?;
             }
-            MirHelperReference::StaticFinalize(ty) => {
+            bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                 let end;
 
                 let action = self
                     .context
-                    .lifecycle_action(*ty, bray_bound_tree::LifecyclePhase::Finalize)?;
+                    .lifecycle_action(ty, bray_bound_tree::LifecyclePhase::Finalize)?;
 
                 let return_value = if let bray_bound_tree::LifecycleAction::Call(callable) = action
                 {
@@ -161,6 +185,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         place,
                         target.runtime_abi(),
                         action,
+                        None,
                     )?;
 
                     None
@@ -178,7 +203,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     },
                 );
             }
-            MirHelperReference::Quiesce(_) | MirHelperReference::Destroy(_, _) => {
+            bray_ir::MirGeneratedLifecycleRole::Quiesce
+            | bray_ir::MirGeneratedLifecycleRole::Destroy(_)
+            | bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => {
                 let end = self.push_generated_lifecycle_operations(
                     &mut builder,
                     entry,
@@ -197,28 +224,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     },
                 );
             }
-            MirHelperReference::AnonymousCallable(_)
-            | MirHelperReference::DeclaredCallable(_)
-            | MirHelperReference::DefaultValue(_)
-            | MirHelperReference::Predicate(_)
-            | MirHelperReference::TypeForm(_)
-            | MirHelperReference::Conversion(_)
-            | MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
-            | MirHelperReference::PanicReport
-            | MirHelperReference::StandardLibrary(_)
-            | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
-            | MirHelperReference::DestroyTerminalTask => {
-                panic!("synthetic lowering helper {reference:?} must be available");
-            }
         }
 
-        if let MirHelperReference::Destroy(ty, _) = reference {
-            super::outgoing::discharge_owner(&mut builder, *ty)
+        if matches!(role, bray_ir::MirGeneratedLifecycleRole::Destroy(_)) {
+            super::outgoing::discharge_owner(&mut builder, ty)
                 .map_err(|cause| self.capacity_error(cause))?;
+        }
+
+        if framed {
+            self.finish_lifecycle_frame(&mut builder, &source)?;
         }
 
         Ok(builder.finish(entry))
@@ -334,6 +348,14 @@ mod tests {
 
     impl SyntheticLoweringContext for TupleContext {
         type Error = SyntheticLoweringError;
+
+        fn lifecycle_requires_frame(
+            &self,
+            _: TypeId,
+            _: bray_ir::MirGeneratedLifecycleRole,
+        ) -> Result<bool, Self::Error> {
+            Ok(false)
+        }
 
         fn semantic_values(&self) -> &SemanticValueStore {
             &self.0

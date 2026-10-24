@@ -600,6 +600,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(14);
                 self.panic_cause(cause)?;
             }
+            MirOperationKind::ReleaseBuffer { place, .. } => {
+                self.wire.write_u32(28);
+                self.place(place)?;
+                self.cleanup_collection(operation.cleanup_collection())?;
+            }
             MirOperationKind::Quiesce { place, .. } => {
                 self.wire.write_u32(25);
                 self.place(place)?;
@@ -922,6 +927,22 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             .write_u32(crate::tag::WireTag::to_wire(call.invocation()));
 
         match call.target() {
+            MirCallTarget::Lifecycle { role, ty } => {
+                self.wire.write_u32(5);
+
+                self.wire.write_u32(match role {
+                    bray_ir::MirGeneratedLifecycleRole::Quiesce => 0,
+                    bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer => 2,
+                    bray_ir::MirGeneratedLifecycleRole::Destroy(
+                        bray_ir::MirDestructionDisposition::Dynamic,
+                    ) => 1,
+                    _ => panic!(
+                        "admitted cleanup factories select quiescence or dynamic destruction"
+                    ),
+                });
+
+                self.ty(*ty)?;
+            }
             MirCallTarget::Direct(reference) => {
                 self.wire.write_u32(0);
                 self.callable_instance(reference.instance())?;
@@ -1913,8 +1934,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         self.callable_references(operation.inline_assembly_symbols())?;
-        self.optional_operand(operation.abandoned_cleanup())?;
-        self.cleanup_collection(operation.cleanup_collection())?;
 
         Ok(())
     }

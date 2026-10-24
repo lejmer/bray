@@ -27,6 +27,8 @@ fn string_release_collects_deallocation_failure_before_returning() {
         79,
     );
 
+    assert!(generated.is_valid());
+
     let release = generated
         .blocks()
         .iter()
@@ -50,6 +52,38 @@ fn string_release_collects_deallocation_failure_before_returning() {
         block.terminator().kind(),
         MirTerminatorKind::PropagatePanic { .. } | MirTerminatorKind::PropagateCancellation { .. }
     )));
+}
+
+#[test]
+fn inactive_frame_broadcast_and_destruction_keep_valid_outcome_checks() {
+    let compilation = compilation("module app; func main() {}");
+    let target = codegen_target(&compilation);
+    let values = compilation.semantic_value_store().unwrap();
+
+    let unit = compilation
+        .compiler_known_type(RepresentationRole::Unit)
+        .unwrap();
+
+    let future = compilation
+        .available_compiler_known_symbols()
+        .unary_representation_type(values, RepresentationRole::Future, unit)
+        .unwrap()
+        .unwrap();
+
+    for reference in [
+        MirHelperReference::Cleanup {
+            phase: MirCleanupPhase::TaskCancellation,
+            ty: future,
+        },
+        MirHelperReference::Destroy(future, bray_ir::MirDestructionDisposition::Abandoned),
+    ] {
+        let generated = generated_lifecycle(&compilation, &target, reference, 130);
+
+        assert!(
+            generated.is_valid(),
+            "inactive frame cleanup preserves its checked failure continuation"
+        );
+    }
 }
 
 #[test]
@@ -338,8 +372,7 @@ using std.memory;
 
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
-            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. })
-                && memory.abandoned_cleanup().is_some())));
+            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
 
     assert!(
         !cleanup
@@ -412,8 +445,7 @@ fn imported_standard_buffer_cleanup_uses_structural_allowance() {
 
     assert!(cleanup.operations().iter().any(|operation| matches!(operation.kind(),
         MirOperationKind::Memory(memory)
-            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. })
-                && memory.abandoned_cleanup().is_some())));
+            if matches!(memory.kind(), bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }))));
 }
 
 #[test]

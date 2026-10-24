@@ -1084,8 +1084,17 @@ impl Lowerer<'_> {
                         [],
                     );
 
+                    let input = selection
+                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                            bray_symbols::SymbolOrdinal::new(*ordinal),
+                        ))
+                        .expect("selected default has its input ordinal");
+
                     let (continued, value) = self.push_checked_value_operation(
-                        id,
+                        bray_bound_tree::BoundExecutionSite::CallInput {
+                            expression: id,
+                            ordinal: input,
+                        },
                         current,
                         Self::retained_source(&source),
                         MirOperationKind::Call(default),
@@ -1093,12 +1102,6 @@ impl Lowerer<'_> {
                     )?;
 
                     current = continued;
-
-                    let input = selection
-                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
-                            bray_symbols::SymbolOrdinal::new(*ordinal),
-                        ))
-                        .expect("selected default has its input ordinal");
 
                     let value = self.materialize_call_input(
                         bray_bound_tree::BoundExecutionSite::CallInput {

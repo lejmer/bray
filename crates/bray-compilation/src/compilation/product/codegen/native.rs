@@ -157,13 +157,9 @@ impl Compilation {
                 }
             }
 
-            if let Some(instance) = graph.instance(key)
-                && let Some((symbol, binding)) = self.codegen_static_definition(
-                    realization,
-                    instance.mir(),
-                    target,
-                    cancellation,
-                )?
+            if graph.instance(key).is_some()
+                && let Some((symbol, binding)) =
+                    self.codegen_static_definition(realization, target, cancellation)?
             {
                 let host = BinarySymbolName::try_new(
                     bray_codegen::CodegenStaticStorageMapping::host_name_for(&symbol),

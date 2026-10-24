@@ -1,6 +1,7 @@
 use super::support::artifacts::generated_artifacts;
 use super::support::runtime::{
-    runtime_native_plan, runtime_native_plan_for_sources_target, runtime_native_plan_for_target,
+    runtime_native_plan, runtime_native_plan_for_product, runtime_native_plan_for_sources_target,
+    runtime_native_plan_for_target,
 };
 use crate::SelectedTarget;
 
@@ -8,6 +9,36 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{ProductKind, StaticStorageDuration};
 use bray_target::NativeTarget;
 use std::collections::BTreeSet;
+
+#[test]
+fn library_static_definition_survives_initializer_pruning() {
+    let (backend, plan) = runtime_native_plan_for_product(
+        "module app; static ANSWER: i32 = 42;",
+        ProductKind::Library,
+    );
+
+    let statics = plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .map(|mapping| mapping.instance())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        statics.len(),
+        1,
+        "the exported static keeps its semantic instance"
+    );
+
+    assert!(
+        plan.mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .any(|mapping| mapping.defines_storage() && mapping.storage().is_none())
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
 
 #[test]
 fn initialized_protected_statics_preserve_scalar_and_product_representations() {

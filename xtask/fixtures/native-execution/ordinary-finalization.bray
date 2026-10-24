@@ -127,7 +127,7 @@ async func inactive()
         }
     );
 
-    child(
+    _ = child(
         Owner
         {
             value = 7
@@ -228,6 +228,68 @@ trusted async func handle_failure()
     };
 }
 
+internal static BUFFER_FINALIZATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+internal static BUFFER_DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct BufferOwner
+{
+    digit: usize;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+
+        let previous = core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS);
+
+        core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, previous * 10 + self.digit);
+    }
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS);
+
+        core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, previous * 10 + self.digit);
+    }
+}
+
+trusted async func represented_buffer()
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    let mut owners: std.memory.RawBuffer<BufferOwner> = match trusted std.memory.RawBuffer<BufferOwner>(capacity = 4)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("buffer layout"); }
+    };
+
+    trusted internal std.memory.raw_buffer_push<BufferOwner>(
+        &mut owners,
+        BufferOwner
+        {
+            digit = 1
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_push<BufferOwner>(
+        &mut owners,
+        BufferOwner
+        {
+            digit = 2
+        }
+    );
+
+    trusted internal std.memory.raw_buffer_push<BufferOwner>(
+        &mut owners,
+        BufferOwner
+        {
+            digit = 3
+        }
+    );
+
+    // Only the initialized prefix is owned; its three child allowances are already secured.
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+}
+
 trusted async func main()
     uses(foreign_call)
 {
@@ -246,4 +308,20 @@ trusted async func main()
 
     assert(attempts == 0, "mandatory cleanup requested fresh backing after admission");
     assert(core.atomic.load<usize, 1>(&ERRORS) == 3, "retained error and its inactive capture were not destroyed");
+
+    await trusted represented_buffer();
+
+    let buffer_attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+
+    assert(buffer_attempts == 0, "represented cleanup requested fresh backing after admission");
+
+    assert(
+        core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 321,
+        "buffer finalization order or initialized prefix is invalid"
+    );
+
+    assert(
+        core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 321,
+        "buffer destruction did not resolve each initialized element once"
+    );
 }

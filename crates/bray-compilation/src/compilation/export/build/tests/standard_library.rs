@@ -95,10 +95,7 @@ fn platform_service_implementations_publish_their_role_with_the_root_template() 
 #[test]
 fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
     for (initialized, access) in [
-        (
-            1,
-            "_ = trusted std.memory.initialized_slice<u8>(&buffer);",
-        ),
+        (1, "_ = trusted std.memory.initialized_slice<u8>(&buffer);"),
         (
             0,
             "let pointer = trusted std.memory.spare_pointer<u8>(&mut buffer); trusted std.memory.write<u8>(pointer, 1);",

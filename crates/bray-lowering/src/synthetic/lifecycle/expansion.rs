@@ -38,6 +38,7 @@ pub fn expand_lifecycle_continuations<C: SyntheticLoweringContext + ?Sized>(
         // Expansion extends the enclosing descriptor once, not once per cleanup site.
         frame_states: frame.states().to_vec(),
         continuation: None,
+        owner_retirement: None,
     };
 
     let mut builder = MirUnitBuilder::for_expansion(unit);
@@ -98,6 +99,9 @@ fn selected_cleanup(
         MirOperationKind::Quiesce { place, collection } => {
             (MirGeneratedLifecycleRole::Quiesce, place, collection)
         }
+        MirOperationKind::ReleaseBuffer { place, collection } => {
+            (MirGeneratedLifecycleRole::ReleaseBuffer, place, collection)
+        }
         MirOperationKind::Destroy {
             place,
             collection,
@@ -134,16 +138,22 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let action = self.context.lifecycle_action(place.ty(), role.phase())?;
 
-        // Indirect and erased ownership remains a call boundary. Expanding the
-        // pointed-to type into the caller would unroll recursive owner graphs.
-        if matches!(
+        let indirect = matches!(
             action,
-            bray_bound_tree::LifecycleAction::Owned { .. }
-                | bray_bound_tree::LifecycleAction::Generator(_)
-                | bray_bound_tree::LifecycleAction::RawBuffer(_)
-        ) {
+            bray_bound_tree::LifecycleAction::RawBuffer(_)
+                | bray_bound_tree::LifecycleAction::Owned { .. }
+        );
+
+        if matches!(action, bray_bound_tree::LifecycleAction::Generator(_))
+            || (indirect && !self.context.lifecycle_requires_frame(place.ty(), role)?)
+        {
             return Ok(false);
         }
+
+        let buffer = matches!(action, bray_bound_tree::LifecycleAction::RawBuffer(_));
+
+        let discharge =
+            matches!(role, MirGeneratedLifecycleRole::Destroy(_)) && (!indirect || buffer);
 
         let (operation, terminal) = builder.take_last_effect(block);
 
@@ -170,7 +180,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let (role, place, collection) =
             selected_cleanup(&kind).expect("selected structural cleanup retains its collection");
 
-        let finish = if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
+        let finish = if discharge {
             builder
                 .push_block(source.clone(), builder.block_kind(block))
                 .map_err(|cause| self.capacity_error(cause))?
@@ -197,6 +207,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         ));
 
         self.abandoned = match &kind {
+            MirOperationKind::ReleaseBuffer { .. } => Some(MirOperand::Immediate {
+                ty: self
+                    .context
+                    .representation_type(RepresentationRole::ScalarBool)?,
+                value: bray_ir::MirImmediateValue::Boolean(false),
+            }),
             MirOperationKind::Destroy { abandoned, .. } => Some(
                 abandoned.clone().unwrap_or(MirOperand::Immediate {
                     ty: self
@@ -210,10 +226,32 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let abi = builder.target().runtime_abi();
 
-        let end =
-            self.expand_lifecycle_action(builder, block, source, role, place.clone(), abi, action)?;
+        let end = if indirect {
+            self.push_lifecycle_frame(
+                builder,
+                block,
+                source,
+                if buffer && matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
+                    MirGeneratedLifecycleRole::ReleaseBuffer
+                } else {
+                    role
+                },
+                place.clone(),
+            )?
+        } else {
+            self.expand_lifecycle_action(
+                builder,
+                block,
+                source,
+                role,
+                place.clone(),
+                abi,
+                action,
+                None,
+            )?
+        };
 
-        if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
+        if discharge {
             builder.set_terminator(
                 end,
                 source.clone(),
@@ -236,11 +274,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.capacity_error(cause))?;
         }
 
-        let completed = if matches!(role, MirGeneratedLifecycleRole::Destroy(_)) {
-            finish
-        } else {
-            end
-        };
+        let completed = if discharge { finish } else { end };
 
         builder.set_terminator(completed, source.clone(), terminal);
 

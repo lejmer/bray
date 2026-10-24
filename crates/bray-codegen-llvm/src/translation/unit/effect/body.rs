@@ -194,41 +194,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
-            MirOperationKind::Quiesce { place, .. } => {
-                self.translate_lifecycle_helper(
-                    id,
-                    MirHelperReference::Quiesce(place.ty()),
-                    place,
-                    None,
-                )?;
+            MirOperationKind::ReleaseBuffer { place, .. }
+            | MirOperationKind::Quiesce { place, .. }
+            | MirOperationKind::Cleanup { place, .. } => {
+                self.translate_lifecycle_helper(id, place, None)?;
 
                 None
             }
             MirOperationKind::Destroy {
                 place, abandoned, ..
             } => {
-                self.translate_lifecycle_helper(
-                    id,
-                    MirHelperReference::Destroy(
-                        place.ty(),
-                        bray_ir::MirDestructionDisposition::from_argument(abandoned.as_ref()),
-                    ),
-                    place,
-                    abandoned.as_ref(),
-                )?;
-
-                None
-            }
-            MirOperationKind::Cleanup { phase, place, .. } => {
-                self.translate_lifecycle_helper(
-                    id,
-                    MirHelperReference::Cleanup {
-                        phase: *phase,
-                        ty: place.ty(),
-                    },
-                    place,
-                    None,
-                )?;
+                self.translate_lifecycle_helper(id, place, abandoned.as_ref())?;
 
                 None
             }
@@ -440,10 +416,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("declared callable helpers must have an address"))
     }
 
-    pub(super) fn translate_lifecycle_helper(
+    fn translate_lifecycle_helper(
         &mut self,
         operation: bray_ir::MirOperationId,
-        expected: MirHelperReference,
         place: &MirPlace,
         abandoned: Option<&bray_ir::MirOperand>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
@@ -453,9 +428,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR effect translation violated an established compiler contract");
         };
 
-        if helper.reference() != &expected {
-            panic!("checked MIR effect translation violated an established compiler contract");
-        }
+        let mir_operation = self
+            .unit
+            .operation(operation)
+            .expect("translated cleanup operation exists");
+
+        assert_eq!(
+            mir_operation.kind().helper_references(),
+            [helper.reference().clone()],
+            "lifecycle mapping retains the selected MIR dependency"
+        );
 
         if helper.symbol().is_none() {
             if self.checked_call_operations.contains(&operation) {
@@ -470,7 +452,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut arguments = vec![self.place(place)?.into()];
 
         if matches!(
-            expected,
+            helper.reference(),
             MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Dynamic)
         ) {
             arguments.push(match abandoned {
@@ -479,12 +461,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             });
         }
 
-        let collection = self
-            .unit
-            .operation(operation)
-            .expect("translated cleanup operation exists")
-            .kind()
-            .cleanup_collection();
+        let collection = mir_operation.kind().cleanup_collection();
 
         let owned = if collection.is_none() {
             Some(self.checked_call_panic_report_context()?)

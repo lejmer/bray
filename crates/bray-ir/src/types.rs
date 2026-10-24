@@ -71,6 +71,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
+        | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
         MirOperationKind::Destroy {
             place, abandoned, ..
@@ -119,10 +120,6 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Generator(operation) => collect_generator_types(operation, types),
         MirOperationKind::Call(call) => collect_call_types(call, types),
         MirOperationKind::Memory(memory) => {
-            if let Some(abandoned) = memory.abandoned_cleanup() {
-                collect_operand_types(abandoned, types);
-            }
-
             collect_operands_types(memory.operands(), types);
             collect_memory_types(memory.kind(), types);
         }
@@ -472,6 +469,10 @@ fn collect_call_result_types(
 }
 
 fn collect_call_types(call: &MirCall, types: &mut BTreeSet<TypeId>) {
+    if let MirCallTarget::Lifecycle { ty, .. } = call.target() {
+        types.insert(*ty);
+    }
+
     if let MirCallTarget::Predicate(crate::MirPredicateReference::Condition {
         input_types, ..
     }) = call.target()

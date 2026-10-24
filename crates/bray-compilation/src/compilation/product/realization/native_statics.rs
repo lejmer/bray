@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 
@@ -21,6 +22,29 @@ pub(in crate::compilation::product) struct NativeStaticContract {
 }
 
 impl Compilation {
+    pub(super) fn codegen_static_references_for_mir<'a>(
+        &'a self,
+        owner: &ConcreteCodegenInstance,
+        mir: &'a bray_ir::MirUnit,
+        cancellation: &'a CancellationToken,
+    ) -> impl Iterator<Item = Result<Cow<'a, StaticReferenceSelection>, CodegenPreparationError>> + 'a
+    {
+        let definition = owner
+            .static_instance()
+            .cloned()
+            .map(StaticReferenceSelection::Closed)
+            .map(Cow::Owned);
+
+        definition
+            .into_iter()
+            .map(Ok)
+            .chain(mir.storages().iter().filter_map(move |storage| {
+                self.codegen_static_reference(storage.kind(), cancellation)
+                    .transpose()
+                    .map(|reference| reference.map(Cow::Borrowed))
+            }))
+    }
+
     pub(super) fn codegen_native_publication_metadata(
         &self,
         instance: &CodegenInstance,
@@ -36,6 +60,16 @@ impl Compilation {
             helpers_without_comdat && self.codegen_has_string_constants(instance, realization)?;
 
         let mut dependencies = BTreeSet::new();
+
+        if let Some(definition) = realization.static_instance() {
+            dependencies.insert(self.codegen_owned_static_dependency(
+                realization,
+                &StaticReferenceSelection::Closed(definition.clone()),
+                cancellation,
+            )?);
+
+            independent |= helpers_without_comdat;
+        }
 
         for storage in instance.mir().storages() {
             let owned_reference = match storage.kind() {
@@ -58,14 +92,12 @@ impl Compilation {
             };
 
             if let Some(reference) = owned_reference {
-                let (selected, _, _) =
-                    self.concrete_codegen_static_selection(realization, reference, cancellation)?;
+                dependencies.insert(self.codegen_owned_static_dependency(
+                    realization,
+                    reference,
+                    cancellation,
+                )?);
 
-                let mut hasher = StableDigestHasher::new();
-
-                hasher.write(b"bray.codegen-owned-storage-reference");
-                hasher.write(&self.static_cleanup_order_key(&selected, cancellation)?);
-                dependencies.insert(hasher.finalize());
                 independent |= helpers_without_comdat;
             }
         }
@@ -82,6 +114,23 @@ impl Compilation {
         };
 
         Ok((independent, identity))
+    }
+
+    fn codegen_owned_static_dependency(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &StaticReferenceSelection,
+        cancellation: &CancellationToken,
+    ) -> Result<[u8; 32], CodegenPreparationError> {
+        let (selected, _, _) =
+            self.concrete_codegen_static_selection(owner, reference, cancellation)?;
+
+        let mut hasher = StableDigestHasher::new();
+
+        hasher.write(b"bray.codegen-owned-storage-reference");
+        hasher.write(&self.static_cleanup_order_key(&selected, cancellation)?);
+
+        Ok(hasher.finalize())
     }
 
     pub(super) fn codegen_static_reference<'a>(

@@ -8,6 +8,137 @@ use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
 
 impl Compilation {
+    pub(in crate::compilation::product) fn resolve_empty_admissions(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        unit: &bray_ir::MirUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_ir::MirUnit>, CodegenPreparationError> {
+        let mut omitted = std::collections::BTreeSet::new();
+        let mut terminators = std::collections::BTreeMap::new();
+        let mut reports = Vec::new();
+
+        for (id, block) in unit.blocks_with_ids() {
+            for operation_id in block.operations() {
+                let operation = unit
+                    .operation(*operation_id)
+                    .expect("checked operation exists");
+
+                let admission = matches!(operation.kind(), MirOperationKind::AdmitOutgoing { .. });
+
+                if !admission
+                    && !matches!(operation.kind(), MirOperationKind::DischargeOutgoing { .. })
+                {
+                    continue;
+                }
+
+                let Some(requirements) = self.operation_outgoing_requirements(
+                    owner,
+                    *operation_id,
+                    operation.kind(),
+                    target,
+                    cancellation,
+                )?
+                else {
+                    // Erased factories supply their one required frame through their descriptor.
+                    continue;
+                };
+
+                if !requirements.is_empty() {
+                    continue;
+                }
+
+                omitted.insert(*operation_id);
+
+                if !admission {
+                    continue;
+                }
+
+                assert_eq!(
+                    block.operations().last(),
+                    Some(operation_id),
+                    "admission ends at its checked completion boundary"
+                );
+
+                let bray_ir::MirTerminatorKind::CheckCallOutcome {
+                    completed,
+                    completed_report,
+                    ..
+                } = block.terminator().kind()
+                else {
+                    panic!("admission retains its checked completion boundary");
+                };
+
+                terminators.insert(id, bray_ir::MirTerminatorKind::Goto(completed.clone()));
+
+                if let Some(report) = completed_report {
+                    assert!(
+                        report.projections().is_empty(),
+                        "invocation reports use private storage"
+                    );
+
+                    reports.push((id, report.clone(), operation.source().clone()));
+                }
+            }
+        }
+
+        if omitted.is_empty() {
+            return Ok(None);
+        }
+
+        // Apply the proven transitions atomically: dead ownership ends must disappear
+        // before demanding helpers, even in synchronous generic constructors.
+        let (unit, mappings) = bray_ir::reconstruct_with_edits(
+            unit,
+            &terminators,
+            &omitted,
+            &std::collections::BTreeMap::new(),
+        )
+        .map_err(CodegenPreparationError::MirCapacity)?;
+
+        let mut builder = None;
+
+        for (block, report, source) in reports {
+            let (Some(block), Some(storage)) =
+                (mappings.block(block), mappings.storage(report.storage()))
+            else {
+                continue;
+            };
+
+            let builder =
+                builder.get_or_insert_with(|| bray_ir::MirUnitBuilder::for_expansion(&unit));
+
+            let destination = bray_ir::MirPlace::new(storage, [], report.ty());
+
+            builder
+                .push_operation(
+                    block,
+                    source,
+                    MirOperationKind::Store {
+                        kind: bray_ir::MirStoreKind::Initialize,
+                        destination,
+                        value: bray_ir::MirOperand::Immediate {
+                            ty: report.ty(),
+                            value: bray_ir::MirImmediateValue::EmptyPanicReport,
+                        },
+                    },
+                    None,
+                )
+                .map_err(CodegenPreparationError::MirCapacity)?;
+        }
+
+        let Some(mut builder) = builder else {
+            return Ok(Some(unit));
+        };
+
+        if let Some(descriptor) = unit.frame_descriptor() {
+            builder.set_frame_descriptor(descriptor.clone());
+        }
+
+        Ok(Some(builder.finish(unit.entry())))
+    }
+
     pub(super) fn operation_outgoing_requirements(
         &self,
         owner: &ConcreteCodegenInstance,
@@ -171,6 +302,36 @@ impl Compilation {
             let instance = self.concrete_codegen_lifecycle(helper.clone(), &target)?;
 
             let action = self.codegen_lifecycle_action(&helper, cancellation)?;
+
+            if matches!(helper, MirHelperReference::Destroy(..))
+                && matches!(
+                    action,
+                    bray_bound_tree::LifecycleAction::RawBuffer(_)
+                        | bray_bound_tree::LifecycleAction::Owned { .. }
+                )
+            {
+                for role in [
+                    if matches!(action, bray_bound_tree::LifecycleAction::RawBuffer(_)) {
+                        bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer
+                    } else {
+                        bray_ir::MirGeneratedLifecycleRole::Destroy(
+                            bray_ir::MirDestructionDisposition::Dynamic,
+                        )
+                    },
+                    bray_ir::MirGeneratedLifecycleRole::Quiesce,
+                ] {
+                    if self.lifecycle_requires_frame(ty, role, cancellation)? {
+                        requirements.push((
+                            self.concrete_codegen_lifecycle(
+                                MirHelperReference::LifecycleFrame { role, ty },
+                                &target,
+                            )?,
+                            self.codegen_representation_type(RepresentationRole::Unit)?,
+                            CallableExecution::Asynchronous,
+                        ));
+                    }
+                }
+            }
 
             for call in action.local_calls() {
                 if self.call_requires_outgoing(

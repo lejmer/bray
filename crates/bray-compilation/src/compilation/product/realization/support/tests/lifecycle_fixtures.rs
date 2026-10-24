@@ -65,6 +65,30 @@ pub(super) fn reachable_cleanup_operations(
     operations.into_values().collect()
 }
 
+pub(super) fn standard_memory_request(source: &str, imported: bool) -> crate::CompilationRequest {
+    use crate::test_support::{package_identity, source_inputs};
+
+    if imported {
+        return crate::CompilationRequest::new(package_identity(), source_inputs(&[source]))
+            .with_dependency_interfaces([standard_memory_dependency()]);
+    }
+
+    crate::CompilationRequest::new(
+        bray_symbols::PackageIdentity::try_new("std").unwrap(),
+        source_inputs(&[
+            include_str!("../../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/storage.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/allocation.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/numeric/limits.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/buffer.bray"),
+            include_str!("../../../../../../../../standard-library/std/src/memory/function.bray"),
+            source,
+        ]),
+    )
+    .with_standard_library_source_authority()
+}
+
 pub(super) fn standard_memory_dependency() -> crate::DependencyInterfaceInput {
     use crate::{
         Compilation, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,

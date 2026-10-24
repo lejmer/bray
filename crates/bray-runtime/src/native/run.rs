@@ -328,7 +328,7 @@ impl NativeRun {
         })
     }
 
-    fn drive(&self, cancellation: bool) -> FrameProgress<usize> {
+    fn drive(&self) -> FrameProgress<usize> {
         let _claim = self.claim();
         let root = self.root.load(Ordering::Acquire);
 
@@ -336,6 +336,9 @@ impl NativeRun {
         assert!(!self.is_finished(), "terminal run cannot resume");
 
         for _ in 0..DISPATCH_TRANSITIONS {
+            // A callback can enter or leave cleanup shielding without yielding.
+            let cancellation = crate::context::current_run_cancellation_observable();
+
             let mut progress =
                 NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
 
@@ -358,7 +361,7 @@ impl NativeRun {
             match status {
                 0 => continue,
                 1 => {
-                    self.refresh(cancellation);
+                    self.refresh(crate::context::current_run_cancellation_observable());
 
                     return suspension(progress);
                 }
@@ -401,7 +404,7 @@ impl NativeRun {
             }
         }
 
-        self.refresh(cancellation);
+        self.refresh(crate::context::current_run_cancellation_observable());
 
         FrameProgress::Suspended(FrameSuspension::yielding(self.snapshot().state()))
     }
@@ -429,8 +432,8 @@ impl ProtectedFrame for Arc<NativeRun> {
     fn execution_state(&self, _: ProtectedFrameStateId) -> Option<FrameExecutionState> {
         Some(self.snapshot())
     }
-    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
-        self.drive(context.cancellation_requested())
+    fn resume(self: Pin<&mut Self>, _context: FrameContext) -> FrameProgress<Self::Output> {
+        self.drive()
     }
 
     fn broadcast_tasks(self: Pin<&mut Self>) {
