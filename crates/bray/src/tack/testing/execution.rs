@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use bray_base::StableDigestHasher;
 use bray_diagnostics::{
-    DiagnosticBag, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
-    DiagnosticProjectSelectionProblem, DiagnosticTestExecutionPlanProblem,
-    DiagnosticTestSchedulingProblem,
+    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+    DiagnosticTestExecutionPlanProblem, DiagnosticTestSchedulingProblem,
 };
 use bray_platform::{
     NativeChildProcess, NativeExitStatus, NativePipeWriter, NativeProcessCommand, NativeStdio,
@@ -36,7 +36,7 @@ use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::TackTestOptions;
 
 static COMMAND_CANCELLED: AtomicBool = AtomicBool::new(false);
-static CANCELLATION_HANDLER: OnceLock<Result<(), ()>> = OnceLock::new();
+static CANCELLATION_HANDLER: OnceLock<Result<(), ctrlc::Error>> = OnceLock::new();
 const HOST_POLL_INTERVAL: Duration = Duration::from_millis(5);
 const CANCELLATION_GRACE_PERIOD: Duration = Duration::from_secs(1);
 
@@ -651,16 +651,27 @@ fn command_id(result_path: &Path, admission: &TestAdmission) -> TestHostCommandI
 fn prepare_command_cancellation() -> Result<(), DiagnosticBag> {
     COMMAND_CANCELLED.store(false, Ordering::Release);
 
-    let installed = CANCELLATION_HANDLER.get_or_init(|| {
-        ctrlc::set_handler(|| COMMAND_CANCELLED.store(true, Ordering::Release)).map_err(|_| ())
-    });
+    let installed = CANCELLATION_HANDLER
+        .get_or_init(|| ctrlc::set_handler(|| COMMAND_CANCELLED.store(true, Ordering::Release)));
 
-    installed.as_ref().map(|()| ()).map_err(|()| {
-        panic!(
-            "validated project Invariant contract failed: {:?}",
-            DiagnosticProjectOperation::TestCancellationHandler
-        )
-    })
+    installed
+        .as_ref()
+        .map(|()| ())
+        .map_err(cancellation_handler_diagnostics)
+}
+
+fn cancellation_handler_diagnostics(error: &ctrlc::Error) -> DiagnosticBag {
+    match error {
+        ctrlc::Error::System(error) => {
+            operation_diagnostics(DiagnosticProjectCommandFailure::HostIo {
+                operation: DiagnosticProjectOperation::TestCancellationHandler,
+                error: DiagnosticIoErrorKind::from(error.kind()),
+            })
+        }
+        ctrlc::Error::MultipleHandlers | ctrlc::Error::NoSuchSignal(_) => {
+            panic!("test cancellation handler registration contract failed: {error:?}")
+        }
+    }
 }
 
 const fn capture_reservation(capture: TestCapturePolicy) -> u64 {
@@ -672,10 +683,76 @@ const fn capture_reservation(capture: TestCapturePolicy) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::{
+        DiagnosticArgValue, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticProjectCommandFailure,
+        DiagnosticProjectOperation,
+    };
+    use bray_messages::DiagnosticRenderer;
     use bray_test_protocol::{TestBatchPlan, TestBatchRequest};
 
     use super::super::test_support::write_empty_test_host;
-    use super::BuiltTestHost;
+    use super::{BuiltTestHost, cancellation_handler_diagnostics};
+
+    #[test]
+    fn cancellation_handler_system_failure_preserves_its_operation_and_io_cause() {
+        for (kind, expected, reason) in [
+            (
+                std::io::ErrorKind::PermissionDenied,
+                DiagnosticIoErrorKind::PermissionDenied,
+                "permission denied",
+            ),
+            (
+                std::io::ErrorKind::OutOfMemory,
+                DiagnosticIoErrorKind::OutOfMemory,
+                "host memory is exhausted",
+            ),
+        ] {
+            let error = ctrlc::Error::System(std::io::Error::from(kind));
+            let diagnostics = cancellation_handler_diagnostics(&error);
+            let diagnostic = bray_testing::single_diagnostic(&diagnostics);
+
+            assert_eq!(diagnostic.kind(), DiagnosticKind::ProjectCommandFailed);
+
+            let failure = diagnostic
+                .args()
+                .iter()
+                .find_map(|argument| match argument.value() {
+                    DiagnosticArgValue::ProjectCommandFailure(failure) => Some(failure),
+                    _ => None,
+                });
+
+            assert_eq!(
+                failure,
+                Some(&DiagnosticProjectCommandFailure::HostIo {
+                    operation: DiagnosticProjectOperation::TestCancellationHandler,
+                    error: expected,
+                })
+            );
+
+            assert_eq!(
+                DiagnosticRenderer::english().render(diagnostic).message(),
+                format!(
+                    "project command failed: could not install the test cancellation handler because the host reported {reason}"
+                )
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "test cancellation handler registration contract failed: MultipleHandlers"
+    )]
+    fn cancellation_handler_duplicate_registration_is_an_invariant_failure() {
+        cancellation_handler_diagnostics(&ctrlc::Error::MultipleHandlers);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "test cancellation handler registration contract failed: NoSuchSignal(Ctrlc)"
+    )]
+    fn cancellation_handler_missing_builtin_signal_is_an_invariant_failure() {
+        cancellation_handler_diagnostics(&ctrlc::Error::NoSuchSignal(ctrlc::SignalType::Ctrlc));
+    }
 
     #[test]
     fn one_fresh_host_executes_multiple_ordered_plans_without_reloading_artifacts() {

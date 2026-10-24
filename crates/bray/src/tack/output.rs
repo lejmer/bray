@@ -345,7 +345,7 @@ mod tests {
             .diagnostics()
             .by_kind(DiagnosticKind::ProjectCommandFailed)
             .next()
-            .expect("invalid compiler output must produce a compiler-defect diagnostic");
+            .expect("invalid compiler output must produce a project-command diagnostic");
 
         let failure = diagnostic
             .args()
@@ -354,7 +354,7 @@ mod tests {
                 DiagnosticArgValue::ProjectCommandFailure(failure) => Some(failure),
                 _ => None,
             })
-            .expect("compiler-defect diagnostic must retain its structured cause");
+            .expect("project-command diagnostic must retain its structured cause");
 
         let DiagnosticProjectCommandFailure::CompilerOutputInvalid {
             product,
@@ -395,7 +395,7 @@ mod tests {
             .diagnostics()
             .by_kind(DiagnosticKind::ProjectCommandFailed)
             .next()
-            .expect("missing compiler output must produce a compiler-defect diagnostic");
+            .expect("missing compiler output must produce a project-command diagnostic");
 
         let failure = diagnostic
             .args()
@@ -404,7 +404,7 @@ mod tests {
                 DiagnosticArgValue::ProjectCommandFailure(failure) => Some(failure),
                 _ => None,
             })
-            .expect("compiler-defect diagnostic must retain its structured cause");
+            .expect("project-command diagnostic must retain its structured cause");
 
         assert_eq!(
             failure,
