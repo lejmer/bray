@@ -779,22 +779,12 @@ pub(super) enum CommandError {
     SmokeLinkFailed,
     SmokeExecution {
         name: &'static str,
-        error: std::io::Error,
-    },
-    SmokeExecutionFailed {
-        name: &'static str,
-        status: std::process::ExitStatus,
+        error: Box<crate::validation_process::Failure>,
     },
     NativeSmokeLinkFailed(String),
     BootstrapSmokeOutput,
-    BootstrapSmokeExecution(std::io::Error),
-    BootstrapSmokeExecutionFailed(std::process::ExitStatus),
     ObservationSmoke(String),
     EntrySmoke(String),
-    SmokeTimeout {
-        name: &'static str,
-        seconds: u64,
-    },
     CleanupReportMissing,
 }
 
@@ -924,39 +914,15 @@ impl fmt::Display for CommandError {
                     "could not run {name} runtime smoke executable: {error}"
                 )
             }
-            Self::SmokeExecutionFailed { name, status } => {
-                write!(
-                    formatter,
-                    "{name} runtime smoke execution failed with {status}"
-                )
-            }
             Self::NativeSmokeLinkFailed(name) => {
                 write!(formatter, "{name} runtime smoke link failed")
             }
             Self::BootstrapSmokeOutput => formatter.write_str("bootstrap report output did not preserve the complete streamed message and opaque entry failure"),
-            Self::BootstrapSmokeExecution(error) => {
-                write!(
-                    formatter,
-                    "could not run bootstrap runtime smoke executable: {error}"
-                )
-            }
-            Self::BootstrapSmokeExecutionFailed(status) => {
-                write!(
-                    formatter,
-                    "bootstrap runtime smoke execution failed with {status}"
-                )
-            }
             Self::ObservationSmoke(detail) => {
                 write!(formatter, "observation runtime smoke failed: {detail}")
             }
             Self::EntrySmoke(detail) => {
                 write!(formatter, "entry runtime smoke failed: {detail}")
-            }
-            Self::SmokeTimeout { name, seconds } => {
-                write!(
-                    formatter,
-                    "{name} exceeded the {seconds} second execution limit"
-                )
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")

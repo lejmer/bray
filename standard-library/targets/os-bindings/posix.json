@@ -495,12 +495,12 @@
             {
               "name": "arguments",
               "type": "DataPointer<DataPointer<u8>>",
-              "native_type": "char *const []"
+              "native_type": "char *const *"
             },
             {
               "name": "environment",
               "type": "DataPointer<DataPointer<u8>>",
-              "native_type": "char *const []"
+              "native_type": "char *const *"
             }
           ],
           "result": "i32",

@@ -426,10 +426,20 @@ static int consume_after_allocator_failure(void)
     {
         RunOutcome rejected = {0};
 
-        bray_runtime_outgoing_admission(&(CleanupBundle){ 64, NULL, 0 }, &rejected);
+        // Earlier attachment cases can leave reusable report capacity. Force
+        // growth and prove that this case actually exercises allocator refusal.
+        unsigned attempts = atomic_load(&allocation_attempts);
+        bray_runtime_outgoing_admission(&(CleanupBundle){ 1024 * 1024, NULL, 0 }, &rejected);
 
-        if (rejected.state != 2 || rejected.report.cause != 4)
+        if (
+            rejected.state != 2 || rejected.report.cause != 4 ||
+            atomic_load(&allocation_attempts) == attempts
+        )
+        {
+            fprintf(stderr, "allocator failure admission: state=%u cause=%u attempts=%u\n",
+                rejected.state, rejected.report.cause, atomic_load(&allocation_attempts) - attempts);
             return 11;
+        }
 
         bray_runtime_panic_report_destruction(&rejected.report);
     }
@@ -893,11 +903,16 @@ static int check_pool_retirement(void)
     bray_runtime_outgoing_retirement(record, NULL, &outcome);
     bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 
-    if (
-        bray_runtime_structured_shutdown() != 1 ||
-        atomic_load(&allocation_attempts) != before || atomic_load(&live_allocations) != 0
-    )
+    uint32_t shutdown_status = bray_runtime_structured_shutdown();
+    unsigned after = atomic_load(&allocation_attempts);
+    unsigned live = atomic_load(&live_allocations);
+
+    if (shutdown_status != 1 || after != before || live != 0)
+    {
+        fprintf(stderr, "pool shutdown: status=%u allocation_attempts=%u expected_attempts=%u live=%u\n",
+            shutdown_status, after, before, live);
         return 45;
+    }
 
     atomic_store(&reject_allocations, 0);
 

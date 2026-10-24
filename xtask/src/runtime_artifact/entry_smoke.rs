@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use subprocess::Exec;
 
 use bray_compilation::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 use bray_emitter::{ArtifactKind, resolve_published_artifact};
@@ -49,11 +49,11 @@ pub(super) fn smoke_test(
         &native_links,
     )?;
 
-    let output = command_output(&mut Command::new(executable), "generated entry")?;
+    let output = command_output(Exec::cmd(&executable), "generated entry")?;
 
     if !output.status.success() {
         return Err(CommandError::EntrySmoke(crate::command::failure(
-            "generated entry",
+            &format!("generated entry ({})", executable.display()),
             &output,
         )));
     }
