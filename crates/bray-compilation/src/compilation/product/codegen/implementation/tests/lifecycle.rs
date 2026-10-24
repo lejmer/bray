@@ -391,7 +391,7 @@ fn inactive_future_cleanup_emits_without_entering_child_body() {
         {
             let mut pending = child(Owner { value = 1 });
             pending = child(Owner { value = 2 });
-            child(Owner { value = 3 });
+            _ = child(Owner { value = 3 });
         }
     "#,
     );
@@ -591,7 +591,7 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
                 {entry_execution}consume enter() -> {entry_type}
                 {{
                     {entry_await}
-                    core.atomic.fetch_add<usize, 0>(&COUNT, value = 1);
+                    _ = core.atomic.fetch_add<usize, 0>(&COUNT, value = 1);
                     return self.capability;
                 }}
                 {execution}exit(pos lease: Capability) -> Result<unit, Failure>

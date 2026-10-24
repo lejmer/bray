@@ -980,7 +980,7 @@ mod tests {
             ("trusted func main() uses(foreign_call)", None),
         ] {
             let compilation = imported_trust_compilation(&format!(
-                "trusted module app;\nusing example.trust.dependency;\n{declaration} {{ example.trust.dependency.native_call(); }}\n"
+                "trusted module app;\nusing example.trust.dependency;\n{declaration} {{ _ = example.trust.dependency.native_call(); }}\n"
             ));
 
             let diagnostics = compilation.check_diagnostics();
@@ -1010,7 +1010,7 @@ mod tests {
                 r#"trusted module app;
 
 using core.memory;
-{declaration} {{ trusted core.memory.allocate(bytes = 0, align = 1); }}
+{declaration} {{ _ = trusted core.memory.allocate(bytes = 0, align = 1); }}
 "#
             ));
 

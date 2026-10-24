@@ -193,6 +193,8 @@ pub enum DiagnosticSuggestionKind {
     AddTerminator,
     /// Run the formatter for the selected source.
     FormatSource,
+    /// Acknowledge an unused result with discard shorthand.
+    ExplicitlyDiscardResult,
 }
 
 impl DiagnosticSuggestionKind {
@@ -203,6 +205,7 @@ impl DiagnosticSuggestionKind {
             Self::ReplaceWithLineFeed => "replace_with_line_feed",
             Self::AddTerminator => "add_terminator",
             Self::FormatSource => "format_source",
+            Self::ExplicitlyDiscardResult => "explicitly_discard_result",
         }
     }
 }

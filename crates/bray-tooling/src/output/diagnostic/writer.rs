@@ -55,3 +55,82 @@ pub fn write_diagnostic_groups<'diagnostic>(
         OutputFormat::Json => write_json_diagnostic_groups(groups, stdout),
     }
 }
+
+#[cfg(all(test, feature = "analysis"))]
+mod tests {
+    use bray_compilation::{Compilation, CompilationRequest};
+    use bray_diagnostics::DiagnosticKind;
+    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_symbols::PackageIdentity;
+
+    use super::write_diagnostics;
+    use crate::OutputFormat;
+
+    #[test]
+    fn ignored_result_warnings_preserve_context_in_text_and_json() {
+        let compilation = Compilation::load(CompilationRequest::new(
+            PackageIdentity::try_new("test.package").unwrap(),
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(0),
+                "discard.bray",
+                SourceVersion::new(1),
+                "module app; func main() { 1; }",
+            )],
+        ))
+        .unwrap();
+
+        let diagnostics = compilation.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingIgnoredExpressionResult,
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        write_diagnostics(
+            diagnostics,
+            Some(compilation.sources()),
+            OutputFormat::Text,
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(stderr).unwrap();
+
+        assert!(stdout.is_empty());
+        assert!(text.contains("warning"), "{text}");
+        assert!(text.contains("i32"), "{text}");
+        assert!(text.contains("_ = expression;"), "{text}");
+
+        let mut stderr = Vec::new();
+
+        write_diagnostics(
+            diagnostics,
+            Some(compilation.sources()),
+            OutputFormat::Json,
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+
+        let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+
+        assert!(stderr.is_empty());
+        assert_eq!(json["has_errors"], false);
+
+        assert_eq!(
+            json["diagnostics"][0]["kind"],
+            "checking_ignored_expression_result"
+        );
+
+        assert_eq!(json["diagnostics"][0]["severity"], "warning");
+
+        assert_eq!(
+            json["diagnostics"][0]["suggestions"][0]["edits"][0]["replacement"],
+            "_ = "
+        );
+    }
+}

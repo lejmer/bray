@@ -2009,6 +2009,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::ModuleDependencyRequiresUsing
         | DiagnosticNoteKind::GenericArgumentRequiresType
         | DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
+        | DiagnosticNoteKind::ExplicitDiscardAcknowledgesResult
         | DiagnosticNoteKind::TypeInferenceNeedsConstraint
         | DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
         | DiagnosticNoteKind::ConstantEvaluationMustFitLimits
@@ -2355,6 +2356,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingUnreachablePatternAlternative => {
             MessageTemplate::new(CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE)
         }
+        DiagnosticKind::CheckingIgnoredExpressionResult => MessageTemplate::new(&[
+            MessageTemplatePart::Text("standalone expression result of type "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" is ignored"),
+        ]),
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)
         }
@@ -3085,6 +3091,11 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm => {
             MessageTemplate::new(NOTE_DIRECTIVE_ARGUMENT_MUST_HAVE_COMPLETE_FORM)
+        }
+        DiagnosticNoteKind::ExplicitDiscardAcknowledgesResult => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "use `_ = expression;` to acknowledge an intentionally unused result",
+            )])
         }
         DiagnosticNoteKind::TypeInferenceNeedsConstraint => {
             MessageTemplate::new(NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT)

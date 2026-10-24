@@ -841,6 +841,15 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::TypeInferenceNeedsConstraint
                 ),
             ),
+            Self::CheckingIgnoredExpressionResult => Self::quality_source(
+                &[ActualType],
+                note_suggestion_components!(
+                    &[ActualType],
+                    DiagnosticNoteKind::ExplicitDiscardAcknowledgesResult,
+                    DiagnosticSuggestionKind::ExplicitlyDiscardResult,
+                    MaybeApplicable
+                ),
+            ),
             Self::CheckingRangeElementTypeMustBeInteger => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
             }

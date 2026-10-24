@@ -383,8 +383,8 @@ fn asynchronous_requirements_fail_before_frame_creation() {
 
         func caller(pos input: i32)
         {
-            selected(input);
-            baseline(input);
+            _ = selected(input);
+            _ = baseline(input);
         }
     "#,
     );

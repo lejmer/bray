@@ -691,10 +691,10 @@ fn native_platform_normal_return_consumes_retained_cleanup_incidents() {
             {
                 let scope = Scope {};
 
-                with capability = scope
+                _ = with capability = scope
                 {
                     return;
-                }
+                };
             }
         "#,
         bray_runtime_interface::RuntimeAbiRole::PanicReporting,

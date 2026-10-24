@@ -96,7 +96,7 @@ fn imported_static_initializer_keeps_forwarded_static_borrows() {
         r#"
         module app;
         using example.package.api;
-        func observe() { let value = example.package.api.COPY; value; }
+        func observe() { let value = example.package.api.COPY; _ = value; }
     "#,
     );
 

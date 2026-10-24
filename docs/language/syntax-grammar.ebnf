@@ -418,6 +418,7 @@ block-expression =
 
 block-item =
       block-level-declaration
+    | discard-statement
     | generator-iteration-expression
     | block-shaped-expression
     | sequenced-expression ;
@@ -436,6 +437,9 @@ sequenced-expression =
 
 local-binding-declaration =
     "let" irrefutable-pattern [ ":" type-expression ] "=" expression ";" ;
+
+discard-statement =
+    "_" "=" expression ";" ;
 
 (* A self-delimiting block-shaped expression can be a block item without a
    semicolon. Other expression block items are sequenced expressions and end

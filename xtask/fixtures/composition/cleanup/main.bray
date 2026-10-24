@@ -64,6 +64,7 @@ func run()
     async_parameter_default_cleanup();
     destructor_receiver_transfer();
     aggregate_input_cleanup();
+    discard_cleanup();
 }
 
 func rejected_guard() -> Guard
@@ -163,7 +164,8 @@ func nested_cleanup()
 
     let result = catch
     {
-        pending_result();
+        _ = pending_result();
+
         yield unit;
     };
 
@@ -385,4 +387,66 @@ func async_parameter_default_cleanup()
 
     assert(result matches Error(_));
     assert(core.atomic.load<usize, 1>(&COUNT) == 4);
+}
+
+func discard_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+    core.atomic.store<usize, 4>(&DEFAULTS, 0);
+
+    {
+        let _ = Guard
+        {
+            id = 1
+        };
+
+        _ = Guard
+        {
+            id = 2
+        };
+
+        assert(core.atomic.load<usize, 1>(&COUNT) == 0);
+        assert(core.atomic.load<usize, 1>(&DEFAULTS) == 2);
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 21);
+
+    core.atomic.store<usize, 4>(&COUNT, 0);
+    discard_early_return();
+    assert(core.atomic.load<usize, 1>(&COUNT) == 43);
+
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    {
+        let guard = Guard
+        {
+            id = 5
+        };
+
+        _ = &guard;
+        let _ = &guard;
+
+        assert(guard.id == 5);
+        assert(core.atomic.load<usize, 1>(&COUNT) == 0);
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 5);
+}
+
+func discard_early_return()
+{
+    let guard = Guard
+    {
+        id = 3
+    };
+
+    _ = guard;
+
+    let _ = Guard
+    {
+        id = 4
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 0);
+    return;
 }

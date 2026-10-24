@@ -16,6 +16,20 @@ let pattern = initializer;
 let pattern: Type = initializer;
 ```
 
+The exact form `_ = expression;` is shorthand for `let _ = expression;`.
+
+```bray
+let _ = compute_value();
+_ = compute_value();
+```
+
+Both spellings evaluate the initializer once, use the same type inference and pattern operation, and preserve the same
+ownership, borrowing, dependencies, storage lifetime, finalization, destruction, and debugger behavior. The shorthand
+does not introduce an assignment target or a named binding. Anonymous owned storage follows the existing discard-pattern
+lifecycle rules, including cleanup on scope exit. Discarding a borrow does not destroy its referent.
+
+Use `let _: Type = expression;` when an explicit subject type is needed. The shorthand has no type annotation.
+
 The pattern determines which bindings are introduced.
 
 A simple binding is a binding pattern.

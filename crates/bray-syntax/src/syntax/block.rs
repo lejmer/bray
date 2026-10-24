@@ -172,7 +172,7 @@ impl BlockItemSyntax {
 }
 
 define_source_syntax_node! {
-    /// Local binding declaration.
+    /// Local binding declaration, including the `_ = expression;` discard shorthand.
     pub struct LocalBindingDeclarationSyntax {
         builder: LocalBindingDeclarationSyntaxBuilder,
         kind: SyntaxKind::LocalBindingDeclaration,
@@ -183,14 +183,6 @@ define_source_syntax_node! {
         builder_debug_name: "LocalBindingDeclarationSyntaxBuilder",
         skipped_syntax: true,
         required_tokens: [
-            {
-                /// Returns the required `let` keyword token.
-                let_keyword;
-                /// Appends the `let` keyword token.
-                push_let_keyword;
-                kind: SyntaxKind::LetKeyword;
-                slot: "local_binding_declaration.let_keyword";
-            },
             {
                 /// Returns the required initializer equals token.
                 equals_token;
@@ -208,7 +200,16 @@ define_source_syntax_node! {
                 slot: "local_binding_declaration.semicolon_token";
             }
         ],
-        optional_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the `let` keyword, omitted by discard shorthand.
+                let_keyword;
+                /// Appends the `let` keyword token.
+                push_let_keyword;
+                kind: SyntaxKind::LetKeyword;
+                slot: "local_binding_declaration.let_keyword";
+            }
+        ],
         required_children: [
             {
                 /// Returns the required irrefutable pattern child.

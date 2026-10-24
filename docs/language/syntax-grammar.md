@@ -662,6 +662,7 @@ block-expression =
 
 block-item =
       block-level-declaration
+    | discard-statement
     | generator-iteration-expression
     | block-shaped-expression
     | sequenced-expression ;
@@ -680,6 +681,9 @@ sequenced-expression =
 
 local-binding-declaration =
     "let" irrefutable-pattern [ ":" type-expression ] "=" expression ";" ;
+
+discard-statement =
+    "_" "=" expression ";" ;
 ```
 
 Block expressions can be empty.

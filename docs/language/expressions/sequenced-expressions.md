@@ -20,6 +20,17 @@ valid and makes such an expression a sequenced expression.
 A sequenced expression can be used for its value, effects, lifecycle behavior, control-flow outcome, flow-sensitive
 contract changes, or `unit` completion according to the surrounding context.
 
+A standalone expression with a non-`unit` result produces an ignored-result warning. Expressions of type `never` do not
+produce a result and do not warn. Use an explicit discard to acknowledge an intentionally unused result:
+
+```bray
+_ = compute_value();
+let _ = compute_value();
+```
+
+Both discard spellings preserve the ordinary ownership and lifecycle requirements of the value. They do not resolve
+pending finalization obligations by ignoring them.
+
 A `return` expression used in a sequence is terminated with a semicolon.
 
 ```bray
