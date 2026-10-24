@@ -4,6 +4,7 @@ using core.atomic;
 using std.task;
 using std.testing;
 using std.memory;
+using std.run;
 
 internal static RELEASE: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
@@ -66,13 +67,10 @@ struct BufferTaskParticipant
 {
     async finalize()
     {
-        _ = core.atomic.fetch_add<usize, 3>(&BUFFER_CLEANUPS, 1);
+        assert(std.run.cancellation_requested());
+        await std.task.yield_now();
 
-        // Each child needs its sibling to receive cancellation before it can finish.
-        while core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) != 2
-        {
-            await std.task.yield_now();
-        }
+        _ = core.atomic.fetch_add<usize, 3>(&BUFFER_CLEANUPS, 1);
     }
 
     destruct()

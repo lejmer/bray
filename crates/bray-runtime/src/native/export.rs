@@ -252,13 +252,15 @@ native_export! {
             let Some(layout) = (unsafe { layout.as_ref() }).copied() else {
                 return NativeRuntimeStatus::INVALID_ARGUMENT;
             };
-            let outcome = with_runtime(|runtime| runtime.resolve_task(task))
-                .unwrap_or_else(runtime_failure);
+            with_runtime(|runtime| runtime.with_cleanup_driving(|| {
+                let outcome = runtime.resolve_task(task);
 
-            if let Err(status) = super::task_observation::transfer_outcome(outcome, destination.addr(), layout) {
-                return status;
-            }
-            with_runtime(|runtime| runtime.resolve_task_retirement(task)).unwrap_or_else(|status| status)
+                if let Err(status) = super::task_observation::transfer_outcome(outcome, destination.addr(), layout) {
+                    return status;
+                }
+
+                runtime.resolve_task_retirement(task)
+            })).unwrap_or_else(|status| status)
         })
     }
 }
@@ -1195,7 +1197,9 @@ mod tests {
 
             let mut report = crate::RuntimePanic::from_native(outcome.take_report());
 
-            assert_eq!(report.suppressed_count(), usize::from(!fail_completion));
+            // A failed normal resolver leaves its result owned: abandonment then
+            // attempts both broadcast and resolution before retiring the frame.
+            assert_eq!(report.suppressed_count(), 2 * usize::from(!fail_completion));
 
             assert_eq!(
                 super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),

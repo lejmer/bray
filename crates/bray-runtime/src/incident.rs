@@ -245,18 +245,27 @@ mod tests {
     }
 
     fn published_panic(payload: usize) -> bray_runtime_abi::NativeRunOutcome {
-        bray_runtime_abi::NativeRunOutcome::panicked(crate::frame::native_report(
-            bray_runtime_abi::NativePanicPrimary::new(
-                bray_runtime_abi::NativePanicCause::MESSAGE,
-                NativeSourceAnchor::unavailable(),
-                bray_runtime_abi::NativePanicMessage::new(
-                    payload,
-                    0,
-                    None,
-                    Some(release_published_panic),
-                ),
+        let mut reserved = bray_runtime_abi::NativeReportRecords::default();
+
+        assert_eq!(
+            crate::report_provider::bray_runtime_report_records_admit(1, &mut reserved),
+            0
+        );
+
+        let mut report = crate::frame::native_report(bray_runtime_abi::NativePanicPrimary::new(
+            bray_runtime_abi::NativePanicCause::MESSAGE,
+            NativeSourceAnchor::unavailable(),
+            bray_runtime_abi::NativePanicMessage::new(
+                payload,
+                0,
+                None,
+                Some(release_published_panic),
             ),
-        ))
+        ));
+
+        report.set_reserved(reserved.head);
+
+        bray_runtime_abi::NativeRunOutcome::panicked(report)
     }
 
     extern "C" fn published_destroy_and_release(
