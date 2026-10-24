@@ -6,6 +6,7 @@ mod compiler_known;
 mod composition;
 mod dependency_audit;
 mod diagnostic_output;
+mod formatter_reference;
 mod input_identity;
 mod json;
 mod link_map;

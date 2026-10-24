@@ -269,13 +269,24 @@ mod tests {
 
         let file = bray_testing::TemporaryFile::write("readonly.bray", b"module example;");
 
-        let mut permissions = std::fs::metadata(file.path())
+        // Atomic replacement on Unix requires a writable containing directory.
+        let permission_target = if cfg!(unix) {
+            file.path()
+                .parent()
+                .expect("temporary file has a private directory")
+        } else {
+            file.path()
+        };
+
+        let original_permissions = std::fs::metadata(permission_target)
             .unwrap_or_else(|error| panic!("test file metadata must be readable: {error}"))
             .permissions();
 
+        let mut permissions = original_permissions.clone();
+
         permissions.set_readonly(true);
 
-        std::fs::set_permissions(file.path(), permissions)
+        std::fs::set_permissions(permission_target, permissions)
             .unwrap_or_else(|error| panic!("test file must become read-only: {error}"));
 
         let write_failed = format_files(
@@ -285,13 +296,7 @@ mod tests {
             NonZeroUsize::MIN,
         );
 
-        let mut permissions = std::fs::metadata(file.path())
-            .unwrap_or_else(|error| panic!("test file metadata must remain readable: {error}"))
-            .permissions();
-
-        permissions.set_readonly(false);
-
-        std::fs::set_permissions(file.path(), permissions)
+        std::fs::set_permissions(permission_target, original_permissions)
             .unwrap_or_else(|error| panic!("test file permissions must be restored: {error}"));
 
         bray_testing::assert_goal_state_diagnostic_kind(

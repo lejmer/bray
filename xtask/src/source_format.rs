@@ -22,6 +22,7 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         Some("check") => command::reject_trailing_argument(arguments)
             .and_then(|()| workspace::root())
             .and_then(|root| check_workspace(&root)),
+        Some("reference") => crate::formatter_reference::run(arguments),
         Some(action) => Err(format!("unexpected format command: {action}")),
     };
 

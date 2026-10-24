@@ -22,7 +22,7 @@ use super::syntax::{
     is_close_delimiter, is_declaration_clause_keyword, is_open_delimiter,
 };
 use super::writer::FormatWriter;
-use crate::{FormatterConfiguration, FormatterRule};
+use crate::{FormatterConfiguration, FormatterDecision, FormatterRule};
 
 /// Parses and formats one UTF-8 Bray source text.
 pub fn format_text(
@@ -205,10 +205,14 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             .flatten();
 
         if node.kind() == SyntaxKind::MatchArm
-            && self
-                .configuration
-                .is_enabled(FormatterRule::MatchArmBodyLayout)
-            && self.configuration.is_enabled(FormatterRule::BlockBraces)
+            && self.configuration.applies_to(
+                FormatterRule::MatchArmBodyLayout,
+                FormatterDecision::BracePlacement,
+            )
+            && FormatterRule::MatchArmBodyLayout.preferred_for(
+                FormatterRule::BlockBraces,
+                FormatterDecision::BracePlacement,
+            ) == FormatterRule::MatchArmBodyLayout
             && let Some(empty) = compact_match_arm
         {
             if self.previous_token == Some(SyntaxKind::CloseBraceToken) {
@@ -436,37 +440,27 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         let compact_match_arm_body = self.compact_match_arm_body();
         let compact_empty_block = self.inside_compact_empty_block();
 
-        let preserve_block_paragraph = source_line_breaks >= 2
-            && self
-                .configuration
-                .is_enabled(FormatterRule::BlockParagraphSpacing)
-            && !matches!(
-                kind,
-                SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken
-            )
-            && !matches!(self.previous_token, Some(SyntaxKind::OpenBraceToken))
-            && self.nodes.iter().any(|kind| {
-                matches!(
-                    kind,
-                    SyntaxKind::BlockExpression | SyntaxKind::CallableBodyBlockExpression
-                )
-            })
-            && !(matches!(self.nodes.last(), Some(SyntaxKind::MatchBody))
-                && self
-                    .configuration
-                    .is_enabled(FormatterRule::MatchCaseSpacing));
+        let preserve_block_paragraph = self.block_paragraphs.preserves_source_separation(
+            kind,
+            self.previous_token,
+            &self.nodes,
+            source_line_breaks,
+            self.configuration,
+        );
 
         let trailing_comma_layout = !matches!(self.previous_token, Some(SyntaxKind::CommaToken))
-            || self
-                .configuration
-                .is_enabled(FormatterRule::TrailingCommaLayout);
+            || self.configuration.applies_to(
+                FormatterRule::TrailingCommaLayout,
+                FormatterDecision::TrailingComma,
+            );
 
         if is_close_delimiter(kind)
             && list_delimiter
             && matches!(self.previous_token, Some(SyntaxKind::CommaToken))
-            && self
-                .configuration
-                .is_enabled(FormatterRule::TrailingCommaLayout)
+            && self.configuration.applies_to(
+                FormatterRule::TrailingCommaLayout,
+                FormatterDecision::TrailingComma,
+            )
             && !matches!(
                 self.nodes.last(),
                 Some(SyntaxKind::TupleExpression | SyntaxKind::TypeExpression)
@@ -628,7 +622,11 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             }
             SyntaxKind::SemicolonToken
                 if !semicolon_stays_inline(parent)
-                    && !self.inside_compact_match_arm_body()
+                    && (!self.inside_compact_match_arm_body()
+                        || FormatterRule::SemicolonLayout.preferred_for(
+                            FormatterRule::MatchArmBodyLayout,
+                            FormatterDecision::StatementSeparation,
+                        ) == FormatterRule::SemicolonLayout)
                     && self
                         .configuration
                         .is_enabled(FormatterRule::SemicolonLayout) =>
@@ -642,8 +640,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 && self.configuration.is_enabled(FormatterRule::LineWrapping) =>
             {
                 self.writer.request_fill_break(
-                    self.configuration
-                        .is_enabled(FormatterRule::OperatorSpacing),
+                    false,
                     u8::from(self.configuration.is_enabled(FormatterRule::Indentation)),
                 );
             }
@@ -716,8 +713,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     }
 
     fn enabled_list_layout(&self, parent: Option<SyntaxKind>) -> bool {
-        self.configuration.is_enabled(FormatterRule::LineWrapping)
-            && list_layout_rule(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
+        list_layout_rule(parent)
+            .is_some_and(|(rule, decision)| self.configuration.applies_to(rule, decision))
     }
 
     fn close_callable_header_group(&mut self) {
