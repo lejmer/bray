@@ -269,7 +269,7 @@ trusted internal func select_attachment_slot(
         !result.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.slot.storage)
     )
     executes(total)
-    uses(raw_memory, unchecked_alias)
+    uses(foreign_call, raw_memory, unchecked_alias)
 {
     let rejected: AttachmentSelection =
     {

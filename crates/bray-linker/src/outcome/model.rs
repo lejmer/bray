@@ -977,6 +977,19 @@ mod tests {
             DiagnosticKind::LinkerExternalToolIoFailed,
         );
 
+        let unsupported = LinkOutcome::from_external_tool_failure(
+            &plan,
+            crate::ExternalToolFailure::Process(PlatformError::new(
+                PlatformOperation::ProcessSpawn,
+                PlatformErrorKind::Unsupported,
+            )),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            unsupported.diagnostics(),
+            DiagnosticKind::LinkerExternalToolContractFailed,
+        );
+
         let pipe = LinkOutcome::from_external_tool_failure(
             &plan,
             crate::ExternalToolFailure::OutputCapture {

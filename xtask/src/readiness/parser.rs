@@ -249,7 +249,10 @@ mod tests {
     fn missing_duplicate_unknown_and_reordered_grammar_rows_fail() {
         for coverage in [
             COVERAGE.lines().skip(1).collect::<Vec<_>>().join("\n"),
-            format!("{COVERAGE}{}", COVERAGE.lines().next().expect("first coverage row")),
+            format!(
+                "{COVERAGE}{}",
+                COVERAGE.lines().next().expect("first coverage row")
+            ),
             COVERAGE.replace("`identifier` |", "`unknown-terminal` |"),
             COVERAGE.lines().rev().collect::<Vec<_>>().join("\n"),
         ] {
@@ -328,7 +331,11 @@ mod tests {
             .expect_err("ambiguous production owner");
 
         assert!(error.contains("source-unit"), "{error}");
-        assert!(error.contains("ambiguous production anchor Parser::source"), "{error}");
+
+        assert!(
+            error.contains("ambiguous production anchor Parser::source"),
+            "{error}"
+        );
 
         validate(
             GRAMMAR,

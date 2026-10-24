@@ -96,7 +96,7 @@ pub(crate) fn execute(
 ) -> Result<(TestCommandReport, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
-    let hosts = load_hosts(hosts)?;
+    let hosts = load_hosts(hosts);
 
     let report = execute_loaded(
         workspace_root,
@@ -128,7 +128,7 @@ pub(crate) fn execute_batch(
 ) -> Result<(Vec<(String, TestCommandReport)>, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
-    let hosts = load_hosts(hosts)?;
+    let hosts = load_hosts(hosts);
     let mut reports = Vec::with_capacity(request.plans().len());
 
     for plan in request.plans() {
@@ -236,7 +236,7 @@ fn execute_loaded(
     Ok(report)
 }
 
-fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, DiagnosticBag> {
+fn load_hosts(hosts: Vec<BuiltTestHost>) -> Vec<LoadedTestHost> {
     let mut loaded = Vec::with_capacity(hosts.len());
 
     for host in hosts {
@@ -250,7 +250,7 @@ fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, Diagnost
 
     loaded.sort_by(|left, right| left.catalog.product().cmp(right.catalog.product()));
 
-    Ok(loaded)
+    loaded
 }
 
 fn selection_query(options: &TackTestOptions) -> Result<TestSelectionQuery, DiagnosticBag> {

@@ -33,6 +33,16 @@ impl CargoMetadata {
                     package.manifest_path.display()
                 )
             })?;
+
+            for target in &mut package.targets {
+                target.src_path = target.src_path.canonicalize().map_err(|error| {
+                    format!(
+                        "could not resolve readiness target {} at {}: {error}",
+                        target.name,
+                        target.src_path.display()
+                    )
+                })?;
+            }
         }
 
         Ok(metadata)
@@ -148,6 +158,32 @@ mod tests {
         assert!(dependencies.contains_production("bray-source"));
         assert!(!dependencies.contains_normal("bray-parser"));
         assert!(!dependencies.contains_normal("bray-source"));
+    }
+
+    #[test]
+    fn cargo_target_sources_share_the_resolved_workspace_root() {
+        let (directory, workspace) = dependency_workspace(&[("boundary", "")]);
+
+        let root = directory
+            .path()
+            .canonicalize()
+            .expect("resolved workspace root");
+
+        let package = workspace
+            .package_dependencies("crates/boundary/Cargo.toml")
+            .expect("package dependencies");
+
+        let [target] = package.targets() else {
+            panic!("fixture package must have exactly one library target");
+        };
+
+        assert_eq!(
+            target
+                .src_path
+                .strip_prefix(&root)
+                .expect("target belongs to the resolved workspace"),
+            std::path::Path::new("crates/boundary/src/lib.rs")
+        );
     }
 
     #[test]
