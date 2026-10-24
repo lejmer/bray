@@ -248,7 +248,7 @@ fn pattern_conditions_allow_initializers_that_terminate_execution() {
         "if panic(\"stop\") {}",
         "if let _ = panic(\"stop\") {}",
         "while let _ = panic(\"stop\") {}",
-        "panic(\"stop\") matches _;",
+        "_ = panic(\"stop\") matches _;",
         "if true {} else if let _ = panic(\"stop\") {}",
         "if true && let _ = panic(\"stop\") {} else {}",
         "if let value = 1 && panic(\"stop\") { assert(value == 1); } else {}",
