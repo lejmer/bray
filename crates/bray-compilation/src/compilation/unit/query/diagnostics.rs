@@ -120,6 +120,7 @@ fn discard_suggestion(
 ) -> DiagnosticSuggestion {
     let source = expression.source().source_id();
     let range = expression.full_range();
+
     let start = syntax_node_view(expression)
         .tokens()
         .next()
@@ -243,6 +244,7 @@ mod tests {
             let prefix = "module app; func value() -> i32 { return 7; } func main() {\n";
             let text = format!("{prefix}{body}\n}}");
             let compilation = compilation(&text);
+
             let diagnostic = compilation
                 .check_diagnostics()
                 .by_kind(DiagnosticKind::CheckingIgnoredExpressionResult)

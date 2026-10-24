@@ -73,6 +73,7 @@ trusted internal func step(
     if header.phase == bray.runtime.bootstrap.activation.CLEANUP && header.child != 0
     {
         trusted descend(&mut cursor);
+
         _ = trusted abandon(&mut cursor);
 
         let traversal = trusted bray.runtime.bootstrap.activation.execution.root(&mut cursor);
