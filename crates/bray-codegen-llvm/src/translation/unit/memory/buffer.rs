@@ -181,7 +181,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         buffer_type: bray_symbols::TypeId,
         element: bray_symbols::TypeId,
     ) -> Result<(), CodegenFailure> {
-        // MIR has already resolved the initialized prefix and its retained outcomes.
         let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, buffer_type)?;
 
         let pointer = self.memory_aggregate_pointer(value, &fields, 0)?;
