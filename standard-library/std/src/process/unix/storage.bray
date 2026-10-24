@@ -6,10 +6,10 @@ using std.numeric;
 using internal std.platform;
 
 trusted internal func spawn_storage(
-    pos executable: (&[u8]),
-    pos arguments: &[(&[u8])],
+    pos executable: &[u8],
+    pos arguments: &[&[u8]],
     pos environment: &[PlatformEnvironmentEntry],
-    working_directory_span: (&[u8]),
+    working_directory_span: &[u8],
 ) -> Result<SpawnStorage, std.platform.PlatformStatus>
 {
     let executable_length: usize = match internal native_text_length(executable, allow_empty = false)
@@ -46,7 +46,7 @@ trusted internal func spawn_storage(
 
     while index < argument_count
     {
-        let span: (&[u8]) = arguments[index];
+        let span: &[u8] = arguments[index];
 
         let length: usize = match internal native_text_length(span, allow_empty = true)
         {
@@ -126,7 +126,7 @@ trusted internal func spawn_storage(
 
     while index < argument_count
     {
-        let span: (&[u8]) = arguments[index];
+        let span: &[u8] = arguments[index];
         let copied: DataPointer<u8> = trusted internal copy_native_text(&mut text, span);
 
         trusted internal std.memory.initialize_spare<DataPointer<u8>>(&mut argument_pointers, copied);
@@ -162,7 +162,7 @@ trusted internal func spawn_storage(
 }
 
 trusted internal func native_text_length(
-    pos text: (&[u8]),
+    pos text: &[u8],
     allow_empty: bool,
 ) -> Result<usize, std.platform.PlatformStatus>
 {
@@ -188,7 +188,7 @@ trusted internal func native_text_length(
     return Ok(length);
 }
 
-trusted internal func environment_key_length(pos text: (&[u8])) -> Result<usize, std.platform.PlatformStatus>
+trusted internal func environment_key_length(pos text: &[u8]) -> Result<usize, std.platform.PlatformStatus>
 {
     let length: usize = match trusted internal native_text_length(text, allow_empty = false)
     {
@@ -242,7 +242,7 @@ internal func added_environment_capacity(
 
 trusted internal func copy_native_text(
     pos destination: &mut std.memory.RawBuffer<u8>,
-    pos text: (&[u8]),
+    pos text: &[u8],
 ) -> DataPointer<u8>
     uses(raw_memory, unchecked_init)
 {

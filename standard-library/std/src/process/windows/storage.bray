@@ -6,10 +6,10 @@ using std.numeric;
 using internal std.platform;
 
 trusted internal func windows_spawn_storage(
-    pos executable: (&[u8]),
-    pos arguments: &[(&[u8])],
+    pos executable: &[u8],
+    pos arguments: &[&[u8]],
     pos environment: &[PlatformEnvironmentEntry],
-    working_directory: (&[u8]),
+    working_directory: &[u8],
 ) -> Result<WindowsSpawnStorage, std.platform.PlatformStatus>
 {
     let executable_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
@@ -36,7 +36,7 @@ trusted internal func windows_spawn_storage(
 }
 
 internal func windows_text_units(
-    pos text: (&[u8]),
+    pos text: &[u8],
     allow_empty: bool,
     allow_equals: bool,
 ) -> Result<usize, std.platform.PlatformStatus>
@@ -66,7 +66,7 @@ internal func windows_text_units(
     return Ok(units);
 }
 
-trusted internal func windows_text_unit(pos text: (&[u8]), pos index: usize) -> u16
+trusted internal func windows_text_unit(pos text: &[u8], pos index: usize) -> u16
 {
     let byte: usize = index * 2;
 
@@ -74,7 +74,7 @@ trusted internal func windows_text_unit(pos text: (&[u8]), pos index: usize) -> 
 }
 
 trusted internal func windows_terminated_text(
-    pos text: (&[u8]),
+    pos text: &[u8],
     allow_empty: bool,
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
     uses(raw_memory)

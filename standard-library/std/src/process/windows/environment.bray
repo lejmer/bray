@@ -162,7 +162,7 @@ impl WindowsEnvironmentOrderedSequence = WindowsEnvironmentOrder(std.order.Order
     }
 }
 
-trusted internal func windows_environment_compare(pos left: (&[u8]), pos right: (&[u8])) -> i32
+trusted internal func windows_environment_compare(pos left: &[u8], pos right: &[u8]) -> i32
     uses(foreign_call, layout_reinterpret)
 {
     return trusted std.os.windows.compare_string_ordinal(

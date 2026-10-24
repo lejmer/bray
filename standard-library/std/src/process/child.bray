@@ -356,7 +356,7 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
         &state.environment_values
     );
 
-    let executable: (&[u8]) = internal std.process.path_span(&state.executable);
+    let executable: &[u8] = internal std.process.path_span(&state.executable);
     let working_directory: std.path.Path? = state.working_directory;
 
     match consume working_directory
@@ -389,10 +389,10 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
 }
 
 trusted internal func spawn_child_request(
-    pos executable: (&[u8]),
+    pos executable: &[u8],
     pos arguments: &std.collection.List<(&[u8])>,
     pos environment: &std.collection.List<PlatformEnvironmentEntry>,
-    working_directory: (&[u8]),
+    working_directory: &[u8],
     standard_input: ChildStreamPolicy,
     standard_output: ChildStreamPolicy,
     standard_error: ChildStreamPolicy,

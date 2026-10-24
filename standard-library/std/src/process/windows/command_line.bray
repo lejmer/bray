@@ -6,8 +6,8 @@ using std.numeric;
 using internal std.platform;
 
 trusted internal func windows_command_line(
-    pos executable: (&[u8]),
-    pos arguments: &[(&[u8])],
+    pos executable: &[u8],
+    pos arguments: &[&[u8]],
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
     uses(raw_memory)
 {
@@ -50,7 +50,7 @@ trusted internal func windows_command_line(
     return Ok(storage);
 }
 
-internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platform.PlatformStatus>
+internal func quoted_windows_units(pos text: &[u8]) -> Result<usize, std.platform.PlatformStatus>
 {
     let text_units: usize = try internal windows_text_units(text, allow_empty = true, allow_equals = true);
     let mut result: usize = 2;
@@ -101,11 +101,7 @@ internal func quoted_windows_units(pos text: (&[u8])) -> Result<usize, std.platf
     return Ok(result + slashes * 2);
 }
 
-trusted internal func write_quoted_windows_argument(
-    pos destination: &mut [u8],
-    pos text: (&[u8]),
-    index: usize,
-) -> usize
+trusted internal func write_quoted_windows_argument(pos destination: &mut [u8], pos text: &[u8], index: usize) -> usize
 {
     let units: usize = text.length() / 2;
     let mut written: usize = index;

@@ -25,14 +25,14 @@ internal struct SpawnStorage
 }
 
 trusted internal func platform_child_spawn(
-    pos executable: (&[u8]),
-    pos arguments: &[(&[u8])],
+    pos executable: &[u8],
+    pos arguments: &[&[u8]],
     pos environment: &[PlatformEnvironmentEntry],
     pos child: &mut u64,
     pos standard_input: &mut u64,
     pos standard_output: &mut u64,
     pos standard_error: &mut u64,
-    working_directory: (&[u8]),
+    working_directory: &[u8],
     standard_input_policy: u32,
     standard_output_policy: u32,
     standard_error_policy: u32,
