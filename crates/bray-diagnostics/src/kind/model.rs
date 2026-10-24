@@ -835,7 +835,7 @@ impl DiagnosticKind {
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCapacityExceeded => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
-            Self::CheckingIgnoredExpressionResult => 7130,
+            Self::CheckingIgnoredExpressionResult => 7131,
             Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,

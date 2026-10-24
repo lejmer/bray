@@ -937,7 +937,7 @@ mod tests {
             "\n",
             "func main()\n",
             "{\n",
-            "    lambda() -> i32\n",
+            "    _ = lambda() -> i32\n",
             "    {\n",
             "        return answer;\n",
             "    };\n",

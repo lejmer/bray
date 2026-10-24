@@ -664,7 +664,7 @@ mod tests {
         "{\n",
         "    let result: i32 = value;\n",
         "\n",
-        "    result;\n",
+        "    return result;\n",
         "}\n",
     );
 
@@ -861,7 +861,7 @@ func main()
 {
     let callable = lambda(value: i32)
     {
-        value;
+        _ = value;
     };
 }
 "#;
