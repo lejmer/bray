@@ -1350,6 +1350,36 @@ fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
         mir.is_valid(),
         "operation cleanup fixture must publish valid MIR: {mir:#?}"
     );
+
+    let mut defaults = 0;
+
+    for block in mir.blocks() {
+        if block.operations().iter().any(|operation| {
+            matches!(
+                mir.operation(*operation).unwrap().kind(),
+                bray_ir::MirOperationKind::Call(call)
+                    if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. })
+            )
+        }) {
+            defaults += 1;
+
+            assert!(
+                matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::CheckCallOutcome {
+                        completed_report: Some(_),
+                        ..
+                    }
+                ),
+                "each report-producing default retains its own checked input outcome"
+            );
+        }
+    }
+
+    assert_eq!(
+        defaults, 3,
+        "callable, struct and union defaults are covered"
+    );
 }
 
 #[test]

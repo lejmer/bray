@@ -269,7 +269,10 @@ impl Lowerer<'_> {
                             );
 
                             let (continued, value) = self.push_checked_value_operation(
-                                id,
+                                bray_bound_tree::BoundExecutionSite::CallInput {
+                                    expression: id,
+                                    ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                                },
                                 block,
                                 Self::retained_source(&source),
                                 MirOperationKind::Call(call),
