@@ -23,7 +23,7 @@ use super::super::specialization::ConcreteCodegenReachability;
 use super::NativeDemand;
 use super::error::NativeProductPlanningError;
 use super::reuse::SelectedNativePayload;
-use crate::fact::CancellationToken;
+use crate::fact::{CancellationToken, FactQueryError};
 
 /// Selected compatible representations of the actual native dependency set.
 #[derive(Debug)]
@@ -326,7 +326,7 @@ impl Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
+            .map_err(FactQueryError::from)?;
 
         let expected = self
             .state

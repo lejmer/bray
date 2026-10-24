@@ -21,7 +21,6 @@ use bray_symbols::{NativeSymbolIdentity, SymbolKeyData};
 use bray_target::NativeTarget;
 
 use super::diagnostics::ProductEmissionErrorKind;
-use super::publishing::package_implementation_error;
 use crate::compilation::{Compilation, NativeProductPlan};
 use crate::fact::CancellationToken;
 
@@ -252,7 +251,7 @@ pub(super) fn package_native_implementation(
         &bindings,
         InterfaceValidationLimits::default(),
     )
-    .map_err(package_implementation_error)?;
+    .map_err(ProductEmissionErrorKind::from)?;
 
     artifact
         .native_artifact()
@@ -293,7 +292,7 @@ pub(super) fn package_native_implementation(
 
         let bitcode = artifact
             .try_native_only_artifact(&[(NativeUnitKind::Bitcode, &bytes)], &bitcode_payloads)
-            .map_err(package_implementation_error)?;
+            .map_err(ProductEmissionErrorKind::from)?;
 
         artifacts.push((ArtifactKind::PackageNativeImplementation, bitcode));
     }

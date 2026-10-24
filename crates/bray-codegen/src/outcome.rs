@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
-    DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
 
 use crate::{
@@ -289,23 +288,6 @@ pub fn codegen_failure_diagnostic(
                 .with_arg(DiagnosticArg::external_tool_exit(exit.clone()));
         }
         _ => {}
-    }
-
-    if matches!(
-        failure,
-        CodegenFailure::InvalidConfiguration
-            | CodegenFailure::InvalidConfigurationReport { .. }
-            | CodegenFailure::ResourceExhausted
-            | CodegenFailure::ResourceLimit { .. }
-            | CodegenFailure::BackendLibrary { .. }
-            | CodegenFailure::BackendToolExited { .. }
-            | CodegenFailure::ArtifactConstruction(_)
-            | CodegenFailure::ArtifactSerialization { .. }
-            | CodegenFailure::InvalidArtifactContent { .. }
-    ) {
-        diagnostic = diagnostic.with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ReportCompilerDefect,
-        ));
     }
 
     diagnostic

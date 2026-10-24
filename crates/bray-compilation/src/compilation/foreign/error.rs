@@ -2,41 +2,17 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiRole};
 use bray_source::SourceId;
-use bray_symbols::{
-    AnySymbolId, CallableSignatureTemplateError, FunctionSymbolId, GenericArgumentKind,
-    GenericSubstitutionId, StaticSymbolId, TypeData, TypeExpressionTemplate, TypeId,
-};
-
-/// Stable category for an exact foreign-boundary query failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ForeignQueryErrorKind {
-    /// Required foreign-boundary data was unavailable.
-    MissingData,
-    /// A retained value violated an exact foreign-boundary contract.
-    ContractViolation,
-    /// Source-role selection was ambiguous or contradictory.
-    SourceRole,
-    /// An exact count could not fit its required stable representation.
-    NumericOverflow,
-    /// A callable signature violated its declared structural contract.
-    CallableSignature,
-}
+use bray_symbols::{AnySymbolId, FunctionSymbolId, GenericSubstitutionId, StaticSymbolId, TypeId};
 
 /// Exact failure retained by foreign-boundary compilation queries.
 ///
-/// The stable category is public while exact compiler identities remain private to the compilation
-/// that owns them.
+/// Retains numeric capacity and conflicts in configured native source roles.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ForeignQueryError {
     cause: Box<ForeignQueryFailure>,
 }
 
 impl ForeignQueryError {
-    /// Returns the stable foreign-query failure category.
-    pub fn kind(&self) -> ForeignQueryErrorKind {
-        self.cause.kind()
-    }
-
     pub(crate) fn cause(&self) -> &ForeignQueryFailure {
         &self.cause
     }
@@ -55,6 +31,7 @@ impl std::fmt::Display for ForeignQueryError {
 impl std::error::Error for ForeignQueryError {}
 
 impl From<ForeignQueryFailure> for ForeignQueryError {
+    #[track_caller]
     fn from(cause: ForeignQueryFailure) -> Self {
         Self {
             cause: Box::new(cause),
@@ -118,42 +95,10 @@ pub(crate) enum ForeignSourceRole {
 /// One typed foreign-boundary query failure.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ForeignQueryFailure {
-    Missing {
-        context: ForeignQueryContext,
-        data: ForeignDataKind,
-    },
-    CountMismatch {
-        context: ForeignQueryContext,
-        data: ForeignDataKind,
-        expected: usize,
-        actual: usize,
-    },
-    UnexpectedSemanticType {
-        ty: TypeId,
-        expected: ForeignTypeKind,
-        actual: TypeData,
-    },
-    UnexpectedTypeTemplate {
-        context: ForeignQueryContext,
-        expected: ForeignTypeKind,
-        actual: TypeExpressionTemplate,
-    },
-    UnexpectedGenericArgument {
-        substitution: GenericSubstitutionId,
-        expected: GenericArgumentKind,
-        actual: GenericArgumentKind,
-    },
     NumericOverflow {
         context: ForeignQueryContext,
         value: usize,
         target: ForeignIntegerWidth,
-    },
-    InvalidPlatformServiceRole {
-        role: PlatformServiceRole,
-    },
-    CallableSignature {
-        function: FunctionSymbolId,
-        cause: CallableSignatureTemplateError,
     },
     ConflictingSourceRoles {
         function: FunctionSymbolId,
@@ -168,38 +113,21 @@ pub(crate) enum ForeignQueryFailure {
 }
 
 impl ForeignQueryFailure {
-    pub(crate) const fn missing(context: ForeignQueryContext, data: ForeignDataKind) -> Self {
-        Self::Missing { context, data }
+    #[track_caller]
+    pub(crate) fn missing(context: ForeignQueryContext, data: ForeignDataKind) -> Self {
+        panic!("foreign missing contract failed: context={context:?}, data={data:?}")
     }
 
-    pub(crate) const fn count_mismatch(
+    #[track_caller]
+    pub(crate) fn count_mismatch(
         context: ForeignQueryContext,
         data: ForeignDataKind,
         expected: usize,
         actual: usize,
     ) -> Self {
-        Self::CountMismatch {
-            context,
-            data,
-            expected,
-            actual,
-        }
-    }
-
-    const fn kind(&self) -> ForeignQueryErrorKind {
-        match self {
-            Self::Missing { .. } => ForeignQueryErrorKind::MissingData,
-            Self::ConflictingSourceRoles { .. } | Self::DuplicateSourceRole { .. } => {
-                ForeignQueryErrorKind::SourceRole
-            }
-            Self::NumericOverflow { .. } => ForeignQueryErrorKind::NumericOverflow,
-            Self::CallableSignature { .. } => ForeignQueryErrorKind::CallableSignature,
-            Self::CountMismatch { .. }
-            | Self::UnexpectedSemanticType { .. }
-            | Self::UnexpectedTypeTemplate { .. }
-            | Self::UnexpectedGenericArgument { .. }
-            | Self::InvalidPlatformServiceRole { .. } => ForeignQueryErrorKind::ContractViolation,
-        }
+        panic!(
+            "foreign count_mismatch contract failed: context={context:?}, data={data:?}, expected={expected}, actual={actual}"
+        )
     }
 }
 
@@ -210,60 +138,31 @@ mod tests {
     use bray_symbols::{FunctionSymbolId, SymbolId};
 
     use super::{
-        ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryError,
-        ForeignQueryErrorKind, ForeignQueryFailure, ForeignSourceRole,
+        ForeignIntegerWidth, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
+        ForeignSourceRole,
     };
     use crate::fact::FactQueryError;
 
     #[test]
     fn foreign_query_errors_box_and_retain_exact_domain_causes() {
-        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(7));
+        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(13));
 
         let cases = [
-            (
-                ForeignQueryFailure::missing(
-                    ForeignQueryContext::Function(function),
-                    ForeignDataKind::SourceAnchor,
-                ),
-                ForeignQueryErrorKind::MissingData,
-            ),
-            (
-                ForeignQueryFailure::ConflictingSourceRoles {
-                    function,
-                    runtime: RuntimeAbiRole::RootExecution,
-                    platform: PlatformServiceRole::StandardOutputFlush,
-                },
-                ForeignQueryErrorKind::SourceRole,
-            ),
-            (
-                ForeignQueryFailure::DuplicateSourceRole {
-                    function,
-                    first: ForeignSourceRole::Runtime(RuntimeAbiRole::RootExecution),
-                    duplicate: ForeignSourceRole::Runtime(RuntimeAbiRole::SynchronousRootExecution),
-                },
-                ForeignQueryErrorKind::SourceRole,
-            ),
-            (
-                ForeignQueryFailure::NumericOverflow {
-                    context: ForeignQueryContext::Source(SourceId::new(3)),
-                    value: usize::MAX,
-                    target: ForeignIntegerWidth::U64,
-                },
-                ForeignQueryErrorKind::NumericOverflow,
-            ),
-            (
-                ForeignQueryFailure::CallableSignature {
-                    function,
-                    cause: bray_symbols::CallableSignatureTemplateError::InvalidCallableType,
-                },
-                ForeignQueryErrorKind::CallableSignature,
-            ),
-            (
-                ForeignQueryFailure::InvalidPlatformServiceRole {
-                    role: PlatformServiceRole::StandardOutputFlush,
-                },
-                ForeignQueryErrorKind::ContractViolation,
-            ),
+            ForeignQueryFailure::ConflictingSourceRoles {
+                function,
+                runtime: RuntimeAbiRole::RootExecution,
+                platform: PlatformServiceRole::StandardOutputFlush,
+            },
+            ForeignQueryFailure::DuplicateSourceRole {
+                function,
+                first: ForeignSourceRole::Runtime(RuntimeAbiRole::RootExecution),
+                duplicate: ForeignSourceRole::Runtime(RuntimeAbiRole::SynchronousRootExecution),
+            },
+            ForeignQueryFailure::NumericOverflow {
+                context: ForeignQueryContext::Source(SourceId::new(3)),
+                value: usize::MAX,
+                target: ForeignIntegerWidth::U64,
+            },
         ];
 
         assert_eq!(
@@ -271,14 +170,13 @@ mod tests {
             std::mem::size_of::<usize>()
         );
 
-        for (cause, expected) in cases {
+        for cause in cases {
             let error = ForeignQueryError::from(cause.clone());
 
-            assert_eq!(error.kind(), expected);
             assert_eq!(error.cause(), &cause);
 
             let FactQueryError::Foreign(error) = FactQueryError::from(cause.clone()) else {
-                panic!("foreign failure must retain the foreign-query boundary")
+                panic!("foreign cause must retain its boundary")
             };
 
             assert_eq!(error.cause(), &cause);

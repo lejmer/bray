@@ -34,12 +34,9 @@ impl Compilation {
         let segments = path.segments().to_vec();
 
         let path =
-            ModulePathKey::try_new(segments.iter().map(String::as_str)).ok_or_else(|| {
-                ProductQueryFailure::InvalidModulePath {
-                    declaration: declaration.id(),
-                    segments: segments.into_boxed_slice(),
-                }
-            })?;
+            ModulePathKey::try_new(segments.iter().map(String::as_str)).unwrap_or_else(|| {
+                panic!("product InvalidModulePath construction failed: declaration={:?}, segments={:?}", declaration.id(), segments)
+            });
 
         let package = symbols.roots().packages().first().copied().ok_or_else(|| {
             ProductQueryFailure::missing(

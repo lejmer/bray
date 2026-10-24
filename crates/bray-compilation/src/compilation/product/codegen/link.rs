@@ -16,6 +16,8 @@ use bray_symbols::{NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding};
 
 use super::super::super::Compilation;
 use super::error::{NativeLinkInputPlanningError, NativeProductPlanningError};
+#[cfg(test)]
+use crate::fact::FactQueryError;
 
 struct NativeLibraryLinkSelection {
     payloads: Vec<super::reuse::SelectedNativePayload>,
@@ -71,7 +73,7 @@ impl Compilation {
             target.code_model(),
             link_model,
         )
-        .map_err(NativeProductPlanningError::InvalidLinkTarget)?;
+        .unwrap_or_else(|cause| panic!("native InvalidLinkTarget construction failed: {cause:?}"));
 
         let linked_debug = match configuration {
             crate::BuildConfiguration::Development
@@ -431,7 +433,7 @@ impl Compilation {
         let target = self
             .requested_target()
             .codegen_target()
-            .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
+            .map_err(FactQueryError::from)?;
 
         let provided = platform_overrides
             .iter()

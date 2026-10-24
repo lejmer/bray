@@ -7,7 +7,7 @@ use bray_diagnostics::{
 };
 
 use crate::RenderedDiagnosticNoteKind;
-use crate::catalog::{INTERNAL_COMPILER_ERROR, forbidden_ordinary_diagnostic_term};
+use crate::catalog::forbidden_ordinary_diagnostic_term;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
@@ -33,7 +33,7 @@ fn native_artifact_read_failures_identify_output_and_io_cause() {
     assert!(rendered.message().contains("temporary compiler output"));
     assert!(rendered.message().contains("permission denied"));
     assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
-    assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
+    assert!(!rendered.message().contains("internal compiler error"));
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(11),
@@ -56,7 +56,7 @@ fn native_artifact_read_failures_identify_output_and_io_cause() {
     assert!(rendered.message().contains("bitcode"));
     assert!(!rendered.message().contains("LLVM bitcode"));
     assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
-    assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
+    assert!(!rendered.message().contains("internal compiler error"));
 }
 
 #[test]
@@ -259,6 +259,47 @@ fn contract_integer_capacity_identifies_the_product_and_both_widths() {
     assert!(rendered.message().contains("contract arithmetic"));
     assert!(rendered.message().contains("65536"));
     assert!(rendered.message().contains("65535"));
-    assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
+    assert!(!rendered.message().contains("internal compiler error"));
     assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+}
+
+#[test]
+fn compiler_capacity_labels_identify_the_affected_source_construct() {
+    let span = bray_source::SourceSpan::new(
+        bray_source::SourceId::new(0),
+        bray_source::TextRange::new(bray_source::TextSize::ZERO, bray_source::TextSize::new(1)),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(1),
+        DiagnosticKind::CheckingCapacityExceeded,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(
+            bray_diagnostics::DiagnosticEmissionEvaluationFailure::SemanticQuery(
+                bray_diagnostics::DiagnosticSemanticQueryFailure::new(
+                    "semantic_query_capacity",
+                    "semantic_query_capacity_exceeded",
+                    [],
+                ),
+            ),
+        ),
+    ))
+    .with_label(bray_diagnostics::DiagnosticLabel::primary(
+        bray_diagnostics::DiagnosticLabelKind::CompilerCapacityExceeded,
+        span,
+    ));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.labels().len(), 1);
+
+    assert_eq!(
+        rendered.labels()[0].message(),
+        "this construct exceeds the supported compiler limit"
+    );
+
+    assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+    assert!(!rendered.message().contains("internal compiler error"));
 }

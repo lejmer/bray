@@ -119,8 +119,6 @@ define_diagnostic_kinds! {
     ProjectCommandSelectionInvalid,
     /// A Bray Tack project operation failed.
     ProjectCommandFailed,
-    /// Bray violated an internal project-command or toolchain invariant.
-    ProjectCompilerDefect,
     /// A Bray Tack initialization package identity is invalid.
     ProjectInitializationIdentityInvalid,
     /// A Bray Tack initialization output path already exists.
@@ -306,7 +304,7 @@ define_diagnostic_kinds! {
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// An internal checker contract failed for one exact source construct.
-    CheckingCompilerDefect,
+    CheckingCapacityExceeded,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
     /// A half-open range uses an element type outside the integer representations.
@@ -732,7 +730,6 @@ impl DiagnosticKind {
             Self::ProjectDependencyCycle => 1208,
             Self::ProjectCommandSelectionInvalid => 1209,
             Self::ProjectCommandFailed => 1211,
-            Self::ProjectCompilerDefect => 1236,
             Self::ProjectPackageIdentityReserved => 1212,
             Self::ProjectStandardLibraryPackageIdentityRequired => 1213,
             Self::ProjectStandardLibraryRootPackageRequired => 1214,
@@ -834,7 +831,7 @@ impl DiagnosticKind {
             Self::BindingGenericApplicationRequiresName => 6019,
             Self::BindingInvalidBoxStoragePolicy => 6016,
             Self::CheckingIncompatibleExpressionType => 7001,
-            Self::CheckingCompilerDefect => 7114,
+            Self::CheckingCapacityExceeded => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
@@ -1104,7 +1101,6 @@ impl DiagnosticKind {
             Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
             Self::ProjectCommandFailed => "project_command_failed",
-            Self::ProjectCompilerDefect => "project_compiler_defect",
             Self::ProjectInitializationIdentityInvalid => "project_initialization_identity_invalid",
             Self::ProjectInitializationPathConflict => "project_initialization_path_conflict",
             Self::ProjectInitializationWriteFailed => "project_initialization_write_failed",
@@ -1203,7 +1199,7 @@ impl DiagnosticKind {
             }
             Self::BindingInvalidBoxStoragePolicy => "binding_invalid_box_storage_policy",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
-            Self::CheckingCompilerDefect => "checking_compiler_defect",
+            Self::CheckingCapacityExceeded => "checking_capacity_exceeded",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingRangeElementTypeMustBeInteger => {
                 "checking_range_element_type_must_be_integer"

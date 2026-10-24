@@ -182,7 +182,6 @@ pub(crate) struct ToolIdentityError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ToolStream {
-    StandardInput,
     StandardOutput,
     StandardError,
 }
@@ -194,13 +193,11 @@ pub(crate) enum ToolExecutionError {
         program: PathBuf,
         error: PlatformError,
     },
-    MissingStream(ToolStream),
     StreamIo {
         stream: ToolStream,
         error: std::io::ErrorKind,
     },
     InvalidUtf8(ToolStream),
-    StreamThreadPanicked(ToolStream),
 }
 
 pub(crate) struct NativeToolExecutor;
@@ -292,21 +289,19 @@ impl ToolExecutor for NativeToolExecutor {
         let Some(mut child_input) = child.take_stdin() else {
             cleanup_child(&mut child);
 
-            return Err(ToolExecutionError::MissingStream(ToolStream::StandardInput));
+            panic!("spawned child must retain its configured StandardInput pipe: {program:?}");
         };
 
         let Some(mut child_output) = child.take_stdout() else {
             cleanup_child(&mut child);
 
-            return Err(ToolExecutionError::MissingStream(
-                ToolStream::StandardOutput,
-            ));
+            panic!("spawned child must retain its configured StandardOutput pipe: {program:?}");
         };
 
         let Some(mut child_error) = child.take_stderr() else {
             cleanup_child(&mut child);
 
-            return Err(ToolExecutionError::MissingStream(ToolStream::StandardError));
+            panic!("spawned child must retain its configured StandardError pipe: {program:?}");
         };
 
         // The editor can keep input open after the server exits, so the child owns this detached
@@ -326,7 +321,10 @@ impl ToolExecutor for NativeToolExecutor {
         if let Err(error) = std::io::copy(&mut child_output, output) {
             let _ = child.terminate();
             let _ = child.wait();
-            let _ = error_thread.join();
+
+            let _ = error_thread
+                .join()
+                .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
 
             return Err(ToolExecutionError::StreamIo {
                 stream: ToolStream::StandardOutput,
@@ -334,17 +332,22 @@ impl ToolExecutor for NativeToolExecutor {
             });
         }
 
-        let status = child
-            .wait()
-            .map_err(|error| ToolExecutionError::Platform { program, error })?;
+        let status = child.wait();
+
+        if status.is_err() {
+            cleanup_child(&mut child);
+        }
 
         let stderr = error_thread
             .join()
-            .map_err(|_| ToolExecutionError::StreamThreadPanicked(ToolStream::StandardError))?
-            .map_err(|error| ToolExecutionError::StreamIo {
-                stream: ToolStream::StandardError,
-                error: error.kind(),
-            })?;
+            .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
+
+        let status = status.map_err(|error| ToolExecutionError::Platform { program, error })?;
+
+        let stderr = stderr.map_err(|error| ToolExecutionError::StreamIo {
+            stream: ToolStream::StandardError,
+            error: error.kind(),
+        })?;
 
         let stderr = String::from_utf8(stderr)
             .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?;

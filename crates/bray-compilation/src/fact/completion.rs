@@ -377,35 +377,27 @@ mod tests {
 
     #[test]
     fn scheduler_runtime_failures_survive_completion_unchanged() {
-        let failure = FactQueryError::from(FactRuntimeFailure::WorkerTerminated {
-            worker: Some(3),
-            item: Some(5),
+        let failure = FactQueryError::from(FactRuntimeFailure::UnitSourceCapacityExhausted {
+            source_count: usize::MAX,
         });
 
-        let completion = symbol_completion_error::<()>(BatchCompletionError::Scheduler(failure));
+        let completion =
+            symbol_completion_error::<()>(BatchCompletionError::Scheduler(failure.clone()));
 
-        assert!(matches!(
-            completion,
-            SymbolCompletionError::Scheduler(FactQueryError::Runtime(error))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::WorkerTerminated {
-                        worker: Some(3),
-                        item: Some(5),
-                    }
-                )
-        ));
+        assert!(
+            matches!(completion, SymbolCompletionError::Scheduler(actual) if actual == failure)
+        );
     }
 
     #[test]
     fn compiler_domain_failure_survives_completion_unchanged() {
         let completion = symbol_completion_error::<()>(BatchCompletionError::Scheduler(
-            FactQueryError::BindingDependencyUnavailable,
+            FactQueryError::SymbolCapacity { index: 0 },
         ));
 
         assert_eq!(
             completion,
-            SymbolCompletionError::Scheduler(FactQueryError::BindingDependencyUnavailable)
+            SymbolCompletionError::Scheduler(FactQueryError::SymbolCapacity { index: 0 })
         );
     }
 
@@ -444,34 +436,27 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
         let first = SharedCancellation::new();
         let second = SharedCancellation::new();
-
-        let _first_interest = first
-            .register(second.token())
-            .unwrap_or_else(|error| panic!("first shared interest must register: {error:?}"));
-
-        let _second_interest = second
-            .register(first.token())
-            .unwrap_or_else(|error| panic!("second shared interest must register: {error:?}"));
-
+        let _first = first.register(second.token()).unwrap();
+        let _second = second.register(first.token()).unwrap();
         let evaluator = |_request: SymbolCompletionQuery| Ok::<_, ()>(DiagnosticBag::new());
 
-        let result = complete_symbol(
-            &graph,
-            package,
-            SymbolCompletionLevel::DeclarationSurface,
-            &FactRuntime::new(worker_budget(2)),
-            first.token(),
-            &evaluator,
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            complete_symbol(
+                &graph,
+                package,
+                SymbolCompletionLevel::DeclarationSurface,
+                &FactRuntime::new(worker_budget(2)),
+                first.token(),
+                &evaluator,
+            )
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            result,
-            Err(SymbolCompletionError::Scheduler(FactQueryError::Runtime(error)))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::RecursiveCancellationInterest
-                )
-        ));
+        assert!(
+            bray_testing::panic_payload_text(panic.as_ref())
+                .contains("RecursiveCancellationInterest")
+        );
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

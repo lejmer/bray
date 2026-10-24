@@ -21,23 +21,13 @@ use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, Sym
 use serde::Serialize;
 
 use crate::inspection::{
-    InspectionSourceError, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
-    InspectionType, TypeInspectionError,
+    InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor, InspectionType,
+    TypeInspectionError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MirInspectionModelError {
-    InvalidGeneratedLifecycle,
-    MissingOperation,
-    MissingSymbol,
-    Source(InspectionSourceError),
     Type(TypeInspectionError),
-}
-
-impl From<InspectionSourceError> for MirInspectionModelError {
-    fn from(error: InspectionSourceError) -> Self {
-        Self::Source(error)
-    }
 }
 
 impl From<TypeInspectionError> for MirInspectionModelError {
@@ -68,8 +58,8 @@ impl InspectionMirUnit {
         semantic_values: &SemanticValueStore,
         sources: &InspectionSources<'_>,
     ) -> Result<Self, MirInspectionModelError> {
-        let key = inspection_unit_key(mir.key(), symbols, sources)?;
-        let source = inspection_source_origin(mir.source(), symbols, sources)?;
+        let key = inspection_unit_key(mir.key(), symbols, sources);
+        let source = inspection_source_origin(mir.source(), symbols, sources);
         let unit_kind = mir_unit_kind(mir.kind());
         let runtime_abi = mir.target().runtime_abi();
 
@@ -82,7 +72,7 @@ impl InspectionMirUnit {
                     id: compact_id(slot),
                     storage_kind: storage_kind(storage.kind()),
                     r#type: InspectionType::from_type(semantic_values, symbols, storage.ty())?,
-                    source: inspection_source_anchor(storage.source(), symbols, sources)?,
+                    source: inspection_source_anchor(storage.source(), symbols, sources),
                 })
             })
             .collect::<Result<_, MirInspectionModelError>>()?;
@@ -106,7 +96,7 @@ impl InspectionMirUnit {
                 Ok(InspectionMirValue {
                     id: compact_id(slot),
                     r#type: InspectionType::from_type(semantic_values, symbols, value.ty())?,
-                    source: inspection_source_anchor(value.source(), symbols, sources)?,
+                    source: inspection_source_anchor(value.source(), symbols, sources),
                     origin,
                 })
             })
@@ -123,7 +113,7 @@ impl InspectionMirUnit {
                     .map(|id| {
                         let operation = mir
                             .operation(*id)
-                            .ok_or(MirInspectionModelError::MissingOperation)?;
+                            .expect("retained lowered/model/data.rs relationships must provide MissingOperation");
 
                         inspection_operation(
                             id.slot(),
@@ -138,7 +128,7 @@ impl InspectionMirUnit {
                 Ok(InspectionMirBlock {
                     id: compact_id(slot),
                     block_kind: block_kind(block.kind()),
-                    source: inspection_source_anchor(block.source(), symbols, sources)?,
+                    source: inspection_source_anchor(block.source(), symbols, sources),
                     parameters: block.parameters().iter().map(|id| id.slot()).collect(),
                     operations,
                     terminator: inspection_terminator(
@@ -649,7 +639,7 @@ fn inspection_operation(
         id,
         operation_kind,
         result: operation.result().map(|result| result.slot()),
-        source: inspection_source_anchor(operation.source(), symbols, sources)?,
+        source: inspection_source_anchor(operation.source(), symbols, sources),
         attributes: parts.attributes,
         operands: parts.operands,
         places: parts.places,
@@ -1997,7 +1987,7 @@ fn inspection_terminator(
 
     Ok(InspectionMirTerminator {
         terminator_kind,
-        source: inspection_source_anchor(source, symbols, sources)?,
+        source: inspection_source_anchor(source, symbols, sources),
         operands: parts.operands,
         places: parts.places,
         edges: parts.edges,
@@ -2218,46 +2208,46 @@ fn inspection_unit_key(
     key: &MirUnitKey,
     symbols: &SymbolGraph,
     sources: &InspectionSources<'_>,
-) -> Result<InspectionMirUnitKey, MirInspectionModelError> {
+) -> InspectionMirUnitKey {
     match key {
         MirUnitKey::CompilerProvidedCallable(definition) => {
-            Ok(InspectionMirUnitKey::CompilerProvidedCallable {
+            InspectionMirUnitKey::CompilerProvidedCallable {
                 callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
-            })
+            }
         }
         MirUnitKey::Bound(key) => {
             let owner = symbols
                 .symbol_for_key(key.declared_owner())
-                .ok_or(MirInspectionModelError::MissingSymbol)?;
+                .expect("retained lowered/model/data.rs relationships must provide MissingSymbol");
 
-            Ok(InspectionMirUnitKey::Bound {
+            InspectionMirUnitKey::Bound {
                 unit_kind: key.kind().as_str(),
                 owner: InspectionSymbolIdentity::from_symbol(symbols, owner),
-                source: InspectionSyntaxAnchor::from_anchor(sources, key.source().syntax())?,
-            })
+                source: InspectionSyntaxAnchor::from_anchor(sources, key.source().syntax()),
+            }
         }
-        MirUnitKey::ExecutableHost(product) => Ok(InspectionMirUnitKey::ExecutableHost {
+        MirUnitKey::ExecutableHost(product) => InspectionMirUnitKey::ExecutableHost {
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
-        }),
-        MirUnitKey::Predicate(reference) => Ok(InspectionMirUnitKey::Predicate {
+        },
+        MirUnitKey::Predicate(reference) => InspectionMirUnitKey::Predicate {
             reference: InspectionPredicateReference::from_reference(reference.reference(), symbols),
-        }),
-        MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
+        },
+        MirUnitKey::GeneratedLifecycle(key) => InspectionMirUnitKey::GeneratedLifecycle {
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
-        }),
-        MirUnitKey::ImportedExecutable(key) => Ok(InspectionMirUnitKey::ImportedExecutable {
+        },
+        MirUnitKey::ImportedExecutable(key) => InspectionMirUnitKey::ImportedExecutable {
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
             template: key.template().raw(),
-        }),
-        MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
+        },
+        MirUnitKey::ExternalCallable(definition) => InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
-        }),
+        },
         MirUnitKey::ExternalRuntimeDefault(provider) => {
-            Ok(InspectionMirUnitKey::ExternalRuntimeDefault {
+            InspectionMirUnitKey::ExternalRuntimeDefault {
                 provider: InspectionSymbolIdentity::from_symbol(symbols, *provider),
-            })
+            }
         }
     }
 }
@@ -2266,31 +2256,28 @@ fn inspection_source_origin(
     source: &MirSourceOrigin,
     symbols: &SymbolGraph,
     sources: &InspectionSources<'_>,
-) -> Result<InspectionMirSource, MirInspectionModelError> {
+) -> InspectionMirSource {
     match source {
         MirSourceOrigin::CompilerProvidedCallable(definition) => {
-            Ok(InspectionMirSource::CompilerProvidedCallable {
+            InspectionMirSource::CompilerProvidedCallable {
                 callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
-            })
+            }
         }
-        MirSourceOrigin::Source(source) => Ok(InspectionMirSource::Source {
-            syntax: InspectionSyntaxAnchor::from_anchor(sources, source.syntax())?,
+        MirSourceOrigin::Source(source) => InspectionMirSource::Source {
+            syntax: InspectionSyntaxAnchor::from_anchor(sources, source.syntax()),
             synthesis: None,
-        }),
-        MirSourceOrigin::ExecutableHost(product) => Ok(InspectionMirSource::ExecutableHost {
+        },
+        MirSourceOrigin::ExecutableHost(product) => InspectionMirSource::ExecutableHost {
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
-        }),
-        MirSourceOrigin::GeneratedHelper(reference) => {
-            Ok(InspectionMirSource::GeneratedLifecycle {
-                role: lifecycle_helper_role(reference)
-                    .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
-            })
-        }
-        MirSourceOrigin::ImportedExecutable(key) => Ok(InspectionMirSource::ImportedExecutable {
+        },
+        MirSourceOrigin::GeneratedHelper(reference) => InspectionMirSource::GeneratedLifecycle {
+            role: lifecycle_helper_role(reference),
+        },
+        MirSourceOrigin::ImportedExecutable(key) => InspectionMirSource::ImportedExecutable {
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
             template: key.template().raw(),
-        }),
+        },
     }
 }
 
@@ -2298,42 +2285,39 @@ fn inspection_source_anchor(
     source: &MirSourceAnchor,
     symbols: &SymbolGraph,
     sources: &InspectionSources<'_>,
-) -> Result<InspectionMirSource, MirInspectionModelError> {
+) -> InspectionMirSource {
     match source {
         MirSourceAnchor::CompilerProvidedCallable(definition) => {
-            Ok(InspectionMirSource::CompilerProvidedCallable {
+            InspectionMirSource::CompilerProvidedCallable {
                 callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
-            })
+            }
         }
-        MirSourceAnchor::Source(origin) => Ok(InspectionMirSource::Source {
-            syntax: InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax())?,
+        MirSourceAnchor::Source(origin) => InspectionMirSource::Source {
+            syntax: InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax()),
             synthesis: origin
                 .synthesized_origin()
                 .map(|synthesis| InspectionMirSynthesis {
                     role: synthesis.role().as_str(),
                     ordinal: synthesis.ordinal().raw(),
                 }),
-        }),
-        MirSourceAnchor::ExecutableHost(product) => Ok(InspectionMirSource::ExecutableHost {
+        },
+        MirSourceAnchor::ExecutableHost(product) => InspectionMirSource::ExecutableHost {
             package: product.package().as_str().to_owned(),
             product: product.name().to_owned(),
-        }),
-        MirSourceAnchor::GeneratedHelper(reference) => {
-            Ok(InspectionMirSource::GeneratedLifecycle {
-                role: lifecycle_helper_role(reference)
-                    .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
-            })
-        }
-        MirSourceAnchor::ImportedExecutable(key) => Ok(InspectionMirSource::ImportedExecutable {
+        },
+        MirSourceAnchor::GeneratedHelper(reference) => InspectionMirSource::GeneratedLifecycle {
+            role: lifecycle_helper_role(reference),
+        },
+        MirSourceAnchor::ImportedExecutable(key) => InspectionMirSource::ImportedExecutable {
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
             template: key.template().raw(),
-        }),
+        },
         MirSourceAnchor::ImportedSource {
             owner,
             namespace,
             span,
             version,
-        } => Ok(InspectionMirSource::ImportedSource {
+        } => InspectionMirSource::ImportedSource {
             owner: InspectionSymbolIdentity::from_symbol(symbols, owner.owner()),
             template: owner.template().raw(),
             namespace: *namespace,
@@ -2341,7 +2325,7 @@ fn inspection_source_anchor(
             start: span.start().bytes(),
             end: span.end().bytes(),
             version: version.raw(),
-        }),
+        },
     }
 }
 
@@ -2585,9 +2569,9 @@ fn conversion_parts(
             requirement,
             dispatch,
         } => {
-            let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(MirInspectionModelError::MissingSymbol);
-            };
+            let (owner, ordinal) = dispatch.constraint().unwrap_or_else(|| {
+                panic!("selected trait-constraint conversion requires constraint dispatch: {dispatch:?}")
+            });
 
             callable_instance(&format!("{role}_member"), *member, parts, context.symbols);
             implementation_requirement(role, *requirement, parts, context)?;
@@ -2693,35 +2677,18 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
     }
 }
 
-const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
-    match reference {
-        MirHelperReference::Predicate(_) => Some("predicate"),
-        MirHelperReference::Quiesce(_) => Some("quiesce"),
-        MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
-        MirHelperReference::Destroy(_, _) => Some("destroy"),
-        MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::TaskCancellation,
-            ..
-        } => Some("cleanup_task_cancellation"),
-        MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::LifecycleResolution,
-            ..
-        } => Some("cleanup_lifecycle_resolution"),
-        MirHelperReference::AnonymousCallable(_)
-        | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::DefaultValue(_)
-        | MirHelperReference::TypeForm(_)
-        | MirHelperReference::Conversion(_)
-        | MirHelperReference::BeginGenerator
-        | MirHelperReference::PushGenerator
-        | MirHelperReference::FinishGenerator
-        | MirHelperReference::PanicReport
-        | MirHelperReference::StandardLibrary(_)
-        | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::ComposeAwaitedFrame(_)
-        | MirHelperReference::CommitAwaitedCompletion(_)
-        | MirHelperReference::DestroyTerminalTask => None,
+fn lifecycle_helper_role(reference: &MirHelperReference) -> &'static str {
+    if matches!(reference, MirHelperReference::Predicate(_)) {
+        return "predicate";
     }
+
+    let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference).unwrap_or_else(|| {
+        panic!(
+            "generated helper source must identify a predicate or lifecycle helper: {reference:?}"
+        )
+    });
+
+    generated_lifecycle_role(role)
 }
 
 const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {

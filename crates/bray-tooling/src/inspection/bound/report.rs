@@ -12,43 +12,32 @@ use serde::Serialize;
 
 use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::inspection::{
-    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSymbolIdentity,
-    InspectionSyntaxAnchor, InspectionType, TreeWriter, TypeInspectionError, push_text_diagnostic,
-    render_pretty_json,
+    InspectionOutput, InspectionSources, InspectionSymbolIdentity, InspectionSyntaxAnchor,
+    InspectionType, TreeWriter, TypeInspectionError, push_text_diagnostic, render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 use crate::{InspectionTarget, OutputFormat};
 
 use super::locals::InspectionLocals;
-use super::selection::{
-    InspectionSelectionEntry, SelectionInspectionError, selection_entries, selection_kind,
-};
+use super::selection::{InspectionSelectionEntry, selection_entries, selection_kind};
 use super::storage::{InspectionStorage, InspectionStoragePlan, StorageInspectionError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum BoundInspectionRenderError {
     Evaluation(FactQueryError),
     Json(String),
-    MissingNode,
-    Source(InspectionSourceError),
-    SourceIndex,
+    Source,
     SourceIndexOverflow(bray_source::TextSizeOverflow),
-    Symbol,
     Type(TypeInspectionError),
-    Selection(SelectionInspectionError),
     Capacity {
         resource: &'static str,
         actual: usize,
     },
 }
 
-impl From<InspectionSourceError> for BoundInspectionRenderError {
-    fn from(error: InspectionSourceError) -> Self {
-        match error {
-            InspectionSourceError::Source => Self::Source(error),
-            InspectionSourceError::SourceIndex => Self::SourceIndex,
-            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
-        }
+impl From<bray_source::TextSizeOverflow> for BoundInspectionRenderError {
+    fn from(error: bray_source::TextSizeOverflow) -> Self {
+        Self::SourceIndexOverflow(error)
     }
 }
 
@@ -58,19 +47,12 @@ impl From<TypeInspectionError> for BoundInspectionRenderError {
     }
 }
 
-impl From<SelectionInspectionError> for BoundInspectionRenderError {
-    fn from(error: SelectionInspectionError) -> Self {
-        Self::Selection(error)
-    }
-}
-
 impl From<StorageInspectionError> for BoundInspectionRenderError {
     fn from(error: StorageInspectionError) -> Self {
         match error {
             StorageInspectionError::Capacity { resource, actual } => {
                 Self::Capacity { resource, actual }
             }
-            StorageInspectionError::Source(error) => error.into(),
             StorageInspectionError::Type(error) => Self::Type(error),
         }
     }
@@ -80,7 +62,7 @@ impl From<UnitInspectionSelectionError> for BoundInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
             UnitInspectionSelectionError::Evaluation(error) => Self::Evaluation(error),
-            UnitInspectionSelectionError::Source => Self::Source(InspectionSourceError::Source),
+            UnitInspectionSelectionError::Source => Self::Source,
             UnitInspectionSelectionError::SourceOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
@@ -220,7 +202,7 @@ impl InspectionBoundUnit {
         semantic_values: &SemanticValueStore,
         sources: &InspectionSources<'_>,
     ) -> Result<Self, BoundInspectionRenderError> {
-        let source = InspectionSyntaxAnchor::from_anchor(sources, unit.key().source().syntax())?;
+        let source = InspectionSyntaxAnchor::from_anchor(sources, unit.key().source().syntax());
 
         let owner = unit_owner(unit.key(), symbols)?;
 
@@ -241,7 +223,7 @@ impl InspectionBoundUnit {
                 Ok(InspectionNestedUnit {
                     unit_kind: key.kind().as_str(),
                     owner: unit_owner(key, symbols)?,
-                    source: InspectionSyntaxAnchor::from_anchor(sources, key.source().syntax())?,
+                    source: InspectionSyntaxAnchor::from_anchor(sources, key.source().syntax()),
                 })
             })
             .collect::<Result<_, BoundInspectionRenderError>>()?;
@@ -278,7 +260,7 @@ fn unit_owner(
 ) -> Result<InspectionSymbolIdentity, BoundInspectionRenderError> {
     let owner = symbols
         .symbol_for_key(key.declared_owner())
-        .ok_or(BoundInspectionRenderError::Symbol)?;
+        .expect("retained bound/report.rs relationships must provide Symbol");
 
     Ok(InspectionSymbolIdentity::from_symbol(symbols, owner))
 }
@@ -344,20 +326,17 @@ fn build_tree(
                 }
             }
             BoundWalkEvent::Exit(_) => {
-                let Some(node) = stack.pop() else {
-                    error = Some(BoundInspectionRenderError::MissingNode);
-
-                    return BoundWalkControl::Stop;
-                };
+                let node = stack
+                    .pop()
+                    .expect("bound traversal must exit an entered node");
 
                 match stack.last_mut() {
                     Some(parent) => parent.children.push(node),
                     None if root.is_none() => root = Some(node),
-                    None => {
-                        error = Some(BoundInspectionRenderError::MissingNode);
-
-                        return BoundWalkControl::Stop;
-                    }
+                    None => panic!(
+                        "bound traversal must produce exactly one root: unit={:?}",
+                        unit.key()
+                    ),
                 }
             }
         }
@@ -369,11 +348,20 @@ fn build_tree(
         return Err(error);
     }
 
-    if outcome != BoundWalkOutcome::Completed || !stack.is_empty() {
-        return Err(BoundInspectionRenderError::MissingNode);
-    }
+    assert_eq!(
+        outcome,
+        BoundWalkOutcome::Completed,
+        "bound inspection traversal must complete: unit={:?}",
+        unit.key()
+    );
 
-    root.ok_or(BoundInspectionRenderError::MissingNode)
+    assert!(
+        stack.is_empty(),
+        "bound inspection traversal must exit every node: unit={:?}",
+        unit.key()
+    );
+
+    Ok(root.expect("bound inspection traversal must produce its root"))
 }
 
 #[expect(
@@ -395,7 +383,7 @@ fn inspection_node(
             let expression = unit
                 .view()
                 .expression(expression_id)
-                .ok_or(BoundInspectionRenderError::MissingNode)?;
+                .expect("retained bound/report.rs relationships must provide MissingNode");
 
             let checked_type = match types.expression(expression_id) {
                 Some(result) => Some(InspectionCheckedType {
@@ -417,7 +405,7 @@ fn inspection_node(
             let pattern = unit
                 .view()
                 .pattern(pattern_id)
-                .ok_or(BoundInspectionRenderError::MissingNode)?;
+                .expect("retained bound/report.rs relationships must provide MissingNode");
 
             (
                 pattern.kind().as_str(),
@@ -442,7 +430,7 @@ fn inspection_node(
             let block = unit
                 .view()
                 .block(block_id)
-                .ok_or(BoundInspectionRenderError::MissingNode)?;
+                .expect("retained bound/report.rs relationships must provide MissingNode");
 
             ("block", block.origin(), block.is_recovered(), None, None)
         }
@@ -450,7 +438,7 @@ fn inspection_node(
             let body = unit
                 .view()
                 .callable_body(body_id)
-                .ok_or(BoundInspectionRenderError::MissingNode)?;
+                .expect("retained bound/report.rs relationships must provide MissingNode");
 
             let (semantic_kind, recovered) = match body.kind() {
                 BoundCallableBodyKind::Block(_) => ("block_body", false),
@@ -461,7 +449,7 @@ fn inspection_node(
         }
     };
 
-    let source = InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax())?;
+    let source = InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax());
 
     let synthesis = origin
         .synthesized_origin()
@@ -866,17 +854,17 @@ mod tests {
 
     #[test]
     fn source_inspection_includes_nested_anonymous_callable_units() {
-        let source = concat!(
-            "module example;\n",
-            "\n",
-            "func main()\n",
-            "{\n",
-            "    let callable = lambda(value: i32)\n",
-            "    {\n",
-            "        value;\n",
-            "    };\n",
-            "}\n",
-        );
+        let source = r#"
+module example;
+
+func main()
+{
+    let callable = lambda(value: i32)
+    {
+        value;
+    };
+}
+"#;
 
         let compilation = compilation(source);
         let target = InspectionTarget::source(0);
@@ -905,9 +893,7 @@ mod tests {
 
         assert_eq!(
             render_bound_inspection(&compilation, target, OutputFormat::Json).map(|_| ()),
-            Err(super::BoundInspectionRenderError::Source(
-                crate::inspection::InspectionSourceError::Source,
-            ))
+            Err(super::BoundInspectionRenderError::Source)
         );
     }
 
@@ -924,9 +910,7 @@ mod tests {
 
         assert_eq!(
             render_bound_inspection(&compilation, target, OutputFormat::Json).map(|_| ()),
-            Err(super::BoundInspectionRenderError::Source(
-                crate::inspection::InspectionSourceError::Source,
-            ))
+            Err(super::BoundInspectionRenderError::Source)
         );
     }
 

@@ -417,9 +417,7 @@ fn non_library_products_cannot_export_package_interfaces() {
             compilation.package_interface_export_bundle(),
             Some(&Err(
                 super::super::super::PackageInterfaceExportError::InvalidCompilationCause(
-                    crate::PackageInterfaceInvalidCompilationCause::ExportContract(
-                        crate::PackageInterfaceExportContract::RequestMismatch,
-                    ),
+                    crate::PackageInterfaceInvalidCompilationCause::ExportRequestMismatch,
                 )
             ))
         );

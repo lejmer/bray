@@ -39,7 +39,7 @@ pub(super) fn prepare_executable_outputs(
             |key| {
                 let output = compilation
                     .source_output_unit(key.clone(), &compilation.state.cancellation)
-                    .map_err(super::super::invalid_compilation_fact_error)?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if output.has_errors() {
                     // rust-style: allow(context-erasing-failure-conversion, reason = "completed source output retains exact diagnostic causes")
@@ -156,11 +156,9 @@ fn export_executable_template_family(
 
     let selected_target = compilation.selected_target().target();
 
-    let codegen_target = selected_target.codegen_target().map_err(|cause| {
-        PackageInterfaceExportError::InvalidCompilationCause(
-            super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
-        )
-    })?;
+    let codegen_target = selected_target
+        .codegen_target()
+        .map_err(|cause| super::super::fact_query_export_error(cause.into()))?;
 
     let mut templates = Vec::with_capacity(family.len());
     let mut family_requirements = Vec::new();
@@ -275,9 +273,7 @@ fn export_executable_template_family(
 }
 
 fn invalid_executable_template(reason: &'static str) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::InvalidCompilationCause(
-        super::super::PackageInterfaceInvalidCompilationCause::ExecutableTemplate { reason },
-    )
+    panic!("checked export template contract failed: {reason}")
 }
 
 fn executable_template_family(

@@ -54,12 +54,12 @@ impl Compilation {
             let callable = self.semantic_value_store()?.type_data(callable_type);
 
             let TypeData::Callable(callable) = callable.as_ref() else {
-                return Err(ProductQueryFailure::UnexpectedSemanticType {
-                    ty: callable_type,
-                    expected: crate::compilation::ProductValueKind::CallableType,
-                    actual: callable.as_ref().clone(),
-                }
-                .into());
+                panic!(
+                    "product UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
+                    callable_type,
+                    crate::compilation::ProductValueKind::CallableType,
+                    callable.as_ref()
+                );
             };
 
             return callable_type_signature(self, callable, bray_symbols::CallableInvocation::Bray);
@@ -104,12 +104,12 @@ impl Compilation {
         })?;
 
         if callable.definition() != definition {
-            return Err(ProductQueryFailure::CallableDefinitionMismatch {
-                instance: instance.key().clone(),
-                expected: definition,
-                actual: callable.definition(),
-            }
-            .into());
+            panic!(
+                "product CallableDefinitionMismatch construction failed: instance={:?}, expected={:?}, actual={:?}",
+                instance.key(),
+                definition,
+                callable.definition()
+            );
         }
 
         let substitution = callable.substitution();
@@ -172,12 +172,12 @@ impl Compilation {
         let callable = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable) = callable.as_ref() else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
-                ty: signature.callable_type(),
-                expected: crate::compilation::ProductValueKind::CallableType,
-                actual: callable.as_ref().clone(),
-            }
-            .into());
+            panic!(
+                "product UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
+                signature.callable_type(),
+                crate::compilation::ProductValueKind::CallableType,
+                callable.as_ref()
+            );
         };
 
         let mut receiver = signature
@@ -406,11 +406,10 @@ impl Compilation {
                 (surface.inputs().to_vec(), surface.result())
             }
             _ => {
-                return Err(ProductQueryFailure::UnsupportedRuntimeDefaultSubject {
-                    provider,
-                    subject: owner,
-                }
-                .into());
+                panic!(
+                    "product UnsupportedRuntimeDefaultSubject construction failed: provider={:?}, subject={:?}",
+                    provider, owner
+                );
             }
         };
 
@@ -587,22 +586,14 @@ impl Compilation {
                     })?;
 
                 CallableDefinitionId::try_new(symbol).ok_or_else(|| {
-                    ProductQueryFailure::InvalidCallableDefinitionSymbol {
-                        symbol,
-                        actual: symbol.kind(),
-                    }
-                    .into()
+                    panic!("product InvalidCallableDefinitionSymbol construction failed: symbol={:?}, actual={:?}", symbol, symbol.kind())
                 })
             }
             MirUnitKey::ImportedExecutable(definition) => {
                 let symbol = definition.owner();
 
                 CallableDefinitionId::try_new(symbol).ok_or_else(|| {
-                    ProductQueryFailure::InvalidCallableDefinitionSymbol {
-                        symbol,
-                        actual: symbol.kind(),
-                    }
-                    .into()
+                    panic!("product InvalidCallableDefinitionSymbol construction failed: symbol={:?}, actual={:?}", symbol, symbol.kind())
                 })
             }
             MirUnitKey::ExternalCallable(definition)

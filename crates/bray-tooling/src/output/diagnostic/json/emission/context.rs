@@ -98,13 +98,7 @@ pub(super) fn package_interface_failure_context(
         Failure::InvalidCompilationCause { context, .. } => diagnostic_failure_context(context),
         Failure::SemanticValueStoreCreate => Vec::new(),
         Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
-        Failure::RecoveredPublicSymbol(kind)
-        | Failure::IncompletePublicDeclaration(kind)
-        | Failure::DuplicateSymbol(kind)
-        | Failure::MissingSymbol(kind) => vec![text_field("symbol_kind", kind)],
-        Failure::MissingDeclarationData(declaration) => {
-            vec![interface_symbol_identity_field("declaration", declaration)]
-        }
+        Failure::RecoveredPublicSymbol(kind) => vec![text_field("symbol_kind", kind)],
         Failure::ConstantCallableEvaluation { declaration, cause }
         | Failure::ExecutableTemplateEvaluation { declaration, cause } => {
             let mut context = vec![interface_symbol_identity_field("declaration", declaration)];
@@ -112,62 +106,6 @@ pub(super) fn package_interface_failure_context(
             context.extend(evaluation_failure_context(cause));
 
             context
-        }
-        Failure::LostDeclarationReference {
-            declaration,
-            table,
-            reference,
-        } => declaration_reference_fields(declaration.as_ref(), table, *reference),
-        Failure::MissingPackageReference { table, reference } => vec![
-            text_field("semantic_table", table),
-            count_field("reference", *reference),
-        ],
-        Failure::DuplicateDeclarationIdentity {
-            first,
-            second,
-            identity,
-        } => vec![
-            interface_symbol_identity_field("first_declaration", first),
-            interface_symbol_identity_field("second_declaration", second),
-            interface_symbol_identity_field("stable_identity", identity),
-        ],
-        Failure::RecursiveDeclarationData {
-            declaration,
-            table,
-            reference,
-        } => declaration_reference_fields(declaration.as_ref(), table, *reference),
-        Failure::ConflictingDeclarationRecord { kind, owner } => {
-            let mut context = vec![text_field("record_kind", kind)];
-
-            context.extend(interface_symbol_reference_fields(owner));
-
-            context
-        }
-        Failure::RecursiveDeclarationReference(table) => {
-            vec![text_field("semantic_table", table)]
-        }
-        Failure::SemanticTableOverflow { table, maximum } => vec![
-            text_field("semantic_table", table),
-            count_field("maximum_records", *maximum),
-        ],
-        Failure::SymbolGraph(problem) => vec![field(
-            "symbol_graph",
-            DiagnosticEmissionFieldValueJson::Problem(interface_symbol_graph_problem_json(problem)),
-        )],
-        Failure::DuplicateConstantCallableBody(record)
-        | Failure::DuplicateExecutableTemplate(record)
-        | Failure::InvalidExecutableTemplateFamily(record)
-        | Failure::DuplicateNativeBoundary(record)
-        | Failure::ImplementationDuplicateCallableBody(record)
-        | Failure::ImplementationDuplicateExecutableTemplate(record)
-        | Failure::ImplementationInvalidExecutableTemplateFamily(record)
-        | Failure::ImplementationDuplicateNativeBoundary(record)
-        | Failure::ImplementationDuplicateNativeBinding(record)
-        | Failure::ImplementationInvalidNativeBinding(record)
-        | Failure::ImplementationInvalidExecutableOwner(record)
-        | Failure::ImplementationInvalidNativeBoundaryOwner(record)
-        | Failure::ImplementationInvalidCallableOwner(record) => {
-            vec![count_field("record", *record)]
         }
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             let mut context = evaluation_failure_context(cause);
@@ -178,15 +116,9 @@ pub(super) fn package_interface_failure_context(
 
             context
         }
-        Failure::MisassignedPackageRecord(table) => {
-            vec![text_field("semantic_table", table)]
-        }
         Failure::Unavailable
         | Failure::InvalidCompilation
-        | Failure::SymbolCountOverflow
-        | Failure::ImplementationContentTooLarge
-        | Failure::ImplementationDuplicateSpecialization
-        | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
+        | Failure::ImplementationContentTooLarge => Vec::new(),
     }
 }
 
@@ -218,17 +150,7 @@ pub(super) fn evaluation_failure_context(
         },
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
-        Failure::Cancelled
-        | Failure::MirCapacity
-        | Failure::SemanticValueStoreCreate
-        | Failure::ConstantCallableBodyUnavailable
-        | Failure::ConstantCallableRootUnavailable
-        | Failure::AtomicRepresentationTypeUnavailable
-        | Failure::AtomicRepresentationArgumentsUnavailable
-        | Failure::AtomicInitializerArgumentUnavailable
-        | Failure::AtomicInitializerResultUnavailable
-        | Failure::UninitInitializerResultUnavailable
-        | Failure::ImportedExecutableTemplateMismatch => {
+        Failure::Cancelled | Failure::MirCapacity | Failure::SemanticValueStoreCreate => {
             vec![text_field("cause", failure.as_str())]
         }
     }
@@ -353,70 +275,15 @@ fn interface_symbol_identity_field(
     )
 }
 
-fn declaration_reference_fields(
-    declaration: Option<&bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
-    table: &str,
-    reference: u32,
-) -> Vec<DiagnosticEmissionFieldJson> {
-    let mut context = vec![
-        text_field("semantic_table", table),
-        count_field("reference", reference),
-    ];
-
-    if let Some(declaration) = declaration {
-        context.push(interface_symbol_identity_field("declaration", declaration));
-    }
-
-    context
-}
-
-fn interface_symbol_reference_fields(
-    reference: &bray_diagnostics::DiagnosticInterfaceSymbolReference,
-) -> Vec<DiagnosticEmissionFieldJson> {
-    use bray_diagnostics::DiagnosticInterfaceSymbolReference as Reference;
-
-    match reference {
-        Reference::Local(symbol) => vec![
-            text_field("owner_reference_kind", "local"),
-            count_field("owner_symbol", *symbol),
-        ],
-        Reference::Dependency {
-            dependency,
-            identity,
-        } => vec![
-            text_field("owner_reference_kind", "dependency"),
-            count_field("owner_dependency", *dependency),
-            field(
-                "owner_identity",
-                DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
-                    DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
-                ),
-            ),
-        ],
-        Reference::CompilerKnown(identity) => vec![
-            text_field("owner_reference_kind", "compiler_known"),
-            field(
-                "owner_identity",
-                DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
-                    DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
-                ),
-            ),
-        ],
-    }
-}
-
 pub(super) fn codegen_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionCodegenFailure,
 ) -> Vec<DiagnosticEmissionFieldJson> {
     use bray_diagnostics::DiagnosticEmissionCodegenFailure as Failure;
 
     match failure {
-        Failure::DuplicateUnit(unit)
-        | Failure::DuplicateMappings(unit)
-        | Failure::MissingUnit(unit)
-        | Failure::MissingMappings(unit)
-        | Failure::Request(unit)
-        | Failure::Generation(unit) => vec![digest_field("codegen_unit", unit)],
+        Failure::Request(unit) | Failure::Generation(unit) => {
+            vec![digest_field("codegen_unit", unit)]
+        }
         Failure::MergeInvalidContent(artifact) => vec![artifact_field("artifact", *artifact)],
         Failure::MergeReadFailed { artifact, error } => vec![
             artifact_field("artifact", *artifact),
@@ -565,24 +432,19 @@ mod tests {
     }
 
     #[test]
-    fn identity_conflicts_preserve_every_declaration() {
+    fn evaluation_failure_preserves_its_declaration_and_cause() {
         let context = package_interface_failure_context(
-            &DiagnosticPackageInterfaceFailure::DuplicateDeclarationIdentity {
-                first: package("example.first"),
-                second: package("example.second"),
-                identity: package("example.shared"),
+            &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                declaration: package("example.run"),
+                cause: DiagnosticEmissionEvaluationFailure::MirCapacity,
             },
         );
 
-        let context = serde_json::to_value(context)
-            .unwrap_or_else(|error| panic!("diagnostic context should serialize: {error:?}"));
+        let context = serde_json::to_value(context).unwrap();
 
-        assert_eq!(context[0]["name"], "first_declaration");
-        assert_eq!(context[0]["value"]["value"]["package"], "example.first");
-        assert_eq!(context[1]["name"], "second_declaration");
-        assert_eq!(context[1]["value"]["value"]["package"], "example.second");
-        assert_eq!(context[2]["name"], "stable_identity");
-        assert_eq!(context[2]["value"]["value"]["package"], "example.shared");
+        assert_eq!(context[0]["name"], "declaration");
+        assert_eq!(context[0]["value"]["value"]["package"], "example.run");
+        assert_eq!(context[1]["name"], "cause");
     }
 
     #[test]

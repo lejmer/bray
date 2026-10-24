@@ -148,12 +148,9 @@ impl Compilation {
         participating.extend(imported);
 
         let participation = ImplementationParticipationSet::try_new(domain.clone(), participating)
-            .map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::ImplementationParticipation {
-                    domain,
-                    cause,
-                }
-            })?;
+            .unwrap_or_else(|cause| {
+                panic!("semantic ImplementationParticipation construction failed: domain={:?}, cause={:?}", domain, cause)
+            });
 
         Ok(DiagnosticResult::new(participation, diagnostics))
     }
@@ -328,8 +325,7 @@ mod tests {
     };
     use bray_syntax::{SyntaxText, UsingDeclarationSyntax};
 
-    use crate::compilation::{SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
-    use crate::fact::{CompilationFactKey, FactCellTestEvent, FactQueryError};
+    use crate::fact::{CompilationFactKey, FactCellTestEvent};
     use crate::test_support::{
         FactTestGate, compilation, encoded_semantic_dependency, package_identity, source_input,
     };
@@ -413,24 +409,17 @@ impl First
 
         let domain = ImplementationCoherenceDomainKey::new(package.clone());
 
-        let error = compilation
-            .implementation_participation(domain.clone())
-            .expect_err("an unselected coherence domain must be rejected");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.implementation_participation(domain)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let FactQueryError::SemanticQuery(error) = error else {
-            panic!("domain mismatch must retain a semantic-query failure");
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            error.cause(),
-            &SemanticQueryFailure::contract(
-                SemanticQueryContext::ImplementationDomain(domain),
-                SemanticQueryViolation::PackageMismatch {
-                    expected: compilation.package_identity().clone(),
-                    actual: package,
-                },
-            )
-        );
+        assert!(message.contains("PackageMismatch"));
+        assert!(message.contains("other.package"));
+        assert!(message.contains("test.package"));
     }
 
     #[test]

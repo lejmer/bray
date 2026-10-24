@@ -10,8 +10,8 @@ use crate::inspection::lowered::model::{
 use crate::inspection::lowered::notation;
 use crate::inspection::unit::{UnitInspectionSelectionError, select_units};
 use crate::inspection::{
-    InspectionOutput, InspectionSourceError, InspectionSources, InspectionSyntaxAnchor, TreeWriter,
-    push_text_diagnostic, render_pretty_json,
+    InspectionOutput, InspectionSources, InspectionSyntaxAnchor, TreeWriter, push_text_diagnostic,
+    render_pretty_json,
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 use crate::{InspectionTarget, OutputFormat};
@@ -21,13 +21,13 @@ pub(crate) enum LoweredInspectionRenderError {
     Evaluation(FactQueryError),
     Json(String),
     Model(MirInspectionModelError),
-    Source(InspectionSourceError),
+    Source,
     SourceIndexOverflow(bray_source::TextSizeOverflow),
 }
 
-impl From<InspectionSourceError> for LoweredInspectionRenderError {
-    fn from(error: InspectionSourceError) -> Self {
-        Self::Source(error)
+impl From<bray_source::TextSizeOverflow> for LoweredInspectionRenderError {
+    fn from(error: bray_source::TextSizeOverflow) -> Self {
+        Self::SourceIndexOverflow(error)
     }
 }
 
@@ -41,7 +41,7 @@ impl From<UnitInspectionSelectionError> for LoweredInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
             UnitInspectionSelectionError::Evaluation(error) => Self::Evaluation(error),
-            UnitInspectionSelectionError::Source => Self::Source(InspectionSourceError::Source),
+            UnitInspectionSelectionError::Source => Self::Source,
             UnitInspectionSelectionError::SourceOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
@@ -134,7 +134,7 @@ fn inspect_units(
             DiagnosticBag::merged_all([&diagnostics, bound.diagnostics(), lowered.diagnostics()]);
 
         let source =
-            InspectionSyntaxAnchor::from_anchor(&sources, bound.value().key().source().syntax())?;
+            InspectionSyntaxAnchor::from_anchor(&sources, bound.value().key().source().syntax());
 
         let unit_kind = bound.value().key().kind().as_str();
 

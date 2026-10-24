@@ -553,13 +553,16 @@ mod tests {
         let exhausted = driver(
             identity.clone(),
             Arc::new(RecordingExternalToolHost::failing(
-                ExternalToolFailure::ProcessBudgetUnavailable,
+                ExternalToolFailure::Process(bray_platform::PlatformError::new(
+                    bray_platform::PlatformOperation::ProcessSpawn,
+                    bray_platform::PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory),
+                )),
             )),
         );
 
         assert_eq!(
             exhausted.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::ResourceExhausted)
+            &LinkStatus::Failed(LinkFailure::Invocation)
         );
 
         let tool_failure = driver(

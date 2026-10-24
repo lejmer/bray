@@ -459,7 +459,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(FactQueryError::SymbolGraph)
+                .map_err(FactQueryError::from)
             },
         )
         .as_ref()
@@ -481,7 +481,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(FactQueryError::SymbolGraph)
+                .map_err(FactQueryError::from)
             },
         )
         .as_ref()
@@ -710,10 +710,7 @@ mod tests {
     };
     use bray_syntax::SourceSyntaxNode;
 
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::{CompilationFactKey, CompilationInputKey, FactQueryError};
+    use crate::fact::{CompilationFactKey, CompilationInputKey};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
         diagnostic_kinds, package_identity, source_callable_body_key,
@@ -1460,19 +1457,16 @@ mod tests {
 
         let foreign_key = source_callable_body_key_from_symbols(&compilation, &foreign_symbols);
 
-        let foreign = compilation.control_flow(foreign_key.clone());
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compilation.control_flow(foreign_key.clone())
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(
-            matches!(
-                &foreign,
-                Err(FactQueryError::SemanticQuery(error))
-                    if error.cause() == &SemanticQueryFailure::contract(
-                        SemanticQueryContext::Unit(foreign_key.clone()),
-                        SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
-                    )
-            ),
-            "{foreign:?}"
-        );
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("SymbolKey"));
+        assert!(message.contains("foreign.package"));
 
         assert_eq!(
             compilation

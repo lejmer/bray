@@ -962,13 +962,16 @@ mod tests {
             identity.clone(),
             SystemLinkerFamily::Gnu,
             Arc::new(RecordingExternalToolHost::failing(
-                ExternalToolFailure::ProcessBudgetUnavailable,
+                ExternalToolFailure::Process(bray_platform::PlatformError::new(
+                    bray_platform::PlatformOperation::ProcessSpawn,
+                    bray_platform::PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory),
+                )),
             )),
         );
 
         assert_eq!(
             failed.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::ResourceExhausted)
+            &LinkStatus::Failed(LinkFailure::Invocation)
         );
 
         let cancelled = system_driver(

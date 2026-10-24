@@ -69,7 +69,7 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{DiagnosticFailureValue, DiagnosticSemanticValueFailure};
-    use bray_source::{SourceId, SourceVersion};
+    use bray_source::SourceId;
     use bray_symbols::{
         GenericSubstitutionShapeError, SemanticValueKind, SemanticValueStoreCreateError,
         SemanticValueStoreError,
@@ -77,8 +77,7 @@ mod tests {
 
     use super::{CompilationFactKey, FactCycle, FactQueryError, ImportedQueryFailure};
     use crate::compilation::{
-        ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryErrorKind,
-        ProductQueryFailure, ProductSynchronizationComponent,
+        ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure,
     };
     use crate::fact::diagnostic_semantic_value_failure;
 
@@ -113,9 +112,7 @@ mod tests {
 
     #[test]
     fn public_fact_errors_render_exact_lower_layer_causes() {
-        let codegen =
-            FactQueryError::CodegenTarget(bray_codegen::CodegenTargetBuildError::EmptyTriple)
-                .to_string();
+        let codegen = FactQueryError::UnsupportedCodegenProfile.to_string();
 
         let interface = FactQueryError::PackageInterface(Box::new(
             bray_package_interface::InterfaceValidationError::InvalidMagic {
@@ -124,7 +121,7 @@ mod tests {
         ))
         .to_string();
 
-        assert!(codegen.contains("EmptyTriple"));
+        assert!(codegen.contains("no native code generator"));
         assert!(interface.contains("InvalidMagic"));
         assert!(interface.contains("110, 111, 116, 45, 98, 114, 97, 121"));
     }
@@ -162,10 +159,10 @@ mod tests {
 
     #[test]
     fn product_query_errors_box_and_retain_exact_private_causes() {
-        let cause = ProductQueryFailure::missing(
-            ProductQueryContext::Source(SourceId::new(7)),
-            ProductDataKind::DeclarationChunk,
-        );
+        let cause = ProductQueryFailure::GenericSubstitution {
+            substitution: None,
+            cause: GenericSubstitutionShapeError::OrdinalOverflow,
+        };
 
         let error = ProductQueryError::from(cause.clone());
 
@@ -174,66 +171,66 @@ mod tests {
             std::mem::size_of::<usize>()
         );
 
-        assert_eq!(error.kind(), ProductQueryErrorKind::MissingData);
         assert_eq!(error.cause(), &cause);
 
         let query = FactQueryError::from(cause.clone());
 
         let FactQueryError::Product(error) = query else {
-            panic!("product failure must retain the product-query boundary")
+            panic!("product failure must retain its boundary")
         };
 
         assert_eq!(error.cause(), &cause);
     }
 
     #[test]
-    fn product_query_error_kinds_preserve_domain_boundaries() {
-        let cases = [
-            (
-                ProductQueryFailure::count_mismatch(
-                    ProductQueryContext::Source(SourceId::new(1)),
-                    ProductDataKind::CallableParameters,
-                    1,
-                    2,
-                ),
-                ProductQueryErrorKind::ContractViolation,
-            ),
-            (
-                ProductQueryFailure::GenericSubstitution {
-                    substitution: None,
-                    cause: GenericSubstitutionShapeError::ArgumentCountMismatch {
-                        parameter_count: 1,
-                        argument_count: 2,
-                    },
-                },
-                ProductQueryErrorKind::Specialization,
-            ),
-            (
-                ProductQueryFailure::SynchronizationPoisoned {
-                    component: ProductSynchronizationComponent::LifecycleNeeds,
-                },
-                ProductQueryErrorKind::Coordination,
-            ),
-            (
-                ProductQueryFailure::InvalidTestErrorTypeIdentity { digest: [7; 32] },
-                ProductQueryErrorKind::ContractViolation,
-            ),
-            (
-                ProductQueryFailure::SourceSnapshotMismatch {
-                    source: SourceId::new(2),
-                    expected: SourceVersion::new(3),
-                    actual: Some(SourceVersion::new(4)),
-                },
-                ProductQueryErrorKind::Identity,
-            ),
-        ];
+    fn product_contract_failures_panic_before_becoming_query_errors() {
+        let missing = std::panic::catch_unwind(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Source(SourceId::new(7)),
+                ProductDataKind::DeclarationChunk,
+            )
+        })
+        .err()
+        .expect("compiler invariant must panic");
 
-        for (cause, expected) in cases {
-            let error = ProductQueryError::from(cause.clone());
+        let message = bray_testing::panic_payload_text(missing.as_ref());
 
-            assert_eq!(error.kind(), expected);
-            assert_eq!(error.cause(), &cause);
-        }
+        assert!(message.contains("DeclarationChunk"));
+        assert!(message.contains("7"));
+
+        let mismatch = std::panic::catch_unwind(|| {
+            ProductQueryFailure::count_mismatch(
+                ProductQueryContext::Source(SourceId::new(1)),
+                ProductDataKind::CallableParameters,
+                1,
+                2,
+            )
+        })
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(mismatch.as_ref());
+
+        assert!(message.contains("CallableParameters"));
+        assert!(message.contains("expected=1"));
+        assert!(message.contains("actual=2"));
+
+        let invalid_substitution = std::panic::catch_unwind(|| {
+            ProductQueryError::from(ProductQueryFailure::GenericSubstitution {
+                substitution: None,
+                cause: GenericSubstitutionShapeError::ArgumentCountMismatch {
+                    parameter_count: 1,
+                    argument_count: 2,
+                },
+            })
+        })
+        .err()
+        .expect("compiler invariant must panic");
+
+        assert!(
+            bray_testing::panic_payload_text(invalid_substitution.as_ref())
+                .contains("ArgumentCountMismatch")
+        );
     }
 }
 
@@ -245,9 +242,9 @@ pub enum FactQueryError {
     /// Evaluation encountered a same-worker or cross-worker dependency cycle.
     Cycle(FactCycle),
     /// Immutable symbol-graph construction violated an exact structural contract.
-    SymbolGraph(bray_symbols::SymbolGraphBuildError),
+    SymbolCapacity { index: usize },
     /// Selected native target construction violated an exact target contract.
-    CodegenTarget(bray_codegen::CodegenTargetBuildError),
+    UnsupportedCodegenProfile,
     /// Imported package implementation access violated its encoded interface contract.
     PackageInterface(Box<bray_package_interface::InterfaceValidationError>),
     /// Imported-interface query state omitted an exact required relationship.
@@ -258,20 +255,8 @@ pub enum FactQueryError {
     SemanticValueStoreCreate(bray_symbols::SemanticValueStoreCreateError),
     /// The canonical semantic-value store rejected a construction or lookup operation.
     SemanticValueStore(bray_symbols::SemanticValueStoreError),
-    /// Name binding could not obtain a required semantic dependency.
-    BindingDependencyUnavailable,
     /// Binding one semantic unit violated a typed binding contract.
-    Binding(bray_binder::BoundUnitBindingError),
-    /// A selected constant callable has no body available for durable evaluation.
-    ConstantCallableBodyUnavailable,
-    /// A selected constant callable body has no evaluable result expression.
-    ConstantCallableRootUnavailable,
-    /// The atomic initializer argument has no available compile-time value.
-    AtomicInitializerArgumentUnavailable,
-    /// The atomic initializer result cannot be retained as a compile-time value.
-    AtomicInitializerResultUnavailable,
-    /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
-    UninitInitializerResultUnavailable,
+    BindingCapacity(bray_binder::BoundUnitConstructionError),
     /// Binding or semantic compilation violated an exact query contract.
     SemanticQuery(SemanticQueryError),
     /// Product specialization or realization violated an exact query contract.
@@ -348,11 +333,7 @@ impl From<bray_symbols::SemanticValueStoreError> for FactQueryError {
 
 impl From<bray_symbols::CallableSignatureTemplateError> for FactQueryError {
     fn from(error: bray_symbols::CallableSignatureTemplateError) -> Self {
-        SemanticQueryFailure::CallableSignature {
-            callable: None,
-            cause: error,
-        }
-        .into()
+        panic!("checked callable signature construction failed: {error:?}")
     }
 }
 
@@ -377,11 +358,12 @@ impl std::fmt::Display for FactQueryError {
                 "fact evaluation encountered a dependency cycle: {:?}",
                 cycle.facts()
             ),
-            Self::SymbolGraph(error) => {
-                write!(formatter, "symbol graph construction failed: {error}")
-            }
-            Self::CodegenTarget(error) => {
-                write!(formatter, "native target construction failed: {error:?}")
+            Self::SymbolCapacity { index } => write!(
+                formatter,
+                "compilation symbol capacity exceeded at index {index}"
+            ),
+            Self::UnsupportedCodegenProfile => {
+                formatter.write_str("the selected target profile has no native code generator")
             }
             Self::PackageInterface(error) => {
                 write!(formatter, "package interface validation failed: {error:?}")
@@ -399,24 +381,10 @@ impl std::fmt::Display for FactQueryError {
                     "semantic value store operation failed: {error:?}"
                 )
             }
-            Self::BindingDependencyUnavailable => {
-                formatter.write_str("name binding could not obtain a required dependency")
-            }
-            Self::Binding(error) => write!(formatter, "semantic unit binding failed: {error:?}"),
-            Self::ConstantCallableBodyUnavailable => {
-                formatter.write_str("the constant callable has no available body")
-            }
-            Self::ConstantCallableRootUnavailable => {
-                formatter.write_str("the constant callable body has no result expression")
-            }
-            Self::AtomicInitializerArgumentUnavailable => {
-                formatter.write_str("the atomic initializer argument is unavailable")
-            }
-            Self::AtomicInitializerResultUnavailable => {
-                formatter.write_str("the atomic initializer result cannot be retained")
-            }
-            Self::UninitInitializerResultUnavailable => formatter
-                .write_str("the uninitialized-storage initializer result cannot be retained"),
+            Self::BindingCapacity(error) => write!(
+                formatter,
+                "semantic unit binding capacity exceeded: {error:?}"
+            ),
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
             Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
             Self::Foreign(error) => write!(formatter, "foreign query failed: {error:?}"),
@@ -426,3 +394,28 @@ impl std::fmt::Display for FactQueryError {
 }
 
 impl std::error::Error for FactQueryError {}
+
+impl From<bray_symbols::SymbolGraphBuildError> for FactQueryError {
+    #[track_caller]
+    fn from(cause: bray_symbols::SymbolGraphBuildError) -> Self {
+        match cause {
+            bray_symbols::SymbolGraphBuildError::SymbolCapacityExceeded { index }
+            | bray_symbols::SymbolGraphBuildError::CompilerKnown(
+                bray_symbols::CompilerKnownSymbolBuildError::SymbolCapacityExceeded { index },
+            ) => Self::SymbolCapacity { index },
+            _ => panic!("declaration-backed symbol graph construction failed: {cause:?}"),
+        }
+    }
+}
+
+impl From<bray_codegen::CodegenTargetBuildError> for FactQueryError {
+    #[track_caller]
+    fn from(cause: bray_codegen::CodegenTargetBuildError) -> Self {
+        match cause {
+            bray_codegen::CodegenTargetBuildError::UnsupportedProfile => {
+                Self::UnsupportedCodegenProfile
+            }
+            _ => panic!("selected target construction violated its native contract: {cause:?}"),
+        }
+    }
+}

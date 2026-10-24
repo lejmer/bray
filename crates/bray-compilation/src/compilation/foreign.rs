@@ -10,11 +10,11 @@ mod static_storage;
 mod validation;
 
 pub(in crate::compilation) use directive::foreign_call_capability;
+pub use error::ForeignQueryError;
 pub(crate) use error::{
     ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure,
     ForeignSourceRole, ForeignTypeKind,
 };
-pub use error::{ForeignQueryError, ForeignQueryErrorKind};
 pub(in crate::compilation) use query::ForeignBoundaryValidation;
 pub(in crate::compilation) use source_role::{has_source_role, validate_source_roles};
 pub(in crate::compilation) use validation::{

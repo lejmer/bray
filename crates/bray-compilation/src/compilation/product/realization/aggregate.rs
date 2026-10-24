@@ -44,7 +44,7 @@ impl Compilation {
 
         let bray_symbols::DeclaredStorageShape::Union(storage) = representation.value().storage()
         else {
-            return Err(CodegenPreparationError::UnresolvedType(ty));
+            panic!("checked native UnresolvedType contract failed: {:?}", ty);
         };
 
         let tag = representation.value().union_tag_type();
@@ -136,7 +136,9 @@ impl Compilation {
                         .union_tags()
                         .iter()
                         .find(|tag| tag.variant() == variant)
-                        .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+                        .unwrap_or_else(|| {
+                            panic!("checked native UnresolvedType contract failed: {:?}", ty)
+                        });
 
                     Ok(CodegenUnionVariantLayout::new(
                         variant,
@@ -271,7 +273,10 @@ impl Compilation {
             .get(&element)
             .is_none_or(|mapping| mapping.layout().is_none())
         {
-            return Err(CodegenPreparationError::UnsizedTypeByValue(element));
+            panic!(
+                "checked native UnsizedTypeByValue contract failed: {:?}",
+                element
+            );
         }
 
         let data = self.indirection_metadata_pointer(element, BorrowKind::Mutable)?;
@@ -408,7 +413,12 @@ impl Compilation {
             let field_layout = mappings
                 .get(&field)
                 .and_then(CodegenTypeMapping::layout)
-                .ok_or(CodegenPreparationError::UnsizedTypeByValue(field))?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "checked native UnsizedTypeByValue contract failed: {:?}",
+                        field
+                    )
+                });
 
             let field_alignment = packed_alignment(field_layout.alignment(), packing);
 

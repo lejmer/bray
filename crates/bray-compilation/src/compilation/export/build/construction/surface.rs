@@ -144,7 +144,7 @@ fn source_overload_relationships(
 ) -> Result<Vec<ExportRelationshipInput>, PackageInterfaceExportError> {
     let binding_context = compilation
         .binding_context(&compilation.state.cancellation)
-        .map_err(super::super::super::invalid_compilation_fact_error)?;
+        .map_err(super::super::super::fact_query_export_error)?;
 
     let overloads = graph
         .callable_overloads()
@@ -166,22 +166,29 @@ fn source_overload_relationships(
             continue;
         }
 
-        let owner = graph.containing_symbol(overload).ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(overload.kind()),
-        )?;
+        let owner = graph.containing_symbol(overload).unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                overload.kind()
+            );
+        });
 
-        let owner_key = keys.get(&overload).cloned().ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(overload.kind()),
-        )?;
+        let owner_key = keys.get(&overload).cloned().unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                overload.kind()
+            );
+        });
 
         for (ordinal, anchor) in arms.iter().enumerate() {
             let path = anchor
                 .find_descendant::<PathSyntax>(compilation.syntax_tree())
-                .ok_or(
-                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
-                        overload.kind(),
-                    ),
-                )?;
+                .unwrap_or_else(|| {
+                    let declaration = overload.kind();
+
+                    panic!("exported overload arm must retain its path: kind={declaration:?}, ordinal={ordinal}");
+                },
+                );
 
             let result = match owner {
                 AnySymbolId::Module(module) => {
@@ -189,7 +196,7 @@ fn source_overload_relationships(
                 }
                 owner => binding_context.bind_owner_surface_path(owner, &path, NameAccess::Local),
             }
-            .map_err(super::super::super::invalid_compilation_binding_error)?;
+            .map_err(super::super::super::binding_query_export_error)?;
 
             if result.diagnostics().has_errors() {
                 // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
@@ -203,16 +210,18 @@ fn source_overload_relationships(
             };
 
             if !selected.contains(member) {
-                return Err(
-                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
-                        member.kind(),
-                    ),
+                panic!(
+                    "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                    member.kind(),
                 );
             }
 
-            let member_key = keys.get(member).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()),
-            )?;
+            let member_key = keys.get(member).cloned().unwrap_or_else(|| {
+                panic!(
+                    "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                    member.kind()
+                );
+            });
 
             let ordinal = u32::try_from(ordinal)
                 .map(SymbolOrdinal::new)
@@ -305,9 +314,12 @@ fn select_owner_chain(
     selected: &mut BTreeSet<AnySymbolId>,
 ) -> Result<(), PackageInterfaceExportError> {
     while symbol != package {
-        let owner = graph.containing_symbol(symbol).ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
-        )?;
+        let owner = graph.containing_symbol(symbol).unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                symbol.kind()
+            );
+        });
 
         selected.insert(owner);
         symbol = owner;
@@ -334,7 +346,12 @@ fn external_key(
     let owner = graph
         .runtime_default_subject(symbol)
         .or_else(|| graph.containing_symbol(symbol))
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
+        .unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                symbol.kind()
+            );
+        });
 
     let owner_key = external_key(graph, owner, keys)?;
 
@@ -352,7 +369,12 @@ fn external_key(
         }
         _ => None,
     }
-    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
+    .unwrap_or_else(|| {
+        panic!(
+            "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+            symbol.kind()
+        );
+    });
 
     keys.insert(symbol, key.clone());
 
@@ -426,18 +448,23 @@ fn export_symbol(
     symbol: AnySymbolId,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
 ) -> Result<ExportSymbolInput, PackageInterfaceExportError> {
-    let key = keys
-        .get(&symbol)
-        .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
+    let key = keys.get(&symbol).cloned().unwrap_or_else(|| {
+        panic!(
+            "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+            symbol.kind()
+        );
+    });
 
     let containing_symbol = match graph
         .runtime_default_subject(symbol)
         .or_else(|| graph.containing_symbol(symbol))
     {
-        Some(owner) => Some(keys.get(&owner).cloned().ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
-        )?),
+        Some(owner) => Some(keys.get(&owner).cloned().unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                owner.kind()
+            );
+        })),
         None => None,
     };
 
@@ -474,17 +501,26 @@ fn export_relationship(
         .get(&(owner, member))
         .copied()
         .map(SymbolOrdinal::raw)
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
+        .unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                member.kind()
+            );
+        });
 
-    let owner_key = keys
-        .get(&owner)
-        .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()))?;
+    let owner_key = keys.get(&owner).cloned().unwrap_or_else(|| {
+        panic!(
+            "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+            owner.kind()
+        );
+    });
 
-    let member_key = keys
-        .get(&member)
-        .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
+    let member_key = keys.get(&member).cloned().unwrap_or_else(|| {
+        panic!(
+            "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+            member.kind()
+        );
+    });
 
     let relationship = ExportRelationshipInput::new(kind, owner_key, member_key, ordinal);
 
@@ -578,13 +614,19 @@ fn direct_exports(
             Some((owner, member.name().clone(), symbol, member.visibility()))
         })
         .map(|(owner, name, symbol, visibility)| {
-            let owner = keys.get(&owner).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
-            )?;
+            let owner = keys.get(&owner).cloned().unwrap_or_else(|| {
+                panic!(
+                    "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                    owner.kind()
+                );
+            });
 
-            let target = keys.get(&symbol).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
-            )?;
+            let target = keys.get(&symbol).cloned().unwrap_or_else(|| {
+                panic!(
+                    "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                    symbol.kind()
+                );
+            });
 
             Ok(ExportLookupInput::new(
                 owner,
@@ -609,11 +651,11 @@ fn module_keys(
             keys.get(&module.id().into())
                 .cloned()
                 .map(|key| (module.id(), key))
-                .ok_or(
-                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
-                        SymbolKind::Module,
-                    ),
-                )
+                .ok_or_else(|| {
+                    let symbol = module.id();
+
+                    panic!("source module must have its exported interface identity: {symbol:?}");
+                })
         })
         .collect()
 }
@@ -627,14 +669,14 @@ impl Compilation {
     ) -> Result<Vec<ExportLookupInput>, PackageInterfaceExportError> {
         let semantics = self
             .binding_context(&self.state.cancellation)
-            .map_err(super::super::super::invalid_compilation_fact_error)?;
+            .map_err(super::super::super::fact_query_export_error)?;
 
         let mut exports = Vec::new();
 
         for (module, owner_key) in module_keys {
             let surface = semantics
                 .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(*module))
-                .map_err(super::super::super::invalid_compilation_binding_error)?;
+                .map_err(super::super::super::binding_query_export_error)?;
 
             if surface.diagnostics().has_errors() {
                 // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
@@ -670,7 +712,7 @@ impl Compilation {
     ) -> Result<ExportSymbolReferenceInput, PackageInterfaceExportError> {
         let imported = semantics
             .imported_symbols()
-            .map_err(super::super::super::invalid_compilation_binding_error)?
+            .map_err(super::super::super::binding_query_export_error)?
             .expect("checked imported re-export has an imported symbol skeleton");
 
         let key = match imported.symbol_key(target).map(|key| key.data()) {

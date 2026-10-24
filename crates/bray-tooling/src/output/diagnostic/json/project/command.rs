@@ -6,7 +6,7 @@ use super::execution::{
     DiagnosticProjectProcessFailureJson, DiagnosticTestExecutionPlanProblemJson,
     test_execution_plan_failure_json,
 };
-use super::inspection::{DiagnosticInspectionFailureJson, native_linker_build_failure_key};
+use super::inspection::DiagnosticInspectionFailureJson;
 use crate::output::path_to_output_string;
 
 #[derive(Serialize)]
@@ -159,6 +159,10 @@ pub(in crate::output::diagnostic::json) enum DiagnosticUnsupportedEmissionReason
     MissingHostEnvironment {
         variable: &'static str,
     },
+    InvalidHostEnvironment {
+        variable: &'static str,
+        value: String,
+    },
 }
 
 impl DiagnosticUnsupportedEmissionReasonJson {
@@ -181,6 +185,10 @@ impl DiagnosticUnsupportedEmissionReasonJson {
                 tool: tool.as_str(),
                 path: path_to_output_string(path),
             },
+            Reason::InvalidHostEnvironment { variable, value } => Self::InvalidHostEnvironment {
+                variable: variable.as_str(),
+                value: path_to_output_string(value),
+            },
             Reason::MissingHostEnvironment(variable) => Self::MissingHostEnvironment {
                 variable: variable.as_str(),
             },
@@ -199,6 +207,20 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         operation: &'static str,
         path: String,
         error: &'static str,
+    },
+    MalformedTestCatalog {
+        path: String,
+    },
+    UnsupportedTestCatalogVersion {
+        path: String,
+        actual: u32,
+        supported: u32,
+    },
+    TestCatalogCapacityExceeded {
+        path: String,
+    },
+    TestHostChanged {
+        path: String,
     },
     CurrentExecutable {
         operation: &'static str,
@@ -245,11 +267,6 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         operation: &'static str,
         stream: &'static str,
     },
-    ToolProtocol {
-        operation: &'static str,
-        failure: &'static str,
-        stream: &'static str,
-    },
     Document {
         operation: &'static str,
         path: Option<String>,
@@ -273,9 +290,6 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
     MissingTestHostLocation {
         test: String,
     },
-    MissingResult {
-        operation: &'static str,
-    },
     CapacityExceeded {
         operation: &'static str,
     },
@@ -283,15 +297,8 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         count: u64,
     },
     CompilationDiagnosticCountUnrepresentable,
-    NativeLinkerConstruction {
-        target: String,
-        failure: &'static str,
-    },
     Inspection {
         failure: DiagnosticInspectionFailureJson,
-    },
-    Invariant {
-        operation: &'static str,
     },
 }
 
@@ -314,6 +321,24 @@ impl DiagnosticProjectCommandFailureJson {
                 operation: operation.as_str(),
                 path: path_to_output_string(path),
                 error: error.as_str(),
+            },
+            Failure::MalformedTestCatalog { path } => Self::MalformedTestCatalog {
+                path: path_to_output_string(path),
+            },
+            Failure::UnsupportedTestCatalogVersion {
+                path,
+                actual,
+                supported,
+            } => Self::UnsupportedTestCatalogVersion {
+                path: path_to_output_string(path),
+                actual: *actual,
+                supported: *supported,
+            },
+            Failure::TestCatalogCapacityExceeded { path } => Self::TestCatalogCapacityExceeded {
+                path: path_to_output_string(path),
+            },
+            Failure::TestHostChanged { path } => Self::TestHostChanged {
+                path: path_to_output_string(path),
             },
             Failure::CurrentExecutable { operation, error } => Self::CurrentExecutable {
                 operation: operation.as_str(),
@@ -365,25 +390,6 @@ impl DiagnosticProjectCommandFailureJson {
                 operation: operation.as_str(),
                 stream: diagnostic_tool_stream_key(*stream),
             },
-            Failure::ToolProtocol { operation, failure } => {
-                let (failure, stream) = match failure {
-                    bray_diagnostics::DiagnosticToolProtocolFailure::MissingStream(stream) => {
-                        ("missing_stream", diagnostic_tool_stream_key(*stream))
-                    }
-                    bray_diagnostics::DiagnosticToolProtocolFailure::StreamThreadPanicked(
-                        stream,
-                    ) => (
-                        "stream_thread_panicked",
-                        diagnostic_tool_stream_key(*stream),
-                    ),
-                };
-
-                Self::ToolProtocol {
-                    operation: operation.as_str(),
-                    failure,
-                    stream,
-                }
-            }
             Failure::Document {
                 operation,
                 path,
@@ -440,9 +446,6 @@ impl DiagnosticProjectCommandFailureJson {
             Failure::MissingTestHostLocation(test) => {
                 Self::MissingTestHostLocation { test: test.clone() }
             }
-            Failure::MissingResult(operation) => Self::MissingResult {
-                operation: operation.as_str(),
-            },
             Failure::CapacityExceeded(operation) => Self::CapacityExceeded {
                 operation: operation.as_str(),
             },
@@ -452,17 +455,8 @@ impl DiagnosticProjectCommandFailureJson {
             Failure::CompilationDiagnosticCountUnrepresentable => {
                 Self::CompilationDiagnosticCountUnrepresentable
             }
-            Failure::NativeLinkerConstruction { target, failure } => {
-                Self::NativeLinkerConstruction {
-                    target: target.clone(),
-                    failure: native_linker_build_failure_key(*failure),
-                }
-            }
             Failure::Inspection(failure) => Self::Inspection {
                 failure: DiagnosticInspectionFailureJson::from_failure(failure),
-            },
-            Failure::Invariant(operation) => Self::Invariant {
-                operation: operation.as_str(),
             },
         }
     }

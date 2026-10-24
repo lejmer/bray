@@ -43,9 +43,12 @@ impl SemanticFragment {
         values: &bray_symbols::SemanticValueStore,
         symbol: AnySymbolId,
     ) -> Result<Self, PackageInterfaceExportError> {
-        let identity = keys.get(&symbol).cloned().ok_or(
-            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
-        )?;
+        let identity = keys.get(&symbol).cloned().unwrap_or_else(|| {
+            panic!(
+                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                symbol.kind()
+            )
+        });
 
         let mut export = SemanticExporter::new(compilation, graph, surface, keys, values)
             .with_declaration(symbol);
@@ -103,15 +106,6 @@ impl SemanticFragment {
             .map(|contract| (self.symbol, contract))
     }
 
-    pub(super) fn diagnostic_identity(
-        &self,
-        graph: &bray_symbols::SymbolGraph,
-    ) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError>
-    {
-        crate::compilation::diagnostics::symbol_diagnostic_identity(graph, None, self.symbol)
-            .map_err(super::super::fragment_coordination_export_error)
-    }
-
     pub(super) fn exact_diagnostic_identity(
         &self,
         graph: &bray_symbols::SymbolGraph,
@@ -121,7 +115,10 @@ impl SemanticFragment {
             .symbol_key(self.symbol)
             .map(bray_symbols::diagnostic_symbol_identity)
             .ok_or_else(|| {
-                PackageInterfaceExportError::MissingSemanticFragmentSymbol(self.identity.clone())
+                panic!(
+                    "export MissingSemanticFragmentSymbol contract failed: declaration={:?}",
+                    self.identity
+                )
             })
     }
 
@@ -138,23 +135,7 @@ impl SemanticFragment {
         self,
         export: &mut SemanticExporter<'_>,
     ) -> Result<(InterfaceSemantics, InterfaceSemanticIdRemap), PackageInterfaceExportError> {
-        let remap = match self.origins.commit(export) {
-            Ok(remap) => remap,
-            Err(PackageInterfaceExportError::IncompleteSemanticFragment {
-                declaration: None,
-                table,
-                reference,
-            }) => {
-                let declaration = self.diagnostic_identity(export.graph)?;
-
-                return Err(PackageInterfaceExportError::IncompleteSemanticFragment {
-                    declaration: Some(declaration),
-                    table,
-                    reference,
-                });
-            }
-            Err(error) => return Err(error),
-        };
+        let remap = self.origins.commit(export)?;
 
         Ok((self.semantics, remap))
     }
@@ -340,13 +321,13 @@ where
     ordered
         .into_iter()
         .map(|(local_id, key)| {
-            package.get(key).copied().ok_or(
-                PackageInterfaceExportError::IncompleteSemanticFragment {
-                    declaration: None,
+            package.get(key).copied().ok_or_else(|| {
+                panic!(
+                    "export IncompleteSemanticFragment contract failed: table={:?}, reference={:?}",
                     table,
-                    reference: reference(local_id),
-                },
-            )
+                    reference(local_id)
+                )
+            })
         })
         .collect()
 }
@@ -358,28 +339,27 @@ mod tests {
     use bray_package_interface::{InterfaceSemanticTableKind, InterfaceTypeId};
 
     use super::remap_values;
-    use crate::compilation::PackageInterfaceExportError;
 
     #[test]
     fn missing_package_mapping_retains_local_table_reference() {
         let local = BTreeMap::from([(1_u8, InterfaceTypeId::new(0))]);
         let package = BTreeMap::new();
 
-        let error = remap_values(
-            &local,
-            &package,
-            InterfaceSemanticTableKind::Type,
-            InterfaceTypeId::raw,
-        )
-        .expect_err("missing package mapping must be rejected");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            remap_values(
+                &local,
+                &package,
+                InterfaceSemanticTableKind::Type,
+                InterfaceTypeId::raw,
+            )
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert_eq!(
-            error,
-            PackageInterfaceExportError::IncompleteSemanticFragment {
-                declaration: None,
-                table: InterfaceSemanticTableKind::Type,
-                reference: 0,
-            }
-        );
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("IncompleteSemanticFragment"));
+        assert!(message.contains("Type"));
+        assert!(message.contains("0"));
     }
 }

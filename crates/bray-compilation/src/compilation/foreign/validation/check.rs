@@ -40,7 +40,12 @@ pub(in crate::compilation::foreign) fn callable_surface(
 ) -> Result<CallableBoundarySurface, FactQueryError> {
     let parameters = signature
         .parameter_type_templates(values)
-        .map_err(|cause| ForeignQueryFailure::CallableSignature { function, cause })?;
+        .unwrap_or_else(|cause| {
+            panic!(
+                "foreign CallableSignature construction failed: function={:?}, cause={:?}",
+                function, cause
+            )
+        });
 
     let (abi, trust, execution, variadic) = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => (
@@ -55,12 +60,12 @@ pub(in crate::compilation::foreign) fn callable_surface(
             let TypeData::Callable(callable) = data.as_ref() else {
                 // The failure outlives this semantic-store read and therefore retains the
                 // immutable semantic payload independently.
-                return Err(ForeignQueryFailure::UnexpectedSemanticType {
-                    ty: *ty,
-                    expected: ForeignTypeKind::Callable,
-                    actual: data.as_ref().clone(),
-                }
-                .into());
+                panic!(
+                    "foreign UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
+                    *ty,
+                    ForeignTypeKind::Callable,
+                    data.as_ref()
+                );
             };
 
             (
@@ -73,12 +78,12 @@ pub(in crate::compilation::foreign) fn callable_surface(
         actual => {
             // The failure outlives the borrowed signature query result and therefore retains the
             // immutable template independently.
-            return Err(ForeignQueryFailure::UnexpectedTypeTemplate {
-                context: ForeignQueryContext::Function(function),
-                expected: ForeignTypeKind::Callable,
-                actual: actual.clone(),
-            }
-            .into());
+            panic!(
+                "foreign UnexpectedTypeTemplate construction failed: context={:?}, expected={:?}, actual={:?}",
+                ForeignQueryContext::Function(function),
+                ForeignTypeKind::Callable,
+                actual
+            );
         }
     };
 
@@ -253,7 +258,12 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
     let expected = role.signature();
 
     let diagnostic_role = bray_diagnostics::DiagnosticPlatformServiceRole::try_new(role.id())
-        .ok_or(ForeignQueryFailure::InvalidPlatformServiceRole { role })?;
+        .unwrap_or_else(|| {
+            panic!(
+                "foreign InvalidPlatformServiceRole construction failed: role={:?}",
+                role
+            )
+        });
 
     if callable.abi != CallableAbi::C {
         diagnostics.add(platform_service_signature_diagnostic(
@@ -1044,14 +1054,11 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::{
-        CallableSignatureTemplate, CallableSignatureTemplateError, TypeData, TypeExpressionTemplate,
-    };
+    use bray_symbols::{CallableSignatureTemplate, TypeData, TypeExpressionTemplate};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::callable_surface;
-    use crate::compilation::ForeignQueryFailure;
-    use crate::fact::FactQueryError;
+
     use crate::test_support::{compilation, source_function};
 
     #[test]
@@ -1088,21 +1095,14 @@ mod tests {
             TypeExpressionTemplate::Resolved(invalid),
         );
 
-        let error = match callable_surface(function, values, &signature) {
-            Ok(_) => panic!("a non-callable signature must fail exactly"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            callable_surface(function, values, &signature)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        let FactQueryError::Foreign(error) = error else {
-            panic!("callable surface must retain a foreign query failure: {error:?}");
-        };
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
-        assert_eq!(
-            error.cause(),
-            &ForeignQueryFailure::CallableSignature {
-                function,
-                cause: CallableSignatureTemplateError::InvalidCallableType,
-            }
-        );
+        assert!(message.contains("InvalidCallableType"));
     }
 }

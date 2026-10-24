@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::inspection::{InspectionSymbolIdentity, InspectionSyntaxAnchor, TreeWriter};
 
-use super::report::{InspectionSymbol, SymbolInspectionRenderError};
+use super::report::InspectionSymbol;
 
 #[derive(Serialize)]
 pub(super) struct InspectionRelationship {
@@ -138,22 +138,24 @@ impl From<SymbolRelationshipKind> for InspectionRelationshipKind {
 pub(super) fn relationship_kind(
     owner: SymbolKind,
     member: SymbolKind,
-) -> Result<InspectionRelationshipKind, SymbolInspectionRenderError> {
+) -> InspectionRelationshipKind {
     if let Some(relationship) = SymbolRelationshipKind::between(owner, member) {
-        return Ok(relationship.into());
+        return relationship.into();
     }
 
     if owner == SymbolKind::CompilerKnownEnvironment && member == SymbolKind::Module {
-        return Ok(InspectionRelationshipKind::CompilerKnownModule);
+        return InspectionRelationshipKind::CompilerKnownModule;
     }
 
     if owner == SymbolKind::CompilerKnownEnvironment {
-        return Ok(InspectionRelationshipKind::CompilerKnownMember);
+        return InspectionRelationshipKind::CompilerKnownMember;
     }
 
     if owner.is_implementation() {
-        return Ok(InspectionRelationshipKind::ImplementationMember);
+        return InspectionRelationshipKind::ImplementationMember;
     }
 
-    Err(SymbolInspectionRenderError::UnsupportedRelationship)
+    panic!(
+        "published symbol ownership must have an inspection relationship: owner={owner:?}, member={member:?}"
+    )
 }

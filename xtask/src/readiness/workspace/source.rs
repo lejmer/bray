@@ -58,17 +58,30 @@ pub(super) fn collect_parser_sources(
     functions: &mut Vec<String>,
 ) -> Result<(), String> {
     for target in targets.iter().filter(|target| {
-        target.kind.iter().any(|kind| matches!(kind.as_str(), "lib" | "bin" | "test"))
+        target
+            .kind
+            .iter()
+            .any(|kind| matches!(kind.as_str(), "lib" | "bin" | "test"))
     }) {
-        let relative = target.src_path.strip_prefix(root)
+        let relative = target
+            .src_path
+            .strip_prefix(root)
             .map_err(|_| format!("parser target {} is outside the workspace", target.name))?
-            .to_string_lossy().replace('\\', "/");
+            .to_string_lossy()
+            .replace('\\', "/");
 
-        let (path, file) = sources.get_key_value(&relative)
+        let (path, file) = sources
+            .get_key_value(&relative)
             .ok_or_else(|| format!("missing parser target source: {relative}"))?;
 
         let integration = target.kind.iter().any(|kind| kind == "test");
-        let modules = if integration { vec![target.name.clone()] } else { Vec::new() };
+
+        let modules = if integration {
+            vec![target.name.clone()]
+        } else {
+            Vec::new()
+        };
+
         let mut collector = SourceCollector::new(path, modules, tests, functions);
 
         collector.sources = Some(sources);
@@ -94,13 +107,24 @@ impl<'input, 'output> SourceCollector<'input, 'output> {
         let file_module_depth = modules.len();
 
         Self {
-            path, modules, production_enabled: true, tests, parser_functions,
-            sources: None, active_files: vec![path], file_module_depth,
-            is_target_root: true, tests_enabled: true, error: None,
+            path,
+            modules,
+            production_enabled: true,
+            tests,
+            parser_functions,
+            sources: None,
+            active_files: vec![path],
+            file_module_depth,
+            is_target_root: true,
+            tests_enabled: true,
+            error: None,
         }
     }
 
-    fn module_file(&self, module: &syn::ItemMod) -> Result<(&'input str, &'input syn::File), String> {
+    fn module_file(
+        &self,
+        module: &syn::ItemMod,
+    ) -> Result<(&'input str, &'input syn::File), String> {
         let path = Path::new(self.path);
         let parent = path.parent().expect("Rust source has a parent directory");
         let mut directory = parent.to_path_buf();
@@ -113,15 +137,28 @@ impl<'input, 'output> SourceCollector<'input, 'output> {
 
         directory.extend(inline);
 
-        let explicit_path = module.attrs.iter().find(|attribute| attribute.path().is_ident("path"));
+        let explicit_path = module
+            .attrs
+            .iter()
+            .find(|attribute| attribute.path().is_ident("path"));
 
         let candidates = if let Some(attribute) = explicit_path {
             let syn::Meta::NameValue(value) = &attribute.meta else {
-                return Err(format!("invalid Rust module path attribute in {}", self.path));
+                return Err(format!(
+                    "invalid Rust module path attribute in {}",
+                    self.path
+                ));
             };
 
-            let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(value), .. }) = &value.value else {
-                return Err(format!("Rust module path must be a string in {}", self.path));
+            let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(value),
+                ..
+            }) = &value.value
+            else {
+                return Err(format!(
+                    "Rust module path must be a string in {}",
+                    self.path
+                ));
             };
 
             if inline.is_empty() {
@@ -132,31 +169,49 @@ impl<'input, 'output> SourceCollector<'input, 'output> {
         } else {
             let name = module.ident.to_string().trim_start_matches("r#").to_owned();
 
-            vec![directory.join(format!("{name}.rs")), directory.join(name).join("mod.rs")]
+            vec![
+                directory.join(format!("{name}.rs")),
+                directory.join(name).join("mod.rs"),
+            ]
         };
 
-        let sources = self.sources.expect("parser module traversal retains parsed files");
+        let sources = self
+            .sources
+            .expect("parser module traversal retains parsed files");
 
-        let matches = candidates.into_iter().filter_map(|candidate| {
-            let mut normalized = PathBuf::new();
+        let matches = candidates
+            .into_iter()
+            .filter_map(|candidate| {
+                let mut normalized = PathBuf::new();
 
-            for component in candidate.components() {
-                match component {
-                    Component::ParentDir => { normalized.pop(); }
-                    Component::CurDir => {}
-                    part => normalized.push(part),
+                for component in candidate.components() {
+                    match component {
+                        Component::ParentDir => {
+                            normalized.pop();
+                        }
+                        Component::CurDir => {}
+                        part => normalized.push(part),
+                    }
                 }
-            }
 
-            sources.get_key_value(&normalized.to_string_lossy().replace('\\', "/"))
-        }).collect::<Vec<_>>();
+                sources.get_key_value(&normalized.to_string_lossy().replace('\\', "/"))
+            })
+            .collect::<Vec<_>>();
 
         let [(path, file)] = matches.as_slice() else {
-            return Err(format!("parser Rust module {} in {} must resolve to one source file, found {}", module.ident, self.path, matches.len()));
+            return Err(format!(
+                "parser Rust module {} in {} must resolve to one source file, found {}",
+                module.ident,
+                self.path,
+                matches.len()
+            ));
         };
 
         if self.active_files.contains(&path.as_str()) {
-            return Err(format!("cyclic parser Rust module {} in {}", module.ident, self.path));
+            return Err(format!(
+                "cyclic parser Rust module {} in {}",
+                module.ident, self.path
+            ));
         }
 
         Ok((path.as_str(), file))
@@ -217,7 +272,9 @@ impl<'syntax, 'input: 'syntax> Visit<'syntax> for SourceCollector<'input, '_> {
 
         self.production_enabled = production_enabled;
         self.tests_enabled = tests_enabled;
-        self.modules.push(module.ident.to_string().trim_start_matches("r#").to_owned());
+
+        self.modules
+            .push(module.ident.to_string().trim_start_matches("r#").to_owned());
 
         if let Some((path, file)) = external {
             let previous_path = self.path;
@@ -325,10 +382,16 @@ fn qualified_name(modules: &[String], name: &str) -> String {
 }
 
 fn cfg_allows(attributes: &[syn::Attribute], test: bool) -> bool {
-    attributes.iter().filter(|attribute| attribute.path().is_ident("cfg")).all(|attribute| {
-        attribute.parse_args::<syn::Meta>().ok()
-            .and_then(|condition| cfg_value(&condition, test)) != Some(false)
-    })
+    attributes
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("cfg"))
+        .all(|attribute| {
+            attribute
+                .parse_args::<syn::Meta>()
+                .ok()
+                .and_then(|condition| cfg_value(&condition, test))
+                != Some(false)
+        })
 }
 
 // The test harness fixes `test`; feature/target predicates remain potential source evidence.
@@ -338,20 +401,40 @@ fn cfg_value(condition: &syn::Meta, test: bool) -> Option<bool> {
     match condition {
         syn::Meta::Path(path) if path.is_ident("test") => Some(test),
         syn::Meta::List(list) => {
-            let conditions = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
-                .parse2(list.tokens.clone()).ok()?;
+            let conditions =
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+                    .parse2(list.tokens.clone())
+                    .ok()?;
 
-            let values = conditions.iter().map(|condition| cfg_value(condition, test)).collect::<Vec<_>>();
+            let values = conditions
+                .iter()
+                .map(|condition| cfg_value(condition, test))
+                .collect::<Vec<_>>();
 
             if list.path.is_ident("not") {
-                match values.as_slice() { [Some(value)] => Some(!value), _ => None }
+                match values.as_slice() {
+                    [Some(value)] => Some(!value),
+                    _ => None,
+                }
             } else if list.path.is_ident("all") {
-                if values.contains(&Some(false)) { Some(false) }
-                else if values.contains(&None) { None } else { Some(true) }
+                if values.contains(&Some(false)) {
+                    Some(false)
+                } else if values.contains(&None) {
+                    None
+                } else {
+                    Some(true)
+                }
             } else if list.path.is_ident("any") {
-                if values.contains(&Some(true)) { Some(true) }
-                else if values.contains(&None) { None } else { Some(false) }
-            } else { None }
+                if values.contains(&Some(true)) {
+                    Some(true)
+                } else if values.contains(&None) {
+                    None
+                } else {
+                    Some(false)
+                }
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -427,9 +510,9 @@ fn path_ends_with(path: &syn::Path, expected: &[&str]) -> bool {
 
 #[cfg(test)]
 pub(super) mod tests {
+    use super::{SourceCollector, asserted_diagnostic_kinds, source_module_path};
     use std::collections::BTreeSet;
     use syn::visit::Visit;
-    use super::{SourceCollector, asserted_diagnostic_kinds, source_module_path};
 
     #[test]
     fn parser_anchors_keep_module_owners_and_ignore_non_executable_mentions() {
@@ -497,7 +580,10 @@ pub(super) mod tests {
 
         (
             functions,
-            tests.into_iter().map(|test| test.qualified_name().to_owned()).collect(),
+            tests
+                .into_iter()
+                .map(|test| test.qualified_name().to_owned())
+                .collect(),
         )
     }
 
@@ -562,5 +648,4 @@ pub(super) mod tests {
 
         asserted_diagnostic_kinds(&function.block)
     }
-
 }

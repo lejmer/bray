@@ -13,8 +13,8 @@ use bray_symbols::{
 use super::Compilation;
 use super::diagnostics::UnitDiagnosticOrder;
 use crate::fact::{
-    CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntimeFailure,
-    QueryPriority, SynchronizationComponent,
+    CancellationToken, CompilationFactKey, FactCell, FactQueryError, QueryPriority,
+    SynchronizationComponent,
 };
 
 /// Outputs own their completed source facts until their compilation is released.
@@ -110,14 +110,12 @@ impl SourceOutputs {
         &self,
         key: &BoundUnitKey,
     ) -> Result<Arc<FactCell<Arc<SourceOutputUnit>>>, FactQueryError> {
-        let mut units =
-            self.units
-                .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::CellMap,
-                    fact: None,
-                    task: None,
-                })?;
+        let mut units = self.units.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::CellMap
+            )
+        });
 
         // Each actual output demand owns one stable unit identity and one shared publication.
         Ok(Arc::clone(
@@ -131,14 +129,12 @@ impl SourceOutputs {
         &self,
         key: &BoundUnitKey,
     ) -> Result<Option<Arc<SourceOutputUnit>>, FactQueryError> {
-        let units = self
-            .units
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::CellMap,
-                fact: None,
-                task: None,
-            })?;
+        let units = self.units.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::CellMap
+            )
+        });
 
         Ok(units.get(key).and_then(|cell| {
             cell.get_if_published(&CompilationFactKey::SourceOutputUnit(key.clone()))

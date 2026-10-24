@@ -3,6 +3,7 @@ use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher, EmissionPlan,
     OutputSinkResolver, PublicationValidator,
 };
+use bray_package_interface::PackageImplementationArtifactBuildError;
 
 use super::ProductEmissionErrorKind;
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
@@ -16,20 +17,35 @@ pub(super) fn package_implementation_contribution(
     let planned = plan
         .published_artifacts()
         .find(|artifact| artifact.id().kind() == kind)
-        .ok_or(ProductEmissionErrorKind::Query(
-            ProductQueryFailure::missing(
-                ProductQueryContext::Product(plan.request().product_kind()),
-                ProductDataKind::PackageImplementationArtifact,
+        .ok_or_else(|| {
+            ProductEmissionErrorKind::Query(
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Product(plan.request().product_kind()),
+                    ProductDataKind::PackageImplementationArtifact,
+                )
+                .into(),
             )
-            .into(),
-        ))?;
+        })?;
 
-    artifact.verify_all().expect(
-        "compiler-produced package implementation must pass complete publication authentication",
-    );
+    artifact.verify_all().map_err(|cause| match cause {
+        bray_package_interface::PackageNativeArtifactError::Validation(cause) => {
+            ProductEmissionErrorKind::from(
+                PackageImplementationArtifactBuildError::InvalidArtifact(cause),
+            )
+        }
+        bray_package_interface::PackageNativeArtifactError::Index(
+            bray_native_artifact::NativeIndexError::SizeLimitExceeded,
+        ) => ProductEmissionErrorKind::NativeIndexSizeLimitExceeded,
+        bray_package_interface::PackageNativeArtifactError::Index(
+            bray_native_artifact::NativeIndexError::Read { path, kind },
+        ) => ProductEmissionErrorKind::NativeRead { path, kind },
+        cause => {
+            panic!("compiler-produced package implementation authentication failed: {cause:?}")
+        }
+    })?;
 
     let content = ArtifactContent::try_memory(artifact.shared_bytes().map_err(|error| {
-        package_implementation_error(
+        ProductEmissionErrorKind::from(
             bray_package_interface::PackageImplementationArtifactBuildError::InvalidArtifact(error),
         )
     })?)
@@ -43,37 +59,36 @@ pub(super) fn package_implementation_contribution(
     ))
 }
 
-pub(super) fn package_implementation_error(
-    error: bray_package_interface::PackageImplementationArtifactBuildError,
-) -> ProductEmissionErrorKind {
-    use bray_package_interface::{
-        InterfaceCompressionFailure, InterfaceValidationError,
-        PackageImplementationArtifactBuildError,
-    };
+impl From<PackageImplementationArtifactBuildError> for ProductEmissionErrorKind {
+    #[track_caller]
+    fn from(error: PackageImplementationArtifactBuildError) -> Self {
+        use bray_package_interface::{InterfaceCompressionFailure, InterfaceValidationError};
 
-    match &error {
-        PackageImplementationArtifactBuildError::InvalidBody(validation)
-        | PackageImplementationArtifactBuildError::InvalidArtifact(validation)
-            if matches!(
-                validation,
-                InterfaceValidationError::Read { .. }
-                    | InterfaceValidationError::AllocationUnavailable { .. }
-                    | InterfaceValidationError::ResourceLimitExceeded { .. }
-                    | InterfaceValidationError::Compression {
-                        cause: InterfaceCompressionFailure::EncoderInitialization
-                            | InterfaceCompressionFailure::Encoding
-                            | InterfaceCompressionFailure::DecoderInitialization
-                            | InterfaceCompressionFailure::Decoding
-                            | InterfaceCompressionFailure::WindowSizeExceeded { .. },
-                        ..
-                    }
-            ) =>
-        {
-            ProductEmissionErrorKind::PackageImplementation(error)
+        match error {
+            PackageImplementationArtifactBuildError::InvalidBody(cause)
+            | PackageImplementationArtifactBuildError::InvalidArtifact(cause)
+                if matches!(
+                    &cause,
+                    InterfaceValidationError::Read { .. }
+                        | InterfaceValidationError::ResourceLimitExceeded { .. }
+                        | InterfaceValidationError::AllocationUnavailable { .. }
+                        | InterfaceValidationError::Compression {
+                            cause: InterfaceCompressionFailure::EncoderInitialization
+                                | InterfaceCompressionFailure::EncoderConfiguration
+                                | InterfaceCompressionFailure::Encoding
+                                | InterfaceCompressionFailure::DecoderInitialization
+                                | InterfaceCompressionFailure::DecoderConfiguration
+                                | InterfaceCompressionFailure::Decoding,
+                            ..
+                        }
+                ) =>
+            {
+                Self::PackageImplementationValidation(cause)
+            }
+            _ => panic!(
+                "compiler-produced package implementation violates its checked export contract: {error:?}"
+            ),
         }
-        _ => panic!(
-            "compiler-produced package implementation violates its checked export contract: {error:?}"
-        ),
     }
 }
 
@@ -133,9 +148,8 @@ mod tests {
 
         let failure = PackageImplementationArtifactBuildError::InvalidBody(error.clone());
 
-        let super::ProductEmissionErrorKind::PackageImplementation(
-            PackageImplementationArtifactBuildError::InvalidBody(actual),
-        ) = super::package_implementation_error(failure)
+        let super::ProductEmissionErrorKind::PackageImplementationValidation(actual) =
+            super::ProductEmissionErrorKind::from(failure)
         else {
             panic!("publication must retain its operational allocation failure");
         };
@@ -148,15 +162,17 @@ mod tests {
         expected = "compiler-produced package implementation violates its checked export contract"
     )]
     fn malformed_compiler_template_fails_at_publication() {
-        super::package_implementation_error(PackageImplementationArtifactBuildError::InvalidBody(
-            InterfaceValidationError::Malformed {
-                context: InterfaceValidationContext::Section(
-                    InterfaceSectionTag::SemanticRecordDirectory,
-                ),
-                cause: InterfaceMalformedCause::InvalidValue {
-                    field: InterfaceValidationField::Template,
+        let _ = super::ProductEmissionErrorKind::from(
+            PackageImplementationArtifactBuildError::InvalidBody(
+                InterfaceValidationError::Malformed {
+                    context: InterfaceValidationContext::Section(
+                        InterfaceSectionTag::SemanticRecordDirectory,
+                    ),
+                    cause: InterfaceMalformedCause::InvalidValue {
+                        field: InterfaceValidationField::Template,
+                    },
                 },
-            },
-        ));
+            ),
+        );
     }
 }

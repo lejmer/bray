@@ -1,12 +1,9 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure,
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure, DiagnosticId,
-    DiagnosticKind, DiagnosticTestCatalogFailure, SeverityKind,
+    DiagnosticKind, SeverityKind,
 };
-use bray_package_interface::{
-    InterfaceValidationError, PackageImplementationArtifactBuildError,
-    PackageInterfaceExportBuildError,
-};
+use bray_package_interface::InterfaceValidationError;
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
@@ -22,15 +19,7 @@ const fn package_interface_validation_error(
 ) -> Option<&InterfaceValidationError> {
     match kind {
         ProductEmissionErrorKind::PackageInterfaceEncoding(error)
-        | ProductEmissionErrorKind::PackageImplementation(
-            PackageImplementationArtifactBuildError::InvalidBody(error)
-            | PackageImplementationArtifactBuildError::InvalidArtifact(error),
-        )
-        | ProductEmissionErrorKind::PackageInterface(
-            crate::compilation::PackageInterfaceExportError::Bundle(
-                PackageInterfaceExportBuildError::Validation(error),
-            ),
-        ) => Some(error),
+        | ProductEmissionErrorKind::PackageImplementationValidation(error) => Some(error),
         _ => None,
     }
 }
@@ -75,7 +64,7 @@ pub(super) fn product_emission_failure_diagnostics(
         ProductEmissionErrorKind::PackageInterfaceUnavailable
         | ProductEmissionErrorKind::PackageInterface(_)
         | ProductEmissionErrorKind::PackageInterfaceEncoding(_)
-        | ProductEmissionErrorKind::PackageImplementation(_)
+        | ProductEmissionErrorKind::PackageImplementationValidation(_)
         | ProductEmissionErrorKind::PackageImplementationContent(_) => {
             match package_interface_validation_error(kind) {
                 Some(error) => {
@@ -109,7 +98,7 @@ pub(super) fn product_emission_failure_diagnostics(
             target,
         ),
         ProductEmissionErrorKind::TestCatalogContent(_) => emission_failure_diagnostics(
-            DiagnosticEmissionFailure::TestCatalog(DiagnosticTestCatalogFailure::ResourceLimit),
+            DiagnosticEmissionFailure::TestCatalogCapacityExceeded,
             product,
             target,
         ),

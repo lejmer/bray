@@ -3,10 +3,7 @@ use std::path::{Path, PathBuf};
 use std::{env, ffi::OsString, num::NonZeroUsize, sync::Arc};
 
 #[cfg(feature = "compiler")]
-use bray_codegen::{
-    BackendSelectionError, CodeGeneratorRegistryBuildError, CodegenFailure,
-    codegen_failure_diagnostic,
-};
+use bray_codegen::{CodegenFailure, codegen_failure_diagnostic};
 use bray_compilation::{
     Compilation, CompilationLoadError, CompilationRequest, PackageInterfaceExportRequest,
     SelectedTarget,
@@ -15,18 +12,15 @@ use bray_compilation::{
 use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, SeverityKind};
 #[cfg(feature = "compiler")]
 use bray_diagnostics::{
-    DiagnosticHostEnvironmentVariable, DiagnosticInvocationBuildFailure, DiagnosticIoErrorKind,
-    DiagnosticLinkerCapabilityBuildFailure, DiagnosticLlvmToolRole,
-    DiagnosticNativeLinkerBuildFailure, DiagnosticProjectCommandFailure,
-    DiagnosticProjectOperation, DiagnosticUnsupportedEmissionReason,
+    DiagnosticHostEnvironmentVariable, DiagnosticIoErrorKind, DiagnosticLlvmToolRole,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
+    DiagnosticUnsupportedEmissionReason,
 };
 #[cfg(feature = "compiler")]
 use bray_linker::{
-    ExternalToolHost, ExternalToolInvocationBuildError, ExternalToolProcessBudget, Linker,
-    LinkerBuildError, LinkerDriver, LinkerDriverCapabilitiesBuildError, LinkerDriverIdentity,
-    LinkerDriverKind, LinkerTargetIdentity, LlvmArchiveDriver, LlvmArchiveDriverBuildError,
-    NativeExternalToolHost, SystemLinkerConfiguration, SystemLinkerConfigurationBuildError,
-    SystemLinkerDriver, SystemLinkerDriverBuildError, SystemLinkerFamily,
+    ExternalToolHost, ExternalToolProcessBudget, Linker, LinkerDriver, LinkerDriverIdentity,
+    LinkerDriverKind, LinkerTargetIdentity, LlvmArchiveDriver, NativeExternalToolHost,
+    SystemLinkerConfiguration, SystemLinkerDriver, SystemLinkerFamily,
 };
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
@@ -54,10 +48,6 @@ pub enum LlvmCompilationLoadError {
     Tool(LlvmToolPathError),
     /// The LLVM backend could not initialize in the current process.
     BackendInitialization(CodegenFailure),
-    /// The backend registry rejected the LLVM backend identity.
-    Registry(CodeGeneratorRegistryBuildError),
-    /// The LLVM backend could not be selected from the constructed registry.
-    BackendSelection(BackendSelectionError),
     /// Durable compilation state could not be loaded after backend construction.
     Compilation(CompilationLoadError),
 }
@@ -70,23 +60,6 @@ impl std::fmt::Display for LlvmCompilationLoadError {
             Self::BackendInitialization(failure) => {
                 write!(formatter, "LLVM backend initialization failed: {failure:?}")
             }
-            Self::Registry(CodeGeneratorRegistryBuildError::DuplicateIdentity(identity)) => {
-                write!(
-                    formatter,
-                    "LLVM backend identity {} is registered more than once",
-                    identity.name()
-                )
-            }
-            Self::BackendSelection(BackendSelectionError::Unavailable(identity)) => write!(
-                formatter,
-                "LLVM backend {} is unavailable after registry construction",
-                identity.name()
-            ),
-            Self::BackendSelection(BackendSelectionError::NotSelected(identity)) => write!(
-                formatter,
-                "LLVM backend {} was not selected after registry construction",
-                identity.name()
-            ),
             Self::Compilation(error) => write!(formatter, "{error}"),
         }
     }
@@ -133,17 +106,6 @@ impl LlvmCompilationLoadError {
             Self::BackendInitialization(failure) => {
                 codegen_initialization_diagnostic(failure, target)
             }
-            Self::Registry(CodeGeneratorRegistryBuildError::DuplicateIdentity(identity)) => {
-                codegen_configuration_diagnostic(identity.name(), target)
-            }
-            Self::BackendSelection(error) => {
-                let identity = match error {
-                    BackendSelectionError::Unavailable(identity)
-                    | BackendSelectionError::NotSelected(identity) => identity,
-                };
-
-                codegen_configuration_diagnostic(identity.name(), target)
-            }
             Self::Compilation(error) => error.diagnostic(),
         }
     }
@@ -152,18 +114,6 @@ impl LlvmCompilationLoadError {
 #[cfg(feature = "compiler")]
 fn codegen_initialization_diagnostic(failure: CodegenFailure, target: &str) -> Diagnostic {
     codegen_failure_diagnostic("llvm", target, &failure)
-}
-
-#[cfg(feature = "compiler")]
-fn codegen_configuration_diagnostic(backend: &str, target: &str) -> Diagnostic {
-    codegen_diagnostic(DiagnosticKind::CodegenInvalidConfiguration, backend, target)
-}
-
-#[cfg(feature = "compiler")]
-fn codegen_diagnostic(kind: DiagnosticKind, backend: &str, target: &str) -> Diagnostic {
-    Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
-        .with_arg(DiagnosticArg::referenced_name(backend))
-        .with_arg(DiagnosticArg::target_triple(target))
 }
 
 /// Resolves a compiler target from one exact project-selected target identity.
@@ -259,7 +209,7 @@ pub fn native_linker(
 
     let archive_identity =
         LinkerDriverIdentity::try_new(LinkerDriverKind::Archiver, "llvm-ar", "1", llvm_toolchain)
-            .ok_or(NativeLinkerBuildError::ArchiveIdentity)?;
+            .expect("fixed native ArchiveIdentity must be valid");
 
     let archive = LlvmArchiveDriver::try_new(
         archive_identity,
@@ -268,7 +218,7 @@ pub fn native_linker(
         None,
         Arc::clone(&host) as Arc<dyn ExternalToolHost>,
     )
-    .map_err(NativeLinkerBuildError::ArchiveDriver)?;
+    .unwrap_or_else(|cause| panic!("fixed native ArchiveDriver construction failed: {cause:?}"));
 
     let mut drivers = vec![Arc::new(archive) as Arc<dyn LinkerDriver>];
     let mut cache = None;
@@ -280,7 +230,7 @@ pub fn native_linker(
             "1",
             llvm_toolchain,
         )
-        .ok_or(NativeLinkerBuildError::SystemIdentity)?;
+        .expect("fixed native SystemIdentity must be valid");
 
         let linker_target = LinkerTargetIdentity::try_new(
             target.identity(),
@@ -288,11 +238,13 @@ pub fn native_linker(
             target.architecture(),
             target.object_format(),
         )
-        .ok_or(NativeLinkerBuildError::TargetIdentity)?;
+        .expect("fixed native TargetIdentity must be valid");
 
         let mut configuration =
             SystemLinkerConfiguration::try_new(family, linker_target, program, environment, None)
-                .map_err(NativeLinkerBuildError::SystemConfiguration)?;
+                .unwrap_or_else(|cause| {
+                    panic!("fixed native SystemConfiguration construction failed: {cause:?}")
+                });
 
         if let Some(output) = map_output {
             configuration = configuration.with_map_output(output);
@@ -303,7 +255,9 @@ pub fn native_linker(
 
             configuration = configuration
                 .try_with_thin_lto_cache(owned.directory().to_owned())
-                .map_err(NativeLinkerBuildError::SystemConfiguration)?;
+                .unwrap_or_else(|cause| {
+                    panic!("fixed native SystemConfiguration construction failed: {cause:?}")
+                });
 
             cache = Some(owned);
         }
@@ -313,17 +267,18 @@ pub fn native_linker(
             configuration,
             Arc::clone(&host) as Arc<dyn ExternalToolHost>,
         )
-        .map_err(NativeLinkerBuildError::SystemDriver)?;
+        .unwrap_or_else(|cause| panic!("fixed native SystemDriver construction failed: {cause:?}"));
 
         drivers.push(Arc::new(system) as Arc<dyn LinkerDriver>);
     }
 
-    Linker::try_new(drivers)
-        .map(|linker| NativeLinker {
-            linker,
-            _cache: cache,
-        })
-        .map_err(NativeLinkerBuildError::Linker)
+    let linker = Linker::try_new(drivers)
+        .unwrap_or_else(|cause| panic!("fixed native linker registry failed: {cause:?}"));
+
+    Ok(NativeLinker {
+        linker,
+        _cache: cache,
+    })
 }
 
 /// Exact failure while composing the native linker and archiver available to the compiler host.
@@ -332,24 +287,15 @@ pub fn native_linker(
 pub enum NativeLinkerBuildError {
     /// A required LLVM tool could not be resolved from the configured or bundled installation.
     Tool(LlvmToolPathError),
-    /// The compiler-owned archiver identity violated the linker identity contract.
-    ArchiveIdentity,
-    /// The LLVM archive driver rejected its compiler-owned configuration.
-    ArchiveDriver(LlvmArchiveDriverBuildError),
-    /// The compiler-owned system-linker identity violated the linker identity contract.
-    SystemIdentity,
-    /// The selected target could not form a linker target identity.
-    TargetIdentity,
-    /// The selected system-linker command violated its configuration contract.
-    SystemConfiguration(SystemLinkerConfigurationBuildError),
-    /// The system-linker driver rejected its compiler-owned configuration.
-    SystemDriver(SystemLinkerDriverBuildError),
-    /// The complete compiler-host driver registry is invalid.
-    Linker(LinkerBuildError),
     /// The native cache could not be prepared or pinned.
     Storage(bray_emitter::StorageError),
     /// A required host environment variable is absent.
     MissingEnvironment(DiagnosticHostEnvironmentVariable),
+    /// A required host path is present but is not absolute.
+    InvalidEnvironment {
+        variable: DiagnosticHostEnvironmentVariable,
+        value: PathBuf,
+    },
 }
 
 #[cfg(feature = "compiler")]
@@ -389,143 +335,13 @@ impl NativeLinkerBuildError {
                 target,
                 DiagnosticUnsupportedEmissionReason::MissingHostEnvironment(variable),
             ),
+            Self::InvalidEnvironment { variable, value } => unsupported_emission_diagnostic(
+                target,
+                DiagnosticUnsupportedEmissionReason::InvalidHostEnvironment { variable, value },
+            ),
             Self::Storage(error) => {
                 error.into_diagnostic(DiagnosticId::new(0), bray_diagnostics::SeverityKind::Error)
             }
-            Self::ArchiveIdentity => native_linker_defect_diagnostic(
-                target,
-                DiagnosticNativeLinkerBuildFailure::ArchiveIdentity,
-            ),
-            Self::ArchiveDriver(error) => {
-                native_linker_defect_diagnostic(target, archive_driver_build_failure(error))
-            }
-            Self::SystemIdentity => native_linker_defect_diagnostic(
-                target,
-                DiagnosticNativeLinkerBuildFailure::SystemIdentity,
-            ),
-            Self::TargetIdentity => native_linker_defect_diagnostic(
-                target,
-                DiagnosticNativeLinkerBuildFailure::TargetIdentity,
-            ),
-            Self::SystemConfiguration(error) => {
-                native_linker_defect_diagnostic(target, system_configuration_build_failure(error))
-            }
-            Self::SystemDriver(error) => {
-                native_linker_defect_diagnostic(target, system_driver_build_failure(error))
-            }
-            Self::Linker(LinkerBuildError::DuplicateDriver) => native_linker_defect_diagnostic(
-                target,
-                DiagnosticNativeLinkerBuildFailure::DuplicateDriver,
-            ),
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-fn native_linker_defect_diagnostic(
-    target: &str,
-    failure: DiagnosticNativeLinkerBuildFailure,
-) -> Diagnostic {
-    project_command_diagnostic(DiagnosticProjectCommandFailure::NativeLinkerConstruction {
-        target: target.to_owned(),
-        failure,
-    })
-}
-
-#[cfg(feature = "compiler")]
-const fn archive_driver_build_failure(
-    error: LlvmArchiveDriverBuildError,
-) -> DiagnosticNativeLinkerBuildFailure {
-    match error {
-        LlvmArchiveDriverBuildError::DriverKindMismatch => {
-            DiagnosticNativeLinkerBuildFailure::ArchiveDriverKindMismatch
-        }
-        LlvmArchiveDriverBuildError::Capabilities(error) => {
-            DiagnosticNativeLinkerBuildFailure::ArchiveCapabilities(
-                linker_capability_build_failure(error),
-            )
-        }
-        LlvmArchiveDriverBuildError::ProgramPathNotExplicit => {
-            DiagnosticNativeLinkerBuildFailure::ArchiveProgramPathNotExplicit
-        }
-        LlvmArchiveDriverBuildError::Invocation(error) => {
-            DiagnosticNativeLinkerBuildFailure::ArchiveInvocation(invocation_build_failure(error))
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-const fn system_configuration_build_failure(
-    error: SystemLinkerConfigurationBuildError,
-) -> DiagnosticNativeLinkerBuildFailure {
-    match error {
-        SystemLinkerConfigurationBuildError::ProgramPathNotExplicit => {
-            DiagnosticNativeLinkerBuildFailure::SystemProgramPathNotExplicit
-        }
-        SystemLinkerConfigurationBuildError::Invocation(error) => {
-            DiagnosticNativeLinkerBuildFailure::SystemInvocation(invocation_build_failure(error))
-        }
-        SystemLinkerConfigurationBuildError::ThinLtoCacheRootEmpty => {
-            DiagnosticNativeLinkerBuildFailure::SystemThinLtoCacheRootEmpty
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-const fn system_driver_build_failure(
-    error: SystemLinkerDriverBuildError,
-) -> DiagnosticNativeLinkerBuildFailure {
-    match error {
-        SystemLinkerDriverBuildError::DriverKindMismatch => {
-            DiagnosticNativeLinkerBuildFailure::SystemDriverKindMismatch
-        }
-        SystemLinkerDriverBuildError::Capabilities(error) => {
-            DiagnosticNativeLinkerBuildFailure::SystemCapabilities(linker_capability_build_failure(
-                error,
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-const fn linker_capability_build_failure(
-    failure: LinkerDriverCapabilitiesBuildError,
-) -> DiagnosticLinkerCapabilityBuildFailure {
-    match failure {
-        LinkerDriverCapabilitiesBuildError::DriverKindMismatch => {
-            DiagnosticLinkerCapabilityBuildFailure::DriverKindMismatch
-        }
-        LinkerDriverCapabilitiesBuildError::UnsupportedTarget => {
-            DiagnosticLinkerCapabilityBuildFailure::UnsupportedTarget
-        }
-        LinkerDriverCapabilitiesBuildError::MissingTargets => {
-            DiagnosticLinkerCapabilityBuildFailure::MissingTargets
-        }
-        LinkerDriverCapabilitiesBuildError::DuplicateTarget => {
-            DiagnosticLinkerCapabilityBuildFailure::DuplicateTarget
-        }
-    }
-}
-
-#[cfg(feature = "compiler")]
-const fn invocation_build_failure(
-    failure: ExternalToolInvocationBuildError,
-) -> DiagnosticInvocationBuildFailure {
-    match failure {
-        ExternalToolInvocationBuildError::EmptyProgram => {
-            DiagnosticInvocationBuildFailure::EmptyProgram
-        }
-        ExternalToolInvocationBuildError::EmptyCurrentDirectory => {
-            DiagnosticInvocationBuildFailure::EmptyCurrentDirectory
-        }
-        ExternalToolInvocationBuildError::EmptyEnvironmentVariableName => {
-            DiagnosticInvocationBuildFailure::EmptyEnvironmentVariableName
-        }
-        ExternalToolInvocationBuildError::DuplicateEnvironmentVariableName => {
-            DiagnosticInvocationBuildFailure::DuplicateEnvironmentVariableName
-        }
-        ExternalToolInvocationBuildError::DuplicateResponseFile => {
-            DiagnosticInvocationBuildFailure::DuplicateResponseFile
         }
     }
 }
@@ -574,11 +390,7 @@ fn system_linker_configuration(
 
     match target.object_format() {
         ObjectFormat::Elf if cfg!(windows) => {
-            let root = env::var_os("SystemRoot").map(PathBuf::from).ok_or(
-                NativeLinkerBuildError::MissingEnvironment(
-                    DiagnosticHostEnvironmentVariable::WindowsSystemRoot,
-                ),
-            )?;
+            let root = system_root_path(env::var_os("SystemRoot"))?;
 
             Ok(Some((
                 SystemLinkerFamily::WslGnuCompiler,
@@ -630,6 +442,24 @@ fn system_linker_configuration(
 }
 
 #[cfg(feature = "compiler")]
+fn system_root_path(value: Option<OsString>) -> Result<PathBuf, NativeLinkerBuildError> {
+    let variable = DiagnosticHostEnvironmentVariable::WindowsSystemRoot;
+
+    let root = value
+        .map(PathBuf::from)
+        .ok_or(NativeLinkerBuildError::MissingEnvironment(variable))?;
+
+    if !root.is_absolute() {
+        return Err(NativeLinkerBuildError::InvalidEnvironment {
+            variable,
+            value: root,
+        });
+    }
+
+    Ok(root)
+}
+
+#[cfg(feature = "compiler")]
 fn selected_environment(names: &[&str]) -> Vec<(OsString, OsString)> {
     names
         .iter()
@@ -661,6 +491,37 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{LlvmToolPathError, NativeLinkerBuildError, prepare_thin_lto_cache};
+
+    #[test]
+    fn system_root_requires_an_absolute_configured_path() {
+        assert!(matches!(
+            super::system_root_path(None),
+            Err(NativeLinkerBuildError::MissingEnvironment(
+                DiagnosticHostEnvironmentVariable::WindowsSystemRoot,
+            ))
+        ));
+
+        let relative = PathBuf::from("relative/windows");
+        let error = super::system_root_path(Some(relative.clone().into_os_string())).unwrap_err();
+
+        assert!(
+            matches!(&error, NativeLinkerBuildError::InvalidEnvironment { value, .. } if value == &relative)
+        );
+
+        let rendered =
+            DiagnosticRenderer::english().render(&error.diagnostic("x86_64-pc-windows-msvc"));
+
+        assert!(rendered.message().contains("SystemRoot"));
+        assert!(rendered.message().contains("relative/windows"));
+        assert!(rendered.message().contains("absolute"));
+
+        let absolute = std::env::current_dir().unwrap().join("windows");
+
+        assert_eq!(
+            super::system_root_path(Some(absolute.clone().into_os_string())).unwrap(),
+            absolute
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

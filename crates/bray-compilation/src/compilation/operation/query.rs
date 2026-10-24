@@ -100,7 +100,7 @@ impl Compilation {
         }
 
         let selection_kind =
-            selection_kind_for(binding_context, unit, key.expression(), expression)?;
+            selection_kind_for(binding_context, unit, key.expression(), expression);
 
         if selection_kind != bray_bound_tree::SelectionKind::Construction {
             for operand in expression.child_expressions() {
@@ -208,7 +208,7 @@ impl Compilation {
                 unit.view().expression(key.expression()).unwrap_or_else(|| {
                     panic!("operation subject {key:?} must name a committed expression")
                 }),
-            )?,
+            ),
             operands,
             candidates,
         );
@@ -253,28 +253,24 @@ impl Compilation {
     }
 }
 
-pub(in crate::compilation) fn selection_kind(
-    unit: &BoundUnit,
-    expression_id: BoundExpressionId,
-    expression: &BoundExpression,
-) -> Result<bray_bound_tree::SelectionKind, FactQueryError> {
+fn selection_kind(expression: &BoundExpression) -> Option<bray_bound_tree::SelectionKind> {
     match expression {
         BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
-            Ok(bray_bound_tree::SelectionKind::Member)
+            Some(bray_bound_tree::SelectionKind::Member)
         }
         BoundExpression::Unary(_) | BoundExpression::Binary(_) => {
-            Ok(bray_bound_tree::SelectionKind::Operator)
+            Some(bray_bound_tree::SelectionKind::Operator)
         }
         BoundExpression::Assignment(expression)
             if expression.operator().binary_operator().is_some() =>
         {
-            Ok(bray_bound_tree::SelectionKind::Operator)
+            Some(bray_bound_tree::SelectionKind::Operator)
         }
-        BoundExpression::Conversion(_) => Ok(bray_bound_tree::SelectionKind::Conversion),
+        BoundExpression::Conversion(_) => Some(bray_bound_tree::SelectionKind::Conversion),
         BoundExpression::StructConstruction(_)
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::UnqualifiedVariant(_)
-        | BoundExpression::Call(_) => Ok(bray_bound_tree::SelectionKind::Construction),
+        | BoundExpression::Call(_) => Some(bray_bound_tree::SelectionKind::Construction),
         BoundExpression::Structured(expression)
             if matches!(
                 expression.kind(),
@@ -282,14 +278,10 @@ pub(in crate::compilation) fn selection_kind(
                     | BoundStructuredExpressionKind::SliceIndex
             ) =>
         {
-            Ok(bray_bound_tree::SelectionKind::Index)
+            Some(bray_bound_tree::SelectionKind::Index)
         }
-        BoundExpression::BoxConstruction(_) => Ok(bray_bound_tree::SelectionKind::Construction),
-        _ => Err(expression_contract_failure(
-            unit.key(),
-            expression_id,
-            SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
-        )),
+        BoundExpression::BoxConstruction(_) => Some(bray_bound_tree::SelectionKind::Construction),
+        _ => None,
     }
 }
 
@@ -378,7 +370,7 @@ pub(in crate::compilation) fn operation_expressions(
             return BoundWalkControl::Stop;
         };
 
-        if (selection_kind(unit, id, expression).is_ok()
+        if (selection_kind(expression).is_some()
             || matches!(expression, BoundExpression::Structured(scoped)
                 if scoped.kind() == BoundStructuredExpressionKind::With))
             && !variant_construction_callees.contains(&id)
@@ -417,12 +409,14 @@ fn selection_kind_for(
     unit: &BoundUnit,
     expression_id: BoundExpressionId,
     expression: &BoundExpression,
-) -> Result<bray_bound_tree::SelectionKind, FactQueryError> {
+) -> bray_bound_tree::SelectionKind {
     if qualified_union_variant(binding_context, unit, expression_id).is_some() {
-        return Ok(bray_bound_tree::SelectionKind::Construction);
+        return bray_bound_tree::SelectionKind::Construction;
     }
 
-    selection_kind(unit, expression_id, expression)
+    selection_kind(expression).unwrap_or_else(|| {
+        panic!("demanded operation must have a selectable expression: unit={:?}, expression={expression_id:?}", unit.key())
+    })
 }
 
 pub(super) fn operation_contract_failure(
@@ -522,11 +516,21 @@ mod tests {
     };
 
     use super::{OperationSubject, operation_contract_failure, symbol_contract_failure};
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::FactQueryError;
+    use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
+
     use crate::test_support::callable_body_key;
+
+    #[test]
+    fn ordinary_expressions_have_no_operation_classification() {
+        let key = callable_body_key(7);
+
+        let expression = BoundExpression::Error(BoundErrorExpression::new(
+            BoundNodeOrigin::source(key.source()),
+            test_type(),
+        ));
+
+        assert_eq!(super::selection_kind(&expression), None);
+    }
 
     #[test]
     fn operation_contract_failure_retains_unit_expression_and_violation() {
@@ -535,13 +539,14 @@ mod tests {
         let key = OperationSubject::new(unit.clone(), expression);
         let violation = SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression);
 
-        assert_eq!(
-            operation_contract_failure(&key, violation.clone()),
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Expression { unit, expression },
-                violation,
-            ))
-        );
+        let panic = std::panic::catch_unwind(|| operation_contract_failure(&key, violation))
+            .err()
+            .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("BoundExpression"));
+        assert!(message.contains("expression"));
     }
 
     #[test]
@@ -549,13 +554,14 @@ mod tests {
         let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(17)));
         let violation = SemanticQueryViolation::Missing(SemanticDataKind::OperationSelection);
 
-        assert_eq!(
-            symbol_contract_failure(symbol, violation.clone()),
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(symbol),
-                violation,
-            ))
-        );
+        let panic = std::panic::catch_unwind(|| symbol_contract_failure(symbol, violation))
+            .err()
+            .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("OperationSelection"));
+        assert!(message.contains("17"));
     }
 
     #[test]
@@ -565,13 +571,15 @@ mod tests {
         let expression = expression_id(unit, &key);
         let types = CheckedExpressionTypes::new(unit, BoundUnitKind::CallableBody, []);
 
-        assert_eq!(
-            super::expression_type(&types, expression),
-            Err(FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::BoundExpression { unit, expression },
-                SemanticQueryViolation::Missing(SemanticDataKind::Type),
-            )))
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::expression_type(&types, expression)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("Missing"));
     }
 
     #[test]
@@ -589,13 +597,15 @@ mod tests {
             )],
         );
 
-        assert_eq!(
-            super::expression_type(&types, expression),
-            Err(FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::BoundExpression { unit, expression },
-                SemanticQueryViolation::Unsupported(SemanticDataKind::Type),
-            )))
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::expression_type(&types, expression)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("Unsupported"));
     }
 
     fn expression_id(unit: BoundUnitId, key: &bray_bound_tree::BoundUnitKey) -> BoundExpressionId {

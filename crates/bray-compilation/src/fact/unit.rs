@@ -7,8 +7,7 @@ use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::DiagnosticResult;
 
 use super::{
-    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime,
-    FactRuntimeFailure, QueryPriority,
+    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, QueryPriority,
 };
 
 #[cfg(test)]
@@ -105,11 +104,10 @@ where
         + Send,
     ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError> {
         if semantic_key.bound_unit_key() != Some(&unit_key) {
-            return Err(FactRuntimeFailure::InvalidUnitQueryKey {
-                fact: semantic_key,
-                unit: unit_key,
-            }
-            .into());
+            panic!(
+                "query runtime InvalidUnitQueryKey contract failed: fact={:?}, unit={:?}",
+                semantic_key, unit_key
+            );
         }
 
         let profile = runtime.profile().map(|profile| {
@@ -184,9 +182,7 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
 
     use super::UnitQueryCache;
-    use crate::fact::{
-        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactRuntimeFailure,
-    };
+    use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
     use crate::test_support::callable_body_key;
 
     #[test]
@@ -255,25 +251,22 @@ mod tests {
         let cache = UnitQueryCache::new();
         let unit = callable_body_key(2);
 
-        let result = cache.get_or_compute(
-            &runtime,
-            &cancellation,
-            CompilationFactKey::SyntaxTree,
-            unit.clone(),
-            || computation(5),
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cache.get_or_compute(
+                &runtime,
+                &cancellation,
+                CompilationFactKey::SyntaxTree,
+                unit.clone(),
+                || computation(5),
+            )
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            result,
-            Err(FactQueryError::Runtime(error))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidUnitQueryKey {
-                        fact: CompilationFactKey::SyntaxTree,
-                        unit: actual,
-                    } if actual == &unit
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("InvalidUnitQueryKey"));
+        assert!(message.contains("SyntaxTree"));
     }
 
     fn published(

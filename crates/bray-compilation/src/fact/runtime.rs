@@ -152,7 +152,10 @@ impl FactRuntime {
         key: &CompilationFactKey,
     ) -> Result<(), FactQueryError> {
         let Some(bit) = key.frozen_bit() else {
-            return Err(FactRuntimeFailure::InvalidFrozenFact { fact: key.clone() }.into());
+            panic!(
+                "query runtime InvalidFrozenFact contract failed: fact={:?}",
+                key
+            );
         };
 
         record_frozen_fact(self.identity(), bit)
@@ -311,14 +314,12 @@ impl FactRuntime {
         &self,
         observer: FactEvaluationTestObserver,
     ) -> Result<(), FactQueryError> {
-        let mut current =
-            self.observer
-                .lock()
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::RuntimeDependencies,
-                    fact: None,
-                    task: None,
-                })?;
+        let mut current = self.observer.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime SynchronizationPoisoned contract failed: component={:?}",
+                SynchronizationComponent::RuntimeDependencies
+            )
+        });
 
         *current = Some(observer);
 
@@ -330,11 +331,7 @@ impl FactRuntime {
         let observer = self
             .observer
             .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::RuntimeDependencies,
-                fact: Some(key.clone()),
-                task: None,
-            })?
+            .unwrap_or_else(|_| panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}", SynchronizationComponent::RuntimeDependencies, Some(key)))
             .clone();
 
         if let Some(observer) = observer {
@@ -432,12 +429,7 @@ impl FactRuntime {
         task: Option<FactTaskIdentity>,
     ) -> Result<MutexGuard<'_, RuntimeState>, FactQueryError> {
         self.state.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::RuntimeDependencies,
-                fact: fact.cloned(),
-                task,
-            }
-            .into()
+            panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}, task={:?}", SynchronizationComponent::RuntimeDependencies, fact.cloned(), task)
         })
     }
 
@@ -514,8 +506,13 @@ impl FactRuntime {
     }
 
     fn abandon_evaluation(&self, context: &FactTaskContext, key: &CompilationFactKey) {
-        // Guard cleanup is best effort because Drop cannot return a poisoned runtime error.
+        // Preserve an existing unwind if evaluation cleanup also encounters poisoned state.
         let Ok(mut state) = self.state.lock() else {
+            assert!(
+                std::thread::panicking(),
+                "query guard state must remain unpoisoned"
+            );
+
             return;
         };
 
@@ -523,8 +520,13 @@ impl FactRuntime {
     }
 
     fn finish_waiting(&self, task: FactTaskIdentity, edge: &WaitEdge) {
-        // Wait-guard cleanup is best effort because Drop cannot return a poisoned runtime error.
+        // Preserve an existing unwind if wait cleanup also encounters poisoned state.
         let Ok(mut state) = self.state.lock() else {
+            assert!(
+                std::thread::panicking(),
+                "query guard state must remain unpoisoned"
+            );
+
             return;
         };
 
@@ -726,13 +728,10 @@ fn cross_task_cycle(
 
                 while cursor != owner {
                     let Some((previous, edge)) = predecessors.get(&cursor) else {
-                        return Err(FactRuntimeFailure::InvalidWaitGraph {
-                            requester,
-                            owner,
-                            missing_predecessor: cursor,
-                            requested: requested_key.clone(),
-                        }
-                        .into());
+                        panic!(
+                            "query runtime InvalidWaitGraph contract failed: requester={:?}, owner={:?}, missing_predecessor={:?}, requested={:?}",
+                            requester, owner, cursor, requested_key
+                        );
                     };
 
                     path.push(edge.clone());
@@ -885,8 +884,7 @@ mod tests {
     use crate::WorkerBudget;
     use crate::fact::{
         CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCell,
-        FactDependencyRecord, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
-        fact_fingerprint,
+        FactDependencyRecord, fact_fingerprint,
     };
 
     #[test]
@@ -1238,21 +1236,15 @@ mod tests {
     fn non_frozen_facts_retain_the_rejected_fact_identity() {
         let runtime = FactRuntime::default();
 
-        let error = match runtime.record_frozen_fact(&CompilationFactKey::DeclarationTable) {
-            Ok(()) => panic!("a non-frozen fact must not be recorded as frozen"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime.record_frozen_fact(&CompilationFactKey::DeclarationTable)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::InvalidFrozenFact {
-                        fact: CompilationFactKey::DeclarationTable,
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("InvalidFrozenFact"));
     }
 
     #[test]
@@ -1268,23 +1260,15 @@ mod tests {
             panic!("poison runtime dependency state");
         }));
 
-        let error = match runtime.dependencies(&CompilationFactKey::SyntaxTree) {
-            Ok(_) => panic!("dependency lookup must report poisoned runtime state"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime.dependencies(&CompilationFactKey::SyntaxTree)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::RuntimeDependencies,
-                        fact: Some(CompilationFactKey::SyntaxTree),
-                        task: None,
-                    }
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("SynchronizationPoisoned"));
     }
 
     #[test]
@@ -1307,23 +1291,16 @@ mod tests {
             panic!("poison runtime evaluation state");
         }));
 
-        let error = match runtime.begin(context) {
-            Ok(_) => panic!("evaluation must report poisoned runtime state"),
-            Err(error) => error,
-        };
+        let panic =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.begin(context)))
+                .err()
+                .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::RuntimeDependencies,
-                        fact: Some(actual_fact),
-                        task: Some(actual_task),
-                    } if actual_fact == &fact && *actual_task == task
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("SynchronizationPoisoned"));
+        assert!(message.contains(&format!("{task:?}")));
+        assert!(message.contains("CheckDiagnostics"));
     }
 
     fn source_syntax_key(index: u32) -> CompilationFactKey {

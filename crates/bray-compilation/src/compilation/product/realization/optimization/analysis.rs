@@ -58,7 +58,10 @@ impl Compilation {
             let data = values.constant_term_data(resolved);
 
             let ConstantTermData::Value(value) = data.as_ref() else {
-                return Err(CodegenPreparationError::OpenConstantTerm(resolved));
+                panic!(
+                    "checked native OpenConstantTerm contract failed: {:?}",
+                    resolved
+                );
             };
 
             terms.insert(term, *value);
@@ -513,7 +516,10 @@ impl<'a> ScalarAnalysis<'a> {
                         let data = self.values.constant_term_data(term);
 
                         let bray_symbols::ConstantTermData::Value(value) = data.as_ref() else {
-                            return Err(CodegenPreparationError::OpenConstantTerm(term));
+                            panic!(
+                                "checked native OpenConstantTerm contract failed: {:?}",
+                                term
+                            );
                         };
 
                         self.equals_constant(state, *value)

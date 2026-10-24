@@ -52,7 +52,10 @@ impl BoundUnitIdentityMap {
     pub(crate) fn unit_id(&self, key: &BoundUnitKey) -> Result<BoundUnitId, FactQueryError> {
         // Identity failures escape this borrowed lookup and therefore own their exact unit keys.
         let Some(source_ordinal) = self.source_ordinals.get(&key.source()).copied() else {
-            return Err(FactRuntimeFailure::UnknownUnitSource { unit: key.clone() }.into());
+            panic!(
+                "query runtime UnknownUnitSource contract failed: unit={:?}",
+                key
+            );
         };
 
         let Some(raw) = source_ordinal
@@ -68,21 +71,21 @@ impl BoundUnitIdentityMap {
 
         let unit = BoundUnitId::new(raw);
 
-        let mut claimed_units = self
-            .claimed_units
-            .lock()
-            .map_err(|_| FactRuntimeFailure::UnitIdentityStatePoisoned { unit: key.clone() })?;
+        let mut claimed_units = self.claimed_units.lock().unwrap_or_else(|_| {
+            panic!(
+                "query runtime UnitIdentityStatePoisoned contract failed: unit={:?}",
+                key
+            )
+        });
 
         if let Some(existing) = claimed_units.get(&unit) {
             return if existing == key {
                 Ok(unit)
             } else {
-                Err(FactRuntimeFailure::UnitIdentityCollision {
-                    identity: unit,
-                    expected: existing.clone(),
-                    actual: key.clone(),
-                }
-                .into())
+                panic!(
+                    "query runtime UnitIdentityCollision contract failed: identity={:?}, expected={:?}, actual={:?}",
+                    unit, existing, key
+                )
             };
         }
 
@@ -130,19 +133,14 @@ mod tests {
             claimed_units: Mutex::new(BTreeMap::new()),
         };
 
-        let error = match identities.unit_id(&key) {
-            Ok(_) => panic!("an unknown unit source must not receive an identity"),
-            Err(error) => error,
-        };
+        let panic =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| identities.unit_id(&key)))
+                .err()
+                .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::UnknownUnitSource { unit } if unit == &key
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("UnknownUnitSource"));
     }
 
     #[test]
@@ -182,25 +180,15 @@ mod tests {
             claimed_units: Mutex::new(BTreeMap::from([(BoundUnitId::new(0), existing.clone())])),
         };
 
-        let error = match identities.unit_id(&requested) {
-            Ok(_) => panic!("a colliding unit key must not receive an identity"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            identities.unit_id(&requested)
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::UnitIdentityCollision {
-                        identity,
-                        expected,
-                        actual,
-                    } if *identity == BoundUnitId::new(0)
-                        && expected == &existing
-                        && actual == &requested
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("UnitIdentityCollision"));
     }
 
     #[test]
@@ -221,19 +209,13 @@ mod tests {
             panic!("poison unit identity state");
         }));
 
-        let error = match identities.unit_id(&key) {
-            Ok(_) => panic!("identity lookup must report poisoned state"),
-            Err(error) => error,
-        };
+        let panic =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| identities.unit_id(&key)))
+                .err()
+                .expect("compiler invariant must panic");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::UnitIdentityStatePoisoned { unit }
-                        if unit == &key
-                )
-        ));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("UnitIdentityStatePoisoned"));
     }
 }

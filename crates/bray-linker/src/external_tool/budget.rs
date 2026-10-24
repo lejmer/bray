@@ -42,7 +42,7 @@ impl ExternalToolProcessBudget {
         &self,
         cancellation: &dyn Cancellation,
     ) -> Result<ProcessPermit<'_>, ExternalToolFailure> {
-        let mut active = self.active()?;
+        let mut active = self.active();
 
         loop {
             if cancellation.is_cancelled() {
@@ -59,17 +59,17 @@ impl ExternalToolProcessBudget {
                 .state
                 .available
                 .wait_timeout(active, CANCELLATION_POLL_INTERVAL)
-                .map_err(|_| ExternalToolFailure::ProcessBudgetUnavailable)?;
+                .expect("native process budget wait state must remain unpoisoned");
 
             active = waited.0;
         }
     }
 
-    fn active(&self) -> Result<MutexGuard<'_, usize>, ExternalToolFailure> {
+    fn active(&self) -> MutexGuard<'_, usize> {
         self.state
             .active
             .lock()
-            .map_err(|_| ExternalToolFailure::ProcessBudgetUnavailable)
+            .expect("native process budget state must remain unpoisoned")
     }
 }
 
@@ -79,11 +79,12 @@ pub(super) struct ProcessPermit<'a> {
 
 impl Drop for ProcessPermit<'_> {
     fn drop(&mut self) {
-        let Ok(mut active) = self.budget.state.active.lock() else {
-            return;
-        };
+        let mut active = self.budget.active();
 
-        *active = active.saturating_sub(1);
+        *active = active
+            .checked_sub(1)
+            .expect("a native process permit must own an active slot");
+
         self.budget.state.available.notify_one();
     }
 }
@@ -96,6 +97,30 @@ mod tests {
 
     use super::ExternalToolProcessBudget;
     use crate::ExternalToolFailure;
+
+    #[test]
+    #[should_panic(expected = "native process budget state must remain unpoisoned")]
+    fn poisoned_budget_fails_at_acquisition() {
+        let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
+
+        let _ = std::panic::catch_unwind(|| {
+            let _active = budget.state.active.lock().unwrap();
+
+            panic!("poison the test budget");
+        });
+
+        let _permit = budget.acquire(&|| false);
+    }
+
+    #[test]
+    #[should_panic(expected = "a native process permit must own an active slot")]
+    fn permit_retirement_requires_its_owned_slot() {
+        let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
+        let permit = budget.acquire(&|| false).unwrap();
+
+        *budget.active() = 0;
+        drop(permit);
+    }
 
     #[test]
     fn process_budget_serializes_external_tool_ownership() {

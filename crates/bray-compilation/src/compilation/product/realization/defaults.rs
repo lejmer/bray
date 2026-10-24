@@ -54,15 +54,13 @@ impl Compilation {
         let reference = MirHelperReference::DefaultValue(provider);
 
         let MirOperationKind::Call(call) = operation else {
-            return Err(ProductQueryFailure::InvalidHelperOperation {
-                context: ProductQueryContext::Operation {
-                    instance: owner.key().clone(),
-                    operation: operation_id,
-                },
-                helper: reference,
-                operation: operation.clone(),
-            }
-            .into());
+            panic!(
+                "product helper call required: instance={:?}, operation_id={:?}, helper={:?}, operation={:?}",
+                owner.key(),
+                operation_id,
+                reference,
+                operation
+            );
         };
 
         let bray_ir::MirCallTarget::DefaultValue {
@@ -70,7 +68,10 @@ impl Compilation {
             ..
         } = call.target()
         else {
-            return Err(CodegenPreparationError::MissingHelperInstance(reference));
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference
+            );
         };
 
         let ty = match default_owner {
@@ -99,12 +100,12 @@ impl Compilation {
         let data = values.type_data(ty);
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
+            panic!(
+                "product UnexpectedSemanticType construction failed: ty={:?}, expected={:?}, actual={:?}",
                 ty,
-                expected: crate::compilation::ProductValueKind::NamedType,
-                actual: data.as_ref().clone(),
-            }
-            .into());
+                crate::compilation::ProductValueKind::NamedType,
+                data.as_ref()
+            );
         };
 
         // Field defaults belong to the constructed type, not the calling function's generics.
@@ -174,21 +175,28 @@ impl Compilation {
         let key = binding_context
             .symbol_key(provider)
             .map_err(super::super::super::binder::binding_query_error)?
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "checked native MissingHelperInstance contract failed: {:?}",
+                    reference
+                )
+            });
 
         if !matches!(key.data(), SymbolKeyData::External(_)) {
-            return Err(CodegenPreparationError::MissingHelperInstance(
-                reference.clone(),
-            ));
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference,
+            );
         }
 
         let Some(address) = binding_context
             .imported_semantic_address(provider)
             .map_err(super::super::super::binder::binding_query_error)?
         else {
-            return Err(CodegenPreparationError::MissingHelperInstance(
-                reference.clone(),
-            ));
+            panic!(
+                "checked native MissingHelperInstance contract failed: {:?}",
+                reference,
+            );
         };
 
         let template = self.imported_executable_template_with_cancellation(

@@ -4,9 +4,8 @@ use std::process::ExitCode;
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
-    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticTestCatalogFailure,
-    SeverityKind,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation, SeverityKind,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ProductBuildIdentity,
@@ -204,7 +203,7 @@ pub fn run_build_request(
     };
 
     let test_catalog = if configuration.publishes_test_catalog() {
-        match encode_test_catalog(&compilation, &product) {
+        match encode_test_catalog(&compilation, &product, native_target.as_str()) {
             Ok(catalog) => Some(catalog),
             Err(error) => {
                 let diagnostics = match error {
@@ -310,19 +309,20 @@ fn emission_result(
 fn encode_test_catalog(
     compilation: &bray_compilation::Compilation,
     product: &ProductIdentity,
+    target: &str,
 ) -> Result<Vec<u8>, TestCatalogPublicationError> {
     let discovery = compilation
         .test_discovery(product.clone())
         .map_err(|error| match error {
             bray_compilation::FactQueryError::Cancelled => TestCatalogPublicationError::Cancelled,
-            error => {
-                TestCatalogPublicationError::Diagnostic(test_discovery_failure(error, product))
-            }
+            error => TestCatalogPublicationError::Diagnostic(test_discovery_failure(
+                error, product, target,
+            )),
         })?;
 
     let (bytes, _) =
         bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product))
+            TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product, target))
         })?;
 
     Ok(bytes)
@@ -336,47 +336,39 @@ enum TestCatalogPublicationError {
 fn test_discovery_failure(
     error: bray_compilation::FactQueryError,
     product: &ProductIdentity,
+    target: &str,
 ) -> Diagnostic {
     Diagnostic::new(
         DiagnosticId::new(0),
-        DiagnosticKind::CheckingCompilerDefect,
+        DiagnosticKind::EmissionFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
+    .with_arg(DiagnosticArg::target_triple(target))
     .with_arg(DiagnosticArg::emission_failure(
         DiagnosticEmissionFailure::Evaluation(error.diagnostic_evaluation_failure()),
-    ))
-    .with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
     ))
 }
 
 fn test_catalog_failure(
     error: bray_test_protocol::TestProtocolError,
     product: &ProductIdentity,
+    target: &str,
 ) -> Diagnostic {
-    let failure = match error {
-        bray_test_protocol::TestProtocolError::Io => DiagnosticTestCatalogFailure::Io,
-        bray_test_protocol::TestProtocolError::Malformed => DiagnosticTestCatalogFailure::Malformed,
-        bray_test_protocol::TestProtocolError::UnsupportedVersion(version) => {
-            DiagnosticTestCatalogFailure::UnsupportedVersion(version)
-        }
-        bray_test_protocol::TestProtocolError::ResourceLimit => {
-            DiagnosticTestCatalogFailure::ResourceLimit
-        }
+    match error {
+        bray_test_protocol::TestProtocolError::ResourceLimit => {}
+        _ => panic!("checked test catalog encoding failed: product={product}, cause={error:?}"),
     };
 
     Diagnostic::new(
         DiagnosticId::new(0),
-        DiagnosticKind::CheckingCompilerDefect,
+        DiagnosticKind::EmissionFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
+    .with_arg(DiagnosticArg::target_triple(target))
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::TestCatalog(failure),
-    ))
-    .with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
+        DiagnosticEmissionFailure::TestCatalogCapacityExceeded,
     ))
 }
 
@@ -661,9 +653,7 @@ mod tests {
     use std::ffi::OsString;
     use std::process::ExitCode;
 
-    use bray_diagnostics::{
-        DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind, DiagnosticTestCatalogFailure,
-    };
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind};
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
 
@@ -683,6 +673,7 @@ mod tests {
         let diagnostic = test_catalog_failure(
             bray_test_protocol::TestProtocolError::ResourceLimit,
             &product,
+            "x86_64-pc-windows-msvc",
         );
 
         let failure = diagnostic
@@ -696,7 +687,7 @@ mod tests {
 
         assert_eq!(
             failure,
-            &DiagnosticEmissionFailure::TestCatalog(DiagnosticTestCatalogFailure::ResourceLimit)
+            &DiagnosticEmissionFailure::TestCatalogCapacityExceeded
         );
     }
 

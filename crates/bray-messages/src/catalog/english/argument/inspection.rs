@@ -7,23 +7,23 @@ pub(super) fn format_english_inspection_failure(
         Failure::Source { format, cause } => format!(
             "{} source inspection {}",
             inspection_format(*format),
-            source_inspection_cause(cause)
+            inspection_detail_cause(cause)
         ),
         Failure::Token { format, cause } => format!(
             "{} token inspection {}",
             inspection_format(*format),
-            token_inspection_cause(cause)
+            inspection_detail_cause(cause)
         ),
         Failure::Syntax { format, cause } => format!(
             "{} syntax inspection {}",
             inspection_format(*format),
-            syntax_inspection_cause(cause)
+            inspection_detail_cause(cause)
         ),
         Failure::Declaration { format, cause } => {
             format!(
                 "{} declaration inspection {}",
                 inspection_format(*format),
-                declaration_inspection_cause(cause)
+                inspection_detail_cause(cause)
             )
         }
         Failure::Symbol { format, cause } => format!(
@@ -84,82 +84,15 @@ fn inspection_target(target: bray_diagnostics::DiagnosticInspectionTarget) -> St
     )
 }
 
-const fn source_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticSourceInspectionFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticSourceInspectionFailure as Cause;
-
-    match cause {
-        Cause::SourceIndex => "could not index source lines",
-        Cause::Json => "could not serialize JSON",
-        Cause::Detail(_) => inspection_detail_cause(),
-    }
-}
-
-const fn token_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticTokenInspectionFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticTokenInspectionFailure as Cause;
-
-    match cause {
-        Cause::SourceIndex => "could not index source lines",
-        Cause::TokenText => "could not correlate token text with its source",
-        Cause::TriviaText => "could not correlate trivia text with its source",
-        Cause::Json => "could not serialize JSON",
-        Cause::Detail(_) => inspection_detail_cause(),
-    }
-}
-
-const fn syntax_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticSyntaxInspectionFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticSyntaxInspectionFailure as Cause;
-
-    match cause {
-        Cause::SourceIndex => "could not index source lines",
-        Cause::SourceMismatch => "found a syntax result owned by another source",
-        Cause::TokenText => "could not correlate token text with its source",
-        Cause::TriviaText => "could not correlate trivia text with its source",
-        Cause::TreeStructure => "found an invalid syntax-tree traversal",
-        Cause::Json => "could not serialize JSON",
-        Cause::Detail(_) => inspection_detail_cause(),
-    }
-}
-
-const fn declaration_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticDeclarationInspectionFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticDeclarationInspectionFailure as Cause;
-
-    match cause {
-        Cause::Container => "found an invalid declaration container reference",
-        Cause::Declaration => "found an invalid declaration reference",
-        Cause::ModulePart => "found an invalid module-part reference",
-        Cause::Source => "could not correlate a declaration with source",
-        Cause::SourceIndex => "could not index source lines",
-        Cause::Json => "could not serialize JSON",
-        Cause::Detail(_) => inspection_detail_cause(),
-    }
-}
-
 fn symbol_inspection_cause(cause: &bray_diagnostics::DiagnosticSymbolInspectionFailure) -> String {
-    use bray_diagnostics::DiagnosticSymbolInspectionFailure as Cause;
-
     match cause {
-        Cause::Evaluation(failure) => {
-            return super::native::format_english_emission_evaluation_failure(failure);
+        bray_diagnostics::DiagnosticSymbolInspectionFailure::Evaluation(failure) => {
+            super::native::format_english_emission_evaluation_failure(failure)
         }
-        Cause::Declaration => "found an invalid declaration reference",
-        Cause::Json => "could not serialize JSON",
-        Cause::Source => "could not correlate a symbol with source",
-        Cause::SourceIndex => "could not index source lines",
-        Cause::Symbol => "found an invalid symbol reference",
-        Cause::SymbolCycle => "found a cycle in symbol identity traversal",
-        Cause::Type => "could not represent a semantic type",
-        Cause::UnsupportedRelationship => "found an unsupported relationship category",
-        Cause::Detail(_) => inspection_detail_cause(),
+        bray_diagnostics::DiagnosticSymbolInspectionFailure::Detail(detail) => {
+            inspection_detail_cause(detail)
+        }
     }
-    .to_owned()
 }
 
 fn bound_inspection_cause(cause: &bray_diagnostics::DiagnosticBoundInspectionFailure) -> String {
@@ -169,14 +102,8 @@ fn bound_inspection_cause(cause: &bray_diagnostics::DiagnosticBoundInspectionFai
         Cause::Evaluation(failure) => {
             return super::native::format_english_emission_evaluation_failure(failure);
         }
-        Cause::Json => "could not serialize JSON",
-        Cause::MissingNode => "could not find a selected bound node",
-        Cause::Source => "could not correlate a bound node with source",
-        Cause::SourceIndex => "could not index source lines",
-        Cause::Symbol => "found an invalid symbol reference",
-        Cause::Type => "could not represent a semantic type",
-        Cause::Selection => "could not represent a semantic selection",
-        Cause::Detail(_) => inspection_detail_cause(),
+        Cause::Source => "requires a loaded source and a byte position within that source",
+        Cause::Detail(detail) => return inspection_detail_cause(detail),
     }
     .to_owned()
 }
@@ -190,77 +117,93 @@ fn lowered_inspection_cause(
         Cause::Evaluation(failure) => {
             return super::native::format_english_emission_evaluation_failure(failure);
         }
-        Cause::Json => "could not serialize JSON",
-        Cause::Model => "could not construct the MIR report model",
-        Cause::Source => "could not correlate a lowered node with source",
-        Cause::Detail(_) => inspection_detail_cause(),
+        Cause::Source => "requires a loaded source and a byte position within that source",
+        Cause::Detail(detail) => return inspection_detail_cause(detail),
     }
     .to_owned()
 }
 
-const fn inspection_detail_cause() -> &'static str {
-    "failed because an internal report operation could not complete"
-}
+fn inspection_detail_cause(detail: &bray_diagnostics::DiagnosticInspectionFailureDetail) -> String {
+    let message = match detail.reason() {
+        "inspection_resource_limit" => {
+            let resource = detail
+                .context()
+                .iter()
+                .find_map(|field| {
+                    if field.name() != "resource" {
+                        return None;
+                    }
 
-pub(super) fn format_english_native_linker_build_failure(
-    failure: bray_diagnostics::DiagnosticNativeLinkerBuildFailure,
-) -> String {
-    use bray_diagnostics::DiagnosticNativeLinkerBuildFailure as Failure;
+                    match field.value() {
+                        bray_diagnostics::DiagnosticFailureValue::Text(value) => {
+                            Some(value.as_str())
+                        }
+                        _ => None,
+                    }
+                })
+                .expect("inspection capacity failure must identify its resource");
 
-    match failure {
-        Failure::ArchiveIdentity => "archive-driver identity".to_owned(),
-        Failure::ArchiveDriverKindMismatch => "archive-driver category".to_owned(),
-        Failure::ArchiveCapabilities(cause) => format!(
-            "archive-driver capability ({})",
-            format_english_linker_capability_build_failure(cause)
-        ),
-        Failure::ArchiveProgramPathNotExplicit => "archive-driver program path".to_owned(),
-        Failure::ArchiveInvocation(cause) => format!(
-            "archive-driver invocation ({})",
-            format_english_invocation_build_failure(cause)
-        ),
-        Failure::SystemIdentity => "system-linker identity".to_owned(),
-        Failure::TargetIdentity => "linker target identity".to_owned(),
-        Failure::SystemProgramPathNotExplicit => "system-linker program path".to_owned(),
-        Failure::SystemInvocation(cause) => format!(
-            "system-linker invocation ({})",
-            format_english_invocation_build_failure(cause)
-        ),
-        Failure::SystemThinLtoCacheRootEmpty => "system-linker ThinLTO cache root".to_owned(),
-        Failure::SystemDriverKindMismatch => "system-linker category".to_owned(),
-        Failure::SystemCapabilities(cause) => format!(
-            "system-linker capability ({})",
-            format_english_linker_capability_build_failure(cause)
-        ),
-        Failure::DuplicateDriver => "linker-driver registry".to_owned(),
-    }
-}
-
-const fn format_english_linker_capability_build_failure(
-    failure: bray_diagnostics::DiagnosticLinkerCapabilityBuildFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticLinkerCapabilityBuildFailure as Failure;
-
-    match failure {
-        Failure::DriverKindMismatch => "the driver category cannot own this capability",
-        Failure::UnsupportedTarget => "the command family does not support the target",
-        Failure::MissingTargets => "no supported target is declared",
-        Failure::DuplicateTarget => "an architecture and object format are declared twice",
-    }
-}
-
-const fn format_english_invocation_build_failure(
-    failure: bray_diagnostics::DiagnosticInvocationBuildFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticInvocationBuildFailure as Failure;
-
-    match failure {
-        Failure::EmptyProgram => "the program path is empty",
-        Failure::EmptyCurrentDirectory => "the working directory is empty",
-        Failure::EmptyEnvironmentVariableName => "an environment variable name is empty",
-        Failure::DuplicateEnvironmentVariableName => {
-            "an environment variable name occurs more than once"
+            match resource {
+                "source_text_bytes" => "exceeds the supported source size",
+                "source_line_count" => "exceeds the supported source line count",
+                "type_depth" => "exceeds the supported type nesting depth",
+                "inspection_storage_alternative_count" => {
+                    "exceeds the supported number of storage alternatives"
+                }
+                _ => panic!("inspection capacity has no English message: {resource}"),
+            }
         }
-        Failure::DuplicateResponseFile => "a response-file path occurs more than once",
+        "source_inspection_json"
+        | "token_inspection_json"
+        | "syntax_inspection_json"
+        | "declaration_inspection_json"
+        | "symbol_inspection_json"
+        | "bound_inspection_json"
+        | "lowered_inspection_json" => "could not serialize its JSON report",
+        reason => panic!("inspection failure has no English message: {reason}"),
+    };
+
+    super::native::format_failure_detail(message, detail.context())
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticInspectionFailureDetail,
+    };
+
+    #[test]
+    fn inspection_failures_render_their_specific_limit_and_report() {
+        let limit = DiagnosticInspectionFailureDetail::new(
+            "inspection_resource_limit",
+            [
+                DiagnosticFailureField::new(
+                    "resource",
+                    DiagnosticFailureValue::Text("type_depth".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "maximum",
+                    DiagnosticFailureValue::Text("256".to_owned()),
+                ),
+            ],
+        );
+
+        let rendered = super::inspection_detail_cause(&limit);
+
+        assert!(rendered.contains("type nesting depth"));
+        assert!(rendered.contains("supported limit: 256"));
+
+        let report = DiagnosticInspectionFailureDetail::new(
+            "bound_inspection_json",
+            [DiagnosticFailureField::new(
+                "report",
+                DiagnosticFailureValue::Text("invalid map key".to_owned()),
+            )],
+        );
+
+        let rendered = super::inspection_detail_cause(&report);
+
+        assert!(rendered.contains("JSON report"));
+        assert!(rendered.contains("invalid map key"));
     }
 }

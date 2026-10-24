@@ -40,10 +40,10 @@ pub fn load_llvm_compilation(
     let identity = generator.identity().clone();
 
     let registry = CodeGeneratorRegistry::try_new([Arc::new(generator) as Arc<dyn CodeGenerator>])
-        .map_err(LlvmCompilationLoadError::Registry)?;
+        .unwrap_or_else(|cause| panic!("fixed LLVM registry construction failed: {cause:?}"));
 
     let codegen = CodegenConfiguration::try_new(registry, identity)
-        .map_err(LlvmCompilationLoadError::BackendSelection)?;
+        .unwrap_or_else(|cause| panic!("fixed LLVM backend selection failed: {cause:?}"));
 
     Compilation::load_with_codegen(request, codegen).map_err(LlvmCompilationLoadError::Compilation)
 }

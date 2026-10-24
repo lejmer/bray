@@ -17,8 +17,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
     DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticProductKind, DiagnosticResult, SeverityKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
@@ -63,27 +62,6 @@ pub(super) fn labeled_source_diagnostic(
     source_diagnostic(anchor, kind).with_label(DiagnosticLabel::primary(label, span))
 }
 
-pub(super) fn with_compiler_defect_source(
-    diagnostic: Diagnostic,
-    source: SourceSpan,
-) -> Diagnostic {
-    diagnostic
-        .with_primary_span(source)
-        .with_label(DiagnosticLabel::primary(
-            DiagnosticLabelKind::CompilerDefectSource,
-            source,
-        ))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ReportCompilerDefect,
-        ))
-}
-
-pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
-    diagnostic.with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::ReportCompilerDefect,
-    ))
-}
-
 fn semantic_query_failure_diagnostics(
     key: &BoundUnitKey,
     error: &crate::compilation::SemanticQueryError,
@@ -101,12 +79,14 @@ fn semantic_query_failure_diagnostics(
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(anchor.full_range().start().bytes()),
-        DiagnosticKind::CheckingCompilerDefect,
+        DiagnosticKind::CheckingCapacityExceeded,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::emission_failure(failure));
 
-    DiagnosticBag::single(with_compiler_defect_source(diagnostic, source))
+    DiagnosticBag::single(diagnostic.with_primary_span(source).with_label(
+        DiagnosticLabel::primary(DiagnosticLabelKind::CompilerCapacityExceeded, source),
+    ))
 }
 
 pub(super) const fn diagnostic_product_kind(kind: ProductKind) -> DiagnosticProductKind {
@@ -905,7 +885,10 @@ func main() {}
 
         let error = SemanticQueryFailure::contract(
             SemanticQueryContext::Unit(key.clone()),
-            SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            SemanticQueryViolation::CapacityExceeded {
+                data: SemanticDataKind::Type,
+                value: usize::MAX,
+            },
         )
         .into();
 
@@ -913,7 +896,7 @@ func main() {}
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &diagnostics,
-            DiagnosticKind::CheckingCompilerDefect,
+            DiagnosticKind::CheckingCapacityExceeded,
         );
 
         assert_eq!(diagnostics.len(), 1);

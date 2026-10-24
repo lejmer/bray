@@ -1301,9 +1301,7 @@ fn resolve_trait_satisfaction_templates(
 fn checked_constant_terms_binding_error(
     cause: bray_checker::CheckedConstantTermsBuildError,
 ) -> BindingQueryError<crate::fact::FactQueryError> {
-    crate::compilation::binder::semantic_query_binding_error(
-        crate::compilation::SemanticQueryFailure::CheckedConstantTerms { unit: None, cause },
-    )
+    panic!("checked constant terms must have unique occurrences: {cause:?}")
 }
 
 fn constraint_context(

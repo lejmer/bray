@@ -29,9 +29,7 @@ pub enum DiagnosticExternalToolFailureKind {
     RuntimeThreadAlreadyInitialized,
     SynchronizationPoisoned,
     Unsupported,
-    MissingOutputPipe,
     OutputCapture,
-    OutputReaderTerminated,
 }
 
 impl DiagnosticExternalToolFailureKind {
@@ -46,9 +44,7 @@ impl DiagnosticExternalToolFailureKind {
             Self::RuntimeThreadAlreadyInitialized => "runtime_thread_already_initialized",
             Self::SynchronizationPoisoned => "synchronization_poisoned",
             Self::Unsupported => "unsupported",
-            Self::MissingOutputPipe => "missing_output_pipe",
             Self::OutputCapture => "output_capture",
-            Self::OutputReaderTerminated => "output_reader_terminated",
         }
     }
 }

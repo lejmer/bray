@@ -213,8 +213,9 @@ pub(super) fn export_static_semantics(
     )
 }
 
-pub(super) const fn incomplete_type() -> PackageInterfaceExportError {
-    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
+pub(super) fn incomplete_type() -> PackageInterfaceExportError {
+    panic!(
+        "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
         SymbolKind::TypeCallableMember,
     )
 }

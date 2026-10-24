@@ -412,10 +412,7 @@ mod tests {
     use bray_bound_tree::BoundUnitKind;
 
     use super::DeclaredUnitIndex;
-    use crate::compilation::{
-        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    };
-    use crate::fact::FactQueryError;
+
     use crate::test_support::{compilation, source_input};
 
     #[test]
@@ -608,20 +605,17 @@ mod tests {
 
         assert_eq!(key.kind(), BoundUnitKind::ConstantTemplate);
 
-        let error = DeclaredUnitIndex::new(vec![key.clone(), key.clone()])
-            .err()
-            .unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            DeclaredUnitIndex::new(vec![key.clone(), key.clone()])
+        }))
+        .err()
+        .expect("compiler invariant must panic");
 
-        assert_eq!(
-            error,
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Unit(key.clone()),
-                SemanticQueryViolation::CountMismatch {
-                    data: SemanticDataKind::BoundUnit,
-                    expected: 1,
-                    actual: 2,
-                },
-            ))
-        );
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("CountMismatch"));
+        assert!(message.contains("BoundUnit"));
+        assert!(message.contains("expected: 1"));
+        assert!(message.contains("actual: 2"));
     }
 }

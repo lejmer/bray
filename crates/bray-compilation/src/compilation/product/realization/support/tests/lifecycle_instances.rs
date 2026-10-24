@@ -9,7 +9,6 @@ use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_d
 
 use super::targets::codegen_target;
 
-use crate::compilation::CodegenPreparationError;
 use crate::compilation::product::realization::support::dependency_symbol;
 use crate::compilation::product::specialization::ConcreteCodegenInstance;
 use crate::test_support::compilation;
@@ -212,8 +211,13 @@ fn declaration_helpers_require_the_exact_concrete_dependency() {
 
     let missing = CodegenInstanceKey::non_generic(&test_mir_unit_with_declaration(6, 7));
 
-    assert_eq!(
-        dependency_symbol(&owner, &missing, &reference),
-        Err(CodegenPreparationError::MissingHelperInstance(reference))
-    );
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dependency_symbol(&owner, &missing, &reference)
+    }))
+    .err()
+    .expect("compiler invariant must panic");
+
+    let message = bray_testing::panic_payload_text(panic.as_ref());
+
+    assert!(message.contains("MissingHelperInstance"));
 }

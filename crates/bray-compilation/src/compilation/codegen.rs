@@ -2,9 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_codegen::{
-    BackendArtifactRequest, CodegenCallableSignature, CodegenInstance, CodegenInstanceBuildError,
-    CodegenMappings, CodegenOptions, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
-    CodegenUnitBuildError, CodegenUnitKey,
+    BackendArtifactRequest, CodegenCallableSignature, CodegenInstance, CodegenMappings,
+    CodegenOptions, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
 };
 #[cfg(test)]
 use bray_codegen::{
@@ -14,7 +13,7 @@ use bray_codegen::{
 use bray_diagnostics::DiagnosticBag;
 #[cfg(test)]
 use bray_ir::MirUnitKind;
-use bray_ir::{MirCapacityError, MirHelperReference, MirUnit, MirUnitId, MirUnitKey};
+use bray_ir::{MirCapacityError, MirUnit, MirUnitId, MirUnitKey};
 use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
@@ -64,23 +63,24 @@ impl Compilation {
             .map_indexed(instance_keys.len(), |index| {
                 let instance = &instance_keys[index];
 
-                // Reconstruction errors own the complete shared unit identity past this request.
                 let Some(mir_unit) = key.mir_unit(instance) else {
-                    return Err(CodegenPreparationError::UnitMismatch(key.clone()));
+                    panic!("checked native UnitMismatch contract failed: {:?}", key);
                 };
 
                 let mir =
                     self.codegen_mir_for_plan(instance, mir_unit, executable_host, cancellation)?;
 
                 let Some(dependencies) = key.dependencies(instance) else {
-                    return Err(CodegenPreparationError::UnitMismatch(key.clone()));
+                    panic!("checked native UnitMismatch contract failed: {:?}", key);
                 };
 
                 let instance =
                     CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
-                        .map_err(CodegenPreparationError::InvalidInstance)?;
+                        .unwrap_or_else(|cause| {
+                            panic!("checked native InvalidInstance construction failed: {cause:?}")
+                        });
 
-                Ok(instance)
+                Ok::<_, CodegenPreparationError>(instance)
             })?
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
@@ -99,12 +99,14 @@ impl Compilation {
             }
         }
 
-        CodegenUnit::try_from_key(key, instances, |mir| {
+        let unit = CodegenUnit::try_from_key(key, instances, |mir| {
             *identities
                 .get(&mir.unit())
                 .expect("planned MIR identity must be prepared")
         })
-        .map_err(CodegenPreparationError::InvalidUnit)
+        .unwrap_or_else(|cause| panic!("checked native unit construction failed: {cause:?}"));
+
+        Ok(unit)
     }
 
     pub(in crate::compilation) fn codegen_mir_for_plan(
@@ -140,9 +142,7 @@ impl Compilation {
                         ));
                     }
 
-                    return Err(CodegenPreparationError::MirUnavailable(MirUnitKey::Bound(
-                        key.clone(),
-                    )));
+                    panic!("checked native MirUnavailable contract failed: {:?}", key);
                 };
 
                 // The reconstructed unit owns the immutable MIR independently of the query borrow.
@@ -169,29 +169,35 @@ impl Compilation {
                                 let function = discovery
                                     .value()
                                     .function(entry.identity())
-                                    .ok_or(CodegenPreparationError::MissingEntrypoint)?;
+                                    .unwrap_or_else(|| {
+                                        panic!("checked native MissingEntrypoint contract failed")
+                                    });
 
                                 let definition = CallableDefinitionId::try_new(function.into())
-                                    .ok_or(CodegenPreparationError::MissingEntrypoint)?;
+                                    .unwrap_or_else(|| {
+                                        panic!("checked native MissingEntrypoint contract failed")
+                                    });
 
-                                self.callable_body_key(definition)?
-                                    .ok_or(CodegenPreparationError::MissingEntrypoint)
+                                Ok::<_, CodegenPreparationError>(
+                                    self.callable_body_key(definition)?
+                                        .expect("checked executable entry must retain its body"),
+                                )
                             })
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     bray_symbols::ProductKind::Executable | bray_symbols::ProductKind::Library => {
-                        let entrypoint = semantics
-                            .value()
-                            .entrypoint()
-                            .ok_or(CodegenPreparationError::MissingEntrypoint)?;
+                        let entrypoint = semantics.value().entrypoint().unwrap_or_else(|| {
+                            panic!("checked native MissingEntrypoint contract failed")
+                        });
 
                         let definition = CallableDefinitionId::try_new(entrypoint.into())
-                            .ok_or(CodegenPreparationError::MissingEntrypoint)?;
+                            .unwrap_or_else(|| {
+                                panic!("checked native MissingEntrypoint contract failed")
+                            });
 
-                        vec![
-                            self.callable_body_key(definition)?
-                                .ok_or(CodegenPreparationError::MissingEntrypoint)?,
-                        ]
+                        vec![self.callable_body_key(definition)?.unwrap_or_else(|| {
+                            panic!("checked native MissingEntrypoint contract failed")
+                        })]
                     }
                 };
 
@@ -206,18 +212,23 @@ impl Compilation {
                 )
                 .map_err(CodegenPreparationError::MirCapacity)
             }
-            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::CompilerProvidedCallable(_) => Err(
-                CodegenPreparationError::MirUnavailable(instance.template().clone()),
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::CompilerProvidedCallable(_) => panic!(
+                "checked native MirUnavailable contract failed: {:?}",
+                instance.template()
             ),
             MirUnitKey::ImportedExecutable(key) => self
                 .imported_executable_mir(*key, mir_unit, instance.target().clone(), cancellation)?
                 .ok_or_else(|| {
-                    CodegenPreparationError::MirUnavailable(instance.template().clone())
+                    panic!(
+                        "checked native MirUnavailable contract failed: {:?}",
+                        instance.template()
+                    )
                 }),
             MirUnitKey::Predicate(_)
             | MirUnitKey::ExternalCallable(_)
-            | MirUnitKey::ExternalRuntimeDefault(_) => Err(
-                CodegenPreparationError::MirUnavailable(instance.template().clone()),
+            | MirUnitKey::ExternalRuntimeDefault(_) => panic!(
+                "checked native MirUnavailable contract failed: {:?}",
+                instance.template()
             ),
         }
     }
@@ -377,9 +388,12 @@ fn codegen_mappings(
     for reference in demanded_runtime_references(unit) {
         let symbol_name =
             bray_runtime_interface::selected_runtime_role_symbol(executable_host, reference.role())
-                .ok_or(CodegenPreparationError::MissingRuntimeRole(
-                    reference.role(),
-                ))?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "checked native MissingRuntimeRole contract failed: {:?}",
+                        reference.role(),
+                    )
+                });
 
         // The mapping owns the selected runtime spelling past the host-contract borrow.
         symbols.push(symbol_mapping(
@@ -461,22 +475,10 @@ fn symbol_mapping(
 pub enum CodegenPreparationError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,
-    /// A plan-named MIR unit is unavailable from this compilation.
-    MirUnavailable(MirUnitKey),
-    /// Executable host construction requires one selected source entrypoint.
-    MissingEntrypoint,
-    /// A concrete instance could not be reconstructed from its exact lazy MIR result.
-    InvalidInstance(CodegenInstanceBuildError),
-    /// Plan-named instances could not form a valid code generation unit.
-    InvalidUnit(CodegenUnitBuildError),
-    /// Reconstructed MIR or dependencies differ from the immutable plan identity.
-    UnitMismatch(CodegenUnitKey),
     /// A MIR identity table exceeded its compact representation.
     MirCapacity(MirCapacityError),
     /// Exact contract arithmetic requires a wider backend integer.
     ExactIntegerCapacity { minimum_bits: u64 },
-    /// A MIR runtime role has no selected executable-host binding.
-    MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
     /// A build-bound Bray runtime implementation does not match its closed role ABI.
     InvalidRuntimeRoleSourceBinding {
         /// Closed runtime role selected by build metadata.
@@ -493,26 +495,12 @@ pub enum CodegenPreparationError {
         /// Source implementation whose contract was rejected.
         instance: bray_codegen::CodegenInstanceKey,
     },
-    /// A constant term needed by code generation still contains unresolved parameters.
-    OpenConstantTerm(bray_symbols::ConstantTermId),
-    /// A closed array length term did not contain its checked integer value.
-    InvalidArrayLength(bray_symbols::ConstantTermId),
-    /// A value type contains itself without an indirection boundary.
-    RecursiveValueType(bray_symbols::TypeId),
-    /// A demanded semantic type still contains an unresolved checking placeholder.
-    UnresolvedType(bray_symbols::TypeId),
-    /// An unsized semantic type was demanded in a by-value position.
-    UnsizedTypeByValue(bray_symbols::TypeId),
     /// The selected backend cannot represent a demanded semantic type.
     UnsupportedType(bray_symbols::TypeId),
-    /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
-    MissingHelperInstance(MirHelperReference),
     /// Structured diagnostics prevent a demanded code generation result from being produced.
     Diagnostics(DiagnosticBag),
     /// A demanded type layout exceeds the selected target's representable size.
     LayoutOverflow(bray_symbols::TypeId),
-    /// A deterministic generated binary symbol could not be represented.
-    InvalidSymbolName,
     /// The compilation query runtime could not complete the request.
     Query(FactQueryError),
 }

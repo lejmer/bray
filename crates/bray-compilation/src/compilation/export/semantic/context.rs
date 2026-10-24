@@ -144,11 +144,10 @@ impl<'a> SemanticExporter<'a> {
             })
             .transpose()?;
 
-        Ok(PackageInterfaceExportError::CyclicSemanticFragment {
-            declaration,
-            table,
-            reference,
-        })
+        panic!(
+            "export CyclicSemanticFragment contract failed: declaration={:?}, table={:?}, reference={:?}",
+            declaration, table, reference
+        )
     }
 
     pub(super) fn callable_signature(

@@ -1,6 +1,3 @@
-use crate::compilation::product_emission::diagnostics::product_query::mir_helper_kind;
-
-use bray_codegen::{CodegenInstanceBuildError, CodegenUnitBuildError};
 use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticNativeProductFailureDetail,
     DiagnosticNativeProductFailureKind,
@@ -17,28 +14,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
 
     Some(match error {
         CodegenPreparationError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
-        CodegenPreparationError::MirUnavailable(unit) => {
-            Kind::CodegenMirUnavailable(failure_detail(
-                "codegen_mir_unavailable",
-                [crate::fact::diagnostic_context::identity_field(
-                    "mir_unit", unit,
-                )],
-            ))
-        }
-        CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
-        CodegenPreparationError::InvalidInstance(cause) => {
-            Kind::CodegenInvalidInstance(failure_detail(codegen_instance_failure(*cause), []))
-        }
-        CodegenPreparationError::InvalidUnit(cause) => {
-            Kind::CodegenInvalidUnit(failure_detail(codegen_unit_preparation_failure(*cause), []))
-        }
-        CodegenPreparationError::UnitMismatch(unit) => Kind::CodegenUnitMismatch(failure_detail(
-            "codegen_unit_mismatch",
-            [crate::fact::diagnostic_context::identity_field(
-                "codegen_unit",
-                unit,
-            )],
-        )),
         CodegenPreparationError::ExactIntegerCapacity { minimum_bits } => {
             Kind::CodegenExactIntegerCapacity {
                 minimum_bits: *minimum_bits,
@@ -46,12 +21,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             }
         }
         CodegenPreparationError::MirCapacity(_) => Kind::CodegenMirCapacityExceeded,
-        CodegenPreparationError::MissingRuntimeRole(role) => {
-            Kind::CodegenMissingRuntimeRole(failure_detail(
-                "codegen_missing_runtime_role",
-                [text_failure_field("role", role.as_str())],
-            ))
-        }
         CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
             role,
             expected,
@@ -68,60 +37,15 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
                 ],
             )))
         }
-        CodegenPreparationError::OpenConstantTerm(term) => Kind::CodegenOpenConstantTerm(
-            identity_failure_detail("codegen_open_constant_term", "constant_term", term),
-        ),
-        CodegenPreparationError::InvalidArrayLength(term) => Kind::CodegenInvalidArrayLength(
-            identity_failure_detail("codegen_invalid_array_length", "constant_term", term),
-        ),
-        CodegenPreparationError::RecursiveValueType(ty) => Kind::CodegenRecursiveValueType(
-            identity_failure_detail("codegen_recursive_value_type", "semantic_type", ty),
-        ),
-        CodegenPreparationError::UnresolvedType(ty) => Kind::CodegenUnresolvedType(
-            identity_failure_detail("codegen_unresolved_type", "semantic_type", ty),
-        ),
-        CodegenPreparationError::UnsizedTypeByValue(ty) => Kind::CodegenUnsizedTypeByValue(
-            identity_failure_detail("codegen_unsized_type_by_value", "semantic_type", ty),
-        ),
         CodegenPreparationError::UnsupportedType(ty) => Kind::CodegenUnsupportedType(
             identity_failure_detail("codegen_unsupported_type", "semantic_type", ty),
         ),
-        CodegenPreparationError::MissingHelperInstance(helper) => {
-            Kind::CodegenMissingHelperInstance(failure_detail(
-                "codegen_missing_helper_instance",
-                [
-                    text_failure_field("helper_kind", mir_helper_kind(helper)),
-                    crate::fact::diagnostic_context::identity_field("helper", helper),
-                ],
-            ))
-        }
         CodegenPreparationError::Diagnostics(_) => return None,
         CodegenPreparationError::LayoutOverflow(ty) => Kind::CodegenLayoutOverflow(
             identity_failure_detail("codegen_layout_overflow", "semantic_type", ty),
         ),
-        CodegenPreparationError::InvalidSymbolName => Kind::CodegenInvalidSymbolName,
         CodegenPreparationError::Query(error) => fact_query_failure_kind(error)?,
     })
-}
-const fn codegen_instance_failure(error: CodegenInstanceBuildError) -> &'static str {
-    match error {
-        CodegenInstanceBuildError::TemplateMismatch => "codegen_instance_template_mismatch",
-        CodegenInstanceBuildError::TargetMismatch => "codegen_instance_target_mismatch",
-        CodegenInstanceBuildError::DependencyTargetMismatch => {
-            "codegen_instance_dependency_target_mismatch"
-        }
-    }
-}
-
-pub(super) const fn codegen_unit_preparation_failure(error: CodegenUnitBuildError) -> &'static str {
-    match error {
-        CodegenUnitBuildError::Empty => "codegen_unit_empty",
-        CodegenUnitBuildError::DuplicateInstance => "codegen_unit_duplicate_instance",
-        CodegenUnitBuildError::MissingCompatibility => "codegen_unit_missing_compatibility",
-        CodegenUnitBuildError::TargetMismatch => "codegen_unit_target_mismatch",
-        CodegenUnitBuildError::WorkBoundExceeded => "codegen_unit_work_bound_exceeded",
-        CodegenUnitBuildError::RecipeMismatch => "codegen_unit_recipe_mismatch",
-    }
 }
 
 fn runtime_role_signature_failure_detail(

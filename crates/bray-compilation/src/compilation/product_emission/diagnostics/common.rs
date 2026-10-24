@@ -18,20 +18,14 @@ pub(super) fn emission_failure_diagnostic(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> Diagnostic {
-    let diagnostic = Diagnostic::new(
+    Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::EmissionFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target.as_str()))
-    .with_arg(DiagnosticArg::emission_failure(failure.clone()));
-
-    if matches!(&failure, DiagnosticEmissionFailure::Evaluation(_)) {
-        crate::compilation::diagnostics::with_compiler_defect_note(diagnostic)
-    } else {
-        diagnostic
-    }
+    .with_arg(DiagnosticArg::emission_failure(failure.clone()))
 }
 
 pub(super) const fn diagnostic_artifact(
@@ -63,37 +57,32 @@ pub(super) fn codegen_unit_identity(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticNoteKind,
-    };
+    use bray_diagnostics::{DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure};
     use bray_symbols::{PackageIdentity, ProductIdentity};
     use bray_target::TargetIdentity;
 
     use super::emission_failure_diagnostic;
 
     #[test]
-    fn evaluation_failures_without_source_locations_explain_how_to_report_the_defect() {
-        let package = PackageIdentity::try_new("example.package")
-            .unwrap_or_else(|| panic!("package identity must be valid"));
+    fn capacity_failures_do_not_invent_source_locations_or_defect_guidance() {
+        let product = ProductIdentity::try_new(
+            PackageIdentity::try_new("example.package").unwrap(),
+            "application",
+        )
+        .unwrap();
 
-        let product = ProductIdentity::try_new(package, "application")
-            .unwrap_or_else(|| panic!("product identity must be valid"));
+        let target = TargetIdentity::try_new("test-target").unwrap();
 
-        let target = TargetIdentity::try_new("test-target")
-            .unwrap_or_else(|| panic!("target identity must be valid"));
-
-        let failure = DiagnosticEmissionFailure::Evaluation(
-            DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+        let diagnostic = emission_failure_diagnostic(
+            DiagnosticEmissionFailure::Evaluation(
+                DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+            ),
+            &product,
+            &target,
         );
 
-        let diagnostic = emission_failure_diagnostic(failure, &product, &target);
-
-        assert!(
-            diagnostic
-                .notes()
-                .iter()
-                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
-        );
+        assert!(diagnostic.notes().is_empty());
+        assert_eq!(diagnostic.primary_span(), None);
     }
 }
 

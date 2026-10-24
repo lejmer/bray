@@ -13,19 +13,6 @@ use serde::Serialize;
 
 use crate::inspection::{InspectionSymbolIdentity, InspectionType, TypeInspectionError};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SelectionInspectionError {
-    InvalidConstraintDispatch,
-    Local,
-    Type(TypeInspectionError),
-}
-
-impl From<TypeInspectionError> for SelectionInspectionError {
-    fn from(error: TypeInspectionError) -> Self {
-        Self::Type(error)
-    }
-}
-
 #[derive(Serialize)]
 pub(super) struct InspectionSelectionEntry {
     expression: u32,
@@ -55,6 +42,7 @@ enum InspectionSelectionTarget {
     },
     Local {
         symbol_kind: &'static str,
+        region: u32,
         id: u32,
         name: Option<String>,
     },
@@ -124,6 +112,7 @@ impl InspectionSelectionTarget {
             Self::Surface { symbol } => symbol.text(),
             Self::Local {
                 symbol_kind,
+                region,
                 id,
                 name,
             } => {
@@ -132,7 +121,7 @@ impl InspectionSelectionTarget {
                     .map(|name| format!(" {name}"))
                     .unwrap_or_default();
 
-                format!("{symbol_kind}{name} [local:{id}]")
+                format!("{symbol_kind}{name} [local:{region}:{id}]")
             }
             Self::Indirect { r#type } => format!("indirect {}", r#type.text()),
             Self::BuiltInOperator { operator } => format!("built-in {operator}"),
@@ -283,7 +272,7 @@ pub(super) fn selection_entries(
     locals: &LocalSymbolSnapshot,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<Vec<InspectionSelectionEntry>, SelectionInspectionError> {
+) -> Result<Vec<InspectionSelectionEntry>, TypeInspectionError> {
     selections
         .entries()
         .iter()
@@ -316,7 +305,7 @@ fn selection_target(
     locals: &LocalSymbolSnapshot,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<Option<InspectionSelectionTarget>, SelectionInspectionError> {
+) -> Result<Option<InspectionSelectionTarget>, TypeInspectionError> {
     match selection {
         SemanticSelection::Reference(target) => {
             reference_target(*target, locals, symbols).map(Some)
@@ -376,7 +365,7 @@ fn propagation_target(
     propagation: &SelectedPropagation,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     let boundary = match propagation.boundary() {
         Some(SelectedPropagationBoundary::Callable) => "callable",
         Some(SelectedPropagationBoundary::YieldRegion(_)) => "yield_region",
@@ -405,9 +394,9 @@ fn reference_target(
     target: BoundReferenceTarget,
     locals: &LocalSymbolSnapshot,
     symbols: &SymbolGraph,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     match target {
-        BoundReferenceTarget::Local(local) => local_target(local, locals),
+        BoundReferenceTarget::Local(local) => Ok(local_target(local, locals)),
         BoundReferenceTarget::Surface(symbol) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol),
         }),
@@ -419,7 +408,7 @@ fn callable_target(
     locals: &LocalSymbolSnapshot,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     match target {
         BoundCallableTarget::Declaration(instance) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, instance.definition().symbol()),
@@ -430,7 +419,7 @@ fn callable_target(
                 instance.definition().into_any(),
             ),
         }),
-        BoundCallableTarget::Anonymous(callable) => local_target(callable.into(), locals),
+        BoundCallableTarget::Anonymous(callable) => Ok(local_target(callable.into(), locals)),
         BoundCallableTarget::Indirect(ty) => indirect_target(semantic_values, symbols, ty),
     }
 }
@@ -439,7 +428,7 @@ fn operation_target(
     operation: &SelectedOperation,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     match operation {
         SelectedOperation::Member(target) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, target.member()),
@@ -492,7 +481,7 @@ fn operator_target(
     target: OperatorTarget,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     match target {
         OperatorTarget::BuiltIn(operator) => Ok(InspectionSelectionTarget::BuiltInOperator {
             operator: operator.as_str(),
@@ -520,9 +509,11 @@ fn operator_target(
             dispatch,
             ..
         } => {
-            let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::InvalidConstraintDispatch);
-            };
+            let (owner, ordinal) = dispatch.constraint().unwrap_or_else(|| {
+                panic!(
+                    "selected trait-constraint operation requires constraint dispatch: {dispatch:?}"
+                )
+            });
 
             Ok(InspectionSelectionTarget::TraitConstraintOperator {
                 operator: operator.as_str(),
@@ -538,7 +529,7 @@ fn index_target(
     target: IndexTarget,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     let operation = match target {
         IndexTarget::ArrayElement => "array_element",
         IndexTarget::SliceElement => "slice_element",
@@ -569,9 +560,11 @@ fn index_target(
             dispatch,
             ..
         } => {
-            let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::InvalidConstraintDispatch);
-            };
+            let (owner, ordinal) = dispatch.constraint().unwrap_or_else(|| {
+                panic!(
+                    "selected trait-constraint operation requires constraint dispatch: {dispatch:?}"
+                )
+            });
 
             return Ok(InspectionSelectionTarget::TraitConstraintIndex {
                 capability: borrow_kind.as_str(),
@@ -589,7 +582,7 @@ fn inspection_conversion(
     conversion: &SelectedConversion,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionConversion, SelectionInspectionError> {
+) -> Result<InspectionConversion, TypeInspectionError> {
     let rule = match conversion.target() {
         ConversionTarget::Identity => InspectionConversionRule::Identity,
         ConversionTarget::CallableContract => InspectionConversionRule::CallableContract,
@@ -620,9 +613,11 @@ fn inspection_conversion(
         ConversionTarget::TraitConstraint {
             member, dispatch, ..
         } => {
-            let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::InvalidConstraintDispatch);
-            };
+            let (owner, ordinal) = dispatch.constraint().unwrap_or_else(|| {
+                panic!(
+                    "selected trait-constraint operation requires constraint dispatch: {dispatch:?}"
+                )
+            });
 
             InspectionConversionRule::TraitConstraint {
                 member: callable_identity(symbols, *member),
@@ -643,7 +638,7 @@ fn iteration_target(
     iteration: &SelectedIterationSource,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     Ok(InspectionSelectionTarget::Iteration {
         iteration: Box::new(InspectionIteration {
             mode: iteration.mode().as_str(),
@@ -690,7 +685,7 @@ fn protocol_operation(
     witness: ImplementationInstanceId,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionProtocolOperation, SelectionInspectionError> {
+) -> Result<InspectionProtocolOperation, TypeInspectionError> {
     Ok(InspectionProtocolOperation {
         member: callable_identity(symbols, member),
         fulfillment: callable_identity(symbols, fulfillment),
@@ -708,7 +703,7 @@ fn implementation_evidence(
     witness: ImplementationInstanceId,
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
-) -> Result<InspectionImplementationEvidence, SelectionInspectionError> {
+) -> Result<InspectionImplementationEvidence, TypeInspectionError> {
     let trait_application = semantic_values.trait_application_data(requirement.trait_application());
 
     let implementation = semantic_values.implementation_instance_data(witness);
@@ -737,7 +732,7 @@ fn indirect_target(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     ty: TypeId,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
+) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     Ok(InspectionSelectionTarget::Indirect {
         r#type: InspectionType::from_type(semantic_values, symbols, ty)?,
     })
@@ -746,14 +741,20 @@ fn indirect_target(
 fn local_target(
     target: AnyLocalSymbolId,
     locals: &LocalSymbolSnapshot,
-) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
-    let (id, name) = local_identity(target, locals).ok_or(SelectionInspectionError::Local)?;
+) -> InspectionSelectionTarget {
+    let (id, name) = local_identity(target, locals).unwrap_or_else(|| {
+        panic!(
+            "selected local must belong to its retained snapshot: target={target:?}, region={:?}",
+            locals.region()
+        )
+    });
 
-    Ok(InspectionSelectionTarget::Local {
+    InspectionSelectionTarget::Local {
         symbol_kind: target.kind().as_str(),
+        region: target.region().raw(),
         id,
         name,
-    })
+    }
 }
 
 fn local_identity(
@@ -767,14 +768,86 @@ fn local_identity(
         AnyLocalSymbolId::Constant(target) => locals
             .constant(target)
             .map(|symbol| (target.ordinal(), Some(symbol.name().as_str().to_owned()))),
-        AnyLocalSymbolId::AnonymousCallable(target) => locals
-            .anonymous_callable(target)
-            .map(|_| (target.ordinal(), None)),
+        // A checked anonymous-call target identifies the callable in its own child region.
+        // Its identity needs no name lookup in the caller's local snapshot.
+        AnyLocalSymbolId::AnonymousCallable(target) => Some((target.ordinal(), None)),
         AnyLocalSymbolId::AnonymousCallableParameter(target) => locals
             .anonymous_parameter(target)
             .map(|symbol| (target.ordinal(), Some(symbol.name().as_str().to_owned()))),
         AnyLocalSymbolId::PostconditionResult(target) => locals
             .postcondition_result(target)
             .map(|_| (target.ordinal(), None)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compilation::{CancellationToken, Compilation, QueryPriority};
+    use bray_source::{SourceId, SourceIdentity, SourceInput, SourceVersion};
+    use bray_symbols::PackageIdentity;
+
+    #[test]
+    fn anonymous_target_uses_its_own_region_outside_the_callers_snapshot() {
+        let input = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "nested.bray",
+            SourceVersion::new(0),
+            r#"
+module example;
+
+func main()
+{
+    let callable = lambda(value: i32)
+    {
+        value;
+    };
+}
+"#,
+        );
+
+        let compilation = Compilation::load_sources(
+            PackageIdentity::try_new("test.package").unwrap(),
+            vec![input],
+        )
+        .unwrap();
+
+        let units = compilation
+            .bound_units_for_source(
+                SourceId::stored(0).unwrap(),
+                &CancellationToken::new(),
+                QueryPriority::Interactive,
+            )
+            .unwrap();
+
+        let caller = units[0].value().local_symbols();
+        let child = units[1].value().local_symbols();
+        let callable = child.anonymous_callables()[0].id();
+
+        assert!(caller.anonymous_callable(callable).is_none());
+        assert_ne!(caller.region(), callable.region());
+
+        let target = super::local_target(callable.into(), caller);
+
+        assert_eq!(
+            serde_json::to_value(target).unwrap(),
+            serde_json::json!({
+                "target_kind": "local",
+                "symbol_kind": "anonymous_callable",
+                "region": child.region().raw(),
+                "id": callable.ordinal(),
+                "name": null,
+            })
+        );
+
+        let parameter = child.anonymous_parameters()[0].id();
+
+        let panic = std::panic::catch_unwind(|| super::local_target(parameter.into(), caller))
+            .err()
+            .expect("named locals must still belong to their snapshot");
+
+        let message = bray_testing::panic_payload_text(panic.as_ref());
+
+        assert!(message.contains("AnonymousCallableParameter"));
+        assert!(message.contains("region"));
     }
 }

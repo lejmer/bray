@@ -22,10 +22,9 @@ pub use error::ImportedQueryFailure;
 pub(crate) use error::diagnostic_context;
 pub use error::{FactCycle, FactQueryError, diagnostic_semantic_value_failure};
 pub(crate) use error::{
-    callable_signature_reason, diagnostic_binding_failure, diagnostic_cycle_failure,
-    diagnostic_fact_runtime_failure, diagnostic_semantic_query_failure,
-    diagnostic_symbol_graph_failure, generic_substitution_reason,
-    push_generic_substitution_failure, push_semantic_value_failure,
+    diagnostic_binding_failure, diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
+    diagnostic_semantic_query_failure, diagnostic_symbol_capacity_failure,
+    generic_substitution_reason, push_generic_substitution_failure, push_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
@@ -56,9 +55,9 @@ pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 pub(crate) use runtime_error::{
     CancellationStateKind, CapacityResource, FactRuntimeFailure, FactTaskPhase, HostIoFailure,
     LocalStateFailure, SchedulerCounter, SchedulerLocalOperation, SynchronizationComponent,
-    TaskContextIdentity, TaskLocalOperation, TaskOperation, WorkerPoolKind,
+    TaskLocalOperation, TaskOperation, WorkerPoolKind,
 };
 pub(crate) use symbol::SymbolQueryCache;
-pub(crate) use task::{FactTaskIdentity, RuntimeIdentity};
+pub(crate) use task::FactTaskIdentity;
 pub(crate) use unit::{PublishedUnitResult, UnitQueryCache};
 pub(crate) use unit_identity::BoundUnitIdentityMap;

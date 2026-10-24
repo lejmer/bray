@@ -336,7 +336,8 @@ impl Compilation {
                     },
                 )?
             }
-            None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
+            None => source_reachability
+                .expect("checked product must retain its selected executable root"),
         };
 
         let reachability = match host.as_ref() {
@@ -521,7 +522,7 @@ impl Compilation {
             }
         }
 
-        partition_codegen_units(
+        let partition = partition_codegen_units(
             policy,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
@@ -531,7 +532,9 @@ impl Compilation {
                     .expect("partition MIR identity must be prepared")
             },
         )
-        .map_err(NativeProductPlanningError::InvalidCodegenPartition)
+        .unwrap_or_else(|cause| panic!("native codegen partition construction failed: {cause:?}"));
+
+        Ok(partition)
     }
 
     #[expect(

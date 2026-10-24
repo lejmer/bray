@@ -8,10 +8,9 @@ use serde::Serialize;
 
 use crate::OutputFormat;
 use crate::inspection::{
-    InspectionOutput, InspectionTrivia, InspectionTriviaError, TreeWriter, escaped_text,
-    location_for_range, location_range_text, push_indented_report_value, push_report_value,
-    push_text_diagnostic, quoted_text, range_text, render_pretty_json, trivia_entries,
-    trivia_summary,
+    InspectionOutput, InspectionTrivia, TreeWriter, escaped_text, location_for_range,
+    location_range_text, push_indented_report_value, push_report_value, push_text_diagnostic,
+    quoted_text, range_text, render_pretty_json, trivia_entries, trivia_summary,
 };
 use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
@@ -19,12 +18,7 @@ use crate::output::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SyntaxInspectionRenderError {
-    SourceIndex,
     SourceIndexOverflow(TextSizeOverflow),
-    SourceMismatch,
-    TokenText,
-    TriviaText,
-    TreeStructure,
     Json(String),
 }
 
@@ -59,7 +53,7 @@ impl SyntaxInspectionReport {
         for snapshot in compilation.sources() {
             let result = compilation
                 .source_unit_syntax(snapshot.source_id())
-                .ok_or(SyntaxInspectionRenderError::SourceMismatch)?;
+                .expect("retained syntax.rs relationships must provide SourceMismatch");
 
             sources.push(SyntaxInspectionSource::from_result(
                 snapshot,
@@ -98,15 +92,17 @@ impl SyntaxInspectionSource {
         result: &SourceUnitSyntaxResult,
         sources: &SourceStore,
     ) -> Result<Self, SyntaxInspectionRenderError> {
-        if result.source_id() != snapshot.source_id() {
-            return Err(SyntaxInspectionRenderError::SourceMismatch);
-        }
+        assert_eq!(
+            result.source_id(),
+            snapshot.source_id(),
+            "syntax inspection must retain its parsed source"
+        );
 
         let line_index = LineIndex::new(snapshot.text())
             .map_err(SyntaxInspectionRenderError::SourceIndexOverflow)?;
 
         let (tree, node_count, token_count) =
-            syntax_tree_elements(snapshot, &line_index, result.source_unit())?;
+            syntax_tree_elements(snapshot, &line_index, result.source_unit());
 
         let origin = SourceOriginOutput::from_origin(snapshot.origin());
         let display_name = origin.display_name().to_owned();
@@ -156,34 +152,30 @@ impl SyntaxInspectionElement {
         snapshot: &SourceSnapshot,
         line_index: &LineIndex,
         node: bray_syntax::SyntaxNodeView<'_>,
-    ) -> Result<Self, SyntaxInspectionRenderError> {
+    ) -> Self {
         let range = node.full_range();
 
         let location = location_for_range(snapshot, line_index, range)
-            .ok_or(SyntaxInspectionRenderError::SourceIndex)?;
+            .expect("retained syntax.rs relationships must provide SourceIndex");
 
-        Ok(Self::Node {
+        Self::Node {
             kind: node.kind().as_str(),
             span: TextRangeOutput::from_range(range),
             location,
             recovered: node.is_recovered(),
             children: Vec::new(),
-        })
+        }
     }
 
-    fn token(
-        snapshot: &SourceSnapshot,
-        line_index: &LineIndex,
-        token: &SyntaxToken,
-    ) -> Result<Self, SyntaxInspectionRenderError> {
+    fn token(snapshot: &SourceSnapshot, line_index: &LineIndex, token: &SyntaxToken) -> Self {
         let text = token
             .text(snapshot.text())
-            .ok_or(SyntaxInspectionRenderError::TokenText)?;
+            .expect("retained syntax.rs relationships must provide TokenText");
 
         let location = location_for_range(snapshot, line_index, token.range())
-            .ok_or(SyntaxInspectionRenderError::SourceIndex)?;
+            .expect("retained syntax.rs relationships must provide SourceIndex");
 
-        Ok(Self::Token {
+        Self::Token {
             kind: token.kind().as_str(),
             text: text.to_owned(),
             escaped_text: escaped_text(text),
@@ -191,11 +183,9 @@ impl SyntaxInspectionElement {
             location,
             missing: token.is_missing(),
             end_of_file: token.is_end_of_file(),
-            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia())
-                .map_err(map_trivia_error)?,
-            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia())
-                .map_err(map_trivia_error)?,
-        })
+            leading_trivia: trivia_entries(snapshot, line_index, token.leading_trivia()),
+            trailing_trivia: trivia_entries(snapshot, line_index, token.trailing_trivia()),
+        }
     }
 
     fn children_mut(&mut self) -> Option<&mut Vec<Self>> {
@@ -266,86 +256,62 @@ fn syntax_tree_elements(
     snapshot: &SourceSnapshot,
     line_index: &LineIndex,
     source_unit: &SourceUnitSyntax,
-) -> Result<(SyntaxInspectionElement, usize, usize), SyntaxInspectionRenderError> {
+) -> (SyntaxInspectionElement, usize, usize) {
     let mut stack = Vec::new();
     let mut root = None;
-    let mut error = None;
     let mut node_count = 0;
     let mut token_count = 0;
 
     walk_source_unit(source_unit, |event| {
-        let result = match event {
+        match event {
             SyntaxWalkEvent::EnterNode(node) => {
                 node_count += 1;
-
-                SyntaxInspectionElement::node(snapshot, line_index, node)
-                    .map(|node| stack.push(node))
+                stack.push(SyntaxInspectionElement::node(snapshot, line_index, node));
             }
             SyntaxWalkEvent::Token(token) => {
                 token_count += 1;
 
-                SyntaxInspectionElement::token(snapshot, line_index, &token).and_then(|token| {
-                    let parent = stack
-                        .last_mut()
-                        .and_then(SyntaxInspectionElement::children_mut)
-                        .ok_or(SyntaxInspectionRenderError::TreeStructure)?;
+                let parent = stack
+                    .last_mut()
+                    .and_then(SyntaxInspectionElement::children_mut)
+                    .expect("syntax token must belong to an entered node");
 
-                    parent.push(token);
-
-                    Ok(())
-                })
+                parent.push(SyntaxInspectionElement::token(snapshot, line_index, &token));
             }
             SyntaxWalkEvent::ExitNode(_) => finish_node(&mut stack, &mut root),
-        };
-
-        match result {
-            Ok(()) => SyntaxWalkControl::Continue,
-            Err(failure) => {
-                error = Some(failure);
-
-                SyntaxWalkControl::Stop
-            }
         }
+
+        SyntaxWalkControl::Continue
     });
 
-    if let Some(error) = error {
-        return Err(error);
-    }
+    assert!(
+        stack.is_empty(),
+        "syntax traversal must exit every entered node"
+    );
 
-    if !stack.is_empty() {
-        return Err(SyntaxInspectionRenderError::TreeStructure);
-    }
+    let root = root.expect("syntax traversal must produce its source root");
 
-    let root = root.ok_or(SyntaxInspectionRenderError::TreeStructure)?;
-
-    Ok((root, node_count, token_count))
+    (root, node_count, token_count)
 }
 
 fn finish_node(
     stack: &mut Vec<SyntaxInspectionElement>,
     root: &mut Option<SyntaxInspectionElement>,
-) -> Result<(), SyntaxInspectionRenderError> {
+) -> () {
     let node = stack
         .pop()
-        .ok_or(SyntaxInspectionRenderError::TreeStructure)?;
+        .expect("retained syntax.rs relationships must provide TreeStructure");
 
     match stack.last_mut() {
         Some(parent) => parent
             .children_mut()
-            .ok_or(SyntaxInspectionRenderError::TreeStructure)?
+            .expect("retained syntax.rs relationships must provide TreeStructure")
             .push(node),
         None if root.is_none() => *root = Some(node),
-        None => return Err(SyntaxInspectionRenderError::TreeStructure),
+        None => panic!("syntax traversal must produce exactly one root"),
     }
 
-    Ok(())
-}
-
-const fn map_trivia_error(error: InspectionTriviaError) -> SyntaxInspectionRenderError {
-    match error {
-        InspectionTriviaError::SourceIndex => SyntaxInspectionRenderError::SourceIndex,
-        InspectionTriviaError::Text => SyntaxInspectionRenderError::TriviaText,
-    }
+    ()
 }
 
 fn render_text_report(report: &SyntaxInspectionReport) -> String {
