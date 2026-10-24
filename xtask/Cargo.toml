@@ -15,6 +15,7 @@ bray-llvm-toolchain = { path = "../tools/llvm-toolchain" }
 bray-codegen = { path = "../crates/bray-codegen" }
 bray-codegen-llvm = { path = "../crates/bray-codegen-llvm" }
 bray-compilation = { path = "../crates/bray-compilation" }
+bray-declarations = { path = "../crates/bray-declarations" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }
 bray-driver = { path = "../crates/bray-driver" }
@@ -30,6 +31,7 @@ bray-runtime-interface = { path = "../crates/bray-runtime-interface" }
 bray-source = { path = "../crates/bray-source" }
 bray-standard-library = { path = "../crates/bray-standard-library" }
 bray-symbols = { path = "../crates/bray-symbols" }
+bray-syntax = { path = "../crates/bray-syntax" }
 bray-target = { path = "../crates/bray-target" }
 bray-test-protocol = { path = "../crates/bray-test-protocol", features = ["serialization"] }
 bray-tooling = { path = "../crates/bray-tooling" }

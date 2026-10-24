@@ -7,8 +7,8 @@ use bray_diagnostics::{
     DiagnosticIoErrorKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
 };
 use bray_test_protocol::{
-    TestCatalog, TestCatalogDigest, TestCatalogEntryId, TestProtocolError, decode_test_catalog,
-    protocol_version,
+    TestCatalog, TestCatalogDecodeError, TestCatalogDigest, TestCatalogEntryId, TestProtocolError,
+    decode_test_catalog, protocol_version,
 };
 
 #[derive(Clone, Copy)]
@@ -89,22 +89,41 @@ fn read_host(
     let bytes = read(catalog_path)?;
 
     let (catalog, catalog_digest) = decode_test_catalog(&bytes).map_err(|error| match error {
-        TestProtocolError::Malformed => DiagnosticProjectCommandFailure::MalformedTestCatalog {
-            path: catalog_path.to_path_buf(),
+        TestCatalogDecodeError::Protocol(TestProtocolError::Malformed) => {
+            DiagnosticProjectCommandFailure::MalformedTestCatalog {
+                path: catalog_path.to_path_buf(),
+            }
+        }
+        TestCatalogDecodeError::Entries(cause) => match cause {
+            bray_test_protocol::TestCatalogBuildError::DuplicateIdentity(identity) => {
+                DiagnosticProjectCommandFailure::DuplicateTestCatalogEntry {
+                    path: catalog_path.to_path_buf(),
+                    identity: identity.to_string(),
+                }
+            }
+            bray_test_protocol::TestCatalogBuildError::InvalidResultMetadata(identity) => {
+                DiagnosticProjectCommandFailure::TestCatalogResultMismatch {
+                    path: catalog_path.to_path_buf(),
+                    identity: identity.to_string(),
+                }
+            }
+            bray_test_protocol::TestCatalogBuildError::ProductMismatch(identity) => {
+                panic!("catalog decoder must assign each entry its decoded product: {identity}")
+            }
         },
-        TestProtocolError::UnsupportedVersion(actual) => {
+        TestCatalogDecodeError::Protocol(TestProtocolError::UnsupportedVersion(actual)) => {
             DiagnosticProjectCommandFailure::UnsupportedTestCatalogVersion {
                 path: catalog_path.to_path_buf(),
                 actual,
                 supported: protocol_version(),
             }
         }
-        TestProtocolError::ResourceLimit => {
+        TestCatalogDecodeError::Protocol(TestProtocolError::ResourceLimit) => {
             DiagnosticProjectCommandFailure::TestCatalogCapacityExceeded {
                 path: catalog_path.to_path_buf(),
             }
         }
-        TestProtocolError::Io => {
+        TestCatalogDecodeError::Protocol(TestProtocolError::Io) => {
             panic!("in-memory test catalog decoding cannot perform host I/O: {catalog_path:?}")
         }
     })?;

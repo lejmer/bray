@@ -83,7 +83,6 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
 @test
 trusted func dynamic_library_handle_transfer_disables_owner_cleanup() -> Result<unit, std.ffi.ForeignError>
-    uses(foreign_call)
 {
     let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open(
         std.dynamic.SystemLibrary.CRuntime,

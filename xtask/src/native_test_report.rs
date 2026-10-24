@@ -10,7 +10,7 @@ pub(crate) struct NativeTestReport {
     pub(crate) duration_nanoseconds: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct NativeTestBuildProvenance {
     pub(crate) reused: bool,
     pub(crate) compilation: bool,
@@ -19,7 +19,7 @@ pub(crate) struct NativeTestBuildProvenance {
     pub(crate) products: Vec<NativeTestProductGeneration>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct NativeTestProductGeneration {
     pub(crate) product: String,
     pub(crate) generation: String,

@@ -6,29 +6,24 @@ use std::process::{Command, Output};
 
 use bray_base::{is_lowercase_hex, lowercase_hex};
 use bray_project::{ProjectGraph, load_standard_library_project_graph};
-use bray_symbols::{PackageIdentity, TestExecutionConstraint};
+use bray_symbols::PackageIdentity;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
-use bray_test_protocol::{TestBatchPlan, TestBatchRequest, decode_test_catalog};
+use bray_test_protocol::{TestBatchPlan, TestBatchRequest};
 use serde::Deserialize;
 
 use super::command::BuildError;
+use super::test_catalog::{SourceTestInventory, VerifiedTestCatalog};
 use crate::native_test_report::{
-    NativeOutcome, NativeSourceAnchor, NativeStream, NativeTestBuildProvenance, NativeTestReport,
-    NativeTestResult,
+    NativeOutcome, NativeSourceAnchor, NativeStream, NativeTestBuildProvenance,
+    NativeTestProductGeneration, NativeTestReport,
 };
-#[cfg(test)]
-use crate::native_test_report::{NativeProductReport, NativeSelection, NativeSummary};
 
 const PACKAGE_IDENTITY: &str = "std";
 const LIBRARY_PRODUCT: &str = "library";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 170;
-const API_FILTERED_TEST_COUNT: usize = 3;
-const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
-const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 25] = [
+const OUTCOME_CASES: &[OutcomeCase] = &[
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -246,6 +241,15 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     let target = NativeTarget::current()
         .ok_or_else(|| BuildError::conformance("native", "the compiler host is not supported"))?;
 
+    println!("Native standard-library execution target: {}", target.as_str());
+
+    for unavailable in NativeTarget::ALL.into_iter().filter(|other| *other != target) {
+        println!(
+            "  execution unavailable in this run for {}, requires a matching native host",
+            unavailable.as_str()
+        );
+    }
+
     crate::native_toolchain::build_compiler(&root)
         .map_err(|error| BuildError::conformance("native", error))?;
 
@@ -307,13 +311,19 @@ fn test_in(
             copy_standard_library_workspace(root, &workspace)
         })?;
 
+        let graph = load_standard_library_project_graph(&root.join("standard-library")).map_err(
+            |error| {
+                BuildError::conformance(
+                    "native test sources",
+                    format!("could not load source graph: {error:?}"),
+                )
+            },
+        )?;
+
         if selected(parts, TestPart::Api) {
-            crate::progress::run(
-                &format!(
-                    "Running native standard library API tests ({API_TEST_COUNT} tests, 7 plans)"
-                ),
-                || audit_api(root, &workspace, &toolchain, target, profile_output),
-            )?;
+            crate::progress::run("Running native standard library API test plans", || {
+                audit_api(root, &workspace, &toolchain, target, profile_output, &graph)
+            })?;
         }
 
         if selected(parts, TestPart::Outcomes) {
@@ -322,7 +332,7 @@ fn test_in(
                     "Checking native test outcomes ({} cases)",
                     OUTCOME_CASES.len()
                 ),
-                || audit_outcomes(root, &workspace, &toolchain, target, profile_output),
+                || audit_outcomes(root, &workspace, &toolchain, target, profile_output, &graph),
             )?;
         }
     }
@@ -334,13 +344,43 @@ fn selected(parts: &[TestPart], part: TestPart) -> bool {
     parts.is_empty() || parts.contains(&part)
 }
 
+fn source_inventory(
+    root: &Path,
+    graph: &ProjectGraph,
+    name: &str,
+    target: NativeTarget,
+) -> Result<SourceTestInventory, BuildError> {
+    let package = PackageIdentity::try_new(PACKAGE_IDENTITY)
+        .expect("standard library package identity is valid");
+
+    let product = graph
+        .package(&package)
+        .and_then(|package| {
+            package
+                .products()
+                .iter()
+                .find(|product| product.identity().name() == name)
+        })
+        .ok_or_else(|| {
+            BuildError::conformance(
+                "native test sources",
+                format!("missing standard library product {name}"),
+            )
+        })?;
+
+    SourceTestInventory::load(&root.join("standard-library"), product, target)
+}
+
 fn audit_api(
     root: &Path,
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
     profile_output: Option<&Path>,
+    graph: &ProjectGraph,
 ) -> Result<(), BuildError> {
+    let source = source_inventory(root, graph, API_PRODUCT, target)?;
+
     let request = test_batch_request([
         test_batch_plan(
             "startup-byte-buffer",
@@ -376,71 +416,66 @@ fn audit_api(
     require_success("native API batch", &output)?;
 
     let batch = parse_batch_report("native API batch", &output, &request)?;
-    let byte_buffer = batch.report("startup-byte-buffer")?;
-    let output_lock = batch.report("startup-output-lock")?;
-    let sequential = batch.report("api-sequential")?;
-    let parallel = batch.report("api-parallel")?;
-    let filtered = batch.report("api-filtered")?;
-    let concurrency_model = batch.report("concurrency-model")?;
-    let concurrency_stress = batch.report("concurrency-stress")?;
+    let catalog_path = product_catalog(workspace, target, API_PRODUCT)?;
+    let catalog = source.verify(&read_artifact(&catalog_path)?)?;
 
-    let catalog = product_catalog(workspace, target, API_PRODUCT)?;
-    let catalog = read_artifact(&catalog)?;
+    for plan in request.plans() {
+        let report = batch.report(plan.identity())?;
+        let selected = api_selection(&catalog, plan.identity())?;
 
-    require_startup_report(
-        "startup-byte-buffer",
-        byte_buffer,
-        "byte_buffer_mutation",
-        &[],
-    )?;
-
-    require_startup_report(
-        "startup-output-lock",
-        output_lock,
-        "repeated_standard_output_locks_are_released",
-        b"first-lock|second-lock",
-    )?;
-
-    validate_api_report("api-sequential", sequential)?;
-    validate_api_report("api-parallel", parallel)?;
-    require_stable_order(sequential, parallel)?;
-    require_serial_metadata(&catalog)?;
-
-    require_selection(
-        filtered,
-        API_TEST_COUNT,
-        API_FILTERED_TEST_COUNT,
-        API_TEST_COUNT - API_FILTERED_TEST_COUNT,
-    )?;
-
-    let tests = tests(filtered);
-
-    if tests.len() != 3
-        || tests
-            .iter()
-            .any(|test| !test.identity.contains("standard_output"))
-    {
-        return Err(BuildError::conformance(
-            "native filtering",
-            "the standard_output filter did not select exactly the three I/O fixtures",
-        ));
+        catalog.require_report(plan.identity(), report, &selected)?;
+        validate_api_report(plan.identity(), report)?;
     }
 
-    require_concurrency_selection(
-        concurrency_model,
-        "concurrency_model_",
-        CONCURRENCY_MODEL_TEST_COUNT,
-    )?;
+    audit_no_build_rerun(
+        root,
+        workspace,
+        toolchain,
+        target,
+        &catalog,
+        &batch.build.products,
+    )
+}
 
-    require_concurrency_selection(
-        concurrency_stress,
-        "concurrency_stress_",
-        CONCURRENCY_STRESS_TEST_COUNT,
-    )?;
+pub(super) fn api_selection<'catalog>(
+    catalog: &'catalog VerifiedTestCatalog,
+    plan: &str,
+) -> Result<Vec<&'catalog str>, BuildError> {
+    let declarations: &[&str] = match plan {
+        "api-sequential" | "api-parallel" => {
+            return Ok(catalog.identities().iter().map(String::as_str).collect());
+        }
+        "startup-byte-buffer" | "no-build" => {
+            &["bray.standard_library_tests.bytes.byte_buffer_mutation"]
+        }
+        "startup-output-lock" => {
+            &["bray.standard_library_tests.lifecycle.repeated_standard_output_locks_are_released"]
+        }
+        "api-filtered" => &[
+            "bray.standard_library_tests.io_async.asynchronous_standard_output_is_captured",
+            "bray.standard_library_tests.io_print.standard_output_is_captured",
+            "bray.standard_library_tests.lifecycle.repeated_standard_output_locks_are_released",
+        ],
+        "concurrency-model" => &[
+            "bray.standard_library_tests.atomic.concurrency_model_atomic_operations_preserve_observed_values",
+            "bray.standard_library_tests.atomic.concurrency_model_atomic_wait_observes_notification",
+            "bray.standard_library_tests.channel.concurrency_model_receiver_close_resolves_buffered_messages",
+            "bray.standard_library_tests.channel.concurrency_model_channel_capacity_overflow_is_recoverable",
+            "bray.standard_library_tests.sync.concurrency_model_failed_once_initialization_can_be_retried",
+            "bray.standard_library_tests.sync.concurrency_model_reader_writer_lock_admits_a_pending_writer_before_later_readers",
+            "bray.standard_library_tests.thread.concurrency_model_native_thread_identity_and_exact_thread_cleanup_are_observable",
+        ],
+        "concurrency-stress" => &[
+            "bray.standard_library_tests.atomic.concurrency_stress_atomic_compare_exchange_serializes_contended_updates",
+            "bray.standard_library_tests.channel.concurrency_stress_contended_producers_preserve_each_senders_commit_order",
+            "bray.standard_library_tests.sync.concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progress",
+            "bray.standard_library_tests.sync.concurrency_stress_barrier_reuses_its_generation_across_contended_rounds",
+            "bray.standard_library_tests.thread.concurrency_stress_native_thread_cancellation_reaches_a_checkpoint",
+        ],
+        _ => panic!("validated API request must name a known plan: {plan}"),
+    };
 
-    audit_no_build_rerun(root, workspace, toolchain, target)?;
-
-    Ok(())
+    catalog.focused(declarations)
 }
 
 fn audit_no_build_rerun(
@@ -448,6 +483,8 @@ fn audit_no_build_rerun(
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
+    catalog: &VerifiedTestCatalog,
+    original: &[NativeTestProductGeneration],
 ) -> Result<(), BuildError> {
     let request = test_batch_request([test_batch_plan(
         "no-build",
@@ -472,84 +509,35 @@ fn audit_no_build_rerun(
 
     let batch = parse_batch_report("native no-build rerun", &output, &request)?;
 
-    if !batch.build.reused
-        || batch.build.compilation
-        || batch.build.emission
-        || batch.build.linking
-        || batch.build.products.len() != 1
+    require_no_build_provenance(&batch.build, original)?;
+
+    let report = batch.report("no-build")?;
+
+    catalog.require_report("no-build", report, &api_selection(catalog, "no-build")?)?;
+
+    validate_api_report("no-build", report)
+}
+
+fn require_no_build_provenance(
+    build: &NativeTestBuildProvenance,
+    original: &[NativeTestProductGeneration],
+) -> Result<(), BuildError> {
+    if !build.reused
+        || build.compilation
+        || build.emission
+        || build.linking
+        || build.products.len() != 1
+        || original.len() != 1
+        || build.products[0].product != original[0].product
+        || build.products[0].generation != original[0].generation
     {
         return Err(BuildError::conformance(
             "native no-build rerun",
-            "the no-build report did not identify one fully reused retained generation",
-        ));
-    }
-
-    require_startup_report(
-        "no-build",
-        batch.report("no-build")?,
-        "byte_buffer_mutation",
-        &[],
-    )
-}
-
-fn require_concurrency_selection(
-    report: &NativeTestReport,
-    identity_fragment: &str,
-    expected: usize,
-) -> Result<(), BuildError> {
-    require_product(report, API_PRODUCT)?;
-    require_selection(report, API_TEST_COUNT, expected, API_TEST_COUNT - expected)?;
-
-    let tests = tests(report);
-
-    if tests.len() != expected
-        || tests
-            .iter()
-            .any(|test| !test.identity.contains(identity_fragment))
-    {
-        return Err(BuildError::conformance(
-            "native concurrency",
-            format!("the {identity_fragment} filter did not select exactly {expected} fixtures"),
+            format!("expected one fully reused retained generation {original:?}, actual {build:?}"),
         ));
     }
 
     Ok(())
-}
-
-fn require_startup_report(
-    plan: &str,
-    report: &NativeTestReport,
-    identity: &str,
-    expected_output: &[u8],
-) -> Result<(), BuildError> {
-    require_product(report, API_PRODUCT)?;
-    require_selection(report, API_TEST_COUNT, 1, API_TEST_COUNT - 1)?;
-
-    let tests = tests(report);
-
-    let [test] = tests.as_slice() else {
-        return Err(BuildError::conformance(
-            "focused test-host startup",
-            format!("{identity} did not produce one result"),
-        ));
-    };
-
-    if !test.identity.ends_with(identity) {
-        return Err(BuildError::conformance(
-            "focused test-host startup",
-            format!("{identity} selected unrelated test {}", test.identity),
-        ));
-    }
-
-    require_stream(
-        plan,
-        &test.identity,
-        "stdout",
-        &test.stdout,
-        expected_output,
-    )?;
-
-    require_stream(plan, &test.identity, "stderr", &test.stderr, &[])
 }
 
 fn audit_outcomes(
@@ -558,7 +546,10 @@ fn audit_outcomes(
     toolchain: &Path,
     target: NativeTarget,
     profile_output: Option<&Path>,
+    graph: &ProjectGraph,
 ) -> Result<(), BuildError> {
+    let source = source_inventory(root, graph, OUTCOME_PRODUCT, target)?;
+
     let request = outcome_batch_request()?;
 
     let output = run_test_batch(
@@ -582,58 +573,38 @@ fn audit_outcomes(
 
     let batch = parse_batch_report("native outcomes", &output, &request)?;
 
-    let graph = load_standard_library_project_graph(workspace).map_err(|error| {
-        BuildError::conformance(
-            "native outcomes",
-            format!("could not load source graph: {error:?}"),
-        )
-    })?;
+    let bytes = read_artifact(&product_catalog(workspace, target, OUTCOME_PRODUCT)?)?;
 
-    let catalog = product_catalog(workspace, target, OUTCOME_PRODUCT)?;
-    let catalog = read_artifact(&catalog)?;
+    require_catalog_separation(&bytes)?;
 
-    require_catalog_separation(&catalog)?;
+    let catalog = source.verify(&bytes)?;
+    let covered = outcome_plan_identities(&catalog)?;
 
-    let (catalog, _) = decode_test_catalog(&catalog).map_err(|error| {
-        BuildError::conformance(
-            "native outcomes",
-            format!("could not decode test catalog: {error:?}"),
-        )
-    })?;
+    for (&case, identity) in OUTCOME_CASES.iter().zip(&covered) {
+        let report = batch.report(case.plan_identity)?;
 
-    let direct_source_namespace = catalog
-        .entries()
-        .iter()
-        .find(|entry| entry.identity().declaration().name().as_str() == "explicit_failure")
-        .expect("outcomes catalog must contain the direct failure test")
-        .source()
-        .package();
-
-    let package = PackageIdentity::try_new(PACKAGE_IDENTITY)
-        .expect("standard library package identity is valid");
-
-    let outcome_product = graph
-        .package(&package)
-        .and_then(|package| {
-            package
-                .products()
-                .iter()
-                .find(|product| product.identity().name() == OUTCOME_PRODUCT)
-        })
-        .expect("standard library outcomes product must exist");
-
-    if direct_source_namespace != outcome_product.identity().source_namespace() {
-        return Err(BuildError::conformance(
-            "native outcomes",
-            "the direct test catalog source namespace does not match its product",
-        ));
-    }
-
-    for case in OUTCOME_CASES {
-        audit_outcome(batch.report(case.plan_identity)?, case, workspace, &graph)?;
+        catalog.require_report(case.plan_identity, report, std::slice::from_ref(identity))?;
+        audit_outcome(report, case, workspace, graph)?;
     }
 
     Ok(())
+}
+
+pub(super) fn outcome_plan_identities(
+    catalog: &VerifiedTestCatalog,
+) -> Result<Vec<&str>, BuildError> {
+    let mut identities = Vec::new();
+
+    for case in OUTCOME_CASES {
+        identities.extend(catalog.focused(&[&format!(
+            "bray.standard_library_tests.outcomes.{}",
+            case.test_identity
+        )])?);
+    }
+
+    catalog.require_plan_coverage(&identities)?;
+
+    Ok(identities)
 }
 
 fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
@@ -658,9 +629,6 @@ fn audit_outcome(
     workspace: &Path,
     graph: &ProjectGraph,
 ) -> Result<(), BuildError> {
-    require_product(report, OUTCOME_PRODUCT)?;
-    require_selection(report, OUTCOME_CASES.len(), 1, OUTCOME_CASES.len() - 1)?;
-
     if report.summary.passed != 0 || report.summary.failed != 1 {
         return Err(BuildError::conformance(
             "native outcomes",
@@ -668,7 +636,7 @@ fn audit_outcome(
         ));
     }
 
-    let results = tests(report);
+    let results = &report.products[0].tests;
 
     let [test] = results.as_slice() else {
         return Err(BuildError::conformance(
@@ -676,13 +644,6 @@ fn audit_outcome(
             format!("{} did not produce one result", case.test_identity),
         ));
     };
-
-    if !test.identity.ends_with(case.test_identity) {
-        return Err(BuildError::conformance(
-            "native outcomes",
-            format!("{} selected an unrelated result", case.test_identity),
-        ));
-    }
 
     case.expectation
         .validate(case.test_identity, &test.outcome)?;
@@ -782,7 +743,7 @@ fn audit_explicit_source(
         return Err(BuildError::conformance(
             "native outcomes",
             format!(
-                "{identity} did not resolve to {source_path}'s fail call: {source:?}; expected namespace {expected_package}, source {expected_source}, span within call {source_is_in_call}"
+                "{identity} did not resolve to {source_path}'s fail call: {source:?}, expected namespace {expected_package}, source {expected_source}, span within call {source_is_in_call}"
             ),
         ));
     }
@@ -791,10 +752,7 @@ fn audit_explicit_source(
 }
 
 fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), BuildError> {
-    require_product(report, API_PRODUCT)?;
-    require_selection(report, API_TEST_COUNT, API_TEST_COUNT, 0)?;
-
-    let tests = tests(report);
+    let tests = &report.products[0].tests;
 
     if let Some(test) = tests
         .iter()
@@ -806,39 +764,22 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
         ));
     }
 
-    if report.summary.passed != API_TEST_COUNT || report.summary.failed != 0 {
-        return Err(BuildError::conformance(
-            "native execution",
-            format!("the API product did not report {API_TEST_COUNT} passing tests"),
-        ));
-    }
-
-    let identities: Vec<_> = tests.iter().map(|test| test.identity.as_str()).collect();
-    let mut sorted = identities.clone();
-
-    sorted.sort_unstable();
-
-    if identities != sorted {
-        return Err(BuildError::conformance(
-            "native ordering",
-            "test identities are not in canonical order",
-        ));
-    }
-
     for test in tests {
-        let (expected_output, expected_error) = if test
-            .identity
-            .ends_with("asynchronous_standard_output_is_captured")
+        let (expected_output, expected_error) = if test.identity
+            == "std/api::bray.standard_library_tests.io_async.asynchronous_standard_output_is_captured"
         {
             (b"captured-async-output".as_slice(), &[][..])
-        } else if test
-            .identity
-            .ends_with("repeated_standard_output_locks_are_released")
+        } else if test.identity
+            == "std/api::bray.standard_library_tests.lifecycle.repeated_standard_output_locks_are_released"
         {
             (b"first-lock|second-lock".as_slice(), &[][..])
-        } else if test.identity.ends_with("standard_output_is_captured") {
+        } else if test.identity
+            == "std/api::bray.standard_library_tests.io_print.standard_output_is_captured"
+        {
             (b"captured-standard-output".as_slice(), &[][..])
-        } else if test.identity.ends_with("standard_error_is_captured") {
+        } else if test.identity
+            == "std/api::bray.standard_library_tests.io_print.standard_error_is_captured"
+        {
             (&[][..], b"captured-standard-error".as_slice())
         } else {
             (&[][..], &[][..])
@@ -853,28 +794,6 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
         )?;
 
         require_stream(plan, &test.identity, "stderr", &test.stderr, expected_error)?;
-    }
-
-    Ok(())
-}
-
-fn require_product(report: &NativeTestReport, product: &str) -> Result<(), BuildError> {
-    let [actual] = report.products.as_slice() else {
-        return Err(BuildError::conformance(
-            "native report",
-            "the report did not contain exactly one selected product",
-        ));
-    };
-
-    if report.format != 1
-        || actual.package != PACKAGE_IDENTITY
-        || actual.product != product
-        || !is_lowercase_sha256(&actual.catalog_digest)
-    {
-        return Err(BuildError::conformance(
-            "native report",
-            format!("the {product} report identity or catalog digest is invalid"),
-        ));
     }
 
     Ok(())
@@ -923,47 +842,6 @@ fn bytes_preview(bytes: &[u8]) -> String {
     )
 }
 
-fn require_selection(
-    report: &NativeTestReport,
-    discovered: usize,
-    selected: usize,
-    filtered_out: usize,
-) -> Result<(), BuildError> {
-    if report.selection.discovered != discovered
-        || report.selection.selected != selected
-        || report.selection.filtered_out != filtered_out
-    {
-        return Err(BuildError::conformance(
-            "native selection",
-            format!(
-                "expected {discovered}/{selected}/{filtered_out} discovered/selected/filtered but received {}/{}/{}",
-                report.selection.discovered,
-                report.selection.selected,
-                report.selection.filtered_out
-            ),
-        ));
-    }
-
-    Ok(())
-}
-
-fn require_stable_order(
-    first: &NativeTestReport,
-    second: &NativeTestReport,
-) -> Result<(), BuildError> {
-    let first: Vec<_> = tests(first).iter().map(|test| &test.identity).collect();
-    let second: Vec<_> = tests(second).iter().map(|test| &test.identity).collect();
-
-    if first != second {
-        return Err(BuildError::conformance(
-            "native ordering",
-            "sequential and parallel execution reported different test order",
-        ));
-    }
-
-    Ok(())
-}
-
 fn require_catalog_separation(bytes: &[u8]) -> Result<(), BuildError> {
     for source_message in [
         "expected assertion failure",
@@ -979,48 +857,6 @@ fn require_catalog_separation(bytes: &[u8]) -> Result<(), BuildError> {
                 format!("catalog contains source body text {source_message:?}"),
             ));
         }
-    }
-
-    Ok(())
-}
-
-fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
-    let (catalog, _) = decode_test_catalog(bytes).map_err(|error| {
-        BuildError::conformance(
-            "catalog metadata",
-            format!("could not decode native test catalog: {error:?}"),
-        )
-    })?;
-
-    let serial: Vec<_> = catalog
-        .entries()
-        .iter()
-        .filter(|entry| entry.constraint() == TestExecutionConstraint::Serial)
-        .collect();
-
-    let names = serial
-        .iter()
-        .map(|entry| entry.identity().declaration().name().as_str())
-        .collect::<Vec<_>>();
-
-    if names
-        != [
-            "asynchronous_file_operations_preserve_data_and_metadata",
-            "buffered_file_io_preserves_order_and_flushes",
-            "create_or_truncate_replaces_existing_contents",
-            "failed_file_close_retains_the_native_handle_for_retry",
-            "file_transfers_preserve_empty_requests_partial_reads_and_eof",
-            "files_and_directories_follow_the_portable_contract",
-            "missing_files_report_the_portable_error_kind",
-            "child_processes_accept_an_empty_environment",
-            "child_processes_capture_output_and_reap_cleanly",
-            "string_operations",
-        ]
-    {
-        return Err(BuildError::conformance(
-            "catalog metadata",
-            format!("the native catalog retained unexpected serial test constraints: {names:?}"),
-        ));
     }
 
     Ok(())
@@ -1149,14 +985,6 @@ fn parse_batch_report(
     report.validate(request)?;
 
     Ok(report)
-}
-
-fn tests(report: &NativeTestReport) -> Vec<&NativeTestResult> {
-    report
-        .products
-        .iter()
-        .flat_map(|product| product.tests.iter())
-        .collect()
 }
 
 fn product_catalog(
@@ -1535,90 +1363,60 @@ mod tests {
 
         assert!(report.validate(&request).is_err());
     }
-
     #[test]
-    fn focused_startup_report_requires_the_api_product_identity() {
-        let report = super::NativeTestReport {
-            format: 1,
-            build: super::NativeTestBuildProvenance {
-                reused: false,
-                compilation: true,
-                emission: true,
-                linking: true,
-                products: Vec::new(),
-            },
-            selection: super::NativeSelection {
-                discovered: super::API_TEST_COUNT,
-                selected: 1,
-                filtered_out: super::API_TEST_COUNT - 1,
-            },
-            products: vec![super::NativeProductReport {
-                package: super::PACKAGE_IDENTITY.to_owned(),
-                product: super::OUTCOME_PRODUCT.to_owned(),
-                catalog_digest: "0".repeat(64),
-                tests: Vec::new(),
-            }],
-            duration_nanoseconds: None,
-            summary: super::NativeSummary {
-                passed: 1,
-                failed: 0,
-            },
+    fn no_build_must_reuse_the_original_product_generation() {
+        let generation = |identity: &str| super::NativeTestProductGeneration {
+            product: "std/api".to_owned(),
+            generation: identity.to_owned(),
         };
 
-        let error = super::require_startup_report("focused", &report, "fixture", &[])
-            .expect_err("the outcome product must not satisfy an API startup report");
+        let original = [generation("original")];
 
-        assert!(error.to_string().contains("report identity"));
+        let mut build = super::NativeTestBuildProvenance {
+            reused: true,
+            compilation: false,
+            emission: false,
+            linking: false,
+            products: vec![generation("original")],
+        };
+
+        assert!(super::require_no_build_provenance(&build, &original).is_ok());
+        build.products[0].generation = "substituted".to_owned();
+        assert!(super::require_no_build_provenance(&build, &original).is_err());
+        build.products[0].generation = "original".to_owned();
+        build.compilation = true;
+        assert!(super::require_no_build_provenance(&build, &original).is_err());
     }
 
     #[test]
-    fn focused_startup_report_requires_the_selected_test_identity() {
-        let report = serde_json::from_value::<super::NativeTestReport>(serde_json::json!({
-            "format": 1,
-            "build": {
-                "reused": false,
-                "compilation": true,
-                "emission": true,
-                "linking": true,
-                "products": []
-            },
-            "selection": {
-                "discovered": super::API_TEST_COUNT,
-                "selected": 1,
-                "filtered_out": super::API_TEST_COUNT - 1
-            },
-            "products": [{
-                "package": super::PACKAGE_IDENTITY,
-                "product": super::API_PRODUCT,
-                "catalog_digest": "0".repeat(64),
-                "tests": [{
-                    "identity": "std.api.unrelated",
-                    "outcome": { "kind": "passed" },
-                    "stdout": {
-                        "policy": "captured",
-                        "bytes": [],
-                        "truncated": false,
-                        "discarded_byte_count": 0,
-                        "failure": null
-                    },
-                    "stderr": {
-                        "policy": "captured",
-                        "bytes": [],
-                        "truncated": false,
-                        "discarded_byte_count": 0,
-                        "failure": null
-                    },
-                    "duration_nanoseconds": 1
-                }]
-            }],
-            "summary": { "passed": 1, "failed": 0 },
-            "duration_nanoseconds": 1
-        }))
-        .unwrap_or_else(|error| panic!("focused report must decode: {error:?}"));
+    fn batch_report_requires_every_requested_plan_in_request_order() {
+        let request = super::test_batch_request([
+            super::test_batch_plan("first", std::iter::empty::<&str>(), 1, None)
+                .expect("first plan"),
+            super::test_batch_plan("second", std::iter::empty::<&str>(), 1, None)
+                .expect("second plan"),
+        ])
+        .expect("batch request");
 
-        let error = super::require_startup_report("focused", &report, "expected", &[])
-            .expect_err("an unrelated focused test identity must be rejected");
+        let report = serde_json::json!({
+            "format":1,
+            "build":{"reused":false,"compilation":true,"emission":true,"linking":true,"products":[]},
+            "selection":{"discovered":0,"selected":0,"filtered_out":0},
+            "products":[], "summary":{"passed":0,"failed":0}
+        });
 
-        assert!(error.to_string().contains("selected unrelated test"));
+        for identities in [
+            vec!["first"],
+            vec!["second", "first"],
+            vec!["first", "first"],
+        ] {
+            let batch: super::NativeTestBatchReport = serde_json::from_value(serde_json::json!({
+                "format":1,
+                "build":{"reused":false,"compilation":true,"emission":true,"linking":true,"products":[]},
+                "plans":identities.iter().map(|identity| serde_json::json!({"identity":identity,"succeeded":true,"report":report})).collect::<Vec<_>>()
+            })).expect("batch report");
+
+            assert!(batch.validate(&request).is_err(), "{identities:?}");
+        }
     }
 }

@@ -16,6 +16,21 @@ use super::support::{
 
 const CATALOG_MAGIC: &[u8; 8] = b"BRAYTSTC";
 
+/// Failure to decode a published catalog or establish its entry contracts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TestCatalogDecodeError {
+    /// The catalog bytes violate the bounded encoding contract.
+    Protocol(TestProtocolError),
+    /// Decoded entries violate their identity or result contract.
+    Entries(crate::TestCatalogBuildError),
+}
+
+impl From<TestProtocolError> for TestCatalogDecodeError {
+    fn from(error: TestProtocolError) -> Self {
+        Self::Protocol(error)
+    }
+}
+
 /// Stable digest of one canonical encoded test catalog.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TestCatalogDigest([u8; 32]);
@@ -56,13 +71,13 @@ pub fn encode_test_catalog(
 /// Decodes and validates one bounded canonical product catalog.
 pub fn decode_test_catalog(
     bytes: &[u8],
-) -> Result<(TestCatalog, TestCatalogDigest), TestProtocolError> {
+) -> Result<(TestCatalog, TestCatalogDigest), TestCatalogDecodeError> {
     let mut decoder = Decoder::new(bytes, CATALOG_MAGIC)?;
     let product = decode_product(&mut decoder)?;
     let entry_count = decoder.length()?;
 
     if entry_count > MAX_COLLECTION_ITEMS {
-        return Err(TestProtocolError::ResourceLimit);
+        return Err(TestProtocolError::ResourceLimit.into());
     }
 
     let entries = (0..entry_count)
@@ -71,8 +86,12 @@ pub fn decode_test_catalog(
 
     decoder.finish()?;
 
-    let catalog =
-        TestCatalog::try_new(product, entries).map_err(|_| TestProtocolError::Malformed)?;
+    let catalog = TestCatalog::try_new(product, entries).map_err(|cause| match cause {
+        crate::TestCatalogBuildError::ProductMismatch(identity) => {
+            panic!("catalog decoder assigned an entry a different decoded product: {identity}")
+        }
+        cause => TestCatalogDecodeError::Entries(cause),
+    })?;
 
     let mut digest = StableDigestHasher::new();
 
@@ -261,5 +280,49 @@ mod tests {
             TestResultShape::Recoverable,
             TestErrorTypeIdentity::try_new("example.tests.Error"),
         )
+    }
+    #[test]
+    fn decoded_catalog_preserves_the_exact_duplicate_identity_cause() {
+        let entry = entry(product());
+        let mut encoder = super::Encoder::new(super::CATALOG_MAGIC);
+
+        super::encode_product(&mut encoder, entry.identity().product()).expect("product encoding");
+        encoder.length(2).expect("entry count");
+        super::encode_entry(&mut encoder, &entry).expect("first entry");
+        super::encode_entry(&mut encoder, &entry).expect("duplicate entry");
+
+        assert_eq!(
+            super::decode_test_catalog(&encoder.finish().expect("catalog encoding")),
+            Err(crate::TestCatalogDecodeError::Entries(
+                crate::TestCatalogBuildError::DuplicateIdentity(entry.identity().clone())
+            ))
+        );
+    }
+
+    #[test]
+    fn decoded_catalog_preserves_result_metadata_failure_identity() {
+        let valid = entry(product());
+
+        let entry = TestEntryMetadata::new(
+            valid.identity().clone(),
+            valid.source(),
+            valid.execution(),
+            valid.constraint(),
+            TestResultShape::Unit,
+            valid.error_type().cloned(),
+        );
+
+        let mut encoder = super::Encoder::new(super::CATALOG_MAGIC);
+
+        super::encode_product(&mut encoder, entry.identity().product()).expect("product encoding");
+        encoder.length(1).expect("entry count");
+        super::encode_entry(&mut encoder, &entry).expect("inconsistent entry encoding");
+
+        assert_eq!(
+            super::decode_test_catalog(&encoder.finish().expect("catalog encoding")),
+            Err(crate::TestCatalogDecodeError::Entries(
+                crate::TestCatalogBuildError::InvalidResultMetadata(entry.identity().clone())
+            ))
+        );
     }
 }

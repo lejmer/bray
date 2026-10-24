@@ -211,6 +211,14 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
     MalformedTestCatalog {
         path: String,
     },
+    DuplicateTestCatalogEntry {
+        path: String,
+        identity: String,
+    },
+    TestCatalogResultMismatch {
+        path: String,
+        identity: String,
+    },
     UnsupportedTestCatalogVersion {
         path: String,
         actual: u32,
@@ -325,6 +333,18 @@ impl DiagnosticProjectCommandFailureJson {
             Failure::MalformedTestCatalog { path } => Self::MalformedTestCatalog {
                 path: path_to_output_string(path),
             },
+            Failure::DuplicateTestCatalogEntry { path, identity } => {
+                Self::DuplicateTestCatalogEntry {
+                    path: path_to_output_string(path),
+                    identity: identity.clone(),
+                }
+            }
+            Failure::TestCatalogResultMismatch { path, identity } => {
+                Self::TestCatalogResultMismatch {
+                    path: path_to_output_string(path),
+                    identity: identity.clone(),
+                }
+            }
             Failure::UnsupportedTestCatalogVersion {
                 path,
                 actual,
@@ -471,5 +491,40 @@ const fn diagnostic_tool_stream_key(
         Stream::StandardInput => "standard_input",
         Stream::StandardOutput => "standard_output",
         Stream::StandardError => "standard_error",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiagnosticProjectCommandFailureJson;
+    use bray_diagnostics::DiagnosticProjectCommandFailure;
+
+    #[test]
+    fn test_catalog_entry_failures_preserve_the_path_identity_and_cause_in_json() {
+        for (failure, category) in [
+            (
+                DiagnosticProjectCommandFailure::DuplicateTestCatalogEntry {
+                    path: "catalog.braytest".into(),
+                    identity: "sample/tests::checks.works".into(),
+                },
+                "duplicate_test_catalog_entry",
+            ),
+            (
+                DiagnosticProjectCommandFailure::TestCatalogResultMismatch {
+                    path: "catalog.braytest".into(),
+                    identity: "sample/tests::checks.works".into(),
+                },
+                "test_catalog_result_mismatch",
+            ),
+        ] {
+            let json =
+                serde_json::to_value(DiagnosticProjectCommandFailureJson::from_failure(&failure))
+                    .expect("structured failure encoding");
+
+            assert_eq!(
+                json,
+                serde_json::json!({"category":category,"path":"catalog.braytest","identity":"sample/tests::checks.works"})
+            );
+        }
     }
 }

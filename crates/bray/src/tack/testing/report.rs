@@ -21,8 +21,6 @@ use super::model::LoadedTestHost;
 use crate::tack::error::operation_diagnostics;
 use crate::tack::progress::{ProgressVisualState, max_column_width, padded, render_plain_line};
 
-use super::identity::identity_text;
-
 pub(super) fn product_reports(
     hosts: &[LoadedTestHost],
     results: Vec<TestInvocationResult>,
@@ -175,7 +173,7 @@ fn append_result_rows(
 
     let identities = results
         .iter()
-        .map(|result| identity_text(result.identity()))
+        .map(|result| result.identity().to_string())
         .collect::<Vec<_>>();
 
     let subject_width = max_column_width(identities.iter().map(String::as_str));
@@ -418,7 +416,7 @@ struct JsonTestResult<'report> {
 impl<'report> From<&'report TestInvocationResult> for JsonTestResult<'report> {
     fn from(result: &'report TestInvocationResult) -> Self {
         Self {
-            identity: identity_text(result.identity()),
+            identity: result.identity().to_string(),
             outcome: result.outcome().into(),
             suppressed: result.suppressed().iter().map(Into::into).collect(),
             stdout: result.standard_output().into(),

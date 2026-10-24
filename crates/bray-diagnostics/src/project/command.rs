@@ -363,6 +363,20 @@ pub enum DiagnosticProjectCommandFailure {
         /// Exact catalog file that could not be decoded.
         path: PathBuf,
     },
+    /// Published test data repeats one product-qualified declaration identity.
+    DuplicateTestCatalogEntry {
+        /// Exact catalog file carrying the repeated entry.
+        path: PathBuf,
+        /// Exact product-qualified test declaration.
+        identity: String,
+    },
+    /// Published test data pairs a result with a different recoverable error shape.
+    TestCatalogResultMismatch {
+        /// Exact catalog file carrying the entry.
+        path: PathBuf,
+        /// Exact product-qualified test declaration.
+        identity: String,
+    },
     /// A test catalog uses a different binary format version.
     UnsupportedTestCatalogVersion {
         /// Exact catalog file carrying the version.
