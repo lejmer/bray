@@ -335,7 +335,7 @@ fn discard_pattern_reads_parameter_initializer() {
         "\n",
         "func discard(pos value: usize)\n",
         "{\n",
-        "    let _: usize = value;\n",
+        "    _ = value;\n",
         "}\n",
     ));
 

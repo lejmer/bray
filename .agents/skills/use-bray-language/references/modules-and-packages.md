@@ -113,7 +113,7 @@ module codec.tests
     @test
     func decodes_empty_packet() -> Result<unit, DecodeError>
     {
-        let _: codec.Packet = try codec.decode(empty_packet_bytes());
+        _ = try codec.decode(empty_packet_bytes());
 
         return Ok(unit);
     }
@@ -339,7 +339,7 @@ module integration
     @test
     func decodes_sample() -> Result<unit, DecodeError>
     {
-        let _: example.data.codec.Packet = try example.data.codec.decode(sample_packet());
+        _ = try example.data.codec.decode(sample_packet());
 
         return Ok(unit);
     }
@@ -354,7 +354,7 @@ module integration
     async func decodes_stream() -> Result<unit, DecodeError>
     {
         let source: &[u8] = try await read_packet_fixture();
-        let _: example.data.codec.Packet = try example.data.codec.decode(source);
+        _ = try example.data.codec.decode(source);
 
         return Ok(unit);
     }

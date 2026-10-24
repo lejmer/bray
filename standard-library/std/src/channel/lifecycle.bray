@@ -177,14 +177,14 @@ trusted internal func withdraw_waiter<T>(pos shared: &ChannelCore<T>, pos ticket
             }
             case WaiterKind.Sender
             {
-                let _: bool = channel.send_waiters.remove(ticket);
+                _ = channel.send_waiters.remove(ticket);
                 let result: T? = none;
 
                 yield result;
             }
             case WaiterKind.Receiver
             {
-                let _: bool = channel.receive_waiters.remove(ticket);
+                _ = channel.receive_waiters.remove(ticket);
                 let result: T? = none;
 
                 yield result;
@@ -214,7 +214,7 @@ trusted internal async func wait_for_channel_change(pos word: &core.atomic.Atomi
 
 trusted internal func notify_channel<T>(pos shared: &ChannelCore<T>)
 {
-    let _: u32 = core.atomic.fetch_add<u32, 2>(&shared.generation, 1);
+    _ = core.atomic.fetch_add<u32, 2>(&shared.generation, 1);
 
     core.atomic.notify_all<u32>(&shared.generation);
 }
@@ -282,7 +282,7 @@ trusted internal func all_senders_closed<T>(pos shared: &ChannelCore<T>) -> bool
 
 trusted internal func release_sender<T>(pos shared: &ChannelCore<T>)
 {
-    let _: usize = core.atomic.fetch_sub<usize, 3>(&shared.senders, 1);
+    _ = core.atomic.fetch_sub<usize, 3>(&shared.senders, 1);
 
     trusted internal notify_channel<T>(shared);
 }

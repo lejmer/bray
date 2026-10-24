@@ -1827,7 +1827,7 @@ fn imported_scoped_exit_must_explicitly_transfer_trusted_authority() {
                 with lease = resource
                 {
                     let copied = lease.tag;
-                    let _ = copied;
+                    _ = copied;
                 };
 
                 example.package.api.observe(resource.tag);
@@ -1882,7 +1882,7 @@ fn imported_scoped_exit_retains_its_owned_error_quiescence() {
             async func caller(pos resource: example.package.api.Resource)
                 -> Result<unit, example.package.api.Failure>
             {
-                let _ = with lease = resource { return Ok(unit); };
+                _ = with lease = resource { return Ok(unit); };
 
                 return Ok(unit);
             }

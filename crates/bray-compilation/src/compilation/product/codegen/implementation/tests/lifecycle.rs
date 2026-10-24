@@ -38,7 +38,7 @@ fn scoped_selected_calls_emit_native_artifacts() {
             {{
                 let resource: Resource = {{ tag = true }};
                 let value = scoped(resource);
-                let _ = {returned};
+                _ = {returned};
 
                 return Ok(unit);
             }}
@@ -601,14 +601,14 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
             }}
             async func main()
             {{
-                let _ = catch
+                _ = catch
                 {{
                     let capability = Capability
                     {{
                         outcome = Error(Failure {{ marker = 619, child = pending() }})
                     }};
                     let resource = Resource {{ capability = {entry_value} }};
-                    let _ = with lease = resource
+                    _ = with lease = resource
                     {{
                         {body}
                     }};

@@ -14,7 +14,7 @@ internal struct CleanupProbe
 
     destruct()
     {
-        let _: u32 = core.atomic.fetch_add<u32, 3>(self.count, 1);
+        _ = core.atomic.fetch_add<u32, 3>(self.count, 1);
 
         if self.fail
         {
@@ -44,12 +44,12 @@ trusted func hash_table_metadata_cannot_initialize_an_absent_payload()
             count = 1
         };
 
-        let _: &u32 = trusted internal std.collection.hash_table_item(&table, index = 0);
+        _ = trusted internal std.collection.hash_table_item(&table, index = 0);
 
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 }
 
 @test
@@ -73,12 +73,12 @@ trusted func ordered_tree_links_cannot_initialize_an_absent_payload()
 
         tree.root = index;
 
-        let _: &u32 = trusted internal std.collection.ordered_tree_item(&tree, index = index);
+        _ = trusted internal std.collection.ordered_tree_item(&tree, index = index);
 
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 }
 
 @test
@@ -95,12 +95,12 @@ trusted func deque_count_cannot_initialize_an_absent_payload()
             count = 1
         };
 
-        let _: (&u32)? = deque.front();
+        _ = deque.front();
 
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 }
 
 @test
@@ -113,7 +113,7 @@ trusted func metadata_replacement_preserves_owned_sparse_payload_cleanup()
     {
         let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 1));
 
-        let _: usize = trusted internal std.collection.hash_table_insert_available(
+        _ = trusted internal std.collection.hash_table_insert_available(
             &mut table,
             {
                 count = &hash_count
@@ -165,7 +165,7 @@ trusted func hash_table_panic_retires_every_present_payload_once()
     {
         let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 2));
 
-        let _: usize = trusted internal std.collection.hash_table_insert_available(
+        _ = trusted internal std.collection.hash_table_insert_available(
             &mut table,
             {
                 count = &first,
@@ -174,7 +174,7 @@ trusted func hash_table_panic_retires_every_present_payload_once()
             hash = 0
         );
 
-        let _: usize = trusted internal std.collection.hash_table_insert_available(
+        _ = trusted internal std.collection.hash_table_insert_available(
             &mut table,
             {
                 count = &second
@@ -187,7 +187,7 @@ trusted func hash_table_panic_retires_every_present_payload_once()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(core.atomic.load<u32, 1>(&first) == 1);
     assert(core.atomic.load<u32, 1>(&second) == 1);
@@ -225,7 +225,7 @@ trusted func ordered_tree_panic_retires_every_present_payload_once()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(core.atomic.load<u32, 1>(&first) == 1);
     assert(core.atomic.load<u32, 1>(&second) == 1);
@@ -261,7 +261,7 @@ trusted func deque_panic_retires_every_present_payload_once()
         yield unit;
     };
 
-    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+    _ = std.testing.assert_error<unit, PanicReport>(caught);
 
     assert(core.atomic.load<u32, 1>(&first) == 1);
     assert(core.atomic.load<u32, 1>(&second) == 1);
@@ -291,7 +291,7 @@ trusted async func cancellation_retires_all_sparse_collection_owners()
     let ready = core.atomic.initialize<u32>(0);
     let mut table = std.testing.assert_ok(trusted internal std.collection.HashTable<CleanupProbe>(capacity = 1));
 
-    let _: usize = trusted internal std.collection.hash_table_insert_available(
+    _ = trusted internal std.collection.hash_table_insert_available(
         &mut table,
         {
             count = &hash_count

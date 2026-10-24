@@ -50,7 +50,7 @@ func destructure(
     pos boxed_message: box Message,
 )
 {
-    let _ = unit;
+    _ = unit;
     let value: i32 = 1;
     let mut counter: i32 = 0;
     let (grouped): i32 = value;
@@ -151,6 +151,8 @@ func status_pattern(pos status: Status)
 ```
 
 [Pattern resolution](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/pattern-resolution.md) first treats a bare name as an in-scope constant or union variant that is valid as a pattern. It introduces a new binding only when no such declaration resolves. The `_` pattern always discards without binding.
+
+Use [`_ = expression;`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/local-binding-declarations-inside-block-expressions.md) for an intentional discard declaration. It preserves the ownership, lifetime, and cleanup behavior of the discard pattern. Use `let _: Type = expression;` when an explicit subject type is needed.
 
 ### Products and union variants
 

@@ -129,7 +129,7 @@ trusted internal func platform_child_spawn(
 
     if configured != 0
     {
-        let _: i32 = trusted std.os.unix.destroy_spawn_actions(actions_pointer);
+        _ = trusted std.os.unix.destroy_spawn_actions(actions_pointer);
 
         trusted internal release_descriptors(input);
         trusted internal release_descriptors(output);
@@ -163,9 +163,9 @@ trusted internal func platform_child_spawn(
 
     if destroyed != 0 || process <= 0
     {
-        let _: i32 = trusted std.os.unix.signal(process, force = true);
+        _ = trusted std.os.unix.signal(process, force = true);
         let mut ignored: i32 = 0;
-        let _: i32 = trusted std.os.unix.wait(process, std.memory.address_of_mut<i32>(&mut ignored));
+        _ = trusted std.os.unix.wait(process, std.memory.address_of_mut<i32>(&mut ignored));
 
         trusted internal release_parent_descriptors(input);
         trusted internal release_parent_descriptors(output);
@@ -329,7 +329,7 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
         case Error(error) { return error; }
     };
 
-    let _: i32 = trusted std.os.unix.signal(process, force = true);
+    _ = trusted std.os.unix.signal(process, force = true);
     let mut status: i32 = 0;
 
     loop

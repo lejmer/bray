@@ -119,11 +119,7 @@ internal struct HostLease
 
                 trusted std.memory.write<usize>(active_pointer, remaining_active);
 
-                let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
-                    &synchronization.main,
-                    expected = identity,
-                    desired = 0
-                );
+                _ = core.atomic.compare_exchange<u64, 3, 1>(&synchronization.main, expected = identity, desired = 0);
             }
 
             let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(

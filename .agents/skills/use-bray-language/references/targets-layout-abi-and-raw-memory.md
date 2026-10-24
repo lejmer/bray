@@ -337,7 +337,7 @@ trusted func construct_in_place<T>(pos value: T) -> T
 
     {
         let mut placement: std.memory.InPlace<T> = std.memory.in_place<T>(&mut storage);
-        let _: &mut T = placement.write(value);
+        _ = placement.write(value);
     };
 
     return trusted std.memory.assume_initialized<T>(storage);
@@ -471,13 +471,13 @@ trusted func observe_register(pos pointer: DataPointer<u32>) -> (u32, usize)
 
     assert(trusted core.target.address_equal<u32>(pointer, reconstructed));
 
-    let _: bool = trusted core.target.address_less<u32>(core.memory.null<u32>(), pointer);
+    _ = trusted core.target.address_less<u32>(core.memory.null<u32>(), pointer);
 
     trusted core.target.compiler_fence(MemoryOrder.Release);
     trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
     trusted core.target.spin_loop_hint();
 
-    let _: bool = trusted core.target.feature_enabled("sse2");
+    _ = trusted core.target.feature_enabled("sse2");
 
     return (value, address);
 }

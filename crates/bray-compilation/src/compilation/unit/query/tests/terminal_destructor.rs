@@ -464,8 +464,8 @@ fn terminal_destructor_keeps_builtin_operations_and_explicit_construction_effect
 
             destruct()
             {
-                let _: bool = self.ticket.is_present();
-                let _: bool = self.ticket.is_absent();
+                _ = self.ticket.is_present();
+                _ = self.ticket.is_absent();
                 let previous = snapshot(&self);
 
                 self.value = previous.value;

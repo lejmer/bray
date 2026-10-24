@@ -89,7 +89,7 @@ struct DynamicLibrary
     {
         if self.is_owned_value
         {
-            let _: std.platform.PlatformStatus = trusted platform_dynamic_library_close(self.handle_value);
+            _ = trusted platform_dynamic_library_close(self.handle_value);
         }
     }
 

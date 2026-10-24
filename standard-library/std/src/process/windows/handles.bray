@@ -128,8 +128,8 @@ trusted internal func windows_child_handles(
             ) == 0
             {
                 let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
-                let _: i32 = trusted std.os.windows.close_handle(read_pipe);
-                let _: i32 = trusted std.os.windows.close_handle(write_pipe);
+                _ = trusted std.os.windows.close_handle(read_pipe);
+                _ = trusted std.os.windows.close_handle(write_pipe);
 
                 return Error(status);
             }
@@ -158,7 +158,7 @@ trusted internal func release_windows_child_ends(pos handles: WindowsChildHandle
 {
     if handles.child_owned
     {
-        let _: i32 = trusted std.os.windows.close_handle(handles.child);
+        _ = trusted std.os.windows.close_handle(handles.child);
     }
 }
 
@@ -167,7 +167,7 @@ trusted internal func release_windows_parent_ends(pos handles: WindowsChildHandl
 {
     if handles.parent_owned
     {
-        let _: i32 = trusted std.os.windows.close_handle(handles.parent);
+        _ = trusted std.os.windows.close_handle(handles.parent);
     }
 }
 
@@ -176,7 +176,7 @@ trusted internal func close_valid_windows_handle(pos handle: DataPointer<u8>) ->
 {
     if trusted internal valid_windows_handle(handle)
     {
-        let _: i32 = trusted std.os.windows.close_handle(handle);
+        _ = trusted std.os.windows.close_handle(handle);
     }
 }
 

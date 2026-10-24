@@ -123,7 +123,7 @@ impl CountingSinkFormatting = CountingSink(Sink<CountingSinkError>)
     mut func prepare(additional: usize) -> Result<unit, CountingSinkError>
         requires(blocking_execution())
     {
-        let _: usize = try checked_count(length = self.length, additional = additional);
+        _ = try checked_count(length = self.length, additional = additional);
 
         return Ok(unit);
     }

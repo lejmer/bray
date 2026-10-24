@@ -219,7 +219,7 @@ fn static_cleanup_orders_declaration_names_independently_of_source_order() {
             "module app;\n",
             "@thread_local static ZETA: u64 = 1;\n",
             "@thread_local static ALPHA: u64 = 2;\n",
-            "func main() -> i32 { let _: u64 = ZETA + ALPHA; return 0; }\n"
+            "func main() -> i32 { _ = ZETA + ALPHA; return 0; }\n"
         ),
         ProductKind::Executable,
         SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
@@ -273,7 +273,7 @@ fn const_generic_static_specializations_emit_distinct_native_instances() {
         "}\n",
         "func main() -> i32\n",
         "{\n",
-        "    let _: (u64, u64) = values();\n",
+        "    _ = values();\n",
         "    return 0;\n",
         "}\n",
     );

@@ -16,10 +16,9 @@ let pattern = initializer;
 let pattern: Type = initializer;
 ```
 
-The exact form `_ = expression;` is shorthand for `let _ = expression;`.
+Use `_ = expression;` for an intentional discard. This exact form is shorthand for `let _ = expression;`.
 
 ```bray
-let _ = compute_value();
 _ = compute_value();
 ```
 

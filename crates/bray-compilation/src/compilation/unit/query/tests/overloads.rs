@@ -101,9 +101,9 @@ fn type_owned_overloads_resolve_named_constructors_and_methods() {
         "func main()\n",
         "{\n",
         "    let shared: Buffer = Buffer.new();\n",
-        "    let _: i32 = shared.read(true);\n",
+        "    _ = shared.read(true);\n",
         "    let buffer: Buffer = Buffer.new(42);\n",
-        "    let _: i32 = buffer.read(1);\n",
+        "    _ = buffer.read(1);\n",
         "}\n",
     ));
 

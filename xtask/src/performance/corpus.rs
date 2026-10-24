@@ -674,7 +674,7 @@ func main() -> Result<unit, std.io.IoError>
 
     while index < 256
     {
-        let _: std.fs.FileMetadata = try std.fs.metadata(&path);
+        _ = try std.fs.metadata(&path);
         index += 1;
     }
 
@@ -751,7 +751,7 @@ func main()
 
     while index < 1024
     {
-        let _: std.process.Id = std.process.current_id();
+        _ = std.process.current_id();
         index += 1;
     }
 }
@@ -803,7 +803,7 @@ func main() -> Result<unit, std.time.ClockError>
 
     while index < 1024
     {
-        let _: std.time.Instant = try std.time.monotonic_now();
+        _ = try std.time.monotonic_now();
         index += 1;
     }
 

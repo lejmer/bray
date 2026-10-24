@@ -157,7 +157,7 @@ struct OrderedMap<Key, Value>
             value = value,
         };
 
-        let _: usize = trusted ordered_tree_insert_at<OrderedMapItem<Key, Value>>(
+        _ = trusted ordered_tree_insert_at<OrderedMapItem<Key, Value>>(
             &mut self.tree,
             item,
             search = search,

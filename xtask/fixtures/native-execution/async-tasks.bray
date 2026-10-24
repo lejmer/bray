@@ -81,7 +81,7 @@ async func main()
 
     assert(value == 42);
 
-    let _: PanicReport = std.testing.assert_panicked<unit>(await failed.join());
+    _ = std.testing.assert_panicked<unit>(await failed.join());
 
     std.testing.assert_cancelled<unit>(await cancelled.cancel());
 }

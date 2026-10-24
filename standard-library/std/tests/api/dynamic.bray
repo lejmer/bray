@@ -59,10 +59,9 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
         let name: bytes = b"strlen";
 
-        let _: std.dynamic.DynamicSymbol<u8> = std.testing.assert_ok<
-            std.dynamic.DynamicSymbol<u8>,
-            std.ffi.ForeignError
-        >(trusted library.symbol<u8>(&name[..]));
+        _ = std.testing.assert_ok<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError>(
+            trusted library.symbol<u8>(&name[..])
+        );
     }
 
     std.testing.assert_ok<unit, std.ffi.ForeignError>(library.close());

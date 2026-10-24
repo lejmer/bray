@@ -78,7 +78,7 @@ struct Barrier
         {
             guard.get().arrived = 0;
 
-            let _: u32 = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
+            _ = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
 
             guard.unlock();
 

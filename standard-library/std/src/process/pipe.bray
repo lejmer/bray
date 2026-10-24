@@ -40,9 +40,7 @@ struct ChildInput
     {
         if self.state.is_open
         {
-            let _: std.platform.PlatformStatus = trusted internal platform_process_pipe_close(
-                handle = self.state.handle
-            );
+            _ = trusted internal platform_process_pipe_close(handle = self.state.handle);
         }
     }
 
@@ -95,9 +93,7 @@ struct ChildOutput
     {
         if self.state.is_open
         {
-            let _: std.platform.PlatformStatus = trusted internal platform_process_pipe_close(
-                handle = self.state.handle
-            );
+            _ = trusted internal platform_process_pipe_close(handle = self.state.handle);
         }
     }
 

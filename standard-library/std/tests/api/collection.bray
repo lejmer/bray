@@ -448,8 +448,8 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
     try trusted values.push_back(3);
     try trusted values.push_back(4);
 
-    let _: i32? = trusted values.pop_front();
-    let _: i32? = trusted values.pop_front();
+    _ = trusted values.pop_front();
+    _ = trusted values.pop_front();
 
     try trusted values.push_back(5);
     try trusted values.push_back(6);
@@ -561,16 +561,13 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
     assert(empty.length() == 5);
     assert(empty.capacity() == 8);
 
-    let _: std.memory.MemoryLayoutError = std.testing.assert_error<
-        std.collection.Deque<u64>,
-        std.memory.MemoryLayoutError
-    >(trusted std.collection.Deque<u64>(capacity = ~0));
+    _ = std.testing.assert_error<std.collection.Deque<u64>, std.memory.MemoryLayoutError>(
+        trusted std.collection.Deque<u64>(capacity = ~0)
+    );
 
     let mut overflow: std.collection.Deque<u64> = try trusted std.collection.Deque<u64>();
 
-    let _: std.memory.MemoryLayoutError = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(
-        trusted overflow.reserve(additional = ~0)
-    );
+    _ = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(trusted overflow.reserve(additional = ~0));
 
     return Ok(unit);
 }
@@ -736,7 +733,7 @@ trusted func hash_map_preserves_owned_keys_and_values_across_every_teardown_path
 
             let value: OwnedHashValue = try owned_hash_value(identity + 10, 2);
 
-            let _: OwnedHashValue? = try trusted partially_consumed.insert(key, value);
+            _ = try trusted partially_consumed.insert(key, value);
 
             identity += 1;
         }
@@ -759,8 +756,8 @@ trusted func hash_map_supports_entry_insertion_and_mutation() -> Result<unit, st
 {
     let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
 
-    let _: u64? = try trusted map.insert(1, 10);
-    let _: u64? = try trusted map.insert(2, 20);
+    _ = try trusted map.insert(1, 10);
+    _ = try trusted map.insert(2, 20);
 
     {
         let mut entry: std.collection.Entry<u64, u64> = try trusted map.entry(3);
@@ -784,8 +781,8 @@ trusted func hash_map_produces_mutable_iteration_entries() -> Result<unit, std.m
 {
     let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
 
-    let _: u64? = try trusted map.insert(1, 10);
-    let _: u64? = try trusted map.insert(2, 20);
+    _ = try trusted map.insert(1, 10);
+    _ = try trusted map.insert(2, 20);
 
     {
         let source: &mut std.collection.HashMap<u64, u64> = &mut map;
@@ -817,7 +814,7 @@ trusted func hash_map_supports_shared_and_consuming_iteration() -> Result<unit, 
 
     while key < 128
     {
-        let _: u64? = try trusted map.insert(key, key * 10);
+        _ = try trusted map.insert(key, key * 10);
 
         key += 1;
     }
@@ -865,7 +862,7 @@ trusted func hash_map_backshift_deletion_preserves_collision_clusters() -> Resul
 
     while value < 64
     {
-        let _: u64? = try trusted map.insert(
+        _ = try trusted map.insert(
             {
                 value = value,
             },
@@ -919,7 +916,7 @@ trusted func hash_map_backshift_deletion_preserves_collision_clusters() -> Resul
 
     while value < 128
     {
-        let _: u64? = try trusted map.insert(
+        _ = try trusted map.insert(
             {
                 value = value,
             },
@@ -1073,19 +1070,16 @@ trusted func hash_set_preserves_owned_values_across_every_teardown_path() -> Res
 trusted func hash_collection_capacity_overflow_is_reported() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let mut zero_sized_values: std.collection.HashMap<u64, unit> = try trusted std.collection.HashMap<u64, unit>();
-    let _: unit? = try trusted zero_sized_values.insert(1, unit);
-    let _: &unit = std.testing.assert_present(zero_sized_values.get(&1));
+    _ = try trusted zero_sized_values.insert(1, unit);
+    _ = std.testing.assert_present(zero_sized_values.get(&1));
 
-    let _: std.memory.MemoryLayoutError = std.testing.assert_error<
-        std.collection.HashMap<u64, u64>,
-        std.memory.MemoryLayoutError
-    >(trusted std.collection.HashMap<u64, u64>(capacity = ~0));
+    _ = std.testing.assert_error<std.collection.HashMap<u64, u64>, std.memory.MemoryLayoutError>(
+        trusted std.collection.HashMap<u64, u64>(capacity = ~0)
+    );
 
     let mut set: std.collection.HashSet<u64> = try trusted std.collection.HashSet<u64>();
 
-    let _: std.memory.MemoryLayoutError = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(
-        trusted set.reserve(additional = ~0)
-    );
+    _ = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(trusted set.reserve(additional = ~0));
 
     return Ok(unit);
 }

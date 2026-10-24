@@ -28,7 +28,7 @@ internal struct Owner
         if self.status == bray.runtime.bootstrap.STATUS_SUCCESS
         {
             let scope = trusted retire(&mut self);
-            let _: u32 = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
+            _ = trusted bray.runtime.bootstrap.host.finish_attachment(&scope);
         }
     }
 }

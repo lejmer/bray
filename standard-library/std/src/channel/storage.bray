@@ -170,7 +170,7 @@ internal struct ChannelState<T>
         );
 
         let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
-        let _: &mut T = std.memory.uninit_write<T>(&mut slots[index], value);
+        _ = std.memory.uninit_write<T>(&mut slots[index], value);
 
         self.length += 1;
     }

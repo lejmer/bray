@@ -75,7 +75,7 @@ internal struct OrderedTree<Item>
     {
         let mut nodes = self.nodes;
         let mut items = self.items;
-        let _: usize? = trusted ordered_tree_clear_storage<Item>(&mut nodes, &mut items);
+        _ = trusted ordered_tree_clear_storage<Item>(&mut nodes, &mut items);
     }
 }
 

@@ -30,7 +30,7 @@ internal struct Owner
             trusted permit(&self);
 
             let records = trusted take(&mut self);
-            let _: u32 = trusted bray.runtime.bootstrap.consume_record_values(records, 0);
+            _ = trusted bray.runtime.bootstrap.consume_record_values(records, 0);
         }
     }
 }

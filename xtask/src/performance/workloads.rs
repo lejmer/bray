@@ -125,7 +125,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     while key < 4096
     {
         let value: u64 = key;
-        let _: u64? = try trusted map.insert(key, value);
+        _ = try trusted map.insert(key, value);
 
         key += 1;
     }
@@ -202,7 +202,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while value < 48
     {
-        let _: u64? = try trusted map.insert(
+        _ = try trusted map.insert(
             {
                 value = value,
             },
@@ -262,7 +262,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while value < 4096
     {
-        let _: u64? = try trusted map.insert(value, value);
+        _ = try trusted map.insert(value, value);
         value += 1;
     }
 
@@ -272,7 +272,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     {
         value -= 1;
 
-        let _: bool = try trusted set.insert(value);
+        _ = try trusted set.insert(value);
     }
 
     value = 0;

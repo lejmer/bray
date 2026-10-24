@@ -18,7 +18,7 @@ trusted internal func wait(pos address: DataPointer<u32>, pos expected: u32)
     uses(foreign_call)
 {
 
-    let _: isize = trusted std.os.linux.syscall(
+    _ = trusted std.os.linux.syscall(
         std.os.linux.SYS_FUTEX,
         address,
         std.os.linux.FUTEX_WAIT_PRIVATE,
@@ -41,7 +41,7 @@ trusted internal func notify_one(pos address: DataPointer<u32>)
     uses(foreign_call)
 {
 
-    let _: isize = trusted std.os.linux.syscall(
+    _ = trusted std.os.linux.syscall(
         std.os.linux.SYS_FUTEX,
         address,
         std.os.linux.FUTEX_WAKE_PRIVATE,
@@ -64,7 +64,7 @@ trusted internal func notify_all(pos address: DataPointer<u32>)
     uses(foreign_call)
 {
 
-    let _: isize = trusted std.os.linux.syscall(
+    _ = trusted std.os.linux.syscall(
         std.os.linux.SYS_FUTEX,
         address,
         std.os.linux.FUTEX_WAKE_PRIVATE,

@@ -158,7 +158,7 @@ mod tests {
                 value();
                 _ = value();
                 let _ = value();
-                let _: i32 = value();
+                let _: u8 = 7;
                 unit;
             }
         "#;

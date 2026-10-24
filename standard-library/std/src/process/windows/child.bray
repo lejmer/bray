@@ -118,7 +118,7 @@ trusted internal func platform_child_spawn(
     let mut inherited: [DataPointer<u8>; 3] = [input.child, output.child, error.child];
     let mut attribute_size: usize = 0;
 
-    let _: i32 = trusted std.os.windows.initialize_proc_thread_attribute_list(
+    _ = trusted std.os.windows.initialize_proc_thread_attribute_list(
         std.memory.null<u8>(),
         count = 1,
         flags = 0,
@@ -283,7 +283,7 @@ trusted internal func platform_child_spawn(
         return internal std.platform.other_status();
     }
 
-    let _: i32 = trusted std.os.windows.close_handle(thread_handle);
+    _ = trusted std.os.windows.close_handle(thread_handle);
 
     trusted std.memory.write<u64>(
         std.memory.address_of_mut<u64>(child),

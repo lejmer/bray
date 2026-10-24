@@ -23,7 +23,7 @@ trusted internal func resolve_foreign_resource_release(
     pos status: std.platform.PlatformStatus,
 ) -> Result<unit, ForeignError>
 {
-    let _: u64 = try checked_owned_foreign_resource_handle(resource.handle_value, owned = resource.is_owned_value);
+    _ = try checked_owned_foreign_resource_handle(resource.handle_value, owned = resource.is_owned_value);
 
     resource.is_owned_value = false;
 

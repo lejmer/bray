@@ -46,7 +46,7 @@ fn initialized_protected_storage_round_trips_through_an_interface() {
         trusted func main() -> u32 uses(unchecked_init)
         {
             let mut storage = example.package.api.protect<u32>(42);
-            let _ = core.memory.uninit_pointer<example.package.api.State>(&example.package.api.STATE);
+            _ = core.memory.uninit_pointer<example.package.api.State>(&example.package.api.STATE);
             return trusted core.memory.move_initialized<u32>(&mut storage);
         }
     "#,

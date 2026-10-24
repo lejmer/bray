@@ -18,7 +18,7 @@ trusted internal func platform_wait_word_for(
     let expected_pointer: DataPointer<u32> = std.memory.address_of<u32>(&expected);
     let expected_bytes: DataPointer<u8> = trusted std.memory.reinterpret<u8, u32>(expected_pointer);
 
-    let _: i32 = trusted std.os.windows.wait_on_address(
+    _ = trusted std.os.windows.wait_on_address(
         bytes,
         expected = expected_bytes,
         size = 4,

@@ -2440,7 +2440,7 @@ fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
                 }}
                 async func caller(pos resource: Resource) -> Result<unit, Failure>
                 {{
-                    let _ = with lease = resource {{ {body} }};
+                    _ = with lease = resource {{ {body} }};
 
                     return Ok(unit);
                 }}
@@ -2496,7 +2496,7 @@ fn scoped_error_quiescence_requires_an_async_caller_even_for_sync_exit() {
         }
         func caller(pos resource: Resource) -> Result<unit, Failure>
         {
-            let _ = with lease = resource { return Ok(unit); };
+            _ = with lease = resource { return Ok(unit); };
 
             return Ok(unit);
         }
@@ -2531,7 +2531,7 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
 
             destruct()
             {
-                let _ = self.marker;
+                _ = self.marker;
             }
         }
 
@@ -2629,7 +2629,7 @@ fn scoped_result_completion_reaches_the_following_return() {
 
                 {execution}func caller() -> usize
                 {{
-                    let _ = with capability = Resource {{}}
+                    _ = with capability = Resource {{}}
                     {{
                         yield unit;
                     }};

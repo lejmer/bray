@@ -34,7 +34,7 @@ struct SpinLockGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.spin_lock.State<T>, SpinLock<T>>(self.lock, pointer);
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
+        _ = core.atomic.fetch_add<u32, 3>(&state.tickets, std.sync.tickets.CAPACITY);
     }
 
     internal trusted func pointer() -> DataPointer<T>

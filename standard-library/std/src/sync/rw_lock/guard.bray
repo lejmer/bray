@@ -124,7 +124,7 @@ struct RwLockWriteGuard<T>
         authorize(pointer);
 
         let state = trusted std.memory.borrow_from<std.sync.rw_lock.State<T>, RwLock<T>>(self.lock, pointer);
-        let _: u32 = core.atomic.fetch_and<u32, 2>(&state.state, ~std.sync.rw_lock.WRITE_LOCKED);
+        _ = core.atomic.fetch_and<u32, 2>(&state.state, ~std.sync.rw_lock.WRITE_LOCKED);
 
         core.atomic.notify_all<u32>(&state.state);
     }

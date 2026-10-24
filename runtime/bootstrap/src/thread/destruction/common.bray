@@ -47,5 +47,5 @@ trusted internal func finish_native_attachment(pos value: DataPointer<u8>)
     requires(trusted native_attachment_exit())
 {
     let scope: ExitScope = trusted native_exit_scope(value);
-    let _: u32 = trusted internal bray.runtime.bootstrap.host.finish_attachment(&scope);
+    _ = trusted internal bray.runtime.bootstrap.host.finish_attachment(&scope);
 }

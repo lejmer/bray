@@ -70,7 +70,7 @@ async func ordinary()
 
     let result = await completed();
 
-    let _ = catch
+    _ = catch
     {
         await accept(
             Owner
@@ -91,7 +91,7 @@ struct OptionalOwner
 
 async func partial()
 {
-    let _ = catch
+    _ = catch
     {
         let owner = OptionalOwner
         {
@@ -221,7 +221,7 @@ trusted async func fail()
 
 trusted async func handle_failure()
 {
-    let _ = catch
+    _ = catch
     {
         await trusted fail();
         yield unit;

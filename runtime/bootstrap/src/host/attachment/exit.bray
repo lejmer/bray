@@ -124,7 +124,7 @@ internal struct AttachmentExit
 
             if let ?destination = self.incidents
             {
-                let _: u32 = trusted std.memory.replace_value<u32>(destination, incidents);
+                _ = trusted std.memory.replace_value<u32>(destination, incidents);
             }
 
             let completed: HostLease = trusted retire(self.identity, self.native_thread);
@@ -379,11 +379,7 @@ trusted internal func select_attachment_slot(
 
     storage.active -= 1;
 
-    let _: (u64, bool) = core.atomic.compare_exchange<u64, 3, 1>(
-        &synchronization.main,
-        expected = scope.identity,
-        desired = 0
-    );
+    _ = core.atomic.compare_exchange<u64, 3, 1>(&synchronization.main, expected = scope.identity, desired = 0);
 
     return
     {

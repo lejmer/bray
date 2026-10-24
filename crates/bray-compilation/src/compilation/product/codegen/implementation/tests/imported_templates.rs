@@ -161,7 +161,7 @@ trusted internal func flush() -> PlatformStatus
 
 public func invoke<T>(pos value: T)
 {
-    let _: PlatformStatus = trusted flush();
+    _ = trusted flush();
 }
 "#,
         runtime_frames: None,

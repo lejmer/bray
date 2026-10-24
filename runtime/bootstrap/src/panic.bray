@@ -154,7 +154,7 @@ trusted internal func panic_report_construction(
 
     report.consumer = trusted consume_address();
 
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
+    _ = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
 
     return report;
 }
@@ -327,7 +327,7 @@ trusted internal func panic_message_copy(
 
     let source: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(selected, count = count);
 
-    let _: unit = trusted core.memory.copy_overlapping<u8>(source = source, destination = destination, count = count);
+    _ = trusted core.memory.copy_overlapping<u8>(source = source, destination = destination, count = count);
 
     return STATUS_SUCCESS;
 }
@@ -368,7 +368,7 @@ trusted internal func take_message_storage(pos handle: usize) -> std.memory.RawB
 trusted internal func panic_message_release(pos address: usize, pos length: usize, pos outcome: DataPointer<u8>)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    let _ = outcome;
+    _ = outcome;
 
     if length != 0
     {
@@ -377,5 +377,5 @@ trusted internal func panic_message_release(pos address: usize, pos length: usiz
         let storage: std.memory.RawBuffer<u8>? = trusted take_message_storage(address);
     }
 
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
+    _ = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
 }

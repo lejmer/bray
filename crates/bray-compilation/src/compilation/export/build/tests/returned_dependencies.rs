@@ -1269,7 +1269,7 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
             return value;
         }
         func caught_failure<T>(pos value: T) -> T {
-            let _ = catch { fail(); };
+            _ = catch { fail(); };
             return value;
         }
         func scalar(pos value: bool) -> bool { return value; }
@@ -1459,7 +1459,7 @@ fn imported_task_owners_retain_dependencies_through_cleanup_and_consumption() {
             false,
         ),
         (
-            "let _ = example.package.api.pending(&value).start(); value = 1;",
+            "_ = example.package.api.pending(&value).start(); value = 1;",
             false,
         ),
         (
@@ -1833,7 +1833,7 @@ fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
 
         func forward(pos owner: &Owner, pos counter: &core.atomic.Atomic<usize>) -> Owner
         {
-            let _: usize = core.atomic.fetch_add<usize, 0>(counter, 1);
+            _ = core.atomic.fetch_add<usize, 0>(counter, 1);
 
             let make = lambda(pos pointer: DataPointer<u32>) -> Owner
             {
@@ -2554,8 +2554,8 @@ fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
                 return &mut self.output;
             }
         }
-        func owned(pos mut indexed: Indexed) { let _ = &mut indexed[0]; }
-        func borrowed(pos indexed: &mut Indexed) { let _ = &mut indexed[0]; }
+        func owned(pos mut indexed: Indexed) { _ = &mut indexed[0]; }
+        func borrowed(pos indexed: &mut Indexed) { _ = &mut indexed[0]; }
     "#,
     );
 
@@ -2661,7 +2661,7 @@ fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() 
 
         func recover(pos cell: &mut example.package.api.Cell, pos fail: bool)
         {
-            let _ = catch
+            _ = catch
             {
                 example.package.api.change_then_fail(cell, fail);
             };

@@ -559,7 +559,7 @@ trusted internal func platform_directory_close(pos directory: &mut Directory) ->
 trusted internal func platform_directory_discard(pos handle: u64) -> unit
     uses(foreign_call)
 {
-    let _: i32 = trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle));
+    _ = trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle));
 }
 
 internal func windows_metadata(

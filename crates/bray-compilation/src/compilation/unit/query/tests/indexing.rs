@@ -396,7 +396,7 @@ fn custom_slice_without_a_bound_type_reports_selection_failure() {
         }
         func caller(pos value: &Values)
         {
-            let _ = value[..];
+            _ = value[..];
         }
         "#,
     );

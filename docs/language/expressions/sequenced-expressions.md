@@ -25,11 +25,10 @@ produce a result and do not warn. Use an explicit discard to acknowledge an inte
 
 ```bray
 _ = compute_value();
-let _ = compute_value();
 ```
 
-Both discard spellings preserve the ordinary ownership and lifecycle requirements of the value. They do not resolve
-pending finalization obligations by ignoring them.
+Explicit discards preserve the ordinary ownership and lifecycle requirements of the value. They do not resolve pending
+finalization obligations by ignoring them.
 
 A `return` expression used in a sequence is terminated with a semicolon.
 

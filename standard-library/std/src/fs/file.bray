@@ -44,7 +44,7 @@ struct File
     {
         if self.is_open
         {
-            let _: std.platform.PlatformStatus = trusted platform_file_close(handle = self.handle);
+            _ = trusted platform_file_close(handle = self.handle);
         }
     }
 

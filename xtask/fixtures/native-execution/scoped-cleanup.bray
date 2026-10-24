@@ -259,7 +259,7 @@ trusted async func transfer_sync(pos mode: usize) -> Result<i32, Failure>
             entry = await prepared_entry(false, true, false)
         };
 
-        let _ = with capability = scope
+        _ = with capability = scope
         {
             let local = BodyLocal
             {
@@ -301,7 +301,7 @@ trusted async func transfer_async(pos mode: usize) -> Result<i32, Failure>
             entry = await prepared_entry(false, true, false)
         };
 
-        let _ = with capability = scope
+        _ = with capability = scope
         {
             let local = BodyLocal
             {
@@ -353,7 +353,7 @@ async func nullable() -> Result<unit, Failure>?
 
     let absent: i32? = none;
 
-    let _ = with capability = scope
+    _ = with capability = scope
     {
         absent?;
         yield unit;
@@ -385,7 +385,7 @@ async func panic_scope(pos forward: bool)
         entry = await prepared_entry(false, true, false)
     };
 
-    let _ = with capability = scope
+    _ = with capability = scope
     {
         if forward
         {
@@ -413,7 +413,7 @@ async func cancel_scope(pos panic_exit: bool)
         entry = await prepared_entry(false, true, panic_exit, verify_totals = !panic_exit)
     };
 
-    let _ = with capability = scope
+    _ = with capability = scope
     {
         let outcome: RunResult<unit> = Cancelled;
 
@@ -453,7 +453,7 @@ async func abnormal_entry(pos cancel: bool)
         cancel = cancel
     };
 
-    let _ = with capability = scope
+    _ = with capability = scope
     {
         panic("failed entry reached its body");
     };
@@ -494,7 +494,7 @@ trusted async func main()
         {
             let mut checked = false;
 
-            let _ = catch
+            _ = catch
             {
                 let outcome = if asynchronous
                 {
@@ -543,7 +543,7 @@ trusted async func main()
     {
         let mut nullable_checked = false;
 
-        let _ = catch
+        _ = catch
         {
             match consume await nullable()
             {
@@ -563,7 +563,7 @@ trusted async func main()
     {
         let mut result_checked = false;
 
-        let _ = catch
+        _ = catch
         {
             let error = match consume await propagate_error()
             {
@@ -590,7 +590,7 @@ trusted async func main()
 
         panics += 1;
 
-        let _ = std.testing.assert_error<unit, PanicReport>(
+        _ = std.testing.assert_error<unit, PanicReport>(
             catch
             {
                 await panic_scope(forward);
@@ -601,9 +601,9 @@ trusted async func main()
 
     std.testing.assert_cancelled<unit>(await cancel_scope(false).start().join());
 
-    let _ = std.testing.assert_panicked<unit>(await cancel_scope(true).start().join());
+    _ = std.testing.assert_panicked<unit>(await cancel_scope(true).start().join());
 
-    let _ = std.testing.assert_panicked<unit>(await abnormal_entry(false).start().join());
+    _ = std.testing.assert_panicked<unit>(await abnormal_entry(false).start().join());
 
     std.testing.assert_cancelled<unit>(await abnormal_entry(true).start().join());
 

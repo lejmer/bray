@@ -16,7 +16,7 @@ trusted internal func platform_wait_word_for(
     let address: DataPointer<u32> = trusted internal word_pointer(storage);
     let bytes: DataPointer<u8> = trusted std.memory.reinterpret<u8, u32>(address);
 
-    let _: i32 = trusted std.os.darwin.os_sync_wait_on_address_with_timeout(
+    _ = trusted std.os.darwin.os_sync_wait_on_address_with_timeout(
         bytes,
         expected = expected as u64,
         size = 4,

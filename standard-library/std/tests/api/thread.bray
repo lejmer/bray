@@ -19,7 +19,7 @@ internal struct ThreadCleanupProbe
 {
     finalize()
     {
-        let _: u32 = core.atomic.fetch_add<u32, 3>(&TERMINAL_OBSERVATION, 1);
+        _ = core.atomic.fetch_add<u32, 3>(&TERMINAL_OBSERVATION, 1);
     }
 
     destruct() {}
@@ -36,7 +36,7 @@ internal func return_value(pos state: i32) -> i32
 
 internal func retain_borrow(pos state: &i32) -> unit
 {
-    let _: &i32 = state;
+    _ = state;
 }
 
 internal func observe_identity(pos state: unit) -> std.thread.Id
@@ -45,7 +45,7 @@ internal func observe_identity(pos state: unit) -> std.thread.Id
 
     core.atomic.store<u64, 2>(&THREAD_LOCAL_IDENTITY, 1);
 
-    let _: &ThreadCleanupProbe = &THREAD_CLEANUP;
+    _ = &THREAD_CLEANUP;
 
     return identity;
 }
@@ -61,7 +61,7 @@ internal struct PanickingThreadState
 
     destruct()
     {
-        let _: u32 = core.atomic.fetch_add<u32, 3>(self.cleanups, 1);
+        _ = core.atomic.fetch_add<u32, 3>(self.cleanups, 1);
 
         panic("native thread state cleanup fixture");
     }
@@ -196,7 +196,7 @@ func native_thread_panic_is_reported_to_the_owner()
         )
     );
 
-    let _: PanicReport = std.testing.assert_panicked<unit>(thread.join());
+    _ = std.testing.assert_panicked<unit>(thread.join());
 
     assert(core.atomic.load<u32, 1>(&cleanups) == 1);
 }
@@ -214,7 +214,7 @@ func concurrency_stress_native_thread_cancellation_reaches_a_checkpoint()
 @test
 func native_thread_finalization_accepts_cooperative_cancellation()
 {
-    let _: std.thread.Thread<unit> = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
+    _ = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
         std.thread.start<unit, unit>(wait_for_cancellation, unit)
     );
 }

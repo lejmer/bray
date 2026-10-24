@@ -12,7 +12,7 @@ internal struct TemporaryDescriptor
 
     trusted destruct()
     {
-        let _: i32 = trusted std.os.unix.close(self.value);
+        _ = trusted std.os.unix.close(self.value);
     }
 }
 

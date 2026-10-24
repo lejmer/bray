@@ -22,7 +22,7 @@ struct Region
     {
         if self.active
         {
-            let _: std.platform.PlatformStatus = trusted platform_unmap(self.address, bytes = self.bytes);
+            _ = trusted platform_unmap(self.address, bytes = self.bytes);
         }
     }
 

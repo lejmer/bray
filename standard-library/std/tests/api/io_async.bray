@@ -226,7 +226,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
     let full: bytes<4> = [1, 2, 3, 4];
     let trailing: bytes<1> = [5];
 
-    let _: usize = try await recovering(std.io.AsyncWriter).write_async(&full[..]);
+    _ = try await recovering(std.io.AsyncWriter).write_async(&full[..]);
 
     let write_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
         await recovering(std.io.AsyncWriter).write_async(&trailing[..]),

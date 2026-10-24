@@ -1009,13 +1009,13 @@ mod tests {
     fn projection_preserves_completion_until_mutation() {
         for (body, valid) in [
             (
-                "let projected: &mut Flags = &mut value; let _: bool = projected.ready;",
+                "let projected: &mut Flags = &mut value; _ = projected.ready;",
                 true,
             ),
             ("observe(&mut value);", true),
             ("mutate(&mut value);", false),
             (
-                "let projected = project(&mut value); let _: bool = projected.ready;",
+                "let projected = project(&mut value); _ = projected.ready;",
                 true,
             ),
             (
