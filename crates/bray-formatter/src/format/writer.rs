@@ -93,8 +93,16 @@ impl FormatWriter {
     }
 
     pub(super) fn request_space(&mut self) {
-        if !self.is_line_start() && matches!(self.pending, PendingWhitespace::None) {
-            self.pending = PendingWhitespace::Space;
+        if self.is_line_start() {
+            return;
+        }
+
+        match &mut self.pending {
+            pending @ PendingWhitespace::None => *pending = PendingWhitespace::Space,
+            PendingWhitespace::FillBreak {
+                space_when_flat, ..
+            } => *space_when_flat = true,
+            _ => {}
         }
     }
 

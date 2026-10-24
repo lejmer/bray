@@ -1,5 +1,7 @@
 use bray_syntax::{BlockItemSyntax, SyntaxKind, SyntaxNodeView};
 
+use crate::{FormatterConfiguration, FormatterDecision, FormatterRule};
+
 pub(super) struct BlockParagraphs {
     enabled: bool,
     paragraphs: Vec<BlockParagraph>,
@@ -26,6 +28,30 @@ impl BlockParagraphs {
             paragraphs: Vec::new(),
             next_item: 0,
         }
+    }
+
+    pub(super) fn preserves_source_separation(
+        &self,
+        current: SyntaxKind,
+        previous: Option<SyntaxKind>,
+        nodes: &[SyntaxKind],
+        line_breaks: u8,
+        configuration: &FormatterConfiguration,
+    ) -> bool {
+        self.enabled
+            && line_breaks >= 2
+            && !matches!(
+                current,
+                SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken
+            )
+            && previous != Some(SyntaxKind::OpenBraceToken)
+            && nodes.iter().copied().any(is_block_expression)
+            && !(nodes.last() == Some(&SyntaxKind::MatchBody)
+                && configuration.is_enabled(FormatterRule::MatchCaseSpacing)
+                && FormatterRule::MatchCaseSpacing.preferred_for(
+                    FormatterRule::BlockParagraphSpacing,
+                    FormatterDecision::BlockParagraphSeparation,
+                ) == FormatterRule::MatchCaseSpacing)
     }
 
     pub(super) fn enter_node(
