@@ -1,0 +1,122 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using std.memory;
+using std.memory.function;
+
+@copy
+@layout(c)
+internal struct CleanupResult
+{
+    status: u32;
+    incidents: usize;
+}
+
+internal callable CleanupBody = @abi(c) trusted func(pos context: usize) -> u32
+    requires(trusted native_host());
+
+internal callable CleanupContext = @abi(c) trusted func(
+    pos resource: usize,
+    pos context: usize,
+    pos callback: CleanupBody
+) -> CleanupResult
+    requires(trusted native_host());
+
+internal callable FrameAdmission = @abi(c) trusted func(pos destination: DataPointer<usize>) -> u32
+    requires(
+        trusted native_host(),
+        trusted core.memory.valid_write<usize>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<usize>(pointer = destination)
+    )
+    ensures(
+        trusted core.memory.valid_read<usize>(pointer = destination, count = 1),
+        trusted core.memory.initialized_as<usize>(pointer = destination),
+        trusted core.memory.aligned_for<usize>(pointer = destination)
+    );
+
+internal callable FrameDiscard = @abi(c) trusted func(pos admission: usize)
+    requires(trusted native_host());
+
+internal callable AsyncFinalizer = @abi(c) trusted func(pos admission: usize, pos finalizer: Finalizer) -> usize
+    requires(trusted native_host());
+
+internal callable WorkerDetach = @abi(c) trusted func(pos resource: usize, pos product: usize)
+    requires(trusted native_host());
+
+internal callable ExecutionRelease = @abi(c) trusted func(pos resource: usize)
+    requires(trusted native_host());
+
+internal callable ThreadControl = @abi(c) trusted func(pos product: usize) -> Observation
+    requires(trusted native_host());
+
+@copy
+@layout(c)
+internal struct NativeExecution
+{
+    resource: usize;
+    with_cleanup: CleanupContext;
+    admit: FrameAdmission;
+    discard: FrameDiscard;
+    run_finalizer: AsyncFinalizer;
+    detach_workers: WorkerDetach;
+    release: ExecutionRelease;
+    attach: ThreadControl;
+    detach: ThreadControl;
+    finish_root: ThreadControl;
+}
+
+internal struct Execution
+{
+    mut value: NativeExecution?;
+
+    trusted destruct()
+        requires(trusted native_host())
+        uses(foreign_call)
+        when(self.value matches none)
+        {
+            executes(pure, total)
+        }
+    {
+        if let ?value = self.value
+        {
+            trusted value.release(value.resource);
+        }
+    }
+}
+
+internal callable ExecutionFactory = @abi(c) trusted func(
+    pos asynchronous: u32,
+    pos destination: DataPointer<NativeExecution>
+) -> u32
+    requires(
+        trusted native_host(),
+        trusted core.memory.valid_write<NativeExecution>(pointer = destination, count = 1),
+        trusted core.memory.aligned_for<NativeExecution>(pointer = destination)
+    )
+    ensures(
+        result != 0 || trusted core.memory.valid_read<NativeExecution>(pointer = destination, count = 1),
+        result != 0 || trusted core.memory.initialized_as<NativeExecution>(pointer = destination),
+        result != 0 || trusted core.memory.aligned_for<NativeExecution>(pointer = destination)
+    );
+
+trusted internal func execution_factory(pos descriptor: &Descriptor) -> ExecutionFactory?
+    requires(trusted native_host())
+    uses(layout_reinterpret)
+{
+    if std.memory.is_null<u8>(descriptor.execution)
+    {
+        return none;
+    }
+
+    let address = trusted lambda(pos pointer: DataPointer<u8>) -> FunctionPointer<ExecutionFactory>
+        requires(trusted native_host())
+        ensures(trusted core.memory.callable_address_valid<ExecutionFactory>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<ExecutionFactory>(pointer);
+    };
+
+    return trusted std.memory.callable_from_pointer<ExecutionFactory>(trusted address(descriptor.execution));
+}

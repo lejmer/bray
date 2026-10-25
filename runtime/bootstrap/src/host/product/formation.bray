@@ -1,0 +1,289 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.pool;
+
+trusted internal func descriptor(pos key: usize) -> Descriptor
+    requires(trusted native_host())
+    uses(raw_memory)
+{
+    let address = trusted lambda(pos key: usize) -> DataPointer<Descriptor>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_read<Descriptor>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Descriptor>(pointer = result),
+            trusted core.memory.aligned_for<Descriptor>(pointer = result)
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<Descriptor>(address = key);
+    };
+
+    return trusted std.memory.read<Descriptor>(trusted address(key));
+}
+
+trusted internal func commit_formation_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos key: usize,
+    pos statics: &mut(std.memory.RawBuffer<StaticOwner>?),
+    pos execution: &mut(Execution?),
+    pos initialized: usize,
+    pos failure: u32?
+) -> Observation
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+    )
+    uses(intrinsic)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if !(product.state.phase matches Forming)
+            {
+                trusted core.target.abort();
+            }
+
+            trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
+                &mut product.statics,
+                statics
+            );
+
+            trusted internal std.memory.swap_values<(Execution?)>(&mut product.execution, execution);
+
+            product.state.initialized = initialized;
+            product.failure = failure;
+
+            product.state.phase = if failure matches ?_
+            {
+                yield Phase.Closing;
+            }
+            else
+            {
+                yield Phase.Open;
+            };
+
+            return product.state.observation(
+                if let ?status = failure
+                {
+                    yield status;
+                }
+                else
+                {
+                    yield 0;
+                }
+            );
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func form(pos key: usize) -> Observation
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory, unchecked_init, foreign_call, intrinsic)
+{
+    let initialized = trusted bray.runtime.bootstrap.host.initialize_host();
+
+    if initialized != 0
+    {
+        return unavailable(5);
+    }
+
+    let existing = trusted transition(key, 0);
+
+    if existing.status != 3
+    {
+        return existing;
+    }
+
+    let selected = trusted descriptor(key);
+
+    if selected.version != 1 || selected.asynchronous > 1
+    {
+        return unavailable(3);
+    }
+
+    let mut failure: u32? = none;
+    let mut execution: Execution? = none;
+    let mut statics: std.memory.RawBuffer<StaticOwner>? = none;
+    let mut accepted: usize = 0;
+
+    let mut prepared: std.memory.RawBuffer<Product>? = none;
+
+    while true
+    {
+        let reserved: Result<bool, usize> =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return unavailable(5);
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+            yield trusted reserve_product_locked(&lease, &mut anchor, key, selected, &mut prepared);
+        };
+
+        match consume reserved
+        {
+            case Ok(inserted)
+            {
+                if !inserted
+                {
+                    let observation = trusted transition(key, 0);
+
+                    return if observation.status == 3
+                    {
+                        yield unavailable(5);
+                    }
+                    else
+                    {
+                        yield observation;
+                    };
+                }
+
+                break;
+            }
+            case Error(capacity)
+            {
+                prepared = trusted internal bray.runtime.bootstrap.heap.try_buffer<Product>(capacity);
+
+                if prepared matches none
+                {
+                    return unavailable(5);
+                }
+            }
+        }
+    }
+
+    let formation: Result<unit, PanicReport> = catch
+    {
+        match consume trusted acquire_execution(&selected)
+        {
+            case Ok(service) { execution = service; }
+            case Error(status) { failure = status; }
+        }
+
+        if failure matches none && selected.static_count != 0
+        {
+            statics = trusted internal bray.runtime.bootstrap.heap.try_buffer<StaticOwner>(selected.static_count);
+
+            if statics matches none
+            {
+                failure = 5;
+            }
+        }
+
+        if failure matches none
+        {
+            let mut ordinal: usize = 0;
+
+            while ordinal < selected.static_count
+            {
+                let entry = trusted selected.static_entry(ordinal);
+
+                if entry.version != 1 || entry.duration > 1 || entry.finalizer.execution > 2
+                {
+                    failure = 3;
+                    break;
+                }
+
+                if entry.duration == 0
+                {
+                    if entry.finalizer.execution == 2 && selected.asynchronous == 0
+                    {
+                        failure = 3;
+                        break;
+                    }
+
+                    if let ?buffer = statics
+                    {
+                        match consume trusted admit_static(&entry, &execution, &mut buffer, &mut accepted)
+                        {
+                            case Ok(_) {}
+                            case Error(status)
+                            {
+                                failure = status;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        trusted core.target.abort();
+                    }
+                }
+                else if let ?buffer = statics
+                {
+                    trusted internal std.memory.raw_buffer_push<StaticOwner>(
+                        &mut buffer,
+                        StaticOwner.ExactThread(entry.identity, entry.order, entry.finalizer.execution)
+                    );
+                }
+                else
+                {
+                    trusted core.target.abort();
+                }
+
+                ordinal += 1;
+            }
+        }
+
+        yield unit;
+    };
+
+    match consume formation
+    {
+        case Ok(_) {}
+        case Error(_)
+        {
+            if failure matches none
+            {
+                failure = 5;
+            }
+        }
+    }
+
+    let committed: Observation =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted commit_formation_locked(
+            &lease,
+            &mut anchor,
+            key,
+            &mut statics,
+            &mut execution,
+            accepted,
+            failure
+        );
+    };
+
+    return trusted progress(key, committed);
+}

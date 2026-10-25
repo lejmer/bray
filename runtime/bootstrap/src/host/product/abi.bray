@@ -1,0 +1,98 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.report.incident;
+
+// The selected native host retains this activation's descriptor, callback providers
+// and storage until terminal release. Callback failures return initialized outcomes.
+trusted internal predicate native_host();
+
+@copy
+@layout(c)
+internal struct Identity
+{
+    bytes: [u8; 32];
+}
+
+@copy
+@layout(c)
+internal struct Observation
+{
+    mut status: u32;
+    state: u32;
+    active_entries: usize;
+    external_roots: usize;
+    thread_attachments: usize;
+    initialized_statics: usize;
+    cleaned_statics: usize;
+    cleanup_incidents: usize;
+    last_incident: Identity;
+}
+
+@copy
+@layout(c)
+internal struct Finalizer
+{
+    execution: u32;
+    admission: Admission;
+    start: DataPointer<u8>;
+    resolve: DataPointer<u8>;
+}
+
+internal callable Admission = @abi(c) trusted func(
+    pos release: u32,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(trusted native_host())
+    ensures(trusted bray.runtime.bootstrap.report.incident.returned(pointer = outcome));
+
+internal callable Transition = @abi(c) trusted func()
+    requires(trusted native_host());
+
+internal callable Destroy = @abi(c) trusted func(
+    pos abandoned: u32,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(trusted native_host())
+    ensures(trusted bray.runtime.bootstrap.report.incident.returned(pointer = outcome));
+
+internal callable Access = @abi(c) trusted func() -> usize
+    requires(trusted native_host());
+
+internal callable Dependency = @abi(c) trusted func(pos index: usize) -> Identity
+    requires(trusted native_host());
+
+@copy
+@layout(c)
+internal struct Static
+{
+    version: u32;
+    duration: u32;
+    identity: Identity;
+    order: u64;
+    storage: usize;
+    access: Access;
+    prepare: Transition;
+    finalizer: Finalizer;
+    destroy: Destroy;
+    detach: Transition;
+    dependency: Dependency;
+    dependency_count: usize;
+}
+
+internal callable StaticEntry = @abi(c) trusted func(pos index: usize) -> Static
+    requires(trusted native_host());
+
+@copy
+@layout(c)
+internal struct Descriptor
+{
+    version: u32;
+    asynchronous: u32;
+    identity: Identity;
+    static_entry: StaticEntry;
+    static_count: usize;
+    execution: DataPointer<u8>;
+}

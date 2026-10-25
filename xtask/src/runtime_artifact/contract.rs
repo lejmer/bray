@@ -176,7 +176,6 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeInactiveFrame") => RuntimeAbiType::InactiveFrame,
         Some("NativeFrameProgress") => RuntimeAbiType::FrameProgress,
         Some("NativeExecutionLaneResult") => RuntimeAbiType::LaneResult,
-        Some("NativeProductHostObservation") => RuntimeAbiType::ProductObservation,
         Some(
             "NativeWakeCallback"
             | "NativeRuntimeEventCallback"

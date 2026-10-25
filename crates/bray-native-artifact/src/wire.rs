@@ -166,7 +166,7 @@ struct StaticWire {
     order_key: Vec<u8>,
     exact_thread: bool,
     dependencies: Vec<String>,
-    requires_host: bool,
+    cleanup_execution: Option<ExecutionWire>,
     requires_main_thread: bool,
 }
 
@@ -182,7 +182,7 @@ impl StaticWire {
                 .iter()
                 .map(|id| NativeContentDigest::new(*id).to_hex())
                 .collect(),
-            requires_host: value.requires_host(),
+            cleanup_execution: value.cleanup_execution().map(ExecutionWire::from_execution),
             requires_main_thread: value.requires_main_thread(),
         }
     }
@@ -205,9 +205,32 @@ impl StaticWire {
                 .iter()
                 .map(|value| digest(value).map(NativeContentDigest::bytes))
                 .collect::<Result<Vec<_>, _>>()?,
-            self.requires_host,
+            self.cleanup_execution.map(ExecutionWire::into_execution),
             self.requires_main_thread,
         ))
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ExecutionWire {
+    Synchronous,
+    Asynchronous,
+}
+
+impl ExecutionWire {
+    fn from_execution(execution: bray_symbols::CallableExecution) -> Self {
+        match execution {
+            bray_symbols::CallableExecution::Synchronous => Self::Synchronous,
+            bray_symbols::CallableExecution::Asynchronous => Self::Asynchronous,
+        }
+    }
+
+    fn into_execution(self) -> bray_symbols::CallableExecution {
+        match self {
+            Self::Synchronous => bray_symbols::CallableExecution::Synchronous,
+            Self::Asynchronous => bray_symbols::CallableExecution::Asynchronous,
+        }
     }
 }
 

@@ -807,72 +807,83 @@ func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
 
 #[test]
 fn production_host_authority_cannot_be_constructed_from_fields() {
-    for (body, valid) in [
-        ("let pointer = trusted host_access_pointer(&lease);", true),
+    let cases = [
+        ("let pointer = trusted host_access_pointer(&lease);", None),
         (
             "let moved = lease; let pointer = trusted host_access_pointer(&moved);",
-            true,
+            None,
         ),
         (
-            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true, retirement = lease.retirement }; let pointer = trusted host_access_pointer(&fake);",
-            false,
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true }; let pointer = trusted host_access_pointer(&fake);",
+            Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
-            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = lease.active, retirement = lease.retirement };",
-            false,
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = lease.active };",
+            Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
             "let mut fake: HostAnchor = { owner = anchor.owner }; let value = trusted host_value(&lease, &mut fake);",
-            false,
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
             "let other_lease = trusted host_access(); let mut other = trusted host_anchor(&other_lease); let value = trusted host_value(&lease, &mut other);",
-            false,
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
             "let host = trusted host_value(&lease, &mut anchor); host.next_identity = 0;",
-            false,
+            None,
         ),
         (
             "let host = trusted host_value(&lease, &mut anchor); host.transitioning = true;",
-            false,
+            None,
         ),
         (
             "let host = trusted host_value(&lease, &mut anchor); host.storage = none;",
-            false,
+            None,
         ),
         (
             "let host = trusted host_value(&lease, &mut anchor); if let ?storage = host.storage { storage.released = true; }",
-            false,
+            None,
         ),
-    ] {
-        let caller = format!(
-            r#"trusted internal module bray.runtime.bootstrap.host;
-            func production_probe() {{
-                let lease = trusted host_access();
-                let mut anchor = trusted host_anchor(&lease);
-                if !lease.active {{ return; }}
-                {body}
-            }}"#,
-        );
+    ];
 
-        let compilation = production_host_compilation(&caller);
+    let callers = cases
+        .iter()
+        .enumerate()
+        .map(|(index, (body, _))| {
+            format!(
+                r#"
+        func production_probe_{index}() {{
+            let lease = trusted host_access();
+            let mut anchor = trusted host_anchor(&lease);
+            if !lease.active {{ return; }}
+            {body}
+        }}
+        "#,
+            )
+        })
+        .collect::<String>();
 
+    let compilation = production_host_compilation(&format!(
+        "trusted internal module bray.runtime.bootstrap.host; {callers}"
+    ));
+
+    for (index, (body, expected)) in cases.into_iter().enumerate() {
         let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .lowered_unit(source_function_body_key(
+                &compilation,
+                &format!("production_probe_{index}"),
+            ))
             .expect("production host probe must retain its checked result");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
-            valid,
+            expected.is_none(),
             "{body}: {checked:#?}"
         );
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+        if let Some(expected) = expected {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), expected);
         }
     }
 }
@@ -1062,21 +1073,27 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
 }
 
 #[test]
-fn production_retirement_lease_cannot_mutate_or_relocate_its_owned_row() {
-    for (body, valid) in [
-        ("let moved = completed;", true),
+fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
+    for (body, expected) in [
+        ("let moved = completed;", None),
         (
-            "let mut anchor = trusted host_anchor(&completed); let host = trusted host_value(&completed, &mut anchor);",
-            false,
+            "let mut anchor = trusted host_anchor(&completed.lease); let host = trusted host_value(&completed.lease, &mut anchor);",
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
-        ("completed.retirement = completed.retirement;", false),
-        ("completed.retirement.pending = false;", false),
+        (
+            "completed.identity = completed.identity;",
+            Some(DiagnosticKind::CheckingMissingMutationAuthority),
+        ),
+        (
+            "completed.lease = completed.lease;",
+            Some(DiagnosticKind::CheckingMissingMutationAuthority),
+        ),
     ] {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.host;
-            func production_probe(pos mut completed: HostLease)
-                requires(completed.active, completed.retirement.pending, trusted host_access_live(owner = &completed.acquisition), trusted attachment_cleanup_completed(owner = &completed))
+            func production_probe(pos mut completed: AttachmentRetirement)
+                requires(completed.lease.active, trusted host_access_live(owner = &completed.lease.acquisition), trusted attachment_cleanup_completed(owner = &completed))
             {{
                 {body}
             }}
@@ -1091,15 +1108,12 @@ fn production_retirement_lease_cannot_mutate_or_relocate_its_owned_row() {
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
-            valid,
+            expected.is_none(),
             "{body}: {checked:#?}"
         );
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+        if let Some(expected) = expected {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), expected);
         }
     }
 }
@@ -1182,6 +1196,61 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
         checked.diagnostics(),
         DiagnosticKind::CheckingExecutionGuaranteeNotProven,
     );
+}
+
+#[test]
+fn production_shutdown_owner_uses_ordinary_completion_rules() {
+    for (parameter, condition, body, valid) in [
+        ("ShutdownOwner", "true", "", false),
+        ("ShutdownOwner", "!owner.pending", "", true),
+        (
+            "ShutdownOwner",
+            "true",
+            "_ = trusted owner.attempt();",
+            false,
+        ),
+        (
+            "ShutdownOwner",
+            "true",
+            "_ = trusted owner.adopt_fallback();",
+            true,
+        ),
+        ("ShutdownOwner", "true", "panic(\"caller failed\");", true),
+        ("ShutdownOwner?", "true", "", false),
+        ("Result<ShutdownOwner, u32>", "true", "", false),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.host.product;
+            trusted func production_probe(pos mut owner: {parameter})
+                requires(
+                    trusted native_host(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                    {condition}
+                )
+            {{ {body} }}
+            "#,
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let checked = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .unwrap();
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{parameter}, {condition}, {body}: {checked:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingUnresolvedFinalization,
+            );
+        }
+    }
 }
 
 #[test]
@@ -1320,7 +1389,7 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
             false,
         ),
         (
-            "let own_lease = trusted host_access(); let fake: HostLease = { acquisition = own_lease.acquisition, synchronization = own_lease.synchronization, owner = own_lease.owner, active = true, retirement = AttachmentRetirement { pending = true, identity = selected.identity, native_thread = selected.native_thread, record = std.memory.null<Attachment>(), active = std.memory.null<usize>(), remaining_active = 0 } }; let pointer = trusted completed_attachment_pointer(&fake);",
+            "let own_lease = trusted host_access(); let fake: AttachmentRetirement = { lease = own_lease, identity = selected.identity, native_thread = selected.native_thread, record = std.memory.null<Attachment>(), active = std.memory.null<usize>(), remaining_active = 0 }; let pointer = trusted completed_attachment_pointer(&fake);",
             false,
         ),
     ] {
@@ -1392,8 +1461,8 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
             func production_probe(pos lease: &HostLease, pos other: &HostLease,
                 pos selected: &AttachmentSelection, pos mut owner: AttachmentExit) -> u32
                 requires(
-                    trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease), trusted attachment_cleanup_completed(owner = lease),
-                    trusted host_access_live(owner = &other.acquisition), trusted host_access_idle(owner = other), trusted attachment_cleanup_completed(owner = other),
+                    trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease),
+                    trusted host_access_live(owner = &other.acquisition), trusted host_access_idle(owner = other),
                     !selected.pending || trusted vacant_attachment_exit(slot = &selected.slot, lease = lease),
                     !selected.pending || trusted core.memory.valid_write<(AttachmentExit?)>(pointer = selected.slot.storage, count = 1),
                     !selected.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = selected.slot.storage),
@@ -1744,6 +1813,19 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
         include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/bridge/address.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/abi.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/admission.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/cleanup.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/control.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/execution.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/execution_access.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/formation.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/operations.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/owner.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/progress.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/state.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/storage.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/host/product/thread_static.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/owner.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/access.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/attachment.bray"),

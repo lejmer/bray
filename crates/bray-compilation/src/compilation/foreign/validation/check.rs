@@ -318,7 +318,7 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
             .iter()
             .zip(expected.parameters().iter().copied()),
     ) {
-        if platform_abi_type_matches(compilation, actual, expected, cancellation)? {
+        if platform_abi_type_matches(compilation, actual, expected, cancellation, diagnostics)? {
             continue;
         }
 
@@ -338,6 +338,7 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
         &callable.result,
         expected.result(),
         cancellation,
+        diagnostics,
     )? {
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
@@ -401,8 +402,9 @@ fn platform_abi_type_matches(
     template: &TypeExpressionTemplate,
     expected: bray_runtime_interface::PlatformAbiType,
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
-    let Some(ty) = resolve_template_type(compilation, template, cancellation)? else {
+    let Some(ty) = resolve_template_type(compilation, template, cancellation, diagnostics)? else {
         return Ok(false);
     };
 
@@ -449,9 +451,10 @@ fn platform_abi_type_matches(
                 AbiField::Scalar(RepresentationRole::ScalarU64),
             ],
             cancellation,
+            diagnostics,
         ),
         bray_runtime_interface::PlatformAbiType::NativeText => {
-            c_struct_matches(compilation, ty, BYTE_SPAN_FIELDS, cancellation)
+            c_struct_matches(compilation, ty, BYTE_SPAN_FIELDS, cancellation, diagnostics)
         }
         bray_runtime_interface::PlatformAbiType::FileOptions => c_struct_matches(
             compilation,
@@ -462,6 +465,7 @@ fn platform_abi_type_matches(
                 AbiField::Scalar(RepresentationRole::ScalarU64),
             ],
             cancellation,
+            diagnostics,
         ),
         bray_runtime_interface::PlatformAbiType::FileMetadataPointer => {
             let Some(metadata) = raw_pointer_target(compilation, ty)? else {
@@ -480,38 +484,61 @@ fn platform_abi_type_matches(
                     AbiField::Scalar(RepresentationRole::ScalarU32),
                 ],
                 cancellation,
+                diagnostics,
             )
         }
-        bray_runtime_interface::PlatformAbiType::ChildRequest => {
-            c_struct_matches(compilation, ty, CHILD_REQUEST_FIELDS, cancellation)
-        }
+        bray_runtime_interface::PlatformAbiType::ChildRequest => c_struct_matches(
+            compilation,
+            ty,
+            CHILD_REQUEST_FIELDS,
+            cancellation,
+            diagnostics,
+        ),
         bray_runtime_interface::PlatformAbiType::ExitStatusPointer => {
             let Some(status) = raw_pointer_target(compilation, ty)? else {
                 return Ok(false);
             };
 
-            c_struct_matches(compilation, status, EXIT_STATUS_FIELDS, cancellation)
+            c_struct_matches(
+                compilation,
+                status,
+                EXIT_STATUS_FIELDS,
+                cancellation,
+                diagnostics,
+            )
         }
         bray_runtime_interface::PlatformAbiType::TemporalDateTime => {
-            c_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation)
+            c_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation, diagnostics)
         }
         bray_runtime_interface::PlatformAbiType::TemporalDateTimePointer => {
-            pointer_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation, diagnostics)
         }
         bray_runtime_interface::PlatformAbiType::TemporalObservationPointer => {
-            pointer_struct_matches(compilation, ty, OBSERVATION_FIELDS, cancellation)
+            pointer_struct_matches(
+                compilation,
+                ty,
+                OBSERVATION_FIELDS,
+                cancellation,
+                diagnostics,
+            )
         }
         bray_runtime_interface::PlatformAbiType::TemporalResolutionPointer => {
-            pointer_struct_matches(compilation, ty, RESOLUTION_FIELDS, cancellation)
+            pointer_struct_matches(
+                compilation,
+                ty,
+                RESOLUTION_FIELDS,
+                cancellation,
+                diagnostics,
+            )
         }
         bray_runtime_interface::PlatformAbiType::TemporalValue => {
-            c_struct_matches(compilation, ty, VALUE_FIELDS, cancellation)
+            c_struct_matches(compilation, ty, VALUE_FIELDS, cancellation, diagnostics)
         }
         bray_runtime_interface::PlatformAbiType::TemporalValuePointer => {
-            pointer_struct_matches(compilation, ty, VALUE_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, VALUE_FIELDS, cancellation, diagnostics)
         }
         bray_runtime_interface::PlatformAbiType::Status => {
-            platform_status_matches(compilation, ty, cancellation)
+            platform_status_matches(compilation, ty, cancellation, diagnostics)
         }
     }
 }
@@ -520,9 +547,12 @@ fn resolve_template_type(
     compilation: &Compilation,
     template: &TypeExpressionTemplate,
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<TypeId>, FactQueryError> {
     let constants = compilation
         .checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
+
+    diagnostics.extend(constants.diagnostics().iter().cloned());
 
     Ok(bray_checker::resolve_type_expression_template(
         compilation.semantic_value_store()?,
@@ -598,6 +628,10 @@ fn raw_pointer_target(
 pub(in crate::compilation) enum AbiField {
     NativePointer,
     Scalar(RepresentationRole),
+    Array {
+        element: RepresentationRole,
+        length: u64,
+    },
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
     PointerStruct(&'static [AbiField]),
@@ -645,12 +679,13 @@ fn pointer_struct_matches(
     ty: TypeId,
     fields: &[AbiField],
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
     let Some(target) = raw_pointer_target(compilation, ty)? else {
         return Ok(false);
     };
 
-    c_struct_matches(compilation, target, fields, cancellation)
+    c_struct_matches(compilation, target, fields, cancellation, diagnostics)
 }
 
 pub(in crate::compilation) fn c_struct_matches(
@@ -658,6 +693,7 @@ pub(in crate::compilation) fn c_struct_matches(
     ty: TypeId,
     expected_fields: &[AbiField],
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
@@ -673,6 +709,8 @@ pub(in crate::compilation) fn c_struct_matches(
 
     let representation = compilation
         .declared_type_representation_with_cancellation((*structure).into(), cancellation)?;
+
+    diagnostics.extend(representation.diagnostics().iter().cloned());
 
     if representation.value().layout() != DeclaredLayoutMode::C {
         return Ok(false);
@@ -708,12 +746,15 @@ pub(in crate::compilation) fn c_struct_matches(
             .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
             .map_err(super::super::super::binder::binding_query_error)?;
 
-        let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
+        diagnostics.extend(field.diagnostics().iter().cloned());
+
+        let Some(field_ty) =
+            resolve_template_type(compilation, field.value(), cancellation, diagnostics)?
         else {
             return Ok(false);
         };
 
-        let matches = abi_type_matches(compilation, field_ty, expected, cancellation)?;
+        let matches = abi_type_matches(compilation, field_ty, expected, cancellation, diagnostics)?;
 
         if !matches {
             return Ok(false);
@@ -728,19 +769,55 @@ pub(in crate::compilation) fn abi_type_matches(
     ty: TypeId,
     expected: &AbiField,
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
     match expected {
         AbiField::NativePointer => Ok(raw_pointer_target(compilation, ty)?.is_some()
             || type_has_representation(compilation, ty, RepresentationRole::FunctionPointer)?),
         AbiField::Scalar(role) => type_has_representation(compilation, ty, *role),
+        AbiField::Array { element, length } => {
+            let checker = crate::compilation::checker::CompilationCheckerContext::new(
+                compilation.binding_context(cancellation)?,
+            );
+
+            let ty = bray_checker::normalize_type_valued_members(&checker, ty, diagnostics)
+                .map_err(|error| match error {
+                    bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled,
+                    bray_checker::CheckerQueryError::Upstream(error) => error,
+                })?;
+
+            if diagnostics.has_errors() {
+                return Ok(false);
+            }
+
+            let values = compilation.semantic_value_store()?;
+            let data = values.type_data(ty);
+
+            let TypeData::Array {
+                element: actual_element,
+                length: actual_length,
+            } = data.as_ref()
+            else {
+                return Ok(false);
+            };
+
+            let actual_length = values
+                .constant_term_integer(*actual_length)
+                .and_then(|value| value.to_u64());
+
+            Ok(actual_length == Some(*length)
+                && type_has_representation(compilation, *actual_element, *element)?)
+        }
         AbiField::Pointer(role) => raw_pointer_targets(compilation, ty, *role),
-        AbiField::Struct(fields) => c_struct_matches(compilation, ty, fields, cancellation),
+        AbiField::Struct(fields) => {
+            c_struct_matches(compilation, ty, fields, cancellation, diagnostics)
+        }
         AbiField::PointerStruct(fields) => {
             let Some(target) = raw_pointer_target(compilation, ty)? else {
                 return Ok(false);
             };
 
-            c_struct_matches(compilation, target, fields, cancellation)
+            c_struct_matches(compilation, target, fields, cancellation, diagnostics)
         }
     }
 }
@@ -749,6 +826,7 @@ fn platform_status_matches(
     compilation: &Compilation,
     ty: TypeId,
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
@@ -803,7 +881,10 @@ fn platform_status_matches(
             .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
             .map_err(super::super::super::binder::binding_query_error)?;
 
-        let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
+        diagnostics.extend(field.diagnostics().iter().cloned());
+
+        let Some(field_ty) =
+            resolve_template_type(compilation, field.value(), cancellation, diagnostics)?
         else {
             return Ok(false);
         };
@@ -1053,13 +1134,92 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_compiler_known::RepresentationRole;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{CallableSignatureTemplate, TypeData, TypeExpressionTemplate};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::callable_surface;
+    use super::{AbiField, c_struct_matches, callable_surface, resolve_template_type};
 
     use crate::test_support::{compilation, source_function};
+
+    #[test]
+    fn native_record_arrays_match_the_exact_element_and_extent() {
+        for (field, expected) in [
+            ("[u8; 32]", true),
+            ("[u8; 16 + 16]", true),
+            ("[u8; 31]", false),
+            ("[u64; 4]", false),
+            ("[u8; 32 / 0]", false),
+        ] {
+            let compilation = compilation(&format!(
+                r#"
+                module app;
+
+                @layout(c)
+                struct Record
+                {{
+                    identity: {field};
+                }}
+
+                func accept(pos value: Record) -> Record
+                {{
+                    return value;
+                }}
+            "#
+            ));
+
+            let function = source_function(&compilation, "accept");
+
+            let signature = compilation
+                .callable_signature_template(function.into())
+                .unwrap()
+                .unwrap();
+
+            let cancellation = crate::fact::CancellationToken::new();
+            let mut diagnostics = DiagnosticBag::new();
+
+            let ty = resolve_template_type(
+                &compilation,
+                signature.value().result(),
+                &cancellation,
+                &mut diagnostics,
+            )
+            .unwrap()
+            .unwrap();
+
+            assert_eq!(
+                c_struct_matches(
+                    &compilation,
+                    ty,
+                    &[AbiField::Array {
+                        element: RepresentationRole::ScalarU8,
+                        length: 32,
+                    }],
+                    &cancellation,
+                    &mut diagnostics
+                )
+                .unwrap(),
+                expected,
+                "{field}"
+            );
+
+            let kinds = diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                kinds,
+                if field == "[u8; 32 / 0]" {
+                    vec![DiagnosticKind::CheckingConstantDivisionByZero]
+                } else {
+                    Vec::new()
+                },
+                "{field}"
+            );
+        }
+    }
 
     #[test]
     fn invalid_variadic_foreign_callables_publish_the_exact_contract_diagnostic() {

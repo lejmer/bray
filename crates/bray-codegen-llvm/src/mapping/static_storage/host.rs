@@ -3,7 +3,7 @@ use bray_codegen::{
     CodegenStaticStorageMapping,
 };
 use inkwell::attributes::AttributeLoc;
-use inkwell::types::{ArrayType, BasicType, IntType, PointerType, StructType};
+use inkwell::types::{ArrayType, IntType, PointerType, StructType};
 use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use inkwell::{
     GlobalVisibility,
@@ -207,9 +207,25 @@ fn declare_static_dependency_lookup<'context>(
 
     let dependency = module.add_function(
         &name,
-        static_identity_type(context).fn_type(&[usize.into()], false),
+        context.void_type().fn_type(
+            &[
+                context.ptr_type(inkwell::AddressSpace::default()).into(),
+                usize.into(),
+            ],
+            false,
+        ),
         Some(Linkage::WeakODR),
     );
+
+    dependency.add_attribute(
+        AttributeLoc::Param(0),
+        crate::native::indirect_result_attribute(context, static_identity_type(context).into())?,
+    );
+
+    let destination = dependency
+        .get_first_param()
+        .expect("dependency lookup owns its result slot")
+        .into_pointer_value();
 
     dependency
         .as_global_value()
@@ -228,10 +244,14 @@ fn declare_static_dependency_lookup<'context>(
         builder.position_at_end(block);
 
         builder
-            .build_return(Some(&crate::native::identity_value(
-                context,
-                identity.bytes(),
-            )))
+            .build_store(
+                destination,
+                crate::native::identity_value(context, identity.bytes()),
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder
+            .build_return(None)
             .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
@@ -247,13 +267,17 @@ fn declare_static_dependency_lookup<'context>(
     builder.position_at_end(invalid);
 
     builder
-        .build_return(Some(&static_identity_type(context).const_zero()))
+        .build_store(destination, static_identity_type(context).const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_return(None)
         .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(entry);
 
     let index = dependency
-        .get_first_param()
+        .get_last_param()
         .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
@@ -300,12 +324,33 @@ pub(super) fn declare_product_host<'context>(
         types.target().machine().object_format(),
     )?;
 
+    let execution = if product_host.execution().is_some() {
+        crate::native::declare_runtime_function(
+            module,
+            context,
+            types.target(),
+            bray_runtime_interface::RuntimeAbiRole::ProductExecutionProvider,
+        )?
+        .as_global_value()
+        .as_pointer_value()
+    } else {
+        pointer.const_null()
+    };
+
     let descriptor_initializer = descriptor_type.const_named_struct(&[
         context
             .i32_type()
             .const_int(u64::from(bray_runtime_abi::PRODUCT_HOST_ABI_VERSION), false)
             .into(),
-        context.i32_type().const_zero().into(),
+        context
+            .i32_type()
+            .const_int(
+                u64::from(
+                    product_host.execution() == Some(bray_symbols::CallableExecution::Asynchronous),
+                ),
+                false,
+            )
+            .into(),
         crate::native::identity_value(context, product_host.identity().bytes()).into(),
         static_entry.as_global_value().as_pointer_value().into(),
         usize
@@ -315,6 +360,7 @@ pub(super) fn declare_product_host<'context>(
                 false,
             )
             .into(),
+        execution.into(),
     ]);
 
     descriptor.set_constant(true);
@@ -326,20 +372,11 @@ pub(super) fn declare_product_host<'context>(
         descriptor.set_visibility(GlobalVisibility::Protected);
     }
 
-    let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
-    let runtime = crate::native::declare_runtime_function(module, context, types.target(), role)?;
-    let runtime_type = runtime.get_type();
-    let result = crate::native::runtime_indirect_result_type(context, types.target(), role);
+    let observation_type = crate::native::product_observation_type(context, types.target());
 
-    let mut parameters = runtime_type.get_param_types();
-
-    // The product wrapper captures the descriptor while preserving the native result parameter.
-    parameters.remove(usize::from(result.is_some()));
-
-    let control_type = match runtime_type.get_return_type() {
-        Some(result) => result.fn_type(&parameters, false),
-        None => context.void_type().fn_type(&parameters, false),
-    };
+    let control_type = context
+        .void_type()
+        .fn_type(&[pointer.into(), context.i32_type().into()], false);
 
     let control = module.add_function(
         product_host.control_symbol().as_str(),
@@ -347,11 +384,10 @@ pub(super) fn declare_product_host<'context>(
         Some(Linkage::WeakODR),
     );
 
-    if let Some(result) = result {
-        let attribute = crate::native::indirect_result_attribute(context, result)?;
-
-        control.add_attribute(AttributeLoc::Param(0), attribute);
-    }
+    control.add_attribute(
+        AttributeLoc::Param(0),
+        crate::native::indirect_result_attribute(context, observation_type.into())?,
+    );
 
     crate::comdat::attach(
         module,
@@ -369,39 +405,26 @@ pub(super) fn declare_product_host<'context>(
         .get_last_param()
         .expect("static-storage realization requires an established mapping or value");
 
-    let mut arguments = Vec::new();
+    let observation = crate::native::invoke_product_control(
+        context,
+        module,
+        &builder,
+        types.target(),
+        descriptor.as_pointer_value(),
+        operation.into_int_value(),
+    )?;
 
-    if result.is_some() {
-        arguments.push(
-            control
-                .get_first_param()
-                .expect("static-storage realization requires an established mapping or value")
-                .into(),
-        );
-    }
-
-    arguments.push(descriptor.as_pointer_value().into());
-    arguments.push(operation.into());
-
-    let call = builder
-        .build_call(runtime, &arguments, "product.host.observation")
-        .map_err(CodegenFailure::backend_library)?;
-
-    if let Some(result) = result {
-        call.add_attribute(
-            AttributeLoc::Param(0),
-            crate::native::indirect_result_attribute(context, result)?,
-        );
-    }
-
-    let observation = call.try_as_basic_value().basic();
+    let destination = control
+        .get_first_param()
+        .expect("product control owns its observation output")
+        .into_pointer_value();
 
     builder
-        .build_return(
-            observation
-                .as_ref()
-                .map(|value| value as &dyn inkwell::values::BasicValue),
-        )
+        .build_store(destination, observation)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_return(None)
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
@@ -419,9 +442,25 @@ fn declare_static_host_lookup<'context>(
 
     let lookup = module.add_function(
         &name,
-        entry_type.fn_type(&[usize.into()], false),
+        context.void_type().fn_type(
+            &[
+                context.ptr_type(inkwell::AddressSpace::default()).into(),
+                usize.into(),
+            ],
+            false,
+        ),
         Some(Linkage::WeakODR),
     );
+
+    lookup.add_attribute(
+        AttributeLoc::Param(0),
+        crate::native::indirect_result_attribute(context, entry_type.into())?,
+    );
+
+    let destination = lookup
+        .get_first_param()
+        .expect("static lookup owns its result slot")
+        .into_pointer_value();
 
     lookup
         .as_global_value()
@@ -461,7 +500,11 @@ fn declare_static_host_lookup<'context>(
             .map_err(CodegenFailure::backend_library)?;
 
         builder
-            .build_return(Some(&value))
+            .build_store(destination, value)
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder
+            .build_return(None)
             .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
@@ -477,13 +520,17 @@ fn declare_static_host_lookup<'context>(
     builder.position_at_end(invalid);
 
     builder
-        .build_return(Some(&entry_type.const_zero()))
+        .build_store(destination, entry_type.const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_return(None)
         .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(entry);
 
     let index = lookup
-        .get_first_param()
+        .get_last_param()
         .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
@@ -569,6 +616,7 @@ fn product_host_descriptor_type<'context>(
             product_identity_type(context).into(),
             pointer.into(),
             usize.into(),
+            pointer.into(),
         ],
         false,
     )

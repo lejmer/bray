@@ -251,7 +251,7 @@ impl StorageFlowState {
         &mut self,
         invalidation: &bray_bound_tree::StorageInvalidation,
         storage: &StoragePlan,
-        discriminants: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+        discriminants: &BTreeMap<StorageIdentityId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
         self.definitely_absent.retain(|access, reason| {
             if *reason == StorageAbsence::Moved {

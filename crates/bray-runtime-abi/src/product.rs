@@ -117,6 +117,10 @@ impl NativeProductHostStatus {
     pub const INCIDENTS: Self = Self(4);
     /// Runtime infrastructure could not preserve the host contract.
     pub const RUNTIME_FAILURE: Self = Self(5);
+    /// Process-local identities for admitted asynchronous cleanup were exhausted.
+    pub const IDENTITY_EXHAUSTED: Self = Self(6);
+    /// Mandatory outgoing cleanup storage could not be admitted.
+    pub const OUTGOING_STORAGE_UNAVAILABLE: Self = Self(7);
 
     /// Returns the stable integer representation.
     pub const fn code(self) -> u32 {
@@ -155,10 +159,14 @@ impl NativeProductHostOperation {
     /// Close an executable root and resolve its implicit current-thread static obligations.
     /// Explicit foreign-thread attachments must be released by their original owner first.
     pub const FINISH_ROOT: Self = Self(11);
+    /// Acquire one exact-thread attachment owned by the retained execution service.
+    pub const ACQUIRE_WORKER_ATTACHMENT: Self = Self(12);
+    /// Release one execution-service worker attachment after its exact-thread cleanup.
+    pub const RELEASE_WORKER_ATTACHMENT: Self = Self(13);
 
     /// Returns whether the value belongs to this ABI version.
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 0..=11)
+        matches!(self.0, 0..=13)
     }
 
     /// Returns the stable integer representation.
@@ -172,11 +180,11 @@ pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 
 /// Compiler-generated callback cleaning one initialized static instance.
 /// The first argument is one when inherited graceful cleanup was abandoned, otherwise zero.
-pub type NativeStaticCleanupCallback = extern "C-unwind" fn(u32, &mut crate::NativeRunOutcome);
+pub type NativeStaticCleanupCallback = extern "C" fn(u32, &mut crate::NativeRunOutcome);
 
 /// Starts finalization with a caller-owned result or incident destination.
 pub type NativeStaticFinalizerStartCallback =
-    extern "C-unwind" fn(usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
+    extern "C" fn(usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
 /// Compiler-generated callback reporting one owned cleanup incident payload.
 pub type NativeCleanupIncidentReportCallback =
@@ -197,12 +205,24 @@ pub struct NativeCleanupIncident {
     payload: usize,
     type_identity: NativeTypeIdentity,
     source: NativeSourceAnchor,
-    report: NativeCleanupIncidentReportCallback,
-    destroy: NativeCleanupIncidentDestroyCallback,
+    report: Option<NativeCleanupIncidentReportCallback>,
+    destroy: Option<NativeCleanupIncidentDestroyCallback>,
     backing: crate::NativeCleanupStorageLease,
 }
 
 impl NativeCleanupIncident {
+    /// Creates a valid unpublished destination without payload or callbacks.
+    pub const fn empty() -> Self {
+        Self {
+            payload: 0,
+            type_identity: NativeTypeIdentity::new([0; 32]),
+            source: NativeSourceAnchor::unavailable(),
+            report: None,
+            destroy: None,
+            backing: crate::NativeCleanupStorageLease::empty(),
+        }
+    }
+
     /// Creates one compiler-generated owned cleanup incident.
     pub const fn new(
         payload: usize,
@@ -215,8 +235,8 @@ impl NativeCleanupIncident {
             payload,
             type_identity,
             source,
-            report,
-            destroy,
+            report: Some(report),
+            destroy: Some(destroy),
             backing: crate::NativeCleanupStorageLease::empty(),
         }
     }
@@ -245,7 +265,10 @@ impl NativeCleanupIncident {
 
     /// Returns whether every data field satisfies the native ownership contract.
     pub const fn is_valid(self) -> bool {
-        self.payload != 0 && self.source.is_valid()
+        self.payload != 0
+            && self.source.is_valid()
+            && self.report.is_some()
+            && self.destroy.is_some()
     }
 
     /// Returns the owned payload address.
@@ -266,17 +289,19 @@ impl NativeCleanupIncident {
     /// Returns the reporting callback that borrows the owned payload.
     pub const fn report(self) -> NativeCleanupIncidentReportCallback {
         self.report
+            .expect("published cleanup incidents retain their reporting callback")
     }
 
     /// Returns the callback consuming and releasing the owned payload.
     pub const fn destroy(self) -> NativeCleanupIncidentDestroyCallback {
         self.destroy
+            .expect("published cleanup incidents retain their disposal callback")
     }
 }
 
 /// Consumes a completed result into the supplied incident destination.
 pub type NativeStaticFinalizerResolveCallback =
-    extern "C-unwind" fn(usize, usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
+    extern "C" fn(usize, usize, &mut crate::NativeRunOutcome) -> NativeStaticFinalizerStatus;
 
 /// How one static finalizer reaches completion.
 #[repr(transparent)]
@@ -503,10 +528,11 @@ impl NativeStaticHostEntry {
 #[derive(Clone, Copy, Debug)]
 pub struct NativeProductHostDescriptor {
     abi_version: u32,
-    reserved: u32,
+    asynchronous: u32,
     identity: NativeProductIdentity,
     static_entry: NativeStaticHostCallback,
     static_count: usize,
+    execution: Option<crate::NativeProductExecutionFactory>,
 }
 
 impl NativeProductHostDescriptor {
@@ -518,11 +544,34 @@ impl NativeProductHostDescriptor {
     ) -> Self {
         Self {
             abi_version: PRODUCT_HOST_ABI_VERSION,
-            reserved: 0,
+            asynchronous: 0,
             identity,
             static_entry,
             static_count,
+            execution: None,
         }
+    }
+
+    /// Selects the execution-resource provider required by async or exact-thread consumers.
+    pub const fn with_execution(
+        mut self,
+        factory: crate::NativeProductExecutionFactory,
+        asynchronous: bool,
+    ) -> Self {
+        self.execution = Some(factory);
+        self.asynchronous = asynchronous as u32;
+
+        self
+    }
+
+    /// Returns the demanded execution-resource factory, if the product requires one.
+    pub const fn execution(self) -> Option<crate::NativeProductExecutionFactory> {
+        self.execution
+    }
+
+    /// Returns whether formation must acquire a service capable of driving asynchronous cleanup.
+    pub const fn asynchronous(self) -> bool {
+        self.asynchronous != 0
     }
 
     /// Returns the record ABI version.
@@ -721,6 +770,16 @@ mod tests {
         NativeCleanupIncident, NativeProductHostDescriptor, NativeProductHostObservation,
         NativeStaticFinalizer, NativeStaticHostEntry, NativeThreadStaticCleanupRegistration,
     };
+
+    #[test]
+    fn unpublished_cleanup_incident_has_no_payload_or_callbacks() {
+        let empty = NativeCleanupIncident::empty();
+
+        assert!(!empty.is_valid());
+        assert_eq!(empty.payload(), 0);
+        assert!(empty.report.is_none());
+        assert!(empty.destroy.is_none());
+    }
 
     #[test]
     fn product_host_records_keep_native_pointer_alignment() {

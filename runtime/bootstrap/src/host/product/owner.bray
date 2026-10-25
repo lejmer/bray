@@ -1,0 +1,81 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using internal bray.runtime.bootstrap.pool;
+
+// Resident storage owns cleanup independently. This value owns the caller's
+// graceful obligation and never lends its storage to resident work.
+internal struct ShutdownOwner
+{
+    mut key: usize;
+    mut pending: bool;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(result == !self.pending)
+    {
+        return !self.pending;
+    }
+
+    trusted finalize() -> Result<unit, u32>
+        requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        ensures(result matches Error(_) || !self.pending)
+        when(!self.pending)
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
+    {
+        if !self.pending
+        {
+            return Ok(unit);
+        }
+
+        let observation = trusted self.attempt();
+
+        if !self.pending && observation.status != 4
+        {
+            return Ok(unit);
+        }
+
+        return Error(observation.status);
+    }
+
+    trusted destruct()
+        requires(trusted native_host())
+    {
+        if self.key != 0
+        {
+            trusted release_caller(self.key);
+        }
+    }
+
+    trusted mut func attempt() -> Observation
+        requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        ensures(result.state != 3 || !self.pending)
+    {
+        let observation = trusted request_close(self.key);
+
+        if observation.state == 3
+        {
+            self.pending = false;
+
+            return observation;
+        }
+
+        return observation;
+    }
+
+    // Explicit adoption discharges caller control. The already admitted resident
+    // service continues through the same closing state when dependencies release.
+    trusted mut func adopt_fallback() -> Observation
+        requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        ensures(!self.pending)
+    {
+        let observation = trusted request_close(self.key);
+
+        self.pending = false;
+
+        return observation;
+    }
+}

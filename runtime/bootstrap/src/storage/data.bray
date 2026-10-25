@@ -69,6 +69,7 @@ internal struct Shape
 }
 
 internal func empty_lease() -> Lease
+    executes(pure, total)
 {
     return
     {

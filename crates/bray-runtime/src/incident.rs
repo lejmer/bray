@@ -1,6 +1,3 @@
-use std::any::Any;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use bray_runtime_abi::{NativeCleanupIncident, NativeRuntimeStatus};
 
 pub(crate) struct OwnedCleanupIncident {
@@ -10,7 +7,6 @@ pub(crate) struct OwnedCleanupIncident {
 enum IncidentKind {
     Native(NativeCleanupIncident),
     Report(bray_runtime_abi::NativePanicReport),
-    Panic(Box<dyn Any + Send>),
 }
 
 impl OwnedCleanupIncident {
@@ -25,7 +21,7 @@ impl OwnedCleanupIncident {
     }
 
     pub(crate) fn native(incident: NativeCleanupIncident) -> Option<Self> {
-        incident.is_valid().then_some(Self {
+        incident.is_valid().then(|| Self {
             kind: Some(IncidentKind::Native(incident)),
         })
     }
@@ -33,12 +29,6 @@ impl OwnedCleanupIncident {
     pub(crate) fn report_owner(report: bray_runtime_abi::NativePanicReport) -> Self {
         Self {
             kind: Some(IncidentKind::Report(report)),
-        }
-    }
-
-    pub(crate) fn panic(payload: Box<dyn Any + Send>) -> Self {
-        Self {
-            kind: Some(IncidentKind::Panic(payload)),
         }
     }
 
@@ -53,7 +43,6 @@ impl OwnedCleanupIncident {
     fn dispose(&mut self, report: bool) -> NativeRuntimeStatus {
         let mut incident = match self.kind.take() {
             Some(IncidentKind::Native(incident)) => incident,
-            Some(IncidentKind::Panic(payload)) => return dispose_panic(payload),
             Some(IncidentKind::Report(mut owned)) => return owned.consume(report),
             None => return NativeRuntimeStatus::SUCCESS,
         };
@@ -63,32 +52,6 @@ impl OwnedCleanupIncident {
             u32::from(report),
         )
     }
-}
-
-pub(crate) fn dispose_panic(payload: Box<dyn Any + Send>) -> NativeRuntimeStatus {
-    let mut pending = Some(payload);
-    let mut status = NativeRuntimeStatus::SUCCESS;
-
-    while let Some(payload) = pending.take() {
-        match payload.downcast::<crate::RuntimePanic>() {
-            Ok(report) => {
-                let mut report = *report;
-                let found = report.consume(false);
-
-                if status.is_success() {
-                    status = found;
-                }
-            }
-            Err(payload) => {
-                if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-                    status = NativeRuntimeStatus::PANICKED;
-                    pending = Some(payload);
-                }
-            }
-        }
-    }
-
-    status
 }
 
 impl Drop for OwnedCleanupIncident {
@@ -109,6 +72,11 @@ mod tests {
 
     use super::OwnedCleanupIncident;
     use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink, RuntimePanic};
+
+    #[test]
+    fn empty_native_output_never_constructs_an_incident_owner() {
+        assert!(OwnedCleanupIncident::native(NativeCleanupIncident::empty()).is_none());
+    }
 
     thread_local! {
         static EVENTS: RefCell<Vec<(&'static str, usize)>> = const { RefCell::new(Vec::new()) };
@@ -202,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn finalizer_bridge_retains_published_incident_before_callback_panic() {
+    fn finalizer_bridge_retains_typed_error_and_published_panic() {
         let _failure = crate::outgoing::tests::reject_admission();
 
         let incidents = crate::product::collect_finalizer_incidents(|destination, outcome| {
@@ -216,10 +184,10 @@ mod tests {
 
             *outcome = published_panic(18);
 
-            panic_any(Release(19));
+            bray_runtime_abi::NativeStaticFinalizerStatus::INCIDENT
         });
 
-        assert_eq!(incidents.iter().flatten().count(), 3);
+        assert_eq!(incidents.iter().flatten().count(), 2);
 
         for incident in incidents.into_iter().flatten() {
             assert!(incident.report().is_success());
@@ -227,12 +195,7 @@ mod tests {
 
         assert_eq!(
             events(),
-            [
-                ("report", 17),
-                ("release", 17),
-                ("native release", 18),
-                ("panic release", 19)
-            ]
+            [("report", 17), ("release", 17), ("native release", 18)]
         );
     }
 
@@ -300,7 +263,7 @@ mod tests {
 
     #[test]
     fn finalizer_bridge_disposes_unreported_incidents_after_transfer() {
-        let incidents = crate::product::collect_finalizer_incidents(|destination, _| {
+        let incidents = crate::product::collect_finalizer_incidents(|destination, outcome| {
             *destination = NativeCleanupIncident::new(
                 19,
                 NativeTypeIdentity::new([7; 32]),
@@ -309,12 +272,14 @@ mod tests {
                 destroy,
             );
 
-            panic_any(Release(20));
+            *outcome = published_panic(20);
+
+            bray_runtime_abi::NativeStaticFinalizerStatus::INCIDENT
         });
 
         drop(incidents);
 
-        assert_eq!(events(), [("release", 19), ("panic release", 20)]);
+        assert_eq!(events(), [("release", 19), ("native release", 20)]);
     }
 
     #[test]

@@ -39,11 +39,19 @@ pub(super) struct ConcreteStaticRealization {
 }
 
 impl ConcreteStaticRealization {
-    pub(super) fn requires_host(&self) -> bool {
-        self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
+    pub(super) fn cleanup_execution(&self) -> Option<CallableExecution> {
+        let requires_host = self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
             || !self.outgoing_calls.is_empty()
             || self.finalization.is_some()
-            || self.destroy.is_some()
+            || self.destroy.is_some();
+
+        requires_host.then(|| {
+            self.finalization
+                .as_ref()
+                .map_or(CallableExecution::Synchronous, |finalization| {
+                    finalization.execution
+                })
+        })
     }
 }
 

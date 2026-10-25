@@ -1,9 +1,6 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use bray_runtime_abi::{
-    NativeCleanupIncident, NativeInactiveFrame, NativeRuntimeStatus, NativeSourceAnchor,
-    NativeStaticCleanupCallback, NativeStaticFinalizer, NativeStaticFinalizerExecution,
-    NativeStaticFinalizerStatus, NativeStaticTransitionCallback, NativeTypeIdentity,
+    NativeCleanupIncident, NativeInactiveFrame, NativeStaticCleanupCallback, NativeStaticFinalizer,
+    NativeStaticFinalizerExecution, NativeStaticFinalizerStatus, NativeStaticTransitionCallback,
 };
 
 use crate::incident::OwnedCleanupIncident as CleanupIncident;
@@ -71,9 +68,7 @@ pub(super) fn run_static_cleanup(
     // if formation fails before cleanup starts.
     admission.source = None;
 
-    let prepare = catch_unwind(AssertUnwindSafe(|| prepare()))
-        .err()
-        .map(CleanupIncident::panic);
+    prepare();
 
     let [first, second, third, resolution] = match finalizer.execution() {
         NativeStaticFinalizerExecution::NONE => [None, None, None, None],
@@ -105,24 +100,18 @@ pub(super) fn run_static_cleanup(
 
     // Finalizer errors may retain their receiver. Consume them before its destructor
     // or thread-static detachment can invalidate those dependencies.
-    let mut count = consume_incidents([prepare, first, second, third, resolution]);
+    let mut count = consume_incidents([first, second, third, resolution]);
 
     let mut published =
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    let destroy = catch_unwind(AssertUnwindSafe(|| {
-        destroy(u32::from(abandoned), &mut published)
-    }))
-    .err()
-    .map(CleanupIncident::panic);
+    destroy(u32::from(abandoned), &mut published);
 
-    count += consume_incidents([CleanupIncident::outcome(published), destroy]);
+    count += consume_incidents([CleanupIncident::outcome(published)]);
 
-    let detach = catch_unwind(AssertUnwindSafe(|| detach()))
-        .err()
-        .map(CleanupIncident::panic);
+    detach();
 
-    count + consume_incidents([detach])
+    count
 }
 
 fn consume_incidents(incidents: impl IntoIterator<Item = Option<CleanupIncident>>) -> usize {
@@ -137,7 +126,7 @@ fn consume_incidents(incidents: impl IntoIterator<Item = Option<CleanupIncident>
     count
 }
 
-fn run_asynchronous_finalizer(
+pub(super) fn run_asynchronous_finalizer(
     admission: crate::TaskAdmission,
     finalizer: NativeStaticFinalizer,
 ) -> [Option<CleanupIncident>; 4] {
@@ -147,19 +136,15 @@ fn run_asynchronous_finalizer(
     let mut published =
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    let started = catch_unwind(AssertUnwindSafe(|| {
-        (finalizer.start())(destination, &mut published)
-    }));
-
+    let started = (finalizer.start())(destination, &mut published);
     let incident = CleanupIncident::outcome(published);
 
     match started {
-        Ok(_) if incident.is_some() => [incident, None, None, None],
-        Ok(NativeStaticFinalizerStatus::SUCCESS) => {
+        _ if incident.is_some() => [incident, None, None, None],
+        NativeStaticFinalizerStatus::SUCCESS => {
             crate::native::run_static_finalizer(admission, frame, finalizer.resolve())
         }
-        Ok(_) => [Some(CleanupIncident::runtime_failure()), None, None, None],
-        Err(payload) => [incident, Some(CleanupIncident::panic(payload)), None, None],
+        _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
     }
 }
 
@@ -169,56 +154,27 @@ pub(crate) fn collect_finalizer_incidents(
         &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus,
 ) -> [Option<CleanupIncident>; 3] {
-    let mut destination = empty_native_incident();
+    let mut destination = NativeCleanupIncident::empty();
 
     let mut published =
         bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
-        callback(&mut destination, &mut published)
-    }));
+    let outcome = callback(&mut destination, &mut published);
 
     let incident = CleanupIncident::native(destination);
 
-    // A published incident has transferred ownership even if the callback then unwinds.
     let failure = match outcome {
-        Ok(NativeStaticFinalizerStatus::SUCCESS) => None,
-        Ok(NativeStaticFinalizerStatus::INCIDENT) if incident.is_some() => None,
-        Ok(_) => Some(CleanupIncident::runtime_failure()),
-        Err(payload) => Some(CleanupIncident::panic(payload)),
+        NativeStaticFinalizerStatus::SUCCESS => None,
+        NativeStaticFinalizerStatus::INCIDENT if incident.is_some() => None,
+        _ => Some(CleanupIncident::runtime_failure()),
     };
 
     [incident, CleanupIncident::outcome(published), failure]
 }
 
-const fn empty_native_incident() -> NativeCleanupIncident {
-    extern "C" fn invalid_report(
-        _: usize,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
-    ) -> NativeRuntimeStatus {
-        NativeRuntimeStatus::INVALID_ARGUMENT
-    }
-
-    extern "C" fn invalid_destroy(
-        _: &mut NativeCleanupIncident,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
-    ) {
-    }
-
-    NativeCleanupIncident::new(
-        0,
-        NativeTypeIdentity::new([0; 32]),
-        NativeSourceAnchor::unavailable(),
-        invalid_report,
-        invalid_destroy,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::panic::panic_any;
 
     use bray_runtime_abi::{
         NativeRunOutcome, NativeStaticFinalizer, NativeStaticFinalizerExecution,
@@ -254,24 +210,44 @@ mod tests {
         RECEIVER.set(0);
     }
     extern "C" fn admission(_: u32, _: &mut NativeRunOutcome) {}
-    extern "C-unwind" fn finalize(
-        _: usize,
-        _: &mut NativeRunOutcome,
-    ) -> NativeStaticFinalizerStatus {
-        panic_any(Dependent(1));
+    extern "C" fn release_incident(payload: usize, _: usize, _: &mut NativeRunOutcome) {
+        drop(Dependent(
+            u32::try_from(payload).expect("test receiver identity fits u32"),
+        ));
     }
-    extern "C-unwind" fn resolve(
+
+    fn incident(receiver: usize) -> NativeRunOutcome {
+        NativeRunOutcome::panicked(crate::frame::native_report(
+            bray_runtime_abi::NativePanicPrimary::new(
+                bray_runtime_abi::NativePanicCause::MESSAGE,
+                bray_runtime_abi::NativeSourceAnchor::unavailable(),
+                bray_runtime_abi::NativePanicMessage::new(
+                    receiver,
+                    0,
+                    None,
+                    Some(release_incident),
+                ),
+            ),
+        ))
+    }
+
+    extern "C" fn finalize(_: usize, output: &mut NativeRunOutcome) -> NativeStaticFinalizerStatus {
+        *output = incident(1);
+
+        NativeStaticFinalizerStatus::SUCCESS
+    }
+    extern "C" fn resolve(
         _: usize,
         _: usize,
         _: &mut NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         unreachable!("synchronous finalization has no separate resolution");
     }
-    extern "C-unwind" fn destroy(abandoned: u32, _: &mut NativeRunOutcome) {
+    extern "C" fn destroy(abandoned: u32, output: &mut NativeRunOutcome) {
         assert_eq!(abandoned, 1);
         assert_eq!(OBSERVATIONS.get(), 1);
         RECEIVER.set(2);
-        panic_any(Dependent(2));
+        *output = incident(2);
     }
 
     #[test]

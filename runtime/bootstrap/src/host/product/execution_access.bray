@@ -1,0 +1,105 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+
+@abi(c)
+trusted internal func execution_resource(pos key: usize, pos output: DataPointer<usize>) -> u32
+    requires(trusted native_host())
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let destination = trusted lambda(pos output: DataPointer<usize>) -> DataPointer<usize>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_write<usize>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<usize>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return output;
+    };
+
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return 4;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?execution = product.execution
+            {
+                let execution: NativeExecution = match execution.value
+                {
+                    case ?value { yield value; }
+                    case none { yield trusted core.target.abort(); }
+                };
+
+                trusted std.memory.write<usize>(trusted destination(output), execution.resource);
+
+                return 0;
+            }
+        }
+    }
+
+    return 1;
+}
+
+@abi(c)
+trusted internal func record_cleanup_incident(
+    pos key: usize,
+    pos identity: DataPointer<Identity>,
+    pos count: usize
+) -> u32
+    requires(trusted native_host())
+    uses(raw_memory)
+{
+    if count == 0
+    {
+        return 0;
+    }
+
+    let source = trusted lambda(pos pointer: DataPointer<Identity>) -> DataPointer<Identity>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_read<Identity>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Identity>(pointer = result),
+            trusted core.memory.aligned_for<Identity>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return pointer;
+    };
+
+    let selected = trusted std.memory.read<Identity>(trusted source(identity));
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return 4;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            product.state.incidents = add_count(product.state.incidents, count);
+            product.state.last_incident = selected;
+
+            return 0;
+        }
+    }
+
+    return 1;
+}

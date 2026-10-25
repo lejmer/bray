@@ -14,7 +14,7 @@ use super::super::super::Compilation;
 use super::super::realization::ProductStaticHostEntry;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
-use super::host::{native_host_runtime_roles, requires_main_thread_cleanup};
+use super::host::{native_host_runtime_roles, product_execution, requires_main_thread_cleanup};
 use super::implementation::{GENERATED_HOST_UNIT, bound_template};
 use super::{ConcreteCodegenRoot, NativeDemand, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken};
@@ -103,6 +103,12 @@ impl Compilation {
                         .iter()
                         .copied()
                         .collect::<BTreeSet<_>>();
+
+                    if product_execution(&host_statics, &native_statics)
+                        == Some(bray_symbols::CallableExecution::Asynchronous)
+                    {
+                        capabilities.insert(RuntimeCapability::CooperativeExecution);
+                    }
 
                     if requires_main_thread_cleanup(&host_statics, &native_statics) {
                         capabilities.insert(RuntimeCapability::MainThreadLane);

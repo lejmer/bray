@@ -38,11 +38,7 @@ trusted internal func enter_attachment_locked(
         trusted host_access_idle(owner = lease),
         trusted host_access_live(owner = &lease.acquisition)
     )
-    ensures(
-        trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
-        trusted attachment_cleanup_completed(owner = lease)
-    )
+    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
     executes(total)
     uses(intrinsic, raw_memory, unchecked_alias)
 {

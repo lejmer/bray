@@ -1,7 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
+    NativeProductExecution, NativeProductHostDescriptor, NativeRootHandle, NativeRunOutcome,
+    NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
 };
 
 native_adapter! {
@@ -14,11 +14,11 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_product_host_control(
-        descriptor: &NativeProductHostDescriptor,
-        operation: NativeProductHostOperation,
-    ) -> NativeProductHostObservation {
-        implementation::bray_runtime_product_host_control(descriptor, operation)
+    pub extern "C" fn bray_runtime_product_execution_provider(
+        asynchronous: u32,
+        output: &mut std::mem::MaybeUninit<NativeProductExecution>,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_product_execution_provider(asynchronous, output)
     }
 }
 

@@ -29,6 +29,19 @@ impl ValueInputs {
         selections: &CheckedSemanticSelections,
     ) {
         for (id, expression) in unit.tree().expressions() {
+            if let BoundExpression::Structured(value) = expression
+                && value.kind() == BoundStructuredExpressionKind::Borrow
+            {
+                self.borrowed.insert(
+                    id,
+                    value
+                        .operands()
+                        .iter()
+                        .map(|operand| (*operand, Vec::new()))
+                        .collect(),
+                );
+            }
+
             if let Some(SemanticSelection::Operation(SelectedOperation::Construction(
                 construction,
             ))) = selections.expression(id)
@@ -293,6 +306,13 @@ impl ValueInputs {
                 }
 
                 expression = *initializer;
+            } else if let Some([(source, projections)]) =
+                self.borrowed.get(&expression).map(Vec::as_slice)
+                && projections.is_empty()
+            {
+                // A copied field carries its value's dependencies, independently of
+                // the temporary borrow used to reach the containing aggregate.
+                expression = *source;
             } else {
                 break;
             }

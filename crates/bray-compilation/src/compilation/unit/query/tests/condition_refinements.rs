@@ -315,3 +315,379 @@ func main() -> i64 {
 
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+#[test]
+fn shared_nullable_discriminants_survive_independent_mutation() {
+    for read in ["selected.value", "selected.callback(owner.frame)"] {
+        let source = format!(
+            r#"
+            module app;
+
+            struct Owner
+            {{
+                mut frame: usize;
+            }}
+
+            struct Service
+            {{
+                value: usize;
+                callback: func(pos frame: usize) -> usize;
+            }}
+
+            func run(pos owner: &mut Owner, pos service: &(Service?)) -> usize
+            {{
+                if let ?selected = service
+                {{
+                    owner.frame = 0;
+
+                    return {read};
+                }}
+
+                return 0;
+            }}
+            "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{read}: {:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn mutable_payload_loans_preserve_only_their_parent_discriminants() {
+    for (declaration, input, subject, pattern) in [
+        ("", "&mut(Service?)", "service", "?selected"),
+        (
+            "struct Holder { mut service: Service?; }",
+            "&mut Holder",
+            "service.service",
+            "?selected",
+        ),
+        (
+            "union Choice { Use(pos mut service: Service); Other; }",
+            "&mut Choice",
+            "service",
+            "Use(selected)",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            struct Cell
+            {{
+                mut value: usize;
+            }}
+
+            struct Owner
+            {{
+                mut frame: Cell;
+            }}
+
+            struct Service
+            {{
+                mut value: Cell;
+                mut other: Cell;
+            }}
+
+            {declaration}
+
+            func swap(pos left: &mut Cell, pos right: &mut Cell)
+            {{
+                let previous: usize = left.value;
+
+                left.value = right.value;
+                right.value = previous;
+            }}
+
+            func run(pos owner: &mut Owner, pos service: {input}) -> usize
+            {{
+                if let {pattern} = {subject}
+                {{
+                    swap(&mut owner.frame, &mut selected.value);
+                    swap(&mut owner.frame, &mut selected.other);
+
+                    return selected.value.value;
+                }}
+
+                return 0;
+            }}
+            "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{input}: {:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn replacing_a_nullable_owner_invalidates_its_presence_condition() {
+    let source = r#"
+        module app;
+
+        struct Service
+        {
+            value: usize;
+        }
+
+        struct Holder
+        {
+            mut service: Service?;
+        }
+
+        func clear(pos holder: &mut Holder)
+        {
+            holder.service = none;
+        }
+
+        func run(pos holder: &mut Holder)
+        {
+            if holder.service matches ?_
+            {
+                clear(holder);
+
+                _ = 11;
+            }
+        }
+    "#;
+
+    let compilation = compilation(source);
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&compilation, "run");
+    let unit = compilation.bound_unit(key.clone()).unwrap();
+    let analysis = compilation.refinements(key).unwrap();
+    let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+
+    let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
+        matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
+    }).unwrap();
+
+    assert!(
+        !analysis
+            .value()
+            .refinements_before(marker.into())
+            .iter()
+            .any(|refinement| matches!(
+                refinement.kind(),
+                RefinementKind::Pattern {
+                    predicate: PatternPredicate::NullablePresent,
+                    value: true,
+                    ..
+                }
+            )),
+        "{analysis:#?}"
+    );
+}
+
+#[test]
+fn replacing_a_borrowed_nullable_invalidates_total_call_evidence() {
+    let source = r#"
+        module app;
+
+        struct Service
+        {
+            value: usize;
+        }
+
+        struct Holder
+        {
+            mut service: Service?;
+        }
+
+        func clear(pos holder: &mut Holder)
+            executes(total)
+        {
+            holder.service = none;
+        }
+
+        func read(pos service: &(Service?)) -> usize
+            requires(service matches ?_)
+            executes(pure, total)
+        {
+            return match service
+            {
+                case ?selected { yield selected.value; }
+                case none { yield 0; }
+            };
+        }
+
+        func run(pos holder: &mut Holder) -> usize
+            executes(total)
+        {
+            if holder.service matches ?_
+            {
+                clear(holder);
+
+                return read(&holder.service);
+            }
+
+            return 0;
+        }
+    "#;
+
+    let compilation = compilation(source);
+
+    assert!(
+        compilation
+            .check_diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.kind()
+                == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn compound_completion_refinements_do_not_prune_effectful_entry_paths() {
+    for ty in ["usize?", "&(usize?)", "&mut(usize?)"] {
+        for body in [
+            "if value matches ?_ { panic(); }",
+            "if value matches none { panic(); }",
+            "match value { case ?_ { panic(); } case none {} }",
+            "while value matches ?_ { panic(); }",
+        ] {
+            let source =
+                format!("module app; func run(pos value: {ty}) executes(total) {{ {body} }}");
+
+            let compilation = compilation(&source);
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Counter { mut value: usize; }
+        func run(pos value: usize?, pos counter: &mut Counter) executes(pure)
+        {
+            if value matches ?_
+            {
+                counter.value = 1;
+                return;
+            }
+        }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
+}
+
+#[test]
+fn inexact_tag_free_stores_preserve_unrelated_nullable_discriminants() {
+    for assignment in [
+        "counters[index].value = 1;",
+        "counters[index].value += 1;",
+        "counters[index] = { value = 1 };",
+    ] {
+        let guarantee = if assignment.contains("+=") {
+            ""
+        } else {
+            "executes(total)"
+        };
+
+        let source = format!(
+            r#"
+            module app;
+            struct Counter {{ mut value: usize; }}
+            struct Service {{ value: usize; }}
+
+            func read(pos service: &mut(Service?)) -> usize
+                requires(service matches ?_)
+                executes(pure, total)
+            {{
+                return match service
+                {{
+                    case ?selected {{ yield selected.value; }}
+                    case none {{ yield 0; }}
+                }};
+            }}
+
+            func run(pos counters: &mut [Counter; 2], pos service: &mut(Service?), pos index: usize) -> usize
+                {guarantee}
+            {{
+                if index < 2
+                {{
+                    if let ?selected = service
+                    {{
+                        {assignment}
+                        _ = selected.value;
+
+                        return read(service);
+                    }}
+                }}
+
+                return 0;
+            }}
+        "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{assignment}: {:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn inexact_nullable_replacement_invalidates_possibly_aliased_presence() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Service { value: usize; }
+        func read(pos service: &(Service?)) -> usize
+            requires(service matches ?_)
+            executes(pure, total)
+        {
+            return match service
+            {
+                case ?selected { yield selected.value; }
+                case none { yield 0; }
+            };
+        }
+
+        func run(pos services: &mut [Service?; 2], pos index: usize) -> usize executes(total)
+        {
+            if index < 2 && services[0] matches ?_
+            {
+                services[index] = none;
+
+                return read(&services[0]);
+            }
+
+            return 0;
+        }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
+}

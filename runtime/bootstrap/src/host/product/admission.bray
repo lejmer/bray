@@ -1,0 +1,191 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+
+internal func admission_failure(pos status: u32) -> u32
+    executes(pure, total)
+{
+    return if status == 8
+    {
+        yield 6;
+    }
+    else if status == 9
+    {
+        yield 7;
+    }
+    else
+    {
+        yield 5;
+    };
+}
+
+trusted internal func synchronous_start(pos finalizer: &Finalizer) -> SynchronousStart
+    requires(trusted native_host(), finalizer.execution == 1)
+    uses(layout_reinterpret)
+{
+    let address = trusted lambda(pos finalizer: &Finalizer) -> FunctionPointer<SynchronousStart>
+        requires(trusted native_host(), finalizer.execution == 1)
+        ensures(trusted core.memory.callable_address_valid<SynchronousStart>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<SynchronousStart>(finalizer.start);
+    };
+
+    return trusted std.memory.callable_from_pointer<SynchronousStart>(trusted address(finalizer));
+}
+
+trusted internal func admit_static(
+    pos entry: &Static,
+    pos execution: &(Execution?),
+    pos buffer: &mut std.memory.RawBuffer<StaticOwner>,
+    pos accepted: &mut usize
+) -> Result<unit, u32>
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call, intrinsic, raw_memory, unchecked_init)
+{
+    // Keep the header in retained storage before callbacks can publish backing.
+    trusted internal std.memory.raw_buffer_push<StaticOwner>(
+        buffer,
+        StaticOwner.Product(
+            {
+                identity = entry.identity,
+                prepare = entry.prepare,
+                admission = entry.finalizer.admission,
+                destroy = entry.destroy,
+                detach = entry.detach,
+                source = false,
+                finalization = Finalization.None
+            }
+        )
+    );
+
+    let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(buffer);
+
+    if let Product(owner) = entries[entries.length() - 1]
+    {
+        let owner = &mut owner;
+
+        if entry.finalizer.execution == 1
+        {
+            owner.finalization = Finalization.Synchronous(trusted synchronous_start(&entry.finalizer));
+        }
+        else if entry.finalizer.execution == 2
+        {
+            if let ?service = execution
+            {
+                let service: NativeExecution = match service.value
+                {
+                    case ?value { yield value; }
+                    case none { yield trusted core.target.abort(); }
+                };
+
+                let mut frame: usize = 0;
+                let destination = std.memory.address_of_mut<usize>(&mut frame);
+
+                let status = trusted service.admit(destination);
+
+                if status != 0
+                {
+                    return Error(admission_failure(status));
+                }
+
+                owner.finalization = Finalization.Asynchronous(
+                    entry.finalizer,
+                    frame,
+                    service.discard,
+                    service.run_finalizer
+                );
+            }
+            else
+            {
+                return Error(3);
+            }
+        }
+        else if entry.finalizer.execution != 0
+        {
+            return Error(3);
+        }
+
+        let mut outcome = trusted completed_outcome();
+        let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+        trusted entry.finalizer.admission(0, output);
+
+        let value = trusted bray.runtime.bootstrap.report.incident.prepare(output);
+
+        owner.source = value.state == bray.runtime.bootstrap.RUN_COMPLETED;
+
+        if owner.source
+        {
+            let count = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(accepted));
+
+            _ = trusted std.memory.replace_value<usize>(accepted, count + 1);
+        }
+
+        _ = trusted bray.runtime.bootstrap.consume_primary(value.primary, value.remaining, value.reserved, 1);
+
+        if !owner.source
+        {
+            return Error(5);
+        }
+
+        return Ok(unit);
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func acquire_execution(pos descriptor: &Descriptor) -> Result<(Execution?), u32>
+    requires(trusted native_host())
+    uses(foreign_call, raw_memory)
+{
+    let factory: ExecutionFactory = match consume trusted execution_factory(descriptor)
+    {
+        case ?factory { yield factory; }
+        case none
+        {
+            if descriptor.asynchronous != 0
+            {
+                return Error(3);
+            }
+
+            return Ok(none);
+        }
+    };
+
+    // Construct the owner before the native factory can publish a resource.
+    let mut owner: Execution =
+    {
+        value = none
+    };
+
+    let output = trusted lambda(pos storage: &mut Uninit<NativeExecution>) -> DataPointer<NativeExecution>
+        ensures(
+            trusted core.memory.valid_write<NativeExecution>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<NativeExecution>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return std.memory.uninit_pointer_mut<NativeExecution>(storage);
+    };
+
+    let mut storage = std.memory.uninit<NativeExecution>();
+    let destination = trusted output(&mut storage);
+
+    let status = trusted factory(descriptor.asynchronous, destination);
+
+    if status != 0
+    {
+        return Error(admission_failure(status));
+    }
+
+    owner.value = trusted std.memory.read<NativeExecution>(destination);
+
+    return Ok(owner);
+}

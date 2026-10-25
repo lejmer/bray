@@ -24,6 +24,18 @@ internal struct Record
     payload: usize;
     type_identity: bytes<32>;
     source: Source;
+    report: DataPointer<u8>;
+    destroy: DataPointer<u8>;
+    backing: bray.runtime.bootstrap.storage.Lease;
+}
+
+// Only a published record owns a payload with callable disposal operations.
+@layout(c)
+internal struct Incident
+{
+    payload: usize;
+    type_identity: bytes<32>;
+    source: Source;
     report: Reporter;
     destroy: Destroyer;
     backing: bray.runtime.bootstrap.storage.Lease;
@@ -48,16 +60,16 @@ internal callable Reporter = @abi(c) trusted func(
     ensures(trusted returned(pointer = outcome));
 
 internal callable Destroyer = @abi(c) trusted func(
-    pos incident: DataPointer<Record>,
+    pos incident: DataPointer<Incident>,
     pos destruction: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
     pos release: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 )
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
-        trusted core.memory.valid_write<Record>(pointer = incident, count = 1),
-        trusted core.memory.aligned_for<Record>(pointer = incident),
-        trusted core.memory.valid_read<Record>(pointer = incident, count = 1),
-        trusted core.memory.initialized_as<Record>(pointer = incident),
+        trusted core.memory.valid_write<Incident>(pointer = incident, count = 1),
+        trusted core.memory.aligned_for<Incident>(pointer = incident),
+        trusted core.memory.valid_read<Incident>(pointer = incident, count = 1),
+        trusted core.memory.initialized_as<Incident>(pointer = incident),
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = destruction, count = 1),
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = destruction),
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = release, count = 1),
@@ -194,19 +206,20 @@ trusted internal func read_record(pos pointer: DataPointer<Record>) -> bray.runt
     ensures(trusted bray.runtime.bootstrap.retained_report_value(value = &result))
     uses(raw_memory)
 {
-    let readable = trusted lambda(pos pointer: DataPointer<Record>) -> DataPointer<Record>
+    let readable = trusted lambda(pos pointer: DataPointer<Record>) -> DataPointer<Incident>
         requires(trusted owned(pointer = pointer))
         ensures(
-            trusted core.memory.valid_read<Record>(pointer = result, count = 1),
-            trusted core.memory.aligned_for<Record>(pointer = result),
-            trusted core.memory.initialized_as<Record>(pointer = result)
+            trusted core.memory.valid_read<Incident>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Incident>(pointer = result),
+            trusted core.memory.initialized_as<Incident>(pointer = result)
         )
         executes(pure, total)
+        uses(layout_reinterpret)
     {
-        return pointer;
+        return trusted std.memory.reinterpret<Incident, Record>(pointer);
     };
 
-    return bray.runtime.bootstrap.ReportValue.Error(trusted std.memory.read<Record>(trusted readable(pointer)));
+    return bray.runtime.bootstrap.ReportValue.Error(trusted std.memory.read<Incident>(trusted readable(pointer)));
 }
 
 // Two simultaneous exclusive borrows establish distinct live outcome slots.
@@ -354,7 +367,7 @@ trusted internal func dispose_value(
 
             let (destruction, release) = trusted destinations(&mut destroyed, &mut released);
 
-            trusted destroy(std.memory.address_of_mut<Record>(&mut record), destruction, release);
+            trusted destroy(std.memory.address_of_mut<Incident>(&mut record), destruction, release);
 
             let destroyed_value = trusted prepare_first(destruction, release);
             let released_value = trusted prepare(release);

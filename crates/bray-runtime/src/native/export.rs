@@ -3,11 +3,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativeInactiveFrameTransfer, NativeProductHostDescriptor, NativeProductHostObservation,
-    NativeProductHostOperation, NativeRootHandle, NativeRootStart, NativeRunOutcome,
-    NativeRunResultLayout, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
-    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeThreadStaticCleanupRegistration, NativeWakeCallback,
+    NativeInactiveFrameTransfer, NativeProductExecution, NativeProductHostDescriptor,
+    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
+    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
+    NativeTaskAllocation, NativeTaskHandle, NativeThreadStaticCleanupRegistration,
+    NativeWakeCallback,
 };
 
 use crate::current_run_cancellation_requested;
@@ -31,14 +31,11 @@ native_export! {
 }
 
 native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_product_host_control(
-        descriptor: &NativeProductHostDescriptor,
-        operation: NativeProductHostOperation,
-    ) -> NativeProductHostObservation {
-        catch_unwind(AssertUnwindSafe(|| crate::product::control(descriptor, operation)))
-            .unwrap_or_else(|_| crate::product::host_failure())
+    pub extern "C" fn bray_runtime_product_execution_provider(
+        asynchronous: u32,
+        output: &mut std::mem::MaybeUninit<NativeProductExecution>,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| crate::product::acquire_execution(asynchronous, output))
     }
 }
 

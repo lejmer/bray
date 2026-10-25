@@ -1,5 +1,6 @@
 use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
 use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::{NATIVE_PANIC_REPORT_FIELDS, RuntimeAbiRole, RuntimeAbiType};
 use bray_symbols::CallableAbi;
 
@@ -31,6 +32,21 @@ const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     fields
 };
 const PANIC_REPORT: AbiField = AbiField::Struct(&PANIC_REPORT_FIELDS);
+const PRODUCT_IDENTITY_FIELDS: &[AbiField] = &[AbiField::Array {
+    element: RepresentationRole::ScalarU8,
+    length: 32,
+}];
+const PRODUCT_OBSERVATION_FIELDS: &[AbiField] = &[
+    U32,
+    U32,
+    USIZE,
+    USIZE,
+    USIZE,
+    USIZE,
+    USIZE,
+    USIZE,
+    AbiField::Struct(PRODUCT_IDENTITY_FIELDS),
+];
 macro_rules! define_runtime_source_fields {
     ($( $role:ident {
         $documentation:literal, $name:literal,
@@ -43,7 +59,7 @@ macro_rules! define_runtime_source_fields {
         capabilities: [$($capability:ident),*],
         effects: [$($effect:ident),*]
     })+) => {
-        fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], Option<AbiField>)> {
+        fn catalog_runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], Option<AbiField>)> {
             match role {
                 $(RuntimeAbiRole::$role => define_runtime_source_fields!(
                     @bootstrap ($($bootstrap)?) ($([$($native_parameter),*] -> $native_result)?)
@@ -68,6 +84,41 @@ macro_rules! define_runtime_source_fields {
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
 
+fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], Option<AbiField>)> {
+    match role {
+        RuntimeAbiRole::ProductHostControl => Some((
+            &[
+                USIZE,
+                U32,
+                AbiField::PointerStruct(PRODUCT_OBSERVATION_FIELDS),
+            ],
+            Some(U32),
+        )),
+        RuntimeAbiRole::ProductExecutionResource => Some((
+            &[USIZE, AbiField::Pointer(RepresentationRole::ScalarUsize)],
+            Some(U32),
+        )),
+        RuntimeAbiRole::ProductCleanupIncident => Some((
+            &[
+                USIZE,
+                AbiField::PointerStruct(PRODUCT_IDENTITY_FIELDS),
+                USIZE,
+            ],
+            Some(U32),
+        )),
+        RuntimeAbiRole::ProductThreadStaticOrder => Some((
+            &[
+                USIZE,
+                AbiField::PointerStruct(PRODUCT_IDENTITY_FIELDS),
+                U32,
+                AbiField::Pointer(RepresentationRole::ScalarU64),
+            ],
+            Some(U32),
+        )),
+        _ => catalog_runtime_source_fields(role),
+    }
+}
+
 pub(super) fn checked_runtime_source_signature(
     compilation: &Compilation,
     role: RuntimeAbiRole,
@@ -87,8 +138,20 @@ pub(super) fn checked_runtime_source_signature(
 
     let expected = compilation.codegen_runtime_signature(role)?;
 
-    let matches = runtime_source_signature_matches(compilation, role, &signature, cancellation)?
-        .unwrap_or(signature == expected);
+    let mut diagnostics = DiagnosticBag::new();
+
+    let matches = runtime_source_signature_matches(
+        compilation,
+        role,
+        &signature,
+        cancellation,
+        &mut diagnostics,
+    )?
+    .unwrap_or(signature == expected);
+
+    if diagnostics.has_errors() {
+        return Err(CodegenPreparationError::Diagnostics(diagnostics));
+    }
 
     if !matches {
         return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
@@ -117,6 +180,11 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentMarkMain
+            | RuntimeAbiRole::ProductHostControl
+            | RuntimeAbiRole::ProductCleanupContinuation
+            | RuntimeAbiRole::ProductExecutionResource
+            | RuntimeAbiRole::ProductCleanupIncident
+            | RuntimeAbiRole::ProductThreadStaticOrder
     ) {
         return Ok(true);
     }
@@ -184,6 +252,7 @@ pub(super) fn runtime_source_signature_matches(
     role: RuntimeAbiRole,
     signature: &CodegenCallableSignature,
     cancellation: &CancellationToken,
+    diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<bool>, FactQueryError> {
     let Some((parameters, result)) = runtime_source_fields(role) else {
         return Ok(None);
@@ -209,7 +278,9 @@ pub(super) fn runtime_source_signature_matches(
             return Ok(Some(false));
         };
 
-        if !attributes.is_empty() || !abi_type_matches(compilation, *ty, expected, cancellation)? {
+        if !attributes.is_empty()
+            || !abi_type_matches(compilation, *ty, expected, cancellation, diagnostics)?
+        {
             return Ok(Some(false));
         }
     }
@@ -232,7 +303,8 @@ pub(super) fn runtime_source_signature_matches(
     };
 
     Ok(Some(
-        attributes.is_empty() && abi_type_matches(compilation, *ty, expected_result, cancellation)?,
+        attributes.is_empty()
+            && abi_type_matches(compilation, *ty, expected_result, cancellation, diagnostics)?,
     ))
 }
 
@@ -267,6 +339,43 @@ mod tests {
     use super::runtime_source_signature_matches;
     use crate::CancellationToken;
     use crate::test_support::compilation;
+
+    #[test]
+    fn product_host_source_state_checks() {
+        let sources = [
+            include_str!("../../../../../../runtime/bootstrap/src/host/product/abi.bray"),
+            include_str!("../../../../../../runtime/bootstrap/src/host/product/state.bray"),
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+
+            internal struct ReportOutcome
+            {
+            }
+            "#,
+            r#"
+            trusted internal module bray.runtime.bootstrap.report;
+            "#,
+            r#"
+            trusted internal module bray.runtime.bootstrap.report.incident;
+
+            using core.memory;
+            using internal bray.runtime.bootstrap;
+
+            trusted internal predicate returned(pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
+            "#,
+        ];
+
+        let compilation = crate::test_support::compilation_with_sources_and_worker_budget(
+            &sources,
+            crate::WorkerBudget::serial(),
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
 
     #[test]
     fn attachment_retirement_roles_require_one_opaque_entry_condition_independent_of_spelling() {
@@ -458,7 +567,8 @@ mod tests {
                         &compilation,
                         RuntimeAbiRole::CleanupIncidentTransfer,
                         &transfer,
-                        &CancellationToken::new()
+                        &CancellationToken::new(),
+                        &mut bray_diagnostics::DiagnosticBag::new()
                     )
                     .unwrap(),
                     Some(accepts_value),
@@ -470,7 +580,8 @@ mod tests {
                         &compilation,
                         RuntimeAbiRole::PanicReporting,
                         &reporting,
-                        &CancellationToken::new()
+                        &CancellationToken::new(),
+                        &mut bray_diagnostics::DiagnosticBag::new()
                     )
                     .unwrap(),
                     Some(!accepts_value),
@@ -520,6 +631,7 @@ mod tests {
                     RuntimeAbiRole::RuntimeInitialization,
                     &signature,
                     &CancellationToken::new(),
+                    &mut bray_diagnostics::DiagnosticBag::new(),
                 )
                 .unwrap(),
                 Some(expected),
@@ -570,6 +682,7 @@ mod tests {
                     RuntimeAbiRole::ReportRecordAppend,
                     &signature,
                     &CancellationToken::new(),
+                    &mut bray_diagnostics::DiagnosticBag::new(),
                 )
                 .unwrap(),
                 Some(expected)
@@ -602,6 +715,10 @@ mod tests {
                 "serialized_primary",
                 "panic_report_construction",
                 "allocation_failure",
+                "acquire_execution",
+                "acquire_caller",
+                "clean_static",
+                "progress",
             ] {
                 let checked = compilation
                     .lowered_unit(crate::test_support::source_function_body_key(
@@ -633,6 +750,11 @@ mod tests {
                             "HostLease",
                             "HostAnchor",
                             "AttachmentExit",
+                            "Product",
+                            "NativeExecution",
+                            "ShutdownOwner",
+                            "AdmittedStatic",
+                            "PendingCleanup",
                         ]
                         .contains(&name.as_str())
                     })
@@ -646,7 +768,7 @@ mod tests {
                 })
                 .collect::<std::collections::BTreeSet<_>>();
 
-            assert_eq!(types.len(), 8);
+            assert_eq!(types.len(), 13);
 
             let target = compilation
                 .selected_target()
@@ -654,9 +776,48 @@ mod tests {
                 .codegen_target()
                 .unwrap();
 
-            compilation
+            let mappings = compilation
                 .codegen_types(types, None, &target, &CancellationToken::new())
                 .unwrap();
+
+            for name in ["HostOwner", "Product", "AdmittedStatic", "NativeExecution"] {
+                let symbol = symbols
+                    .structures()
+                    .iter()
+                    .find(|symbol| {
+                        symbols
+                            .member_name(symbol.id().into())
+                            .is_some_and(|actual| actual.as_str() == name)
+                    })
+                    .unwrap();
+
+                let ty = crate::compilation::substitution::named_type(
+                    values,
+                    bray_symbols::NamedTypeSymbolId::Struct(symbol.id()),
+                )
+                .unwrap();
+
+                let layout = mappings
+                    .iter()
+                    .find(|mapping| mapping.ty() == ty)
+                    .unwrap()
+                    .layout()
+                    .unwrap();
+
+                eprintln!(
+                    "{} {name}: bytes={} align={}",
+                    target.triple(),
+                    layout.size(),
+                    layout.alignment().get()
+                );
+
+                if name == "NativeExecution" {
+                    assert_eq!(
+                        layout.size(),
+                        std::mem::size_of::<bray_runtime_abi::NativeProductExecution>() as u64
+                    );
+                }
+            }
         }
     }
 
@@ -707,6 +868,7 @@ mod tests {
                         RuntimeAbiRole::ThreadStorageExit,
                         &signature,
                         &CancellationToken::new(),
+                        &mut bray_diagnostics::DiagnosticBag::new(),
                     )
                     .unwrap(),
                     Some(abi == expected),
@@ -787,7 +949,8 @@ mod tests {
                     &compilation,
                     RuntimeAbiRole::ReportRecordAppend,
                     &signature,
-                    &CancellationToken::new()
+                    &CancellationToken::new(),
+                    &mut bray_diagnostics::DiagnosticBag::new()
                 )
                 .unwrap(),
                 Some(accepted)
@@ -798,7 +961,8 @@ mod tests {
                     &compilation,
                     parameter,
                     &crate::compilation::foreign::AbiField::Pointer(RepresentationRole::ScalarU8),
-                    &CancellationToken::new()
+                    &CancellationToken::new(),
+                    &mut bray_diagnostics::DiagnosticBag::new()
                 )
                 .unwrap(),
                 parameter == data

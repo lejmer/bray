@@ -360,7 +360,7 @@ impl Compilation {
                         ty: consumer.ty,
                         dependencies: accesses.into_iter().collect(),
                         runtime_dependencies,
-                        requires_host: consumer.requires_host(),
+                        cleanup_execution: consumer.cleanup_execution(),
                         requires_main_thread_cleanup: requires_main_thread,
                         has_cleanup_storage: !consumer.outgoing_calls.is_empty(),
                         has_cleanup_incident: consumer.finalization.as_ref().is_some_and(
@@ -438,7 +438,7 @@ pub(in crate::compilation::product) struct ProductStaticHostEntry {
     ty: TypeId,
     dependencies: Vec<CodegenStaticInstanceKey>,
     runtime_dependencies: Vec<CodegenStaticInstanceKey>,
-    requires_host: bool,
+    cleanup_execution: Option<bray_symbols::CallableExecution>,
     requires_main_thread_cleanup: bool,
     has_cleanup_storage: bool,
     has_cleanup_incident: bool,
@@ -464,7 +464,13 @@ impl ProductStaticHostEntry {
     }
 
     pub(in crate::compilation::product) const fn requires_host(&self) -> bool {
-        self.requires_host
+        self.cleanup_execution.is_some()
+    }
+
+    pub(in crate::compilation::product) const fn cleanup_execution(
+        &self,
+    ) -> Option<bray_symbols::CallableExecution> {
+        self.cleanup_execution
     }
 
     pub(in crate::compilation::product) const fn requires_main_thread_cleanup(&self) -> bool {

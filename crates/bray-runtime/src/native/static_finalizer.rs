@@ -425,7 +425,7 @@ mod tests {
 
     extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
 
-    extern "C-unwind" fn resolve(
+    extern "C" fn resolve(
         _: usize,
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,

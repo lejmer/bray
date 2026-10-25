@@ -50,7 +50,7 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
         Arc::from([0].as_slice()),
         StaticStorageDuration::Product,
         [],
-        false,
+        None,
         false,
     );
 
@@ -60,7 +60,7 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
         Arc::from([1].as_slice()),
         StaticStorageDuration::Product,
         [],
-        false,
+        None,
         false,
     );
 
@@ -224,7 +224,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         Arc::from(b"native-static".as_slice()),
         StaticStorageDuration::Product,
         [],
-        true,
+        Some(bray_symbols::CallableExecution::Synchronous),
         true,
     );
 

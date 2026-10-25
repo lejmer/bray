@@ -1,0 +1,374 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.target;
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
+
+internal struct PendingCleanup
+{
+    mut statics: std.memory.RawBuffer<StaticOwner>?;
+    mut execution: Execution?;
+    mut cleaned: usize;
+    mut incidents: usize;
+    mut last_incident: Identity;
+}
+
+internal func add_count(pos current: usize, pos additional: usize) -> usize
+    executes(pure, total)
+{
+    return if additional > std.numeric.USIZE_MAX - current
+    {
+        yield std.numeric.USIZE_MAX;
+    }
+    else
+    {
+        yield current + additional;
+    };
+}
+
+// The native context lends this exact owner exclusively until the callback returns.
+internal struct CleanupBorrow
+{
+    pointer: DataPointer<PendingCleanup>;
+}
+
+@copy
+internal union Progress
+{
+    Idle;
+    Detach(pos resource: usize, pos callback: WorkerDetach);
+    Cleanup;
+}
+
+trusted internal func select_progress_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos key: usize,
+    pos cleanup: &mut PendingCleanup
+) -> Progress
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+    )
+    uses(intrinsic, raw_memory)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            let selected = product.state.select_cleanup();
+
+            if let ?phase = selected
+            {
+                if phase matches Detaching
+                {
+                    if let ?execution = product.execution
+                    {
+                        let execution: NativeExecution = match execution.value
+                        {
+                            case ?value { yield value; }
+                            case none { yield trusted core.target.abort(); }
+                        };
+
+                        let callback = trusted std.memory.read<WorkerDetach>(
+                            std.memory.address_of<WorkerDetach>(&execution.detach_workers)
+                        );
+
+                        return Progress.Detach(execution.resource, callback);
+                    }
+
+                    trusted core.target.abort();
+                }
+
+                trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
+                    &mut product.statics,
+                    &mut cleanup.statics
+                );
+
+                trusted internal std.memory.swap_values<(Execution?)>(&mut product.execution, &mut cleanup.execution);
+
+                return Progress.Cleanup;
+            }
+        }
+    }
+
+    return Progress.Idle;
+}
+
+trusted internal func finish_progress_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos key: usize,
+    pos cleanup: &mut PendingCleanup,
+    pos completed: bool,
+    pos detached: bool
+) -> Observation
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+    )
+    uses(intrinsic)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if !detached
+            {
+                if completed
+                {
+                    product.state.cleaned = add_count(product.state.cleaned, cleanup.cleaned);
+                    product.state.incidents = add_count(product.state.incidents, cleanup.incidents);
+
+                    if cleanup.incidents != 0
+                    {
+                        product.state.last_incident = cleanup.last_incident;
+                    }
+
+                    product.descriptor = none;
+
+                    product.state.phase = if product.failure matches ?_
+                    {
+                        yield Phase.Failed;
+                    }
+                    else
+                    {
+                        yield Phase.Closed;
+                    };
+                }
+                else
+                {
+                    trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
+                        &mut product.statics,
+                        &mut cleanup.statics
+                    );
+
+                    trusted internal std.memory.swap_values<(Execution?)>(
+                        &mut product.execution,
+                        &mut cleanup.execution
+                    );
+
+                    product.state.phase = Phase.Closing;
+
+                    return product.state.observation(5);
+                }
+            }
+            else
+            {
+                if !(product.state.phase matches Detaching)
+                {
+                    trusted core.target.abort();
+                }
+
+                product.state.phase = Phase.Closing;
+            }
+
+            if let ?failure = product.failure
+            {
+                return product.state.observation(failure);
+            }
+
+            return product.state.observation(product.state.status());
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func clean_statics(pos cleanup: &mut PendingCleanup)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory)
+{
+    if let ?statics = cleanup.statics
+    {
+        let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(&mut statics);
+        let count: usize = entries.length();
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            if let Product(owner) = entries[index]
+            {
+                if owner.source
+                {
+                    let identity = owner.identity;
+                    let incidents = trusted clean_static(&mut owner);
+
+                    cleanup.cleaned = add_count(cleanup.cleaned, 1);
+                    cleanup.incidents = add_count(cleanup.incidents, incidents);
+
+                    if incidents != 0
+                    {
+                        cleanup.last_incident = identity;
+                    }
+                }
+            }
+
+            index += 1;
+        }
+    }
+}
+
+@abi(c)
+trusted internal func cleanup_continuation(pos context: usize) -> u32
+    requires(trusted native_host())
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted lambda(pos context: usize) -> DataPointer<PendingCleanup>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_write<PendingCleanup>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<PendingCleanup>(pointer = result),
+            trusted core.memory.initialized_as<PendingCleanup>(pointer = result),
+            trusted core.memory.exclusive_alias_valid<PendingCleanup>(pointer = result),
+            trusted core.memory.epoch_current<PendingCleanup>(pointer = result),
+            trusted core.memory.synchronized_access<PendingCleanup>(pointer = result),
+            trusted core.memory.movement_stable<PendingCleanup>(pointer = result),
+            trusted core.memory.finalization_pending<PendingCleanup>(pointer = result),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<PendingCleanup>(address = context);
+    };
+
+    let address = trusted pointer(context);
+
+    let mut invocation: CleanupBorrow =
+    {
+        pointer = address
+    };
+
+    let cleanup = trusted std.memory.borrow_mut_from<PendingCleanup, CleanupBorrow>(&mut invocation, address);
+
+    trusted clean_statics(cleanup);
+
+    return 0;
+}
+
+trusted internal func progress(pos key: usize, pos mut observation: Observation) -> Observation
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call, intrinsic)
+{
+    while observation.state == 2
+    {
+        let mut cleanup: PendingCleanup =
+        {
+            statics = none,
+            execution = none,
+            cleaned = 0,
+            incidents = 0,
+            last_incident =
+            {
+                bytes = [0; 32]
+            }
+        };
+
+        let selected: Progress =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return unavailable(5);
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+            yield trusted select_progress_locked(&lease, &mut anchor, key, &mut cleanup);
+        };
+
+        let mut completed: bool = true;
+        let mut detached: bool = false;
+
+        match consume selected
+        {
+            case Idle { return observation; }
+            case Detach(resource, callback)
+            {
+                trusted callback(resource, key);
+                detached = true;
+            }
+            case Cleanup
+            {
+                if let ?execution = cleanup.execution
+                {
+                    let execution: NativeExecution = match execution.value
+                    {
+                        case ?value { yield value; }
+                        case none { yield trusted core.target.abort(); }
+                    };
+
+                    let resource = execution.resource;
+                    let with_cleanup = execution.with_cleanup;
+                    let callback: CleanupBody = cleanup_continuation;
+
+                    let context = trusted core.target.expose_address<PendingCleanup>(
+                        std.memory.address_of_mut<PendingCleanup>(&mut cleanup)
+                    );
+
+                    let result = trusted with_cleanup(resource, context, callback);
+
+                    completed = result.status == 0;
+                    cleanup.incidents = add_count(cleanup.incidents, result.incidents);
+                }
+                else
+                {
+                    trusted clean_statics(&mut cleanup);
+                }
+            }
+        }
+
+        observation =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                trusted core.target.abort();
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+            yield trusted finish_progress_locked(&lease, &mut anchor, key, &mut cleanup, completed, detached);
+        };
+
+        if !completed || (detached && observation.thread_attachments != 0)
+        {
+            return observation;
+        }
+    }
+
+    return observation;
+}
+
+trusted internal func request_close(pos key: usize) -> Observation
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    return trusted progress(key, trusted transition(key, 5));
+}

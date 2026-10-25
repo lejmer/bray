@@ -1,94 +1,15 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
-    NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer, NativeStaticIdentity,
+    NativeProductHostDescriptor, NativeProductHostStatus, NativeProductIdentity,
+    NativeRuntimeStatus, NativeStaticCleanupCallback, NativeStaticFinalizer, NativeStaticIdentity,
     NativeStaticTransitionCallback,
 };
-
-pub(super) const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
-
-// Loaded products share one process registry so archive and shared-library hosts coordinate with
-// exact-thread attachments owned by the same runtime.
-pub(super) static PRODUCT_HOSTS: OnceLock<Mutex<BTreeMap<usize, ProductHost>>> = OnceLock::new();
 
 thread_local! {
     pub(super) static THREAD_STATICS: RefCell<ThreadStaticRegistry> =
         const { RefCell::new(ThreadStaticRegistry::new()) };
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct ProductStatic {
-    pub(super) identity: NativeStaticIdentity,
-    pub(super) duration: NativeStaticDuration,
-    pub(super) order: u64,
-    pub(super) prepare: NativeStaticTransitionCallback,
-    pub(super) finalizer: NativeStaticFinalizer,
-    pub(super) destroy: NativeStaticCleanupCallback,
-    pub(super) detach: NativeStaticTransitionCallback,
-}
-
-pub(super) struct ProductCleanup {
-    pub(super) admission: super::super::cleanup::StaticAdmission,
-    pub(super) entry: ProductStatic,
-}
-
-pub(super) struct ProductHost {
-    pub(super) identity: NativeProductIdentity,
-    pub(super) runtime: Option<crate::native::RetainedRuntime>,
-    pub(super) state: NativeProductHostState,
-    pub(super) active_entries: usize,
-    pub(super) external_roots: usize,
-    pub(super) thread_attachments: usize,
-    pub(super) worker_attachments: usize,
-    pub(super) initialized_statics: usize,
-    pub(super) cleaned_statics: usize,
-    pub(super) cleanup_incidents: usize,
-    pub(super) last_incident: NativeStaticIdentity,
-    pub(super) cleanup_running: bool,
-    pub(super) cleanup_blocked: bool,
-    pub(super) statics: Vec<ProductStatic>,
-    pub(super) cleanups: Vec<ProductCleanup>,
-}
-
-impl ProductHost {
-    pub(super) fn observation(
-        &self,
-        status: NativeProductHostStatus,
-    ) -> NativeProductHostObservation {
-        NativeProductHostObservation::new(
-            status,
-            self.state,
-            self.active_entries,
-            self.external_roots,
-            self.thread_attachments,
-            self.initialized_statics,
-            self.cleaned_statics,
-            self.cleanup_incidents,
-            self.last_incident,
-        )
-    }
-
-    pub(super) const fn is_quiescent(&self) -> bool {
-        self.active_entries == 0 && self.external_roots == 0 && self.thread_attachments == 0
-    }
-
-    pub(super) fn product_cleanups(&mut self) -> Vec<ProductCleanup> {
-        std::mem::take(&mut self.cleanups)
-    }
-
-    pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<&ProductStatic> {
-        self.statics.iter().find(|entry| entry.identity == identity)
-    }
-}
-
-pub(super) struct PendingCleanup {
-    pub(super) product: usize,
-    pub(super) runtime: Option<crate::native::RetainedRuntime>,
-    pub(super) statics: Vec<ProductCleanup>,
 }
 
 pub(super) struct ThreadStaticEntry {
@@ -170,10 +91,6 @@ impl ThreadStaticRegistry {
     }
 }
 
-pub(super) fn product_hosts() -> &'static Mutex<BTreeMap<usize, ProductHost>> {
-    PRODUCT_HOSTS.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
 pub(crate) fn initialize_thread_static_registry() {
     THREAD_STATICS.with(|_| {});
 }
@@ -185,6 +102,10 @@ pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
 pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeStatus {
     match status {
         NativeProductHostStatus::SUCCESS => NativeRuntimeStatus::SUCCESS,
+        NativeProductHostStatus::IDENTITY_EXHAUSTED => NativeRuntimeStatus::IDENTITY_EXHAUSTED,
+        NativeProductHostStatus::OUTGOING_STORAGE_UNAVAILABLE => {
+            NativeRuntimeStatus::OUTGOING_STORAGE_UNAVAILABLE
+        }
         NativeProductHostStatus::CLOSED | NativeProductHostStatus::INVALID_ARGUMENT => {
             NativeRuntimeStatus::INVALID_ARGUMENT
         }

@@ -1,61 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
-    NativeStaticDuration, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
-    PRODUCT_HOST_ABI_VERSION,
+    NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus,
+    NativeThreadStaticCleanupRegistration,
 };
 
-use super::super::cleanup::{admit_finalizer, run_static_cleanup};
-
-use super::model::{
-    MAXIMUM_STATIC_ENTRIES, PendingCleanup, ProductCleanup, ProductHost, ProductStatic,
-    THREAD_STATICS, ThreadStaticEntry, product_hosts, product_key, runtime_status,
-};
+use super::super::cleanup::admit_finalizer;
+use super::model::{THREAD_STATICS, ThreadStaticEntry, product_key, runtime_status};
+use super::resident::{execution_runtime, observe, static_order};
 
 pub(crate) fn control(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
 ) -> NativeProductHostObservation {
-    if !operation.is_known() {
-        return NativeProductHostObservation::invalid();
-    }
-
-    let product = product_key(descriptor);
-
-    if let Err(status) = ensure_formed(descriptor) {
-        return status;
-    }
-
-    if operation == NativeProductHostOperation::ATTACH_CURRENT_THREAD {
-        return super::super::attachment::attach_current_thread(product);
-    }
-
-    if operation == NativeProductHostOperation::DETACH_CURRENT_THREAD {
-        return super::super::attachment::detach_current_thread(product);
-    }
-
-    if operation == NativeProductHostOperation::CLOSE {
-        return close_product(product);
-    }
-
-    if operation == NativeProductHostOperation::FINISH_ROOT {
-        if super::super::attachment::has_foreign_attachment(product) {
-            return observation_with_status(product, NativeProductHostStatus::INVALID_ARGUMENT);
-        }
-
-        let observation = close_product(product);
-
-        return super::thread::drain_product_thread_statics(product).unwrap_or(observation);
-    }
-
-    let result = mutate_host(product, operation);
-
-    match result {
-        Ok(observation) => progress_closure(product).unwrap_or(observation),
-        Err(()) => host_failure(),
-    }
+    observe(product_key(descriptor), operation)
 }
 
 pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostDescriptor) -> u64 {
@@ -63,7 +20,9 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
         return 0;
     }
 
-    if ensure_formed(descriptor).is_err() {
+    if control(descriptor, NativeProductHostOperation::FORM).status()
+        != NativeProductHostStatus::SUCCESS
+    {
         return 0;
     }
 
@@ -74,11 +33,8 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
             return true;
         }
 
-        product_hosts()
-            .lock()
-            .ok()
-            .and_then(|hosts| hosts.get(&product).map(|host| host.state))
-            == Some(NativeProductHostState::OPEN)
+        observe(product, NativeProductHostOperation::OBSERVE).state()
+            == NativeProductHostState::OPEN
     });
 
     if !allowed {
@@ -102,23 +58,25 @@ pub(crate) fn register_thread_static(
         return NativeRuntimeStatus::NOT_INITIALIZED;
     }
 
-    if let Err(observation) = ensure_formed(registration.product()) {
-        return runtime_status(observation.status());
+    let formed = control(registration.product(), NativeProductHostOperation::FORM);
+
+    if formed.status() != NativeProductHostStatus::SUCCESS {
+        return runtime_status(formed.status());
     }
 
     let product = product_key(registration.product());
     let worker = current_thread_is_product_worker(product);
 
-    let Some((product_identity, entry)) = static_entry(product, registration.static_identity())
-    else {
-        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    let order = match static_order(
+        product,
+        registration.static_identity(),
+        registration.finalizer().execution().code(),
+    ) {
+        Ok(order) => order,
+        Err(status) => return status,
     };
 
-    if entry.duration != NativeStaticDuration::EXACT_THREAD
-        || entry.finalizer.execution() != registration.finalizer().execution()
-    {
-        return NativeRuntimeStatus::INVALID_ARGUMENT;
-    }
+    let product_identity = registration.product().identity();
 
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
@@ -130,8 +88,9 @@ pub(crate) fn register_thread_static(
             return NativeRuntimeStatus::SUCCESS;
         }
 
-        let Ok(admission) = admit_finalizer(registration.finalizer()) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        let admission = match admit_finalizer(registration.finalizer()) {
+            Ok(admission) => admission,
+            Err(error) => return super::super::execution::admission_failure(error),
         };
 
         if !registry.ensure_exit_callback() {
@@ -163,7 +122,7 @@ pub(crate) fn register_thread_static(
             product,
             product_identity,
             static_identity: registration.static_identity(),
-            order: entry.order,
+            order,
             prepare: registration.prepare(),
             finalizer: registration.finalizer(),
             destroy: registration.destroy(),
@@ -172,64 +131,6 @@ pub(crate) fn register_thread_static(
 
         NativeRuntimeStatus::SUCCESS
     })
-}
-
-fn mutate_host(
-    product: usize,
-    operation: NativeProductHostOperation,
-) -> Result<NativeProductHostObservation, ()> {
-    let mut hosts = product_hosts().lock().map_err(|_| ())?;
-    let host = hosts.get_mut(&product).ok_or(())?;
-
-    let status = match operation.code() {
-        0 | 6 => status_for_state(host),
-        1 => acquire(&mut host.active_entries, host.state),
-        2 => release(&mut host.active_entries),
-        3 => acquire(&mut host.external_roots, host.state),
-        4 => release(&mut host.external_roots),
-        5 => {
-            if host.state == NativeProductHostState::OPEN {
-                host.state = NativeProductHostState::CLOSING;
-            }
-
-            status_for_state(host)
-        }
-        7 => acquire(&mut host.thread_attachments, host.state),
-        8 => release(&mut host.thread_attachments),
-        _ => NativeProductHostStatus::INVALID_ARGUMENT,
-    };
-
-    let status = if status == NativeProductHostStatus::SUCCESS
-        && host.state == NativeProductHostState::CLOSING
-    {
-        NativeProductHostStatus::PENDING
-    } else {
-        status
-    };
-
-    Ok(host.observation(status))
-}
-
-fn close_product(product: usize) -> NativeProductHostObservation {
-    let observation = {
-        let Ok(mut hosts) = product_hosts().lock() else {
-            return NativeProductHostObservation::invalid();
-        };
-
-        let Some(host) = hosts.get_mut(&product) else {
-            return NativeProductHostObservation::invalid();
-        };
-
-        match host.state {
-            NativeProductHostState::OPEN => host.state = NativeProductHostState::CLOSING,
-            NativeProductHostState::CLOSING => {}
-            _ => return host.observation(status_for_state(host)),
-        }
-
-        host.observation(NativeProductHostStatus::PENDING)
-    };
-
-    progress_closure(product).unwrap_or(observation)
 }
 
 pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bool> {
@@ -250,16 +151,28 @@ pub(in crate::product) fn acquire_thread_attachment(
     product: usize,
     worker: bool,
 ) -> NativeProductHostObservation {
-    mutate_thread_attachment(product, true, worker)
+    observe(
+        product,
+        if worker {
+            NativeProductHostOperation::ACQUIRE_WORKER_ATTACHMENT
+        } else {
+            NativeProductHostOperation::ACQUIRE_ATTACHMENT
+        },
+    )
 }
 
 pub(super) fn release_thread_attachment(
     product: usize,
     worker: bool,
 ) -> NativeProductHostObservation {
-    let observation = mutate_thread_attachment(product, false, worker);
-
-    progress_closure(product).unwrap_or(observation)
+    observe(
+        product,
+        if worker {
+            NativeProductHostOperation::RELEASE_WORKER_ATTACHMENT
+        } else {
+            NativeProductHostOperation::RELEASE_ATTACHMENT
+        },
+    )
 }
 
 pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
@@ -276,503 +189,13 @@ pub(in crate::product) fn discard_thread_attachment(product: usize) {
     });
 }
 
-pub(in crate::product) fn observation_with_status(
-    product: usize,
-    status: NativeProductHostStatus,
-) -> NativeProductHostObservation {
-    let Ok(hosts) = product_hosts().lock() else {
-        return NativeProductHostObservation::invalid();
-    };
-
-    hosts
-        .get(&product)
-        .map(|host| host.observation(status))
-        .unwrap_or_else(NativeProductHostObservation::invalid)
-}
-
 fn current_thread_is_product_worker(product: usize) -> bool {
-    product_hosts()
-        .lock()
-        .ok()
-        .and_then(|hosts| hosts.get(&product).and_then(|host| host.runtime.clone()))
-        .is_some_and(|runtime| runtime.owns_current_worker())
-}
-
-fn mutate_thread_attachment(
-    product: usize,
-    acquire_attachment: bool,
-    worker: bool,
-) -> NativeProductHostObservation {
-    let Ok(mut hosts) = product_hosts().lock() else {
-        return NativeProductHostObservation::invalid();
-    };
-
-    let Some(host) = hosts.get_mut(&product) else {
-        return NativeProductHostObservation::invalid();
-    };
-
-    let status = if acquire_attachment {
-        let status = acquire(&mut host.thread_attachments, host.state);
-
-        if status == NativeProductHostStatus::SUCCESS && worker {
-            let Some(next) = host.worker_attachments.checked_add(1) else {
-                host.thread_attachments -= 1;
-
-                return host.observation(NativeProductHostStatus::RUNTIME_FAILURE);
-            };
-
-            host.worker_attachments = next;
-        }
-
-        status
-    } else if worker && host.worker_attachments == 0 {
-        NativeProductHostStatus::INVALID_ARGUMENT
-    } else {
-        let status = release(&mut host.thread_attachments);
-
-        if status == NativeProductHostStatus::SUCCESS && worker {
-            host.worker_attachments -= 1;
-        }
-
-        status
-    };
-
-    let status = if status == NativeProductHostStatus::SUCCESS
-        && host.state == NativeProductHostState::CLOSING
-    {
-        NativeProductHostStatus::PENDING
-    } else {
-        status
-    };
-
-    host.observation(status)
-}
-
-fn progress_closure(product: usize) -> Option<NativeProductHostObservation> {
-    let (runtime, cleanup) = {
-        let mut hosts = product_hosts().lock().ok()?;
-        let host = hosts.get_mut(&product)?;
-
-        if host.state != NativeProductHostState::CLOSING
-            || host.active_entries != 0
-            || host.external_roots != 0
-            || host.thread_attachments != host.worker_attachments
-            || host.cleanup_running
-            || host.cleanup_blocked
-        {
-            return None;
-        }
-
-        if host.worker_attachments == 0 {
-            (None, prepare_cleanup(product, host))
-        } else {
-            host.cleanup_blocked = true;
-
-            (
-                Some(
-                    host.runtime
-                        .clone()
-                        .expect("product worker attachments retain their runtime"),
-                ),
-                None,
-            )
-        }
-    };
-
-    if let Some(cleanup) = cleanup {
-        return Some(finish_cleanup(cleanup));
-    }
-
-    let runtime = runtime?;
-
-    runtime.detach_product_workers(product);
-
-    let cleanup = {
-        let mut hosts = product_hosts().lock().ok()?;
-        let host = hosts.get_mut(&product)?;
-
-        host.cleanup_blocked = false;
-
-        prepare_cleanup(product, host)
-    };
-
-    cleanup.map(finish_cleanup)
-}
-
-fn acquire(count: &mut usize, state: NativeProductHostState) -> NativeProductHostStatus {
-    if state != NativeProductHostState::OPEN {
-        return NativeProductHostStatus::CLOSED;
-    }
-
-    let Some(next) = count.checked_add(1) else {
-        return NativeProductHostStatus::RUNTIME_FAILURE;
-    };
-
-    *count = next;
-
-    NativeProductHostStatus::SUCCESS
-}
-
-fn release(count: &mut usize) -> NativeProductHostStatus {
-    let Some(next) = count.checked_sub(1) else {
-        return NativeProductHostStatus::INVALID_ARGUMENT;
-    };
-
-    *count = next;
-
-    NativeProductHostStatus::SUCCESS
-}
-
-fn status_for_state(host: &ProductHost) -> NativeProductHostStatus {
-    match host.state {
-        NativeProductHostState::UNFORMED => NativeProductHostStatus::INVALID_ARGUMENT,
-        NativeProductHostState::OPEN => NativeProductHostStatus::SUCCESS,
-        NativeProductHostState::CLOSING => NativeProductHostStatus::PENDING,
-        NativeProductHostState::CLOSED if host.cleanup_incidents == 0 => {
-            NativeProductHostStatus::CLOSED
-        }
-        NativeProductHostState::CLOSED => NativeProductHostStatus::INCIDENTS,
-        _ => NativeProductHostStatus::RUNTIME_FAILURE,
-    }
-}
-
-fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingCleanup> {
-    if host.state != NativeProductHostState::CLOSING
-        || !host.is_quiescent()
-        || host.cleanup_running
-        || host.cleanup_blocked
-    {
-        return None;
-    }
-
-    host.cleanup_running = true;
-
-    Some(PendingCleanup {
-        product,
-        runtime: host.runtime.take(),
-        statics: host.product_cleanups(),
-    })
-}
-
-fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
-    let mut incident_count = 0;
-    let mut last_incident = None;
-
-    let executed = crate::native::with_static_cleanup_context(cleanup.runtime.as_ref(), || {
-        for cleanup in &mut cleanup.statics {
-            let entry = cleanup.entry;
-
-            let count = run_static_cleanup(
-                &mut cleanup.admission,
-                entry.prepare,
-                entry.finalizer,
-                entry.destroy,
-                entry.detach,
-            );
-
-            incident_count += count;
-
-            if count != 0 {
-                last_incident = Some(entry.identity);
-            }
-        }
-    });
-
-    let (_, runtime_incident) = match executed {
-        Ok(result) => result,
-        Err(_) => {
-            let mut hosts = product_hosts()
-                .lock()
-                .expect("product cleanup registry remains available");
-
-            let host = hosts
-                .get_mut(&cleanup.product)
-                .expect("pending cleanup retains its product host");
-
-            host.cleanups = cleanup.statics;
-            host.runtime = cleanup.runtime;
-            host.cleanup_running = false;
-
-            return host.observation(NativeProductHostStatus::RUNTIME_FAILURE);
-        }
-    };
-
-    let runtime_identity = cleanup
-        .statics
-        .first()
-        .map_or(NativeStaticIdentity::new([0; 32]), |cleanup| {
-            cleanup.entry.identity
-        });
-
-    if let Some(incident) = runtime_incident {
-        incident_count += 1;
-
-        last_incident = Some(runtime_identity);
-
-        let _ = incident.report();
-    }
-
-    let mut hosts = product_hosts()
-        .lock()
-        .expect("product cleanup registry remains available");
-
-    let host = hosts
-        .get_mut(&cleanup.product)
-        .expect("pending cleanup retains its product host");
-
-    host.cleaned_statics = host.cleaned_statics.saturating_add(cleanup.statics.len());
-    host.cleanup_incidents = host.cleanup_incidents.saturating_add(incident_count);
-    host.last_incident = last_incident.unwrap_or(host.last_incident);
-    host.cleanup_running = false;
-    host.state = NativeProductHostState::CLOSED;
-
-    let observation = host.observation(status_for_state(host));
-
-    // Runtime shutdown can join workers whose exit callbacks need this registry.
-    drop(hosts);
-
-    if let Some(runtime) = cleanup.runtime.as_ref() {
-        runtime.release();
-    }
-
-    observation
-}
-
-fn ensure_formed(
-    descriptor: &NativeProductHostDescriptor,
-) -> Result<(), NativeProductHostObservation> {
-    let product = product_key(descriptor);
-
-    let hosts = product_hosts().lock().map_err(|_| host_failure())?;
-
-    if hosts.contains_key(&product) {
-        return Ok(());
-    }
-
-    // Runtime creation can wait for another thread that needs the product registry.
-    drop(hosts);
-
-    let mut host = read_descriptor(descriptor)?;
-
-    let needs_runtime = host.statics.iter().any(|entry| {
-        entry.finalizer.execution()
-            == bray_runtime_abi::NativeStaticFinalizerExecution::ASYNCHRONOUS
-    });
-
-    let coordinates_workers = host
-        .statics
-        .iter()
-        .any(|entry| entry.duration == NativeStaticDuration::EXACT_THREAD);
-
-    let current = if needs_runtime || coordinates_workers {
-        crate::native::retain_current_runtime().map_err(|_| host_failure())?
-    } else {
-        None
-    };
-
-    let runtime = match current {
-        Some(runtime) => Some(runtime),
-        None if needs_runtime => Some(crate::native::retain_runtime().map_err(|_| host_failure())?),
-        None => None,
-    };
-
-    // Keep the unpublished retention available for rollback after releasing the registry lock.
-    host.runtime = runtime.clone();
-
-    // Drop a poisoned guard before releasing a runtime that can join product workers.
-    let inserted = match product_hosts().lock().map_err(|_| ()) {
-        Ok(mut hosts) => match hosts.entry(product) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(host);
-
-                true
-            }
-            std::collections::btree_map::Entry::Occupied(_) => false,
-        },
-        Err(_) => {
-            if let Some(runtime) = runtime.as_ref() {
-                runtime.release();
-            }
-
-            return Err(NativeProductHostObservation::invalid());
-        }
-    };
-
-    if !inserted {
-        if let Some(runtime) = runtime.as_ref() {
-            runtime.release();
-        }
-    }
-
-    Ok(())
-}
-
-fn read_descriptor(
-    descriptor: &NativeProductHostDescriptor,
-) -> Result<ProductHost, NativeProductHostObservation> {
-    if descriptor.abi_version() != PRODUCT_HOST_ABI_VERSION
-        || descriptor.static_count() > MAXIMUM_STATIC_ENTRIES
-    {
-        return Err(NativeProductHostObservation::invalid());
-    }
-
-    let mut identities = BTreeSet::new();
-    let mut orders = BTreeSet::new();
-    let mut statics = Vec::new();
-
-    statics
-        .try_reserve_exact(descriptor.static_count())
-        .map_err(|_| host_failure())?;
-
-    let mut dependency_tables = Vec::with_capacity(descriptor.static_count());
-
-    for index in 0..descriptor.static_count() {
-        let entry = descriptor.static_entry()(index);
-        let finalizer = entry.finalizer();
-        let execution = finalizer.execution();
-
-        if entry.abi_version() != PRODUCT_HOST_ABI_VERSION
-            || !entry.duration().is_known()
-            || !execution.is_known()
-            || !identities.insert(entry.identity())
-            || !orders.insert(entry.order())
-            || entry.dependency_count() > MAXIMUM_STATIC_ENTRIES
-        {
-            return Err(NativeProductHostObservation::invalid());
-        }
-
-        let dependency = entry.dependency();
-
-        let dependencies = (0..entry.dependency_count())
-            .map(|index| dependency(index))
-            .collect::<BTreeSet<_>>();
-
-        if dependencies.contains(&entry.identity()) {
-            return Err(NativeProductHostObservation::invalid());
-        }
-
-        if dependencies.len() != entry.dependency_count() {
-            return Err(NativeProductHostObservation::invalid());
-        }
-
-        statics.push(ProductStatic {
-            identity: entry.identity(),
-            duration: entry.duration(),
-            order: entry.order(),
-            prepare: entry.prepare(),
-            finalizer: entry.finalizer(),
-            destroy: entry.destroy(),
-            detach: entry.detach(),
-        });
-
-        dependency_tables.push((entry.identity(), dependencies));
-    }
-
-    statics.sort_unstable_by_key(|entry| entry.order);
-
-    let order_by_identity = statics
-        .iter()
-        .map(|entry| (entry.identity, entry.order))
-        .collect::<BTreeMap<_, _>>();
-
-    if dependency_tables.iter().any(|(identity, dependencies)| {
-        let Some(order) = order_by_identity.get(identity) else {
-            return true;
-        };
-
-        dependencies.iter().any(|dependency| {
-            order_by_identity
-                .get(dependency)
-                .is_none_or(|dependency_order| dependency_order <= order)
-        })
-    }) {
-        return Err(NativeProductHostObservation::invalid());
-    }
-
-    let initialized_statics = statics
-        .iter()
-        .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-        .count();
-
-    let mut cleanups = Vec::new();
-
-    cleanups
-        .try_reserve_exact(initialized_statics)
-        .map_err(|_| host_failure())?;
-
-    for entry in statics
-        .iter()
-        .copied()
-        .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-    {
-        let admission = admit_finalizer(entry.finalizer).map_err(|_| host_failure())?;
-
-        cleanups.push(ProductCleanup { entry, admission });
-    }
-
-    Ok(ProductHost {
-        identity: descriptor.identity(),
-        runtime: None,
-        state: NativeProductHostState::OPEN,
-        active_entries: 0,
-        external_roots: 0,
-        thread_attachments: 0,
-        worker_attachments: 0,
-        initialized_statics,
-        cleaned_statics: 0,
-        cleanup_incidents: 0,
-        last_incident: NativeStaticIdentity::new([0; 32]),
-        cleanup_running: false,
-        cleanup_blocked: false,
-        statics,
-        cleanups,
-    })
-}
-
-pub(crate) fn host_failure() -> NativeProductHostObservation {
-    NativeProductHostObservation::new(
-        NativeProductHostStatus::RUNTIME_FAILURE,
-        NativeProductHostState::FAILED,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        NativeStaticIdentity::new([0; 32]),
-    )
-}
-
-fn static_entry(
-    product: usize,
-    identity: NativeStaticIdentity,
-) -> Option<(NativeProductIdentity, ProductStatic)> {
-    let hosts = product_hosts().lock().ok()?;
-    let host = hosts.get(&product)?;
-    let entry = host.static_entry(identity)?;
-
-    Some((host.identity, *entry))
-}
-
-pub(super) fn report_incidents(product: usize, identity: NativeStaticIdentity, count: usize) {
-    let Ok(mut hosts) = product_hosts().lock() else {
-        return;
-    };
-
-    let Some(host) = hosts.get_mut(&product) else {
-        return;
-    };
-
-    host.cleanup_incidents = host.cleanup_incidents.saturating_add(count);
-
-    if count != 0 {
-        host.last_incident = identity;
-    }
+    execution_runtime(product).is_some_and(|runtime| runtime.owns_current_worker())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -794,6 +217,7 @@ mod tests {
 
     thread_local! {
         static THREAD_CLEANUP_ORDER: Cell<usize> = const { Cell::new(0) };
+        static PENDING_INCIDENT: RefCell<Option<ProviderIncident>> = const { RefCell::new(None) };
         static INCIDENT_PROVIDER: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
         static RELEASED_PROVIDER: Cell<Option<(NativeProductHostState, usize)>> = const { Cell::new(None) };
         static RELEASED_PRODUCT_PHASE: Cell<Option<usize>> = const { Cell::new(None) };
@@ -810,15 +234,47 @@ mod tests {
         }
     }
 
-    fn panic_from_provider() -> ! {
-        std::panic::panic_any(ProviderIncident(INCIDENT_PROVIDER.get().unwrap()));
+    extern "C" fn release_provider_incident(
+        _: usize,
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
+        drop(
+            PENDING_INCIDENT
+                .take()
+                .expect("published incident retains its provider"),
+        );
+    }
+
+    fn panic_from_provider(
+        output: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
+        PENDING_INCIDENT.with_borrow_mut(|slot| {
+            assert!(slot.is_none());
+            *slot = Some(ProviderIncident(INCIDENT_PROVIDER.get().unwrap()));
+        });
+
+        *output = bray_runtime_abi::NativeRunOutcome::panicked(crate::frame::native_report(
+            bray_runtime_abi::NativePanicPrimary::new(
+                bray_runtime_abi::NativePanicCause::MESSAGE,
+                bray_runtime_abi::NativeSourceAnchor::unavailable(),
+                bray_runtime_abi::NativePanicMessage::new(
+                    1,
+                    0,
+                    None,
+                    Some(release_provider_incident),
+                ),
+            ),
+        ));
+
+        NativeStaticFinalizerStatus::SUCCESS
     }
 
     extern "C" fn access() -> usize {
         1
     }
 
-    extern "C-unwind" fn cleanup(
+    extern "C" fn cleanup(
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
@@ -827,7 +283,7 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn first_thread_cleanup(
+    extern "C" fn first_thread_cleanup(
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
@@ -836,7 +292,7 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn second_thread_cleanup(
+    extern "C" fn second_thread_cleanup(
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
@@ -845,22 +301,23 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn panicking_thread_cleanup(
+    extern "C" fn panicking_thread_cleanup(
         _: usize,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
+        output: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
-        panic_from_provider();
+        panic_from_provider(output)
     }
 
-    extern "C-unwind" fn panicking_product_cleanup(
+    extern "C" fn panicking_product_cleanup(
         _: usize,
-        _: &mut bray_runtime_abi::NativeRunOutcome,
+        output: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
-        panic_from_provider();
+
+        panic_from_provider(output)
     }
 
-    extern "C-unwind" fn continuing_product_cleanup(
+    extern "C" fn continuing_product_cleanup(
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
@@ -870,7 +327,7 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn resolve_success(
+    extern "C" fn resolve_success(
         _: usize,
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
@@ -891,9 +348,9 @@ mod tests {
 
     extern "C" fn detach_thread_static() {}
 
-    extern "C-unwind" fn no_cleanup(_: u32, _: &mut bray_runtime_abi::NativeRunOutcome) {}
+    extern "C" fn no_cleanup(_: u32, _: &mut bray_runtime_abi::NativeRunOutcome) {}
 
-    extern "C-unwind" fn record_product_destruction(
+    extern "C" fn record_product_destruction(
         abandoned: u32,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
@@ -1061,7 +518,7 @@ mod tests {
     fn cold_synchronous_product_cleanup_never_retains_a_scheduler() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        extern "C-unwind" fn attached_cleanup(
+        extern "C" fn attached_cleanup(
             _: usize,
             _: &mut bray_runtime_abi::NativeRunOutcome,
         ) -> NativeStaticFinalizerStatus {
@@ -1087,27 +544,19 @@ mod tests {
             )
         }
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([74; 32]),
-            entry,
-            1,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([74; 32]), entry, 1)
+                .with_execution(
+                    crate::native::implementation::bray_runtime_product_execution_provider,
+                    false,
+                ),
+        ));
 
         assert!(crate::native::retain_current_runtime().unwrap().is_none());
 
         assert_eq!(
             control(descriptor, NativeProductHostOperation::FORM).status(),
             NativeProductHostStatus::SUCCESS
-        );
-
-        assert!(
-            super::product_hosts()
-                .lock()
-                .unwrap()
-                .get(&super::product_key(descriptor))
-                .unwrap()
-                .runtime
-                .is_none()
         );
 
         let closed = control(descriptor, NativeProductHostOperation::CLOSE);
@@ -1143,7 +592,7 @@ mod tests {
             4
         }
 
-        extern "C-unwind" fn cleanup(
+        extern "C" fn cleanup(
             _: usize,
             _: &mut bray_runtime_abi::NativeRunOutcome,
         ) -> NativeStaticFinalizerStatus {
@@ -1184,11 +633,13 @@ mod tests {
             )
         }
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([76; 32]),
-            entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([76; 32]), entry, 2)
+                .with_execution(
+                    crate::native::implementation::bray_runtime_product_execution_provider,
+                    false,
+                ),
+        ));
 
         crate::native::with_static_cleanup_context(Some(&runtime), || {
             assert_eq!(
@@ -1240,11 +691,17 @@ mod tests {
     fn thread_static_registration_cannot_change_its_declared_cleanup_execution() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([78; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([78; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         let attachment = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
 
@@ -1285,11 +742,17 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
         let runtime = crate::native::retain_runtime().unwrap();
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([75; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([75; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         let ((), incident) = crate::native::with_static_cleanup_context(Some(&runtime), || {
             assert_eq!(
@@ -1297,15 +760,7 @@ mod tests {
                 NativeProductHostStatus::SUCCESS
             );
 
-            assert!(
-                super::product_hosts()
-                    .lock()
-                    .unwrap()
-                    .get(&super::product_key(descriptor))
-                    .unwrap()
-                    .runtime
-                    .is_some()
-            );
+            assert!(super::execution_runtime(super::product_key(descriptor)).is_some());
 
             assert_eq!(
                 control(descriptor, NativeProductHostOperation::CLOSE).status(),
@@ -1428,6 +883,64 @@ mod tests {
     }
 
     #[test]
+    fn worker_and_foreign_attachment_releases_preserve_the_other_kind() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        let descriptor = NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([75; 32]),
+            delayed_entry,
+            0,
+        )
+        .with_execution(
+            crate::native::implementation::bray_runtime_product_execution_provider,
+            false,
+        );
+
+        for (operation, status, attachments) in [
+            (
+                NativeProductHostOperation::ACQUIRE_WORKER_ATTACHMENT,
+                NativeProductHostStatus::SUCCESS,
+                1,
+            ),
+            (
+                NativeProductHostOperation::RELEASE_ATTACHMENT,
+                NativeProductHostStatus::INVALID_ARGUMENT,
+                1,
+            ),
+            (
+                NativeProductHostOperation::ACQUIRE_ATTACHMENT,
+                NativeProductHostStatus::SUCCESS,
+                2,
+            ),
+            (
+                NativeProductHostOperation::RELEASE_WORKER_ATTACHMENT,
+                NativeProductHostStatus::SUCCESS,
+                1,
+            ),
+            (
+                NativeProductHostOperation::RELEASE_WORKER_ATTACHMENT,
+                NativeProductHostStatus::INVALID_ARGUMENT,
+                1,
+            ),
+            (
+                NativeProductHostOperation::RELEASE_ATTACHMENT,
+                NativeProductHostStatus::SUCCESS,
+                0,
+            ),
+        ] {
+            let observed = control(&descriptor, operation);
+
+            assert_eq!(observed.status(), status);
+            assert_eq!(observed.thread_attachments(), attachments);
+        }
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::CLOSE).status(),
+            NativeProductHostStatus::CLOSED
+        );
+    }
+
+    #[test]
     fn product_cleanup_reports_incidents_and_continues() {
         CONTINUING_PRODUCT_CLEANUPS.store(0, Ordering::SeqCst);
         PRODUCT_DESTRUCTIONS.store(0, Ordering::SeqCst);
@@ -1470,11 +983,17 @@ mod tests {
         let first_identity = NativeStaticIdentity::new([11; 32]);
         let second_identity = NativeStaticIdentity::new([12; 32]);
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([13; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([13; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         let first_registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,
@@ -1532,11 +1051,17 @@ mod tests {
         let panicking_identity = NativeStaticIdentity::new([21; 32]);
         let continuing_identity = NativeStaticIdentity::new([22; 32]);
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([23; 32]),
-            thread_incident_entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([23; 32]),
+                thread_incident_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         let panicking_registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,
@@ -1587,17 +1112,29 @@ mod tests {
         let first_identity = NativeStaticIdentity::new([11; 32]);
         let second_identity = NativeStaticIdentity::new([12; 32]);
 
-        let first_product = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([51; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let first_product = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([51; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
-        let second_product = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([52; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let second_product = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([52; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         assert_eq!(
             control(
@@ -1711,7 +1248,7 @@ mod tests {
 
         static OBSERVED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-        extern "C-unwind" fn observe_context(
+        extern "C" fn observe_context(
             _: usize,
             _: &mut bray_runtime_abi::NativeRunOutcome,
         ) -> NativeStaticFinalizerStatus {
@@ -1729,12 +1266,17 @@ mod tests {
             NativeStaticFinalizerStatus::SUCCESS
         }
 
-        let descriptor: &'static NativeProductHostDescriptor =
-            Box::leak(Box::new(NativeProductHostDescriptor::new(
+        let descriptor: &'static NativeProductHostDescriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
                 NativeProductIdentity::new([53; 32]),
                 thread_order_entry,
                 2,
-            )));
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         for observe_first in [false, true] {
             std::thread::spawn(move || {
@@ -1788,11 +1330,17 @@ mod tests {
     fn finishing_root_drains_implicit_thread_statics_once() {
         THREAD_CLEANUP_ORDER.set(0);
 
-        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-            NativeProductIdentity::new([71; 32]),
-            thread_order_entry,
-            2,
-        )));
+        let descriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([71; 32]),
+                thread_order_entry,
+                2,
+            )
+            .with_execution(
+                crate::native::implementation::bray_runtime_product_execution_provider,
+                false,
+            ),
+        ));
 
         let scope = crate::bootstrap::RuntimeThreadScope::enter().expect("runtime thread enters");
 
@@ -1834,6 +1382,10 @@ mod tests {
             NativeProductIdentity::new([72; 32]),
             delayed_entry,
             0,
+        )
+        .with_execution(
+            crate::native::implementation::bray_runtime_product_execution_provider,
+            false,
         );
 
         assert_eq!(
@@ -1882,6 +1434,10 @@ mod tests {
             NativeProductIdentity::new([61; 32]),
             delayed_entry,
             0,
+        )
+        .with_execution(
+            crate::native::implementation::bray_runtime_product_execution_provider,
+            false,
         );
 
         let attached = control(

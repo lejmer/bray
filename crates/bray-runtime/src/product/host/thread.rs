@@ -7,8 +7,9 @@ use bray_runtime_abi::{
 
 use super::super::cleanup::run_static_cleanup;
 
-use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
-use super::operations::{observation_with_status, release_thread_attachment, report_incidents};
+use super::model::{THREAD_STATICS, ThreadStaticEntry};
+use super::operations::release_thread_attachment;
+use super::resident::{execution_runtime, observation_with_status, report_incidents};
 
 pub(super) extern "C" fn thread_exit_cleanup(identity: u64) -> u32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -115,14 +116,7 @@ fn run_product_thread_cleanups(
         .expect("grouped cleanup contains a static owner")
         .static_identity;
 
-    // Cleanup runs outside the registry lock while retaining the selected runtime.
-    let runtime = product_hosts()
-        .lock()
-        .expect("thread cleanup registry remains available")
-        .get(&product)
-        .expect("thread cleanup retains its product host")
-        .runtime
-        .clone();
+    let runtime = execution_runtime(product);
 
     let cleanup = || {
         for entry in &mut entries {

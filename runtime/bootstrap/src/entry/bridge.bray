@@ -142,7 +142,6 @@ trusted internal func exchange(
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
     )
     executes(total)
     uses(raw_memory, unchecked_init, intrinsic)
@@ -265,7 +264,6 @@ trusted internal func read(
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.attachment_cleanup_completed(owner = lease)
     )
     executes(total)
     uses(raw_memory, unchecked_alias)

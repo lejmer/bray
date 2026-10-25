@@ -33,8 +33,6 @@ pub enum RuntimeAbiType {
     FrameProgress,
     /// Lane-selection status and lane identity.
     LaneResult,
-    /// Loaded-product lifecycle state and outstanding obligations.
-    ProductObservation,
 }
 
 /// Native field order shared by panic report type realization and source binding checks.

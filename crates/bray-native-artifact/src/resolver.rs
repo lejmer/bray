@@ -930,7 +930,7 @@ mod tests {
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
                 dependencies,
-                true,
+                Some(bray_symbols::CallableExecution::Synchronous),
                 id == 3,
             )
         };
@@ -1045,7 +1045,7 @@ mod tests {
             vec![3].into(),
             bray_symbols::StaticStorageDuration::Product,
             [],
-            true,
+            Some(bray_symbols::CallableExecution::Synchronous),
             false,
         );
 
@@ -1169,7 +1169,7 @@ mod tests {
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
                 dependencies,
-                true,
+                Some(bray_symbols::CallableExecution::Synchronous),
                 false,
             )
         };

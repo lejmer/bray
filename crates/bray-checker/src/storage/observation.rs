@@ -83,7 +83,8 @@ pub(crate) struct Footprint {
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) borrowed_identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
-    pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
+    pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
+    pub(crate) tag_free_values: BTreeSet<TypeId>,
 }
 
 /// Observations that may include protected atomic payloads, including unknown raw reachability.
@@ -103,7 +104,26 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     let mut borrowed_identities = BTreeMap::new();
     let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
 
-    for (_, access) in storage.access_entries() {
+    for (access_id, access) in storage.access_entries() {
+        let ty = request
+            .semantic_values()
+            .unborrowed_type(access.reached_type());
+
+        if matches!(
+            request.semantic_values().type_data(ty).as_ref(),
+            TypeData::Nullable(_)
+                | TypeData::Named {
+                    definition: NamedTypeSymbolId::Union(_),
+                    ..
+                }
+        ) && let Some(path) = storage.logical_path(access_id)
+        {
+            discriminants
+                .entry(path.root)
+                .or_insert_with(BTreeSet::new)
+                .insert(path.clone());
+        }
+
         if let bray_bound_tree::StorageAccessRoot::Storage(root) = access.root()
             && access.projections().is_empty()
             && matches!(
@@ -228,11 +248,8 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                         None
                     }
                     Observation::Discriminant => {
-                        if shared.is_none() && identity.is_invocation_owned(storage.kind()) {
-                            discriminants
-                                .entry(root)
-                                .or_insert_with(Vec::new)
-                                .push(path);
+                        if shared.is_some() || identity.is_invocation_owned(storage.kind()) {
+                            discriminants.entry(root).or_default().insert(path);
                         }
 
                         None
@@ -264,6 +281,41 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         }
     }
 
+    for plan in storage
+        .access_plans()
+        .iter()
+        .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
+    {
+        let ty = storage
+            .access(plan.access())
+            .expect("assignment retains its checked destination")
+            .reached_type();
+
+        if !shapes.contains_key(&ty) {
+            shapes.insert(
+                ty,
+                paths(
+                    request,
+                    ty,
+                    &mut BTreeSet::new(),
+                    &mut complete_reference_types,
+                )?,
+            );
+        }
+    }
+
+    let tag_free_values = shapes
+        .iter()
+        .filter_map(|(ty, shape)| {
+            (shape.is_reference_free()
+                && !shape
+                    .observations
+                    .iter()
+                    .any(|(_, observation)| *observation == Observation::Discriminant))
+            .then_some(*ty)
+        })
+        .collect();
+
     Ok(Footprint {
         references,
         complete_reference_types,
@@ -278,6 +330,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         scalars,
         borrowed_identities,
         discriminants,
+        tag_free_values,
     })
 }
 

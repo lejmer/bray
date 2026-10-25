@@ -14,7 +14,7 @@ use bray_diagnostics::{
     DiagnosticLabelKind, DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
     SeverityKind,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn prepare_refinements<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
@@ -143,7 +143,10 @@ pub(crate) fn transfer_operation(
     universe: &RefinementUniverse,
     storage: &StoragePlan,
     invalidation: Option<&bray_bound_tree::StorageInvalidation>,
-    discriminants: &BTreeMap<bray_bound_tree::StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+    discriminants: &BTreeMap<
+        bray_bound_tree::StorageIdentityId,
+        BTreeSet<bray_bound_tree::StoragePath>,
+    >,
 ) {
     match operation.kind() {
         AnalysisOperationKind::Result { expression, phase } => {

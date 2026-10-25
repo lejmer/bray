@@ -116,12 +116,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         invalidation: &mut StorageInvalidation,
     ) {
-        let StorageInvalidation::All {
-            stable_descriptors,
-            stable_values,
-        } = invalidation
-        else {
-            return;
+        let (stable_descriptors, mut stable_values) = match invalidation {
+            StorageInvalidation::All {
+                stable_descriptors,
+                stable_values,
+            } => (stable_descriptors, Some(stable_values)),
+            StorageInvalidation::Observed {
+                stable_descriptors, ..
+            } => (stable_descriptors, None),
+            StorageInvalidation::Paths(_) => return,
         };
 
         let exposed = memory.raw_exposed_roots();
@@ -131,10 +134,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .storage
                 .borrow_capability(*borrow)
                 .expect("active borrow retains its plan");
-
-            if capability.kind() != bray_symbols::BorrowKind::Shared {
-                continue;
-            }
 
             let referent = memory.borrow_observation(*borrow);
 
@@ -150,27 +149,78 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(markers) = self
+                if capability.kind() == bray_symbols::BorrowKind::Mutable {
+                    stable_descriptors.extend(self.input.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
+                        descriptor.contains(path)
+                            && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
+                    }).cloned());
+
+                    continue;
+                }
+
+                let markers = self
                     .input
                     .stable_identities
                     .get(&path.root)
-                    .or_else(|| self.input.borrowed_identities.get(&path.root))
-                else {
+                    .or_else(|| self.input.borrowed_identities.get(&path.root));
+
+                let discriminants = self.input.discriminants.get(&path.root);
+
+                if markers.is_none() && discriminants.is_none() {
                     continue;
-                };
+                }
 
                 // The logical access can be an invocation input. Its exact physical
                 // referent still retains the complete owner for this shared loan.
                 stable_descriptors.insert(path.clone());
 
-                stable_values.extend(
-                    markers
-                        .iter()
-                        .filter(|marker| path.contains(marker))
+                stable_descriptors.extend(
+                    discriminants
+                        .into_iter()
+                        .flatten()
+                        .filter(|descriptor| path.contains(descriptor))
                         .cloned(),
                 );
+
+                if let Some(stable_values) = &mut stable_values {
+                    stable_values.extend(
+                        markers
+                            .into_iter()
+                            .flatten()
+                            .filter(|marker| path.contains(marker))
+                            .cloned(),
+                    );
+                }
             }
         }
+    }
+
+    pub(super) fn preserve_assignment_discriminants(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        invalidation: &mut StorageInvalidation,
+    ) {
+        let (StorageInvalidation::All {
+            stable_descriptors, ..
+        }
+        | StorageInvalidation::Observed {
+            stable_descriptors, ..
+        }) = invalidation
+        else {
+            return;
+        };
+
+        let exposed = memory.raw_exposed_roots();
+
+        // The checked store contains no tags or references and runs no replacement
+        // cleanup. Inexact aliasing cannot turn that store into a variant replacement.
+        stable_descriptors.extend(
+            self.input
+                .discriminants
+                .iter()
+                .filter(|(root, _)| !exposed.contains(root))
+                .flat_map(|(_, paths)| paths.iter().cloned()),
+        );
     }
 
     pub(super) fn reference_observation(
