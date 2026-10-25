@@ -271,7 +271,7 @@ impl Compilation {
                 .expect("direct call has a concrete demand");
 
         let ConcreteCodegenCallee::Instance(callee) =
-            self.concrete_codegen_callee(owner, &demand, target, cancellation)?
+            self.concrete_codegen_callee(owner, &demand, None, target, cancellation)?
         else {
             return Ok(None);
         };

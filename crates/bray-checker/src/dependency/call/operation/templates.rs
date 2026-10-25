@@ -83,11 +83,23 @@ pub(crate) fn operation_result_dependencies<C: CheckerRequestContext + ?Sized>(
     let mut escaping = std::collections::BTreeSet::new();
 
     let template = template
-        .try_map_requirements(|requirements| nullable_inputs(requirements, &inputs))
+        .try_map_requirements(|output, requirements| {
+            if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                return Ok(requirements.to_vec());
+            }
+
+            nullable_inputs(requirements, &inputs)
+        })
         .expect("synthesized nullable dependency mapping is infallible");
 
     let template = template
-        .try_map_requirements(|requirements| evaluation_dependencies(requirements, &mut escaping))
+        .try_map_requirements(|output, requirements| {
+            if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                return Ok(requirements.to_vec());
+            }
+
+            evaluation_dependencies(requirements, &mut escaping)
+        })
         .expect("operation evaluation dependency classification is infallible");
 
     let mut result = direct_dependencies(template);
@@ -112,7 +124,12 @@ pub(super) fn invocation_dependencies<C: CheckerRequestContext + ?Sized>(
     if requirement.is_none() && !request.is_recursive_result(symbol) {
         let template = request.callable_result_dependencies(symbol)?;
 
-        return crate::dependency::resolved_result_template(request, Some(instance), template);
+        return crate::dependency::resolved_result_template(
+            request,
+            Some(instance),
+            template,
+            None,
+        );
     }
 
     crate::dependency::witness::deferred_outputs(request, instance, requirement, roots, true, true)

@@ -183,7 +183,7 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the retained dependencies of a selected runtime-default provider.
     fn default_result_dependencies(
         &self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
     /// Returns the compilation-wide symbol graph.
@@ -307,6 +307,16 @@ pub trait CheckerRequestContext: Sync {
     /// Normalizes a closed array extent while retaining unresolved generic terms.
     fn normalize_array_length(
         &self,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
+
+    /// Materializes a closed generic constant in its instantiated declared type.
+    /// Open terms or declared types retain their symbolic identity.
+    fn normalize_constant_argument(
+        &self,
+        parameter: bray_symbols::GenericConstParameterSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, TypeId)>,
         term: bray_symbols::ConstantTermId,
     ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
 

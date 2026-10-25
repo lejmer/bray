@@ -726,6 +726,10 @@ impl DiagnosticKind {
                 &[ActualCount, MaximumCount],
                 primary_components!(&[ActualCount, MaximumCount]),
             ),
+            Self::CheckingCleanupRecursionLimitExceeded => Self::quality_source(
+                &[DeclarationName, ActualCount, MaximumCount],
+                primary_components!(&[DeclarationName, ActualCount, MaximumCount]),
+            ),
             Self::CheckingImplementationCoherenceLimitExceeded => Self::quality_source(
                 &[ActualCount, MaximumCount],
                 primary_components!(&[ActualCount, MaximumCount]),

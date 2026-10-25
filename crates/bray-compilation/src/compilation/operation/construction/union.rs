@@ -2,7 +2,6 @@ use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
     BoundUnqualifiedVariantExpression, ConstructionInputId, ConstructionTarget,
-    DefaultValueProvider,
 };
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::{
@@ -10,6 +9,7 @@ use bray_diagnostics::{
     DiagnosticLabelKind, SeverityKind,
 };
 use bray_source::SourceSpan;
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, NamedTypeSymbolId, RuntimeDefaultPresence, SymbolName,
     SymbolQueryRequest, TypeData, TypeId, UnionPayloadFieldTypeQuery, UnionVariantSymbolId,

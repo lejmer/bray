@@ -160,7 +160,7 @@ public trusted func assemble_addresses(pos pointer: DataPointer<u8>)
         clobbers = "",
         features = "",
         options = 1,
-        inputs = (alternate, generic_alternate, pointer),
+        inputs = (alternate, generic_alternate<i32>, pointer),
     );
 }
 

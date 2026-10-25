@@ -213,7 +213,7 @@ where
 
     pub(crate) fn default_observed_result(
         self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
     ) -> Option<bray_symbols::ConstantTermId> {
         let summary = self
             .result_dependencies
@@ -228,7 +228,7 @@ where
 
     pub(crate) fn default_result_dependencies(
         self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, C::UpstreamError> {
         self.result_dependencies
             .and_then(|dependencies| {

@@ -92,6 +92,35 @@ pub struct InterfaceDependencyRequirement {
 }
 
 impl InterfaceDependencyRequirement {
+    /// Requires the selected type's remaining cleanup to execute synchronously.
+    pub const fn synchronous_cleanup(ty: crate::InterfaceTypeId) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::SynchronousCleanup(ty),
+        }
+    }
+
+    /// Requires the selected type's pending finalizer body to admit its callees.
+    pub const fn finalizer_body_cleanup(ty: crate::InterfaceTypeId) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty),
+        }
+    }
+
+    /// Retains cleanup in one selected declaration-owned runtime default.
+    pub const fn default_cleanup(
+        provider: InterfaceSymbolReference,
+        substitution: super::InterfaceGenericSubstitutionId,
+        contextual_self: Option<(InterfaceSymbolReference, crate::InterfaceTypeId)>,
+    ) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::DefaultCleanup {
+                provider,
+                substitution,
+                contextual_self,
+            },
+        }
+    }
+
     /// Creates a finite group of dependency equations.
     pub fn fixed_point(
         definitions: impl IntoIterator<Item = impl IntoIterator<Item = InterfaceDependencyRequirement>>,
@@ -158,6 +187,19 @@ impl InterfaceDependencyRequirement {
 /// Direct or guarded portable dependency requirement payload.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceDependencyRequirementValue {
+    /// The selected type's remaining cleanup must execute synchronously.
+    SynchronousCleanup(crate::InterfaceTypeId),
+    /// A pending finalizer body must admit its synchronous callees.
+    FinalizerBodyCleanup(crate::InterfaceTypeId),
+    /// Cleanup performed by one selected runtime-default provider.
+    DefaultCleanup {
+        /// Exact parameter or field provider.
+        provider: InterfaceSymbolReference,
+        /// Enclosing declaration's selected generic arguments.
+        substitution: super::InterfaceGenericSubstitutionId,
+        /// Lexical Self context and its selected subject, when present.
+        contextual_self: Option<(InterfaceSymbolReference, crate::InterfaceTypeId)>,
+    },
     /// Finite equations for dependencies carried around a local control-flow cycle.
     FixedPoint {
         /// Equation values, addressed by variable ordinal.
@@ -252,6 +294,7 @@ pub struct InterfaceDependencyContract {
             super::InterfaceConstantTermId,
         >],
     >,
+    pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) normal_storage_preserved: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
@@ -294,6 +337,7 @@ impl InterfaceDependencyContract {
             requirements: sorted_unique_shared_slice(requirements),
             completion_reports: None,
             abnormal_reports: None,
+            synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
             returned_input: None,
@@ -338,6 +382,7 @@ impl InterfaceDependencyContract {
                     .iter()
                     .flat_map(|requirements| requirements.iter()),
             )
+            .chain(self.synchronous_cleanup.iter())
     }
 
     /// Attaches the complete returned carriers of declared trusted guarantees.
@@ -367,6 +412,21 @@ impl InterfaceDependencyContract {
         self.normal_storage_preserved = preserved;
 
         self
+    }
+
+    /// Records cleanup that must be synchronous after generic substitution.
+    pub fn with_synchronous_cleanup(
+        mut self,
+        requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        self.synchronous_cleanup = sorted_unique_shared_slice(requirements);
+
+        self
+    }
+
+    /// Returns deferred synchronous cleanup obligations.
+    pub fn synchronous_cleanup(&self) -> &[InterfaceDependencyRequirement] {
+        &self.synchronous_cleanup
     }
 
     /// Attaches the complete checked mutation summary.

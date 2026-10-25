@@ -4,6 +4,26 @@ use super::{
     TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
 
+impl crate::SymbolGraph {
+    /// Returns the nearest containing declaration that defines contextual `Self`.
+    pub fn enclosing_self_type_context(
+        &self,
+        symbol: crate::AnySymbolId,
+    ) -> Option<SelfTypeContext> {
+        let mut current = self.containing_symbol(symbol);
+
+        while let Some(owner) = current {
+            if let Some(context) = SelfTypeContext::try_new(owner) {
+                return Some(context);
+            }
+
+            current = self.containing_symbol(owner);
+        }
+
+        None
+    }
+}
+
 impl SemanticValueStore {
     /// Replaces one declaration context's `Self` throughout a semantic type.
     pub fn substitute_contextual_self(
@@ -149,151 +169,6 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
     }
 
-    /// Replaces a declaration's `Self` in symbolic returned-value dependencies.
-    pub fn substitute_contextual_self_in_dependency_contract(
-        &self,
-        contract: super::DependencyContractTemplateId,
-        context: SelfTypeContext,
-        replacement: TypeId,
-    ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
-        let template = self.dependency_contract_template_data(contract);
-
-        let substituted = template.try_map_requirements(|requirements| {
-            self.substitute_contextual_dependency_requirements(requirements, context, replacement)
-        })?;
-
-        // Formal storage paths carry no contextual Self type. Share their immutable identities.
-        self.intern_dependency_contract_template(substituted)
-    }
-
-    fn substitute_contextual_call_inputs(
-        &self,
-        inputs: &[super::DependencyCallInput],
-        context: SelfTypeContext,
-        replacement: TypeId,
-    ) -> Result<Vec<super::DependencyCallInput>, SemanticValueStoreError> {
-        inputs
-            .iter()
-            .map(|input| {
-                Ok(super::DependencyCallInput::new(
-                    input.root(),
-                    self.substitute_contextual_dependency_requirements(
-                        input.values(),
-                        context,
-                        replacement,
-                    )?,
-                    self.substitute_contextual_dependency_requirements(
-                        input.storage(),
-                        context,
-                        replacement,
-                    )?,
-                ))
-            })
-            .collect::<Result<Vec<_>, SemanticValueStoreError>>()
-    }
-
-    fn substitute_contextual_dependency_requirements(
-        &self,
-        requirements: &[super::DependencyRequirement],
-        context: SelfTypeContext,
-        replacement: TypeId,
-    ) -> Result<Vec<super::DependencyRequirement>, SemanticValueStoreError> {
-        // Unchanged direct subjects and guards retain their immutable shared snapshots.
-        requirements
-            .iter()
-            .map(|item| match item {
-                super::DependencyRequirement::FixedPoint {
-                    definitions,
-                    result,
-                } => {
-                    let definitions = definitions
-                        .iter()
-                        .map(|definition| {
-                            self.substitute_contextual_dependency_requirements(
-                                definition,
-                                context,
-                                replacement,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-
-                    let result = self.substitute_contextual_dependency_requirements(
-                        result,
-                        context,
-                        replacement,
-                    )?;
-
-                    Ok(super::DependencyRequirement::fixed_point(
-                        definitions,
-                        result,
-                    ))
-                }
-                super::DependencyRequirement::Variable { depth, ordinal } => {
-                    Ok(super::DependencyRequirement::variable(*depth, *ordinal))
-                }
-                super::DependencyRequirement::ResultCall {
-                    output,
-                    callable,
-                    requirement,
-                    inputs,
-                } => {
-                    let callable = self.callable_instance_data(*callable);
-
-                    let substitution = self.substitute_contextual_self_in_substitution(
-                        callable.substitution(),
-                        context,
-                        replacement,
-                    )?;
-
-                    let callable = self.intern_callable_instance(
-                        super::CallableInstanceData::new(callable.definition(), substitution),
-                    )?;
-
-                    let requirement = requirement
-                        .map(|requirement| {
-                            let subject = self.substitute_contextual_self(
-                                requirement.subject(),
-                                context,
-                                replacement,
-                            )?;
-
-                            let application = self.substitute_contextual_self_in_application(
-                                requirement.trait_application(),
-                                context,
-                                replacement,
-                            )?;
-
-                            Ok::<_, SemanticValueStoreError>(
-                                crate::ImplementationRequirementKey::new(subject, application),
-                            )
-                        })
-                        .transpose()?;
-
-                    let inputs =
-                        self.substitute_contextual_call_inputs(inputs, context, replacement)?;
-
-                    Ok(super::DependencyRequirement::result_call(
-                        callable,
-                        requirement,
-                        inputs,
-                        *output,
-                    ))
-                }
-                super::DependencyRequirement::Guarded(guarded) => {
-                    Ok(super::DependencyRequirement::guarded(
-                        guarded.guard().clone(),
-                        self.substitute_contextual_dependency_requirements(
-                            guarded.requirements(),
-                            context,
-                            replacement,
-                        )?,
-                    ))
-                }
-                super::DependencyRequirement::Direct { .. } => Ok(item.clone()),
-            })
-            .collect()
-    }
-
     /// Replaces one declaration context's `Self` throughout a generic substitution.
     pub fn substitute_contextual_self_in_substitution(
         &self,
@@ -383,5 +258,59 @@ mod tests {
             store.substitute_contextual_self(subject, source, replacement);
 
         assert_eq!(result, Ok(subject));
+    }
+    #[test]
+    fn contextual_cleanup_substitution_reaches_the_complete_dependency_contract() {
+        use crate::{
+            DependencyContractTemplateData, DependencyMutationKind, DependencyStorageEffect,
+            DependencySubject, DependencySubjectRoot,
+        };
+
+        let store = SemanticValueStore::try_new().unwrap();
+        let context = SelfTypeContext::Trait(TraitSymbolId::from_symbol_id(SymbolId::new(1)));
+
+        let contextual = store
+            .intern_type(TypeData::ContextualSelf(context))
+            .unwrap();
+
+        let replacement = store.intern_type(TypeData::tuple([])).unwrap();
+        let nested = store.intern_type(TypeData::Nullable(contextual)).unwrap();
+
+        let template = store
+            .intern_dependency_contract_template(
+                DependencyContractTemplateData::new([])
+                    .with_synchronous_cleanup([crate::DependencyRequirement::SynchronousCleanup(
+                        nested,
+                    )])
+                    .with_effects([
+                        DependencyStorageEffect::Cleanup(contextual),
+                        DependencyStorageEffect::Direct {
+                            subject: DependencySubject::root(DependencySubjectRoot::Receiver),
+                            kind: DependencyMutationKind::Replace(contextual),
+                        },
+                    ]),
+            )
+            .unwrap();
+
+        let instantiated = store
+            .substitute_contextual_self_in_dependency_contract(template, context, replacement)
+            .unwrap();
+
+        let data = store.dependency_contract_template_data(instantiated);
+        let expected = store.intern_type(TypeData::Nullable(replacement)).unwrap();
+
+        assert_eq!(
+            data.synchronous_cleanup(),
+            [crate::DependencyRequirement::SynchronousCleanup(expected)]
+        );
+
+        assert!(
+            data.effects()
+                .contains(&DependencyStorageEffect::Cleanup(replacement))
+        );
+
+        assert!(data.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
+                if *ty == replacement)));
     }
 }

@@ -1,4 +1,7 @@
-use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind_with_options};
+use super::support::artifacts::{
+    assert_source_emits_valid_native_units, generated_artifacts,
+    generated_artifacts_of_kind_with_options,
+};
 use super::support::runtime::{
     runtime_native_plan, runtime_native_plan_for_product,
     runtime_native_plan_for_sources_target_with_platform_overrides,
@@ -889,4 +892,211 @@ fn constrained_async_admission_realizes_the_selected_implementation() {
     let (_, plan) = runtime_native_plan(source);
 
     assert!(!plan.units().is_empty());
+}
+
+#[test]
+fn admitted_synchronous_generic_cleanup_emits_native_units() {
+    const SOURCE: &str = r#"
+        module app;
+        struct Owner { async finalize() executes(pure, total) {} }
+        func discard<T>(pos value: T) {}
+        struct Container<T, const Ready: bool> {
+            value: T;
+            async finalize() when(Ready) { executes(pure, total) } {}
+        }
+        func forward<T, const Ready: bool>(pos value: T) {
+            let wrapped: Container<T, Ready && true> = { value = value };
+            discard<Container<T, Ready && true>>(wrapped);
+        }
+        func recur<T, const N: i32>(pos value: T, pos stop: bool) {
+            if stop { return; }
+            recur<T, N + 0>(value, stop);
+        }
+        public func root() {
+            discard<i32>(1);
+            discard<Owner>(Owner {});
+            forward<Owner, true>(Owner {});
+            recur<i32, 0>(1, true);
+        }
+    "#;
+
+    assert_source_emits_valid_native_units(SOURCE, crate::BuildConfiguration::Development);
+
+    let dependency = super::support::dependencies::generic_dependency_from_fixture(
+        true,
+        false,
+        super::support::dependencies::GenericDependencyFixture {
+            source: SOURCE,
+            runtime_frames: &[1, 1],
+            executable_templates: 6,
+            platform_service: None,
+        },
+    );
+
+    let (backend, codegen) = super::support::compilation::codegen_configuration();
+
+    let request = crate::CompilationRequest::with_options(
+        crate::test_support::package_identity(),
+        vec![crate::test_support::source_input(
+            r#"
+            module consumer;
+            using example.dependency.app.root;
+            public func forwarded()
+            {
+                example.dependency.app.root();
+            }
+            "#,
+            0,
+        )],
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    )
+    .with_dependency_interfaces([dependency]);
+
+    let consumer = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let plan = consumer
+        .native_product_plan(
+            super::support::compilation::test_product_identity(),
+            crate::BuildConfiguration::Development,
+            None,
+            [],
+            None,
+        )
+        .unwrap();
+
+    assert!(
+        generated_artifacts(&backend, &plan)
+            .iter()
+            .all(|artifact| !artifact.is_empty())
+    );
+}
+
+#[test]
+#[ignore = "BRA-642: native inactive-frame cleanup loses the synchronous capture proof"]
+fn inactive_generic_scalar_future_emits_native_units() {
+    assert_source_emits_valid_native_units(
+        r#"
+        module app;
+        async func hold<T>(pos value: T) {}
+        func discard<T>(pos value: T) { let pending = hold<T>(value); }
+        public func root() { discard<i32>(1); }
+    "#,
+        crate::BuildConfiguration::Development,
+    );
+}
+
+#[test]
+fn selected_associated_runtime_default_emits_source_and_imported_native_units() {
+    const SOURCE: &str = r#"
+        module app;
+        func discard<T>(pos value: T) {}
+        func demand<T>() -> i32 { let handler: func(pos value: T) = discard<T>; return 0; }
+        trait Source {
+            type Item;
+            func select(value: i32 = demand<Item>()) {}
+            func outer() { self.select(); }
+        }
+        struct Producer { marker: i32; }
+        impl ProducerSource = Producer(Source) { type Item = i32; }
+        using ProducerSource;
+        impl Producer {
+            type Scalar = i32;
+            func alias(value: i32 = demand<Scalar>()) {}
+        }
+        public func root() {
+            let producer = Producer { marker = 0 };
+            producer.outer();
+            producer.alias();
+        }
+    "#;
+
+    const OVERRIDE: &str = r#"
+        module app;
+        func discard<T>(pos value: T) {}
+        func demand<T>() -> i32 { let handler: func(pos value: T) = discard<T>; return 0; }
+        trait Source {
+            type Item;
+            func select(value: i32 = demand<Item>()) {}
+            func outer() { self.select(); }
+        }
+        struct Producer { marker: i32; }
+        impl ProducerSource = Producer(Source) {
+            type Item = i32;
+            func select(value: i32 = demand<Item>()) {}
+        }
+        using ProducerSource;
+        public func root() { let producer = Producer { marker = 0 }; producer.outer(); }
+    "#;
+
+    for (source, executable_templates) in [(SOURCE, 8), (OVERRIDE, 8)] {
+        assert_source_emits_valid_native_units(source, crate::BuildConfiguration::Development);
+
+        let dependency = super::support::dependencies::generic_dependency_from_fixture(
+            true,
+            false,
+            super::support::dependencies::GenericDependencyFixture {
+                source,
+                runtime_frames: &[],
+                executable_templates,
+                platform_service: None,
+            },
+        );
+
+        let (backend, codegen) = super::support::compilation::codegen_configuration();
+
+        let request = crate::CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                r#"
+            module consumer;
+            using example.dependency.app.root;
+            public func forwarded()
+            {
+                example.dependency.app.root();
+            }
+            "#,
+                0,
+            )],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_dependency_interfaces([dependency]);
+
+        let consumer = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        let plan = consumer
+            .native_product_plan(
+                super::support::compilation::test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
 }

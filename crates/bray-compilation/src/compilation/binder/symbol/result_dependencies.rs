@@ -186,7 +186,13 @@ fn source_members(
             .expression_semantics_with_cancellation(key.clone(), context.cancellation)
             .map_err(binder_error)?;
 
+        let bound = compilation
+            .bound_unit_with_cancellation(key.clone(), context.cancellation)
+            .map_err(binder_error)?;
+
         for callee in body_callees(
+            context.semantic_values(),
+            bound.result().value(),
             behavior.result().value(),
             prepared.result().value(),
             expressions.result().value(),
@@ -275,6 +281,8 @@ fn infer_component(
         let inputs = compilation.body_analysis_inputs(key.clone(), cancellation)?;
 
         for callee in body_callees(
+            context.semantic_values(),
+            inputs.bound.result().value(),
             inputs.behavior.result().value(),
             inputs.prepared.result().value(),
             inputs.expressions.result().value(),
@@ -436,6 +444,13 @@ fn body_result_dependencies(
         None
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
+    .with_synchronous_cleanup(
+        previous
+            .synchronous_cleanup()
+            .iter()
+            .chain(checked.synchronous_cleanup())
+            .cloned(),
+    )
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
     .with_normal_storage_preservation(
         (!previous.normal_completion() || previous.preserves_storage_on_normal_return())
@@ -531,6 +546,8 @@ fn body_key(
 }
 
 fn body_callees<'a>(
+    values: &'a bray_symbols::SemanticValueStore,
+    bound: &'a bray_bound_tree::BoundUnit,
     behavior: &'a bray_bound_tree::BodyBehaviorContributions,
     prepared: &'a bray_checker::PreparedBodyAnalysis,
     expressions: &'a bray_bound_tree::CheckedExpressionSemantics,
@@ -572,6 +589,34 @@ fn body_callees<'a>(
                 }),
         )
         .chain(
+            expressions
+                .selections()
+                .entries()
+                .iter()
+                .filter_map(|entry| {
+                    let bray_bound_tree::SemanticSelection::CallableReference(instance) =
+                        entry.selection()
+                    else {
+                        return None;
+                    };
+
+                    (!values
+                        .generic_substitution_data(instance.substitution())
+                        .bindings()
+                        .is_empty())
+                    .then_some(ResultDependencyOwner::Declaration(
+                        instance.definition().callable_symbol().into_any(),
+                    ))
+                }),
+        )
+        .chain(bound.tree().expressions().filter_map(|(_, node)| {
+            let bray_bound_tree::BoundExpression::AnonymousCallable(body) = node else {
+                return None;
+            };
+
+            Some(ResultDependencyOwner::Anonymous(body.unit().clone()))
+        }))
+        .chain(
             behavior
                 .defaults()
                 .iter()
@@ -608,7 +653,7 @@ fn source_summary(
 
 pub(in crate::compilation) fn default_result_dependencies(
     context: &CompilationBindingContext<'_>,
-    provider: bray_bound_tree::DefaultValueProvider,
+    provider: bray_symbols::DefaultValueProvider,
 ) -> BindingQueryResult<DependencyContractTemplateId> {
     summary(
         context,

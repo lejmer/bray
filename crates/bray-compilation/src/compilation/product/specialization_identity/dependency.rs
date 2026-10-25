@@ -147,6 +147,8 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_set(data.borrows(), Self::dependency_borrow)?;
         self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
+        self.dependency_set(data.synchronous_cleanup(), Self::dependency_requirement)?;
+
         self.dependency_set(data.effects(), Self::dependency_effect)
     }
 
@@ -303,6 +305,29 @@ impl StructuralValueEncoder<'_, '_> {
         requirement: &DependencyRequirement,
     ) -> Result<(), FactQueryError> {
         match requirement {
+            DependencyRequirement::SynchronousCleanup(ty) => {
+                self.tag(6);
+                self.ty(*ty)?;
+            }
+            DependencyRequirement::FinalizerBodyCleanup(ty) => {
+                self.tag(7);
+                self.ty(*ty)?;
+            }
+            DependencyRequirement::DefaultCleanup {
+                provider,
+                substitution,
+                contextual_self,
+            } => {
+                self.tag(8);
+                self.symbol(provider.symbol())?;
+                self.substitution(*substitution)?;
+                self.tag(u8::from(contextual_self.is_some()));
+
+                if let Some((context, subject)) = contextual_self {
+                    self.symbol(context.symbol())?;
+                    self.ty(*subject)?;
+                }
+            }
             DependencyRequirement::Variable { depth, ordinal } => {
                 self.tag(4);
                 self.length(*depth as usize);
@@ -335,6 +360,7 @@ impl StructuralValueEncoder<'_, '_> {
                     bray_symbols::DependencyCallOutput::Value => 0,
                     bray_symbols::DependencyCallOutput::CompletionReport => 1,
                     bray_symbols::DependencyCallOutput::AbnormalReport => 2,
+                    bray_symbols::DependencyCallOutput::SynchronousCleanup => 3,
                 });
 
                 self.callable_instance(*callable)?;

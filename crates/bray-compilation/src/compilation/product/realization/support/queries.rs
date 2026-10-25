@@ -94,7 +94,7 @@ pub(in crate::compilation::product) fn closed_array_length(
     }
 }
 
-pub(in crate::compilation::product::realization) fn codegen_checker_error(
+pub(in crate::compilation::product) fn codegen_checker_error(
     error: bray_checker::CheckerQueryError<FactQueryError>,
 ) -> CodegenPreparationError {
     match error {

@@ -961,6 +961,15 @@ const CHECKING_TYPE_REPRESENTATION_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePa
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
+const CHECKING_CLEANUP_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cleanup checking for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+    MessageTemplatePart::Text(" reached "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" nested calls, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
+
 const CHECKING_INVALID_LAYOUT_DIRECTIVE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Arg(DiagnosticArgName::LayoutProblem)];
 
@@ -1925,6 +1934,10 @@ const NOTE_CONSTANT_EVALUATION_MUST_FIT_LIMITS: &[MessageTemplatePart] =
         "reduce the compile-time work or select larger constant-evaluation limits",
     )];
 
+const NOTE_SIMPLIFY_RECURSIVE_CLEANUP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "reduce recursive generic nesting in the calls that retain these values",
+)];
+
 const NOTE_TYPE_LAYOUT_DIRECTIVE_FORMS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "select stable, C-compatible, or transparent layout and use only compatible align, pack, and tag options",
 )];
@@ -2013,6 +2026,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::TypeInferenceNeedsConstraint
         | DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
         | DiagnosticNoteKind::ConstantEvaluationMustFitLimits
+        | DiagnosticNoteKind::SimplifyRecursiveCleanup
         | DiagnosticNoteKind::TypeLayoutDirectiveForms
         | DiagnosticNoteKind::UnionTagDirectiveForms
         | DiagnosticNoteKind::CopyContractRequirements
@@ -2390,6 +2404,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded => {
             MessageTemplate::new(CHECKING_TYPE_REPRESENTATION_RECURSION_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingCleanupRecursionLimitExceeded => {
+            MessageTemplate::new(CHECKING_CLEANUP_RECURSION_LIMIT_EXCEEDED)
         }
         DiagnosticKind::CheckingInvalidLayoutDirective => {
             MessageTemplate::new(CHECKING_INVALID_LAYOUT_DIRECTIVE)
@@ -3105,6 +3122,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::ConstantEvaluationMustFitLimits => {
             MessageTemplate::new(NOTE_CONSTANT_EVALUATION_MUST_FIT_LIMITS)
+        }
+        DiagnosticNoteKind::SimplifyRecursiveCleanup => {
+            MessageTemplate::new(NOTE_SIMPLIFY_RECURSIVE_CLEANUP)
         }
         DiagnosticNoteKind::TypeLayoutDirectiveForms => {
             MessageTemplate::new(NOTE_TYPE_LAYOUT_DIRECTIVE_FORMS)

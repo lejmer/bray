@@ -66,7 +66,7 @@ pub enum ConstantCallTarget {
     ),
     /// A declaration-owned default provider in its selected generic application.
     Default(
-        bray_bound_tree::DefaultValueProvider,
+        bray_symbols::DefaultValueProvider,
         bray_symbols::GenericSubstitutionId,
     ),
     /// A predicate body evaluated internally while checking a constant invocation.

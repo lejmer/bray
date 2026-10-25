@@ -1,10 +1,10 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::DefaultValueProvider;
 use bray_codegen::CodegenTarget;
 use bray_ir::{
     MirExecutableTemplateId, MirHelperReference, MirImportedExecutableKey, MirOperationId,
     MirOperationKind, MirUnitKey,
 };
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{AnySymbolId, CallableDefinitionId, SymbolKeyData, TypeData};
 
 use super::super::specialization::ConcreteCodegenInstance;
@@ -76,19 +76,24 @@ impl Compilation {
 
         let ty = match default_owner {
             bray_ir::MirDefaultOwner::Callable(callable) => {
-                let callee = self.concrete_codegen_callable_data(
-                    owner,
-                    &callable.instance(),
-                    target,
-                    cancellation,
-                )?;
-
-                return self.concrete_codegen_runtime_default(
-                    &callee,
-                    provider.symbol(),
-                    &reference,
-                    cancellation,
+                let demand = bray_codegen::DemandedCallableInstance::new(
+                    bray_codegen::CodegenCallSite::Operation(operation_id),
+                    callable.clone(),
                 );
+
+                let super::super::specialization::ConcreteCodegenCallee::Instance(callee) = self
+                    .concrete_codegen_callee(
+                        owner,
+                        &demand,
+                        Some(provider),
+                        target,
+                        cancellation,
+                    )?
+                else {
+                    panic!("runtime default owner selects an executable body: {callable:?}");
+                };
+
+                return Ok(callee);
             }
             bray_ir::MirDefaultOwner::Type { ty, .. } => *ty,
         };
@@ -138,29 +143,12 @@ impl Compilation {
             substitution,
             specialization,
             &witnesses,
+            None,
             owner.key().target().clone(),
         ))
     }
 
-    pub(super) fn concrete_codegen_runtime_default(
-        &self,
-        owner: &ConcreteCodegenInstance,
-        provider: AnySymbolId,
-        reference: &MirHelperReference,
-        cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        let template = self.runtime_default_template(provider, reference, cancellation)?;
-
-        ConcreteCodegenInstance::inherited_helper(owner, template).ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Symbol(provider),
-                ProductDataKind::ConcreteInstance,
-            )
-            .into()
-        })
-    }
-
-    fn runtime_default_template(
+    pub(in crate::compilation::product) fn runtime_default_template(
         &self,
         provider: AnySymbolId,
         reference: &MirHelperReference,

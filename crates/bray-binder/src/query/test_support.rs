@@ -11,7 +11,7 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    CallableAbi, CallableConstness, CallableContractSymbolId, CallableDependencyContracts,
+    AnySymbolId, CallableAbi, CallableConstness, CallableDependencyContracts,
     CallableSignatureQuery, CallableSignatureTemplate, CallableTrust, CallableTypeData,
     ConstantDeclaredTypeQuery, ConstantSymbolId, DependencyContractTemplateData,
     ImportedSymbolSkeleton, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, SemanticValueStore,
@@ -135,9 +135,9 @@ impl BindingQueryContext for TestContext<'_> {
         Ok(self.imported_symbols)
     }
 
-    fn callable_contract_type(
+    fn type_definition_value(
         &self,
-        _: CallableContractSymbolId,
+        _: AnySymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
         Err(BindingQueryError::DependencyUnavailable)
     }

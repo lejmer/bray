@@ -417,6 +417,8 @@ define_diagnostic_kinds! {
     CheckingRecursiveTypeRepresentation,
     /// Type-representation analysis exceeded its deterministic recursion limit.
     CheckingTypeRepresentationRecursionLimitExceeded,
+    /// Checking recursive generic cleanup exceeded its deterministic recursion limit.
+    CheckingCleanupRecursionLimitExceeded,
     /// A layout directive does not describe a valid source-level layout contract.
     CheckingInvalidLayoutDirective,
     /// A declared implicit-copy contract is not satisfied by the represented type.
@@ -890,6 +892,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidStoredType => 7028,
             Self::CheckingRecursiveTypeRepresentation => 7029,
             Self::CheckingTypeRepresentationRecursionLimitExceeded => 7078,
+            Self::CheckingCleanupRecursionLimitExceeded => 7132,
             Self::CheckingInvalidLayoutDirective => 7030,
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
@@ -1316,6 +1319,9 @@ impl DiagnosticKind {
             Self::CheckingRecursiveTypeRepresentation => "checking_recursive_type_representation",
             Self::CheckingTypeRepresentationRecursionLimitExceeded => {
                 "checking_type_representation_recursion_limit_exceeded"
+            }
+            Self::CheckingCleanupRecursionLimitExceeded => {
+                "checking_cleanup_recursion_limit_exceeded"
             }
             Self::CheckingInvalidLayoutDirective => "checking_invalid_layout_directive",
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",

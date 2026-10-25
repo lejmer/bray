@@ -447,6 +447,11 @@ where
     C: DependencyContractInstantiationContext,
 {
     match requirement {
+        DependencyRequirement::SynchronousCleanup(_)
+        | DependencyRequirement::FinalizerBodyCleanup(_)
+        | DependencyRequirement::DefaultCleanup { .. } => {
+            panic!("cleanup requirements are admitted separately from value lifetime contracts")
+        }
         DependencyRequirement::ResultCall { .. }
         | DependencyRequirement::FixedPoint { .. }
         | DependencyRequirement::Variable { .. } => {

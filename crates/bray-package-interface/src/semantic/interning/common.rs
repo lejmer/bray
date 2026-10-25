@@ -43,6 +43,18 @@ pub(super) trait SymbolFamily: Sized {
     fn try_from_any(id: AnySymbolId) -> Option<Self>;
 }
 
+impl SymbolFamily for bray_symbols::SelfTypeContext {
+    fn try_from_any(id: AnySymbolId) -> Option<Self> {
+        Self::try_new(id)
+    }
+}
+
+impl SymbolFamily for bray_symbols::DefaultValueProvider {
+    fn try_from_any(id: AnySymbolId) -> Option<Self> {
+        Self::try_from_symbol(id)
+    }
+}
+
 impl SymbolFamily for NamedTypeSymbolId {
     fn try_from_any(id: AnySymbolId) -> Option<Self> {
         Self::try_from_any(id)

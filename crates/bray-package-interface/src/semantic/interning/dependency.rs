@@ -9,7 +9,7 @@ use crate::{
     InterfaceDependencySubjectRoot, InterfaceSemantics,
 };
 
-use super::common::{convert_requirement_kind, resolve_exact};
+use super::common::{convert_requirement_kind, resolve_exact, resolve_family};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
 impl InternState {
@@ -111,6 +111,12 @@ impl InternState {
                 continue;
             };
 
+            let Some(synchronous_cleanup) =
+                self.convert_dependency_requirements(&input.synchronous_cleanup, symbols)?
+            else {
+                continue;
+            };
+
             let returned_input = if let Some(input) = input.returned_input {
                 let Some(input) = self.constant_term_id(input) else {
                     continue;
@@ -139,6 +145,7 @@ impl InternState {
                         .with_returned_input(returned_input)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
+                        .with_synchronous_cleanup(synchronous_cleanup)
                         .with_normal_completion(input.normal_completion)
                         .with_normal_storage_preservation(input.normal_storage_preserved),
                 )?,
@@ -157,6 +164,48 @@ impl InternState {
 
         for input in inputs {
             let value = match &input.value {
+                InterfaceDependencyRequirementValue::SynchronousCleanup(ty) => {
+                    let Some(ty) = self.type_id(*ty) else {
+                        return Ok(None);
+                    };
+
+                    DependencyRequirement::SynchronousCleanup(ty)
+                }
+                InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+                    let Some(ty) = self.type_id(*ty) else {
+                        return Ok(None);
+                    };
+
+                    DependencyRequirement::FinalizerBodyCleanup(ty)
+                }
+                InterfaceDependencyRequirementValue::DefaultCleanup {
+                    provider,
+                    substitution,
+                    contextual_self,
+                } => {
+                    let provider = resolve_family(symbols, provider)?;
+
+                    let Some(substitution) = self.substitution_id(*substitution) else {
+                        return Ok(None);
+                    };
+
+                    let contextual_self = match contextual_self {
+                        Some((context, subject)) => {
+                            let Some(subject) = self.type_id(*subject) else {
+                                return Ok(None);
+                            };
+
+                            Some((resolve_family(symbols, context)?, subject))
+                        }
+                        None => None,
+                    };
+
+                    DependencyRequirement::DefaultCleanup {
+                        provider,
+                        substitution,
+                        contextual_self,
+                    }
+                }
                 InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
                     DependencyRequirement::variable(*depth, *ordinal)
                 }

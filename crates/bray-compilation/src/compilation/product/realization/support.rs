@@ -16,7 +16,7 @@ pub(super) use layout::{
     sized_layout, target_layout_contract,
 };
 pub(in crate::compilation::product) use queries::closed_array_length;
-pub(super) use queries::codegen_checker_error;
+pub(in crate::compilation::product) use queries::codegen_checker_error;
 pub(super) use signatures::{
     callable_type_signature, invocation_signature, is_void_result, operation_result_type,
     signature_types, void_signature,

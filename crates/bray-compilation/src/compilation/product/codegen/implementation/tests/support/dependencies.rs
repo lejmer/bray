@@ -69,7 +69,7 @@ pub(in super::super) fn native_fixture_compilation(
 #[derive(Clone, Copy)]
 pub(in super::super) struct GenericDependencyFixture {
     pub(in super::super) source: &'static str,
-    pub(in super::super) runtime_frames: Option<usize>,
+    pub(in super::super) runtime_frames: &'static [usize],
     pub(in super::super) executable_templates: usize,
     pub(in super::super) platform_service: Option<(PlatformServiceRole, &'static str)>,
 }
@@ -163,16 +163,13 @@ pub(in super::super) fn dependency_from_fixture_for_target(
         .as_ref()
         .unwrap_or_else(|error| panic!("dependency interface bundle must build: {error:?}"));
 
-    match fixture.runtime_frames {
-        Some(expected) => {
-            let [runtime] = bundle.semantics().runtime_requirements() else {
-                panic!("generic callable family must publish one runtime requirement");
-            };
+    let runtime = bundle.semantics().runtime_requirements();
 
-            assert_eq!(runtime.frames().len(), expected);
-            assert!(runtime.requirements().capabilities().is_empty());
-        }
-        None => assert!(bundle.semantics().runtime_requirements().is_empty()),
+    assert_eq!(runtime.len(), fixture.runtime_frames.len());
+
+    for (runtime, expected) in runtime.iter().zip(fixture.runtime_frames) {
+        assert_eq!(runtime.frames().len(), *expected);
+        assert!(runtime.requirements().capabilities().is_empty());
     }
 
     let interface = encode_package_interface(bundle)

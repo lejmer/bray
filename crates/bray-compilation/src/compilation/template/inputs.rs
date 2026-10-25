@@ -186,7 +186,7 @@ impl Compilation {
 
     pub(in crate::compilation) fn checked_default_template(
         &self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<
         bray_diagnostics::DiagnosticResult<Option<bray_bound_tree::CheckedTemplate>>,

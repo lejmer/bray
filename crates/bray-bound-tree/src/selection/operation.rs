@@ -3,10 +3,9 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, CallableSignature, ImplementationRequirementKey,
-    ReceiverParameterSignature, StructFieldDefaultProviderSymbolId, StructFieldSymbolId,
-    StructSymbolId, TypeId, UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
-    UnionVariantSymbolId,
+    CallableParameterSymbolId, CallableSignature, DefaultValueProvider,
+    ImplementationRequirementKey, ReceiverParameterSignature, StructFieldSymbolId, StructSymbolId,
+    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::{
@@ -356,44 +355,6 @@ impl ConstructionInputId {
                     DefaultValueProvider::CallableParameter(_)
                 )
         )
-    }
-}
-
-/// One declaration-owned runtime default used by a call or construction.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DefaultValueProvider {
-    /// A struct field default.
-    StructField(StructFieldDefaultProviderSymbolId),
-    /// A union payload field default.
-    UnionPayload(UnionPayloadDefaultProviderSymbolId),
-    /// A callable parameter default, including type-form parameters.
-    CallableParameter(CallableParameterDefaultProviderSymbolId),
-}
-
-impl DefaultValueProvider {
-    /// Resolves a declaration symbol to its exact default-provider category.
-    pub const fn try_from_symbol(symbol: AnySymbolId) -> Option<Self> {
-        match symbol {
-            AnySymbolId::CallableParameterDefaultProvider(provider) => {
-                Some(Self::CallableParameter(provider))
-            }
-            AnySymbolId::StructFieldDefaultProvider(provider) => Some(Self::StructField(provider)),
-            AnySymbolId::UnionPayloadDefaultProvider(provider) => {
-                Some(Self::UnionPayload(provider))
-            }
-            _ => None,
-        }
-    }
-
-    /// Returns the declaration symbol that owns this runtime default.
-    pub const fn symbol(self) -> AnySymbolId {
-        match self {
-            Self::StructField(symbol) => AnySymbolId::StructFieldDefaultProvider(symbol),
-            Self::UnionPayload(symbol) => AnySymbolId::UnionPayloadDefaultProvider(symbol),
-            Self::CallableParameter(symbol) => {
-                AnySymbolId::CallableParameterDefaultProvider(symbol)
-            }
-        }
     }
 }
 

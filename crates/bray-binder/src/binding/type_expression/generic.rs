@@ -124,7 +124,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             )) => self.callable_contract_parameters(*definition)?.len(),
             MemberLookupResult::Found(
                 crate::lookup::ResolvedTypeName::GenericParameter(_)
-                | crate::lookup::ResolvedTypeName::TraitMember(_),
+                | crate::lookup::ResolvedTypeName::TraitMember(_)
+                | crate::lookup::ResolvedTypeName::InherentMember(_)
+                | crate::lookup::ResolvedTypeName::TraitFulfillment(_),
             ) => 0,
             _ => return self.error_type_template(),
         };
@@ -148,8 +150,13 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::TraitMember(member)) => {
                 self.bind_contextual_trait_type_member(member)
             }
-            MemberLookupResult::Found(_)
-            | MemberLookupResult::NotFound
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::InherentMember(member)) => {
+                self.bind_type_definition(member.into())
+            }
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::TraitFulfillment(
+                member,
+            )) => self.bind_type_definition(member.into()),
+            MemberLookupResult::NotFound
             | MemberLookupResult::UndeclaredDependency
             | MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
@@ -165,21 +172,30 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let parameters = self.callable_contract_parameters(definition)?;
         let arguments = self.bind_generic_arguments(arguments, &parameters)?;
-        let target = self.imports.callable_contract_type(definition)?;
-
-        self.diagnostics
-            .add_range(target.diagnostics().iter().cloned());
+        let target = self.bind_type_definition(definition.into())?;
 
         if parameters.is_empty() {
-            return Ok(target.value().clone());
+            return Ok(target);
         }
 
         Ok(TypeExpressionTemplate::CallableContract {
             definition,
-            target: Arc::new(target.value().clone()),
+            target: Arc::new(target),
             parameters: Arc::from(parameters),
             arguments: Arc::from(arguments),
         })
+    }
+
+    fn bind_type_definition(
+        &mut self,
+        definition: bray_symbols::AnySymbolId,
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
+        let value = self.imports.type_definition_value(definition)?;
+
+        self.diagnostics
+            .add_range(value.diagnostics().iter().cloned());
+
+        Ok(value.value().clone())
     }
 
     pub(super) fn bind_named_type(

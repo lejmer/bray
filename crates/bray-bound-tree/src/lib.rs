@@ -105,8 +105,8 @@ pub use refinement::{
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
-    ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget,
-    MemberTarget, OperatorTarget, SelectedArgument, SelectedCall, SelectedCompoundAssignment,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget,
+    OperatorTarget, SelectedArgument, SelectedCall, SelectedCompoundAssignment,
     SelectedConstruction, SelectedConstructionInput, SelectedConversion,
     SelectedImplementationWitness, SelectedInput, SelectedIterationProtocolOperation,
     SelectedIterationSource, SelectedIterationTypes, SelectedOperation,

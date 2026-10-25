@@ -1074,8 +1074,8 @@ impl Lowerer<'_> {
 
                     let default = MirCall::protocol(
                         MirCallTarget::DefaultValue {
-                            owner: bray_ir::MirDefaultOwner::Callable(*callable),
-                            provider: bray_bound_tree::DefaultValueProvider::CallableParameter(
+                            owner: Self::default_callable_owner(selection, *callable),
+                            provider: bray_symbols::DefaultValueProvider::CallableParameter(
                                 *provider,
                             ),
                         },
@@ -1186,6 +1186,28 @@ impl Lowerer<'_> {
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn default_callable_owner(
+        selection: &bray_bound_tree::SelectedCall,
+        callable: bray_ir::MirCallableReference,
+    ) -> bray_ir::MirDefaultOwner {
+        bray_ir::MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
+            callable,
+            selection.resolution().trait_dispatch(),
+            None,
+            selection
+                .resolution()
+                .implementation_witnesses()
+                .iter()
+                .copied()
+                .chain(
+                    selection
+                        .witnesses()
+                        .iter()
+                        .map(|selection| selection.witness()),
+                ),
+        ))
     }
 
     fn selected_mir_call(

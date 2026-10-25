@@ -20,7 +20,7 @@ use std::sync::Arc;
 fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -101,7 +101,7 @@ fn native_reuse_defers_optional_executable_body_decoding() {
                     return value + 1;
                 }
             "#,
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -147,7 +147,7 @@ fn native_reuse_defers_optional_executable_body_decoding() {
 fn imported_native_binding_retains_references_but_excludes_disconnected_package_units() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -204,7 +204,7 @@ fn imported_native_binding_retains_references_but_excludes_disconnected_package_
 fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -237,7 +237,7 @@ fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
 fn static_library_reuses_imported_binding_without_flattening_dependency_archive() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -299,7 +299,7 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
                     return value + 1;
                 }
             "#,
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -412,7 +412,7 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -444,7 +444,7 @@ fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
 fn selected_native_binding_with_wrong_producer_reports_exact_import_failure() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -574,7 +574,7 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
                 @abi(c)
                 public func hot(pos value: i32) -> i32 { return value + 1; }
             "#,
-            runtime_frames: None,
+            runtime_frames: &[],
             executable_templates: 1,
             platform_service: None,
         },
@@ -661,7 +661,7 @@ fn imported_async_companions_keep_the_selected_native_constructor_identity() {
                     return value + 1;
                 }
             "#,
-            runtime_frames: Some(1),
+            runtime_frames: &[1],
             executable_templates: 1,
             platform_service: None,
         },

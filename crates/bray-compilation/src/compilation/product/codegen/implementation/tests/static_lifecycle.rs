@@ -310,7 +310,7 @@ fn private_lifecycle_static_is_a_retained_product_root() {
         false,
         GenericDependencyFixture {
             source,
-            runtime_frames: None,
+            runtime_frames: &[],
             executable_templates: 3,
             platform_service: None,
         },

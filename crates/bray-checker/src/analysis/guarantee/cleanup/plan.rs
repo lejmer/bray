@@ -21,9 +21,9 @@ pub(crate) struct Plan {
     pub(crate) expression_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
-    pub(in crate::analysis::guarantee) inert_futures: BTreeMap<
+    pub(in crate::analysis::guarantee) future_cleanup: BTreeMap<
         bray_bound_tree::BoundExpressionId,
-        bray_bound_tree::AsyncStorageCleanupRequirement,
+        (Vec<TypeId>, bray_bound_tree::AsyncStorageCleanupRequirement),
     >,
     pub(crate) scoped_error_quiescence:
         BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
@@ -256,6 +256,7 @@ impl Plan {
                     request,
                     Some(lifecycle.call.callable),
                     template,
+                    None,
                 )?;
 
                 entry.insert(template);
@@ -463,7 +464,7 @@ impl Plan {
         );
 
         prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
-        prepared.select_inert_futures(cleanup_shapes, request, expressions.selections())?;
+        prepared.select_future_cleanup(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
     }

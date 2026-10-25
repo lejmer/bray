@@ -128,6 +128,7 @@ pub use record::{
     UnionSymbol, UnionVariantSymbol, UnnamedTraitImplementationSymbol,
 };
 pub use relationship::RuntimeDefaultPresence;
+pub use runtime_default::DefaultValueProvider;
 pub use semantic::CallableSignatureTemplateError;
 pub use semantic::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,

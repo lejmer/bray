@@ -29,6 +29,33 @@ impl OrderEncoder<'_, '_> {
         requirement: &DependencyRequirement,
     ) -> Result<OrderKey, CodegenPreparationError> {
         Ok(match requirement {
+            DependencyRequirement::SynchronousCleanup(ty) => {
+                term("synchronous_cleanup", [self.ty(*ty)?])
+            }
+            DependencyRequirement::FinalizerBodyCleanup(ty) => {
+                term("finalizer_body_cleanup", [self.ty(*ty)?])
+            }
+            DependencyRequirement::DefaultCleanup {
+                provider,
+                substitution,
+                contextual_self,
+            } => term(
+                "default_cleanup",
+                [
+                    self.symbol(provider.symbol())?,
+                    self.substitution(*substitution)?,
+                    sequence(
+                        contextual_self
+                            .map(|(context, subject)| {
+                                Ok::<_, CodegenPreparationError>(term(
+                                    "contextual_self",
+                                    [self.symbol(context.symbol())?, self.ty(subject)?],
+                                ))
+                            })
+                            .transpose()?,
+                    ),
+                ],
+            ),
             DependencyRequirement::Variable { depth, ordinal } => term(
                 "variable",
                 [
@@ -92,6 +119,9 @@ impl OrderEncoder<'_, '_> {
                                 }
                                 bray_symbols::DependencyCallOutput::AbnormalReport => {
                                     "abnormal_report"
+                                }
+                                bray_symbols::DependencyCallOutput::SynchronousCleanup => {
+                                    "synchronous_cleanup"
                                 }
                             },
                             [],

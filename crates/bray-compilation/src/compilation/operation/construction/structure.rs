@@ -1,7 +1,8 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{ConstructionInputId, ConstructionTarget, DefaultValueProvider};
+use bray_bound_tree::{ConstructionInputId, ConstructionTarget};
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::DiagnosticBag;
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{
     NamedTypeSymbolId, RuntimeDefaultPresence, StructFieldTypeQuery, SymbolQueryRequest, TypeData,
     TypeId,

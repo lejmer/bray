@@ -1,11 +1,12 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{ConstructionInputId, ConstructionTarget, DefaultValueProvider};
+use bray_bound_tree::{ConstructionInputId, ConstructionTarget};
 use bray_checker::{
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
     OperationCandidateState,
 };
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_diagnostics::DiagnosticBag;
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{ImplementationSelection, RuntimeDefaultPresence, SymbolName, TypeData, TypeId};
 
 use super::super::super::Compilation;

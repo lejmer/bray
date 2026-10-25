@@ -87,6 +87,9 @@ pub(super) fn assert_parameter_dependency_contract(
             | DependencyRequirement::Guarded(_)
             | DependencyRequirement::ResultCall { .. }
             | DependencyRequirement::FixedPoint { .. }
+            | DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. }
             | DependencyRequirement::Variable { .. } => None,
         })
         .collect::<Vec<_>>();

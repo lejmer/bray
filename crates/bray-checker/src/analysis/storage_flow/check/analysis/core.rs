@@ -251,7 +251,11 @@ where
     .and_then(|analysis| analysis.with_state_targets(targets))
     .expect("durable storage flow must preserve the checked plan's identities")
     .with_observation_invalidations(collector.observation_invalidations)
-    .with_dependencies(dependencies.with_effects(effects))
+    .with_dependencies(
+        dependencies
+            .with_effects(effects)
+            .with_synchronous_cleanup(collector.synchronous_cleanup),
+    )
     .with_report_collections(collector.report_collections)
     .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
@@ -379,6 +383,7 @@ where
         Option<crate::analysis::storage_flow::memory::Target>,
     >,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
+    pub(super) synchronous_cleanup: BTreeSet<bray_symbols::DependencyRequirement>,
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
@@ -500,6 +505,7 @@ where
             cleanup_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
             effects: BTreeSet::new(),
+            synchronous_cleanup: BTreeSet::new(),
             receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
@@ -561,6 +567,12 @@ where
         operation: &AnalysisOperation,
     ) {
         let kind = operation.kind();
+
+        if self.publish
+            && let AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) = kind
+        {
+            self.collect_callable_cleanup(expression);
+        }
 
         match kind {
             AnalysisOperationKind::Result {

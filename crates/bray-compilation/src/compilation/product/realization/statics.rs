@@ -178,7 +178,8 @@ impl Compilation {
         let mut dependencies = Vec::new();
 
         for demand in demanded_callable_instances_for_mir(mir) {
-            let callee = self.concrete_codegen_callee(owner, &demand, target, cancellation)?;
+            let callee =
+                self.concrete_codegen_callee(owner, &demand, None, target, cancellation)?;
 
             if let ConcreteCodegenCallee::Instance(dependency) = callee {
                 dependencies.push(ConcreteCodegenDemand::definition(

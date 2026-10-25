@@ -220,7 +220,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !matches!(
                     input.default_provider(),
-                    Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))
+                    Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
                 ) {
                     return roots;
                 }
@@ -412,7 +412,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let prefix = current.is_none_or(|(_, input)| {
                 matches!(
                     input.default_provider(),
-                    Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))
+                    Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
                 )
             });
 

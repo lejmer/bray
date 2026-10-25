@@ -74,6 +74,23 @@ pub(in crate::dependency) fn deferred_outputs<C: CheckerRequestContext + ?Sized>
         bray_symbols::DependencyCallOutput::Value,
     )]);
 
+    if requirement.is_some()
+        || !request
+            .semantic_values()
+            .dependency_contract_template_data(
+                request.callable_result_dependencies(instance.definition().callable_symbol())?,
+            )
+            .synchronous_cleanup()
+            .is_empty()
+    {
+        template = template.with_synchronous_cleanup([DependencyRequirement::result_call(
+            callable,
+            requirement,
+            [],
+            bray_symbols::DependencyCallOutput::SynchronousCleanup,
+        )]);
+    }
+
     if publishes_reports {
         template = template.with_abnormal_reports([DependencyRequirement::result_call(
             callable,
@@ -146,8 +163,8 @@ struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
 
 pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    requirements: &[DependencyRequirement],
-) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+    template: &DependencyContractTemplateData,
+) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let mut resolver = ResultResolver {
         request,
         active: Default::default(),
@@ -161,7 +178,13 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
     loop {
         resolver.changed = false;
 
-        let result = resolver.requirements(requirements)?;
+        let result = template.try_map_requirements(|output, requirements| {
+            if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                Ok(requirements.to_vec())
+            } else {
+                resolver.requirements(requirements)
+            }
+        })?;
 
         if !resolver.changed {
             return Ok(result);
@@ -396,7 +419,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                         self.requirements(guarded.requirements())?,
                     ))
                 }
-                DependencyRequirement::Direct { .. } => result.push(item.clone()),
+                DependencyRequirement::Direct { .. }
+                | DependencyRequirement::SynchronousCleanup(_)
+                | DependencyRequirement::FinalizerBodyCleanup(_)
+                | DependencyRequirement::DefaultCleanup { .. } => result.push(item.clone()),
             }
         }
 

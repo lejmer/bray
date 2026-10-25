@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_binder::BindingQueryContext;
+use bray_checker::CheckerRequestContext;
 use bray_codegen::{
     CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
     CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
@@ -219,6 +220,79 @@ impl Compilation {
         }
 
         Ok(ty)
+    }
+
+    pub(in crate::compilation::product) fn normalize_codegen_callable_arguments(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        owner: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_symbols::CallableInstanceData, CodegenPreparationError> {
+        let values = self.semantic_value_store()?;
+        let data = values.generic_substitution_data(callable.substitution());
+
+        if data.bindings().is_empty() {
+            return Ok(callable);
+        }
+
+        let binding_context = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
+
+        let checker = CompilationCheckerContext::new(binding_context)
+            .with_implementation_witnesses(owner.implementation_witnesses().iter().copied());
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        // An unconstrained callee does not inherit the caller's associated-type witnesses.
+        let arguments = data
+            .bindings()
+            .iter()
+            .map(|binding| match binding.argument() {
+                bray_symbols::GenericArgument::Type(ty) => self
+                    .concrete_codegen_type(ty, None, Some(owner), cancellation)
+                    .map(bray_symbols::GenericArgument::Type),
+                bray_symbols::GenericArgument::Constant(term) => {
+                    let bray_symbols::GenericParameterSymbolId::Const(parameter) =
+                        binding.parameter()
+                    else {
+                        panic!("constant callable binding retains its parameter kind");
+                    };
+
+                    let normalized = checker
+                        .normalize_constant_argument(
+                            parameter,
+                            callable.substitution(),
+                            contextual_self,
+                            term,
+                        )
+                        .map_err(codegen_checker_error)?;
+
+                    diagnostics.extend(normalized.diagnostics().iter().cloned());
+
+                    Ok(bray_symbols::GenericArgument::Constant(*normalized.value()))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if diagnostics.has_errors() {
+            return Err(CodegenPreparationError::Diagnostics(diagnostics));
+        }
+
+        let substitution = bray_symbols::GenericSubstitutionData::try_new(
+            data.owner(),
+            data.bindings().iter().map(|binding| binding.parameter()),
+            arguments,
+        )
+        .expect("normalizing callable arguments preserves selected parameter kinds");
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        Ok(bray_symbols::CallableInstanceData::new(
+            callable.definition(),
+            substitution,
+        ))
     }
 
     pub(in crate::compilation::product) fn substitute_codegen_type(

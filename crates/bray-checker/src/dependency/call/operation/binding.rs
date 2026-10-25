@@ -54,6 +54,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             .with_reports(reports)
             .with_input_count(inputs.len())
             .with_effects(template.template.effects().iter().cloned())
+            .with_synchronous_cleanup(template.template.synchronous_cleanup())
             .with_carriers(template.template.carriers().iter().cloned())
             .with_returned_input(template.template.returned_input())
             .with_normal_completion(template.template.normal_completion())

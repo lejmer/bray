@@ -112,6 +112,19 @@ impl SemanticValueStore {
         self.substitute_dependency_contract_data(contract, &Substitution::Generic(&substitution))
     }
 
+    /// Replaces a declaration's `Self` throughout its returned-value and cleanup contract.
+    pub fn substitute_contextual_self_in_dependency_contract(
+        &self,
+        contract: super::super::DependencyContractTemplateId,
+        context: crate::SelfTypeContext,
+        replacement: crate::TypeId,
+    ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
+        let contextual = self.intern_type(TypeData::ContextualSelf(context))?;
+        let types = std::collections::BTreeMap::from([(contextual, replacement)]);
+
+        self.substitute_dependency_contract_data(contract, &Substitution::Types(&types))
+    }
+
     /// Reports whether a generic parameter occurs anywhere in a dependency contract.
     pub fn dependency_contract_uses_parameter(
         &self,
@@ -162,7 +175,7 @@ impl SemanticValueStore {
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(template);
 
-        let substituted = template.try_map_requirements(|requirements| {
+        let substituted = template.try_map_requirements(|_, requirements| {
             requirements
                 .iter()
                 .map(|requirement| {
@@ -305,6 +318,30 @@ impl SemanticValueStore {
         substitution: &Substitution<'_>,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
+            DependencyRequirement::SynchronousCleanup(ty) => {
+                Ok(DependencyRequirement::SynchronousCleanup(
+                    self.substitute_type_data(*ty, substitution)?,
+                ))
+            }
+            DependencyRequirement::FinalizerBodyCleanup(ty) => {
+                Ok(DependencyRequirement::FinalizerBodyCleanup(
+                    self.substitute_type_data(*ty, substitution)?,
+                ))
+            }
+            DependencyRequirement::DefaultCleanup {
+                provider,
+                substitution: selected,
+                contextual_self,
+            } => Ok(DependencyRequirement::DefaultCleanup {
+                provider: *provider,
+                substitution: self.substitute_generic_substitution_data(*selected, substitution)?,
+                contextual_self: contextual_self
+                    .map(|(context, subject)| {
+                        self.substitute_type_data(subject, substitution)
+                            .map(|subject| (context, subject))
+                    })
+                    .transpose()?,
+            }),
             DependencyRequirement::FixedPoint {
                 definitions,
                 result,

@@ -241,6 +241,7 @@ fn remap_dependency_contract(
     for requirements in std::iter::once(&mut contract.requirements)
         .chain(contract.completion_reports.iter_mut())
         .chain(contract.abnormal_reports.iter_mut())
+        .chain(std::iter::once(&mut contract.synchronous_cleanup))
     {
         for requirement in Arc::make_mut(requirements) {
             remap_dependency_requirement(requirement, maps)?;
@@ -597,6 +598,21 @@ fn remap_dependency_requirement(
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
     match &mut requirement.value {
+        InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
+        | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+            *ty = maps.type_id(*ty)?;
+        }
+        InterfaceDependencyRequirementValue::DefaultCleanup {
+            substitution,
+            contextual_self,
+            ..
+        } => {
+            *substitution = maps.substitution_id(*substitution)?;
+
+            if let Some((_, subject)) = contextual_self {
+                *subject = maps.type_id(*subject)?;
+            }
+        }
         InterfaceDependencyRequirementValue::Variable { .. } => {}
         InterfaceDependencyRequirementValue::FixedPoint {
             definitions,

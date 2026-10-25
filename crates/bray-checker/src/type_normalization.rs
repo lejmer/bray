@@ -92,9 +92,127 @@ where
             return Ok(normalized);
         }
 
-        if !self.active.insert(ty) {
+        if self.active.contains(&ty) {
             return Ok(ty);
         }
+
+        // Normalize children first so generic nesting does not consume the host call stack.
+        let mut pending = vec![(ty, false)];
+
+        while let Some((current, ready)) = pending.pop() {
+            if self.normalized.contains_key(&current) {
+                continue;
+            }
+
+            if ready {
+                self.active.remove(&current);
+                self.normalize_type_node(current)?;
+                continue;
+            }
+
+            if !self.active.insert(current) {
+                continue;
+            }
+
+            pending.push((current, true));
+
+            if let Some(canonical) = self.equalities.get(&current).copied() {
+                pending.push((canonical, false));
+                continue;
+            }
+
+            let data = self.request.semantic_values().type_data(current);
+
+            match data.as_ref() {
+                TypeData::Named { substitution, .. } => {
+                    self.append_type_arguments(*substitution, &mut pending)
+                }
+                TypeData::TypeValuedMemberProjection {
+                    subject,
+                    application,
+                    ..
+                } => {
+                    let application = self
+                        .request
+                        .semantic_values()
+                        .trait_application_data(*application);
+
+                    self.append_type_arguments(application.substitution(), &mut pending);
+                    pending.push((*subject, false));
+                }
+                TypeData::Tuple(elements) => {
+                    pending.extend(elements.iter().rev().map(|ty| (*ty, false)))
+                }
+                TypeData::Array { element, .. }
+                | TypeData::FlexibleArray(element)
+                | TypeData::Slice(element)
+                | TypeData::Generator(element)
+                | TypeData::Nullable(element)
+                | TypeData::Borrow {
+                    target: element, ..
+                } => pending.push((*element, false)),
+                TypeData::OwnedIndirection { storage, target } => {
+                    pending.push((*target, false));
+                    pending.push((*storage, false));
+                }
+                TypeData::TraitView(application) => {
+                    let application = self
+                        .request
+                        .semantic_values()
+                        .trait_application_data(*application);
+
+                    self.append_type_arguments(application.substitution(), &mut pending);
+                }
+                TypeData::Callable(callable) => {
+                    pending.push((callable.result(), false));
+
+                    pending.extend(
+                        callable
+                            .parameters()
+                            .iter()
+                            .rev()
+                            .map(|parameter| (parameter.ty(), false)),
+                    );
+                }
+                TypeData::Error
+                | TypeData::ExactInteger { .. }
+                | TypeData::TypeParameter(_)
+                | TypeData::ContextualSelf(_) => {}
+            }
+        }
+
+        Ok(*self
+            .normalized
+            .get(&ty)
+            .expect("type normalization finishes its requested root"))
+    }
+
+    fn append_type_arguments(
+        &self,
+        substitution: GenericSubstitutionId,
+        pending: &mut Vec<(TypeId, bool)>,
+    ) {
+        let data = self
+            .request
+            .semantic_values()
+            .generic_substitution_data(substitution);
+
+        pending.extend(data.bindings().iter().rev().filter_map(
+            |binding| match binding.argument() {
+                GenericArgument::Type(ty) => Some((ty, false)),
+                GenericArgument::Constant(_) => None,
+            },
+        ));
+    }
+
+    fn normalize_type_node(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
+        assert!(
+            self.active.insert(ty),
+            "staged type normalization enters one node at a time"
+        );
 
         if let Some(canonical) = self.equalities.get(&ty).copied()
             && canonical != ty
@@ -422,7 +540,25 @@ where
             .map(|binding| match binding.argument() {
                 GenericArgument::Type(ty) => self.normalize_type(ty).map(GenericArgument::Type),
                 GenericArgument::Constant(term) => {
-                    self.normalize_term(term).map(GenericArgument::Constant)
+                    let term = self.normalize_term(term)?;
+
+                    let bray_symbols::GenericParameterSymbolId::Const(parameter) =
+                        binding.parameter()
+                    else {
+                        panic!("constant type binding retains its parameter kind");
+                    };
+
+                    let normalized = self.request.normalize_constant_argument(
+                        parameter,
+                        substitution,
+                        None,
+                        term,
+                    )?;
+
+                    self.diagnostics
+                        .extend(normalized.diagnostics().iter().cloned());
+
+                    Ok(GenericArgument::Constant(*normalized.value()))
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;

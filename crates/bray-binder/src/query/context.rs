@@ -4,10 +4,9 @@ use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractSymbolId, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurface,
-    ModuleSymbolId, NamedTypeSymbolId, SemanticValueStore, SymbolGraph, SymbolKey,
-    TypeAssociatedSurface, TypeExpressionTemplate,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSurface, ModuleSymbolId, NamedTypeSymbolId,
+    SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface, TypeExpressionTemplate,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -109,10 +108,10 @@ pub trait BindingQueryContext: Send + Sync {
         &self,
     ) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, Self::UpstreamError>;
 
-    /// Returns the callable type named by one callable-contract declaration.
-    fn callable_contract_type(
+    /// Returns the type template named by a callable contract or an implementation type member.
+    fn type_definition_value(
         &self,
-        definition: CallableContractSymbolId,
+        definition: AnySymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Self::UpstreamError>;
 
     /// Returns the checked lexical imports and re-exports of one source module.

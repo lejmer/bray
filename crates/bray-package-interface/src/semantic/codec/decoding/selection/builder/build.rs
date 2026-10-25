@@ -1016,6 +1016,21 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         while let Some(requirement) = pending.pop() {
             match &requirement.value {
+                InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
+                | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+                    self.enqueue(PendingRecord::Type(ty.raw()));
+                }
+                InterfaceDependencyRequirementValue::DefaultCleanup {
+                    substitution,
+                    contextual_self,
+                    ..
+                } => {
+                    self.enqueue(PendingRecord::Substitution(substitution.raw()));
+
+                    if let Some((_, subject)) = contextual_self {
+                        self.enqueue(PendingRecord::Type(subject.raw()));
+                    }
+                }
                 InterfaceDependencyRequirementValue::Variable { .. } => {}
                 InterfaceDependencyRequirementValue::FixedPoint {
                     definitions,

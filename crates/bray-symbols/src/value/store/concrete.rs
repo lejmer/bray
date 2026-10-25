@@ -14,6 +14,14 @@ pub(super) fn substitution_is_concrete(
     is_concrete(tables, store, ConcreteWork::Substitution(root))
 }
 
+pub(super) fn type_is_concrete(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    root: TypeId,
+) -> bool {
+    is_concrete(tables, store, ConcreteWork::Type(root))
+}
+
 pub(super) fn constant_term_is_closed(
     tables: &SemanticTables,
     store: SemanticValueStoreId,

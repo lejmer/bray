@@ -18,7 +18,7 @@ use bray_symbols::{
     GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
     NamedTypeSymbolId, ProofOutcome, StaticInstanceKey, StaticReferenceSelection, StructSymbolId,
-    SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId, TypeData,
+    SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId,
 };
 
 use super::super::CodegenPreparationError;
@@ -34,7 +34,7 @@ use super::realization::{
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
 use super::specialization_identity::encoding::structural_type_identity;
-use super::{ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind};
+use super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -292,18 +292,47 @@ impl ConcreteCodegenInstance {
         }
     }
 
+    fn specialization_key(
+        template: MirUnitKey,
+        specialization: CodegenSpecialization,
+        witnesses: &[(CodegenImplementationWitness, ImplementationInstanceId)],
+        contextual_self_witness: Option<ImplementationInstanceId>,
+        target: MirTargetContract,
+    ) -> CodegenInstanceKey {
+        let key = CodegenInstanceKey::new(
+            template,
+            specialization,
+            witnesses.iter().map(|(identity, _)| identity.clone()),
+            target,
+        );
+
+        let Some(selected) = contextual_self_witness else {
+            return key;
+        };
+
+        let identity = witnesses
+            .iter()
+            .find_map(|(identity, witness)| (*witness == selected).then_some(identity.clone()))
+            .expect("selected contextual Self witness belongs to the specialization");
+
+        key.try_with_contextual_self_witness(identity)
+            .expect("selected contextual Self identity belongs to the specialization key")
+    }
+
     pub(super) fn specialized_helper(
         template: MirUnitKey,
         substitution: GenericSubstitutionId,
         specialization: CodegenSpecialization,
         witnesses: &[(CodegenImplementationWitness, ImplementationInstanceId)],
+        contextual_self_witness: Option<ImplementationInstanceId>,
         target: MirTargetContract,
     ) -> Self {
         Self {
-            key: CodegenInstanceKey::new(
+            key: Self::specialization_key(
                 template,
                 specialization,
-                witnesses.iter().map(|(identity, _)| identity.clone()),
+                witnesses,
+                contextual_self_witness,
                 target,
             ),
             callable: None,
@@ -312,7 +341,7 @@ impl ConcreteCodegenInstance {
             lifecycle: None,
             substitution: Some(substitution),
             witnesses: witnesses.iter().map(|(_, witness)| *witness).collect(),
-            contextual_self_witness: None,
+            contextual_self_witness,
         }
     }
 
@@ -573,7 +602,14 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        self.concrete_codegen_callable_with_context(callable, witnesses, None, target, cancellation)
+        self.concrete_codegen_callable_with_context(
+            callable,
+            witnesses,
+            None,
+            None,
+            target,
+            cancellation,
+        )
     }
 
     fn concrete_codegen_callable_with_context(
@@ -581,6 +617,7 @@ impl Compilation {
         callable: CallableInstanceData,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         contextual_self_witness: Option<ImplementationInstanceId>,
+        default_provider: Option<bray_symbols::DefaultValueProvider>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
@@ -589,44 +626,41 @@ impl Compilation {
         let substitution = self.realize_codegen_substitution(callable.substitution())?;
         let callable = CallableInstanceData::new(callable.definition(), substitution);
 
-        let template = self.codegen_callable_template(callable.definition(), cancellation)?;
+        let template = match default_provider {
+            Some(provider) => self.runtime_default_template(
+                provider.symbol(),
+                &MirHelperReference::DefaultValue(provider),
+                cancellation,
+            )?,
+            None => self.codegen_callable_template(callable.definition(), cancellation)?,
+        };
 
         let specialization = self.codegen_specialization(callable.substitution())?;
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
 
-        let mut key = CodegenInstanceKey::new(
-            template,
-            specialization.clone(),
-            witnesses.iter().map(|(identity, _)| identity.clone()),
-            MirTargetContract::new(
-                target.profile().clone(),
-                self.selected_target().target().runtime_abi(),
-            ),
+        let target = MirTargetContract::new(
+            target.profile().clone(),
+            self.selected_target().target().runtime_abi(),
         );
 
-        if let Some(selected) = contextual_self_witness {
-            let identity = witnesses
-                .iter()
-                .find_map(|(identity, witness)| (*witness == selected).then_some(identity.clone()))
-                .ok_or_else(|| {
-                    ProductQueryFailure::missing(
-                        ProductQueryContext::Implementation(selected),
-                        ProductDataKind::ImplementationWitness,
-                    )
-                })?;
-
-            let context = ProductQueryContext::Instance(key.clone());
-
-            key = key
-                .try_with_contextual_self_witness(identity)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "product Conflict construction failed: context={:?}, data={:?}",
-                        context,
-                        ProductDataKind::ContextualSelfWitness
-                    );
-                });
+        if default_provider.is_some() {
+            return Ok(ConcreteCodegenInstance::specialized_helper(
+                template,
+                substitution,
+                specialization,
+                &witnesses,
+                contextual_self_witness,
+                target,
+            ));
         }
+
+        let key = ConcreteCodegenInstance::specialization_key(
+            template,
+            specialization.clone(),
+            &witnesses,
+            contextual_self_witness,
+            target,
+        );
 
         let context = ProductQueryContext::Instance(key.clone());
 
@@ -650,11 +684,18 @@ impl Compilation {
         &self,
         owner: &ConcreteCodegenInstance,
         demand: &DemandedCallableInstance,
+        default_provider: Option<bray_symbols::DefaultValueProvider>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
         if demand.trait_dispatch().is_some() {
-            return self.concrete_codegen_generic_callee(owner, demand, target, cancellation);
+            return self.concrete_codegen_generic_callee(
+                owner,
+                demand,
+                default_provider,
+                target,
+                cancellation,
+            );
         }
 
         let values = self.semantic_value_store()?;
@@ -684,6 +725,7 @@ impl Compilation {
             substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
+        let callable = self.normalize_codegen_callable_arguments(callable, owner, cancellation)?;
 
         witnesses.extend(self.concrete_codegen_forwarded_constraint_witnesses(
             owner,
@@ -692,258 +734,43 @@ impl Compilation {
             cancellation,
         )?);
 
-        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
-            .map(ConcreteCodegenCallee::Instance)
-    }
-
-    fn concrete_codegen_generic_callee(
-        &self,
-        owner: &ConcreteCodegenInstance,
-        demand: &DemandedCallableInstance,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
-        cancellation.check()?;
-
-        let dispatch = demand.trait_dispatch().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallSite(demand.site()),
-                ProductDataKind::TraitDispatch,
-            )
-        })?;
-
-        let member_symbol = demand.reference().instance().definition().symbol();
-
-        let member = TraitCallableMemberSymbolId::try_from_any(member_symbol).unwrap_or_else(|| {
-            let actual = member_symbol.kind();
-
-            panic!("trait dispatch requires a callable member: symbol={member_symbol:?}, actual={actual:?}");
-        },
-        );
-
-        if let Some(requirement) = dispatch.trait_default_requirement() {
-            return self.concrete_codegen_trait_default_callee(
-                owner,
-                demand,
-                target,
-                member,
-                requirement,
-                cancellation,
-            );
-        }
-
-        self.concrete_codegen_constraint_dispatch_callee(
-            owner,
-            demand,
-            target,
-            member,
-            cancellation,
-        )
-    }
-
-    fn concrete_codegen_trait_default_callee(
-        &self,
-        owner: &ConcreteCodegenInstance,
-        demand: &DemandedCallableInstance,
-        target: &CodegenTarget,
-        member: TraitCallableMemberSymbolId,
-        requirement: ImplementationRequirementKey,
-        cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
-        let owner_substitution = owner.substitution().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Instance(owner.key().clone()),
-                ProductDataKind::GenericSubstitution,
-            )
-        })?;
-
-        let values = self.semantic_value_store()?;
-        let binding_context = self.binding_context(cancellation)?;
-        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
-
-        let subject = values
-            .substitute_type(requirement.subject(), owner_substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let application = values
-            .substitute_trait_application(requirement.trait_application(), owner_substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let requirement = ImplementationRequirementKey::new(subject, application);
-
-        let contextual_requirement = matches!(
-            values.type_data(subject).as_ref(),
-            TypeData::ContextualSelf(_)
-        );
-
-        let demand_witnesses = self.concrete_codegen_demand_witnesses(
-            demand.witnesses(),
-            owner_substitution,
-            contextual_self,
-        )?;
-
-        let witness = self
-            .concrete_codegen_matching_witness(
-                demand_witnesses
-                    .iter()
-                    .copied()
-                    .chain(owner.implementation_witnesses().iter().copied()),
-                requirement,
-                cancellation,
-            )?
-            .or_else(|| {
-                contextual_requirement
-                    .then(|| owner.contextual_self_witness())
-                    .flatten()
-            })
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::ImplementationRequirement(requirement),
-                    ProductDataKind::ImplementationWitness,
-                )
-            })?;
-
-        let selected_requirement =
-            self.concrete_codegen_witness_requirement(witness, cancellation)?;
-
-        if selected_requirement.trait_application() != application {
-            panic!(
-                "product TraitApplicationMismatch construction failed: witness={:?}, expected={:?}, actual={:?}",
-                witness,
-                application,
-                selected_requirement.trait_application()
-            );
-        }
-
-        let implementation = values.implementation_instance_data(witness);
-
-        let fulfillments =
-            implementation_fulfillments(&binding_context, implementation.definition())?;
-
-        let application_data = values.trait_application_data(application);
-
-        let callable = implementation_callable_instance(
-            &binding_context,
-            fulfillments.callables,
-            member,
-            application_data.substitution(),
-            implementation.substitution(),
-        )?
-        .ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Implementation(witness),
-                ProductDataKind::CallableFulfillment,
-            )
-        })?;
-
-        let mut witnesses = demand_witnesses;
-
-        witnesses.extend(
-            self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
-        );
-
-        witnesses.push(witness);
-
-        let contextual_self_witness = callable.uses_trait_default().then_some(witness);
-
-        let member = substitute_callable_instance(
-            &values,
-            demand.reference().instance(),
-            Some(owner_substitution),
-            contextual_self,
-        )?;
-
-        let selected = super::super::implementation::instantiate_implementation_member(
-            &binding_context,
-            callable.instance(),
-            member,
-        )?;
-
         self.concrete_codegen_callable_with_context(
-            selected,
+            callable,
             witnesses,
-            contextual_self_witness,
+            None,
+            default_provider,
             target,
             cancellation,
         )
         .map(ConcreteCodegenCallee::Instance)
     }
 
-    fn concrete_codegen_constraint_dispatch_callee(
+    fn concrete_codegen_generic_callee(
         &self,
         owner: &ConcreteCodegenInstance,
         demand: &DemandedCallableInstance,
+        default_provider: Option<bray_symbols::DefaultValueProvider>,
         target: &CodegenTarget,
-        member: TraitCallableMemberSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
-        let dispatch = demand.trait_dispatch().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallSite(demand.site()),
-                ProductDataKind::TraitDispatch,
-            )
-        })?;
+        let dispatch = demand
+            .trait_dispatch()
+            .expect("generic callable demand retains checked dispatch");
 
-        let owner_substitution = owner.substitution().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Instance(owner.key().clone()),
-                ProductDataKind::GenericSubstitution,
-            )
-        })?;
+        let owner_substitution = owner
+            .substitution()
+            .expect("generic dispatch retains its owner substitution");
 
         let values = self.semantic_value_store()?;
         let binding_context = self.binding_context(cancellation)?;
         let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
-        let (dispatch_owner, dispatch_ordinal) = dispatch.constraint().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallSite(demand.site()),
-                ProductDataKind::GenericConstraint,
-            )
-        })?;
+        let requirement =
+            super::super::implementation::dispatch_requirement(&binding_context, dispatch)
+                .map_err(super::realization::codegen_checker_error)?;
 
-        let constraints = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
-                dispatch_owner,
-            ))
-            .map_err(binding_query_error)?;
-
-        let constraint = constraints
-            .value()
-            .constraints()
-            .iter()
-            .find(|constraint| constraint.ordinal() == dispatch_ordinal)
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::GenericOwner(dispatch_owner),
-                    ProductDataKind::GenericConstraint,
-                )
-            })?;
-
-        let (subject, application) = match constraint.kind() {
-            CheckedConstraintKind::TraitSatisfaction {
-                subject,
-                application,
-            } => (subject, application),
-            actual => {
-                let actual = match actual {
-                    CheckedConstraintKind::Predicate(_) => ProductValueKind::PredicateConstraint,
-                    CheckedConstraintKind::TypeEquality { .. } => {
-                        ProductValueKind::TypeEqualityConstraint
-                    }
-                    CheckedConstraintKind::TraitSatisfaction { .. } => {
-                        ProductValueKind::TraitSatisfactionConstraint
-                    }
-                };
-
-                return Err(ProductQueryFailure::unexpected_kind(
-                    ProductQueryContext::GenericOwner(dispatch_owner),
-                    ProductValueKind::TraitSatisfactionConstraint,
-                    actual,
-                )
-                .into());
-            }
-        };
+        let subject = requirement.subject();
+        let application = requirement.trait_application();
 
         let subject = values
             .substitute_type(subject, owner_substitution)
@@ -960,9 +787,30 @@ impl Compilation {
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let witness = self.concrete_codegen_dispatch_witness(owner, requirement, cancellation)?;
+        let mut witnesses = self.concrete_codegen_demand_witnesses(
+            demand.witnesses(),
+            owner_substitution,
+            contextual_self,
+        )?;
+
+        let witness = self.concrete_codegen_matching_witness(
+            witnesses
+                .iter()
+                .copied()
+                .chain(owner.implementation_witnesses().iter().copied()),
+            requirement,
+            cancellation,
+        )?;
 
         let Some(witness) = witness else {
+            if dispatch.trait_default_requirement().is_some() {
+                return Err(ProductQueryFailure::missing(
+                    ProductQueryContext::ImplementationRequirement(requirement),
+                    ProductDataKind::ImplementationWitness,
+                )
+                .into());
+            }
+
             let intrinsic = demand.intrinsic().ok_or_else(|| {
                 ProductQueryFailure::missing(
                     ProductQueryContext::CallSite(demand.site()),
@@ -1018,6 +866,40 @@ impl Compilation {
             return Ok(ConcreteCodegenCallee::Intrinsic(intrinsic));
         };
 
+        witnesses.extend(
+            self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
+        );
+
+        witnesses.push(witness);
+
+        let declaration = substitute_callable_instance(
+            &values,
+            demand.reference().instance(),
+            Some(owner_substitution),
+            contextual_self,
+        )?;
+
+        let declaration =
+            self.normalize_codegen_callable_arguments(declaration, owner, cancellation)?;
+
+        if default_provider.is_some() {
+            return self
+                .concrete_codegen_callable_with_context(
+                    declaration,
+                    witnesses,
+                    Some(witness),
+                    default_provider,
+                    target,
+                    cancellation,
+                )
+                .map(ConcreteCodegenCallee::Instance);
+        }
+
+        let member_symbol = declaration.definition().symbol();
+
+        let member = TraitCallableMemberSymbolId::try_from_any(member_symbol)
+            .expect("checked generic dispatch selects a trait callable member");
+
         let implementation = values.implementation_instance_data(witness);
 
         let fulfillments =
@@ -1039,54 +921,23 @@ impl Compilation {
             )
         })?;
 
-        let mut witnesses = self.concrete_codegen_demand_witnesses(
-            demand.witnesses(),
-            owner_substitution,
-            contextual_self,
-        )?;
-
-        witnesses.extend(
-            self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
-        );
-
-        witnesses.push(witness);
-
-        let contextual_self_witness = callable.uses_trait_default().then_some(witness);
-
-        let member = substitute_callable_instance(
-            &values,
-            demand.reference().instance(),
-            Some(owner_substitution),
-            contextual_self,
-        )?;
-
         let selected = super::super::implementation::instantiate_implementation_member(
             &binding_context,
             callable.instance(),
-            member,
+            declaration,
         )?;
+
+        let selected = self.normalize_codegen_callable_arguments(selected, owner, cancellation)?;
 
         self.concrete_codegen_callable_with_context(
             selected,
             witnesses,
-            contextual_self_witness,
+            callable.uses_trait_default().then_some(witness),
+            None,
             target,
             cancellation,
         )
         .map(ConcreteCodegenCallee::Instance)
-    }
-
-    fn concrete_codegen_dispatch_witness(
-        &self,
-        owner: &ConcreteCodegenInstance,
-        requirement: ImplementationRequirementKey,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<ImplementationInstanceId>, CodegenPreparationError> {
-        self.concrete_codegen_matching_witness(
-            owner.implementation_witnesses().iter().copied(),
-            requirement,
-            cancellation,
-        )
     }
 
     fn concrete_codegen_matching_witness(
@@ -1324,6 +1175,8 @@ impl Compilation {
             owner.substitution(),
             contextual_self,
         )?;
+
+        let callable = self.normalize_codegen_callable_arguments(callable, owner, cancellation)?;
 
         let witnesses = self.concrete_codegen_forwarded_constraint_witnesses(
             owner,

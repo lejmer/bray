@@ -129,7 +129,7 @@ where
             let value = self.evaluate_template_call_values(
                 expression,
                 crate::ConstantCallTarget::Default(
-                    bray_bound_tree::DefaultValueProvider::CallableParameter(*provider),
+                    bray_symbols::DefaultValueProvider::CallableParameter(*provider),
                     callable.substitution(),
                 ),
                 earlier,

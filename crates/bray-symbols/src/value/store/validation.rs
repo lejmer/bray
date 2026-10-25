@@ -364,6 +364,7 @@ pub(super) fn validate_dependency_template_data(
     }
 
     validate_dependency_variables(data.requirements(), &mut Vec::new());
+    validate_dependency_variables(data.synchronous_cleanup(), &mut Vec::new());
 
     for requirements in [data.completion_reports(), data.abnormal_reports()]
         .into_iter()
@@ -372,10 +373,62 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_variables(requirements, &mut Vec::new());
     }
 
-    let mut pending: Vec<_> = data.all_requirements().collect();
+    let mut pending = [
+        crate::DependencyCallOutput::Value,
+        crate::DependencyCallOutput::CompletionReport,
+        crate::DependencyCallOutput::AbnormalReport,
+        crate::DependencyCallOutput::SynchronousCleanup,
+    ]
+    .into_iter()
+    .flat_map(|output| {
+        data.output_requirements(output)
+            .iter()
+            .map(move |item| (output, item))
+    })
+    .collect::<Vec<_>>();
 
-    while let Some(requirement) = pending.pop() {
+    while let Some((output, requirement)) = pending.pop() {
+        let cleanup = match requirement {
+            DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. } => true,
+            DependencyRequirement::ResultCall {
+                output: crate::DependencyCallOutput::SynchronousCleanup,
+                inputs,
+                ..
+            } => {
+                assert!(
+                    inputs.is_empty(),
+                    "cleanup call edges carry no value dependencies"
+                );
+
+                true
+            }
+            _ => false,
+        };
+
+        assert_eq!(
+            output == crate::DependencyCallOutput::SynchronousCleanup,
+            cleanup,
+            "dependency requirements retain their value or cleanup output category"
+        );
+
         match requirement {
+            DependencyRequirement::SynchronousCleanup(ty)
+            | DependencyRequirement::FinalizerBodyCleanup(ty) => {
+                tables.types.get(store, *ty);
+            }
+            DependencyRequirement::DefaultCleanup {
+                substitution,
+                contextual_self,
+                ..
+            } => {
+                tables.substitutions.get(store, *substitution);
+
+                if let Some((_, subject)) = contextual_self {
+                    tables.types.get(store, *subject);
+                }
+            }
             DependencyRequirement::FixedPoint {
                 definitions,
                 result,
@@ -384,15 +437,16 @@ pub(super) fn validate_dependency_template_data(
                     definitions
                         .iter()
                         .flat_map(|definition| definition.iter())
-                        .chain(result.iter()),
+                        .chain(result.iter())
+                        .map(|item| (output, item)),
                 );
             }
             DependencyRequirement::Variable { .. } => {}
             DependencyRequirement::ResultCall {
-                output: _,
                 callable,
                 requirement,
                 inputs,
+                ..
             } => {
                 tables.callable_instances.get(store, *callable);
 
@@ -405,8 +459,13 @@ pub(super) fn validate_dependency_template_data(
                 }
 
                 for input in inputs.iter() {
-                    pending.extend(input.values());
-                    pending.extend(input.storage());
+                    pending.extend(
+                        input
+                            .values()
+                            .iter()
+                            .chain(input.storage())
+                            .map(|item| (crate::DependencyCallOutput::Value, item)),
+                    );
                 }
             }
             DependencyRequirement::Direct { subject, .. } => {
@@ -414,7 +473,7 @@ pub(super) fn validate_dependency_template_data(
             }
             DependencyRequirement::Guarded(guarded) => {
                 validate_dependency_guard(tables, store, guarded.guard());
-                pending.extend(guarded.requirements());
+                pending.extend(guarded.requirements().iter().map(|item| (output, item)));
             }
         }
     }
@@ -457,7 +516,10 @@ fn validate_dependency_variables(requirements: &[DependencyRequirement], scopes:
             DependencyRequirement::Guarded(guarded) => {
                 validate_dependency_variables(guarded.requirements(), scopes)
             }
-            DependencyRequirement::Direct { .. } => {}
+            DependencyRequirement::Direct { .. }
+            | DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. } => {}
         }
     }
 }

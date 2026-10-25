@@ -57,6 +57,10 @@ const EXPECTED_EXPRESSION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" here"),
 ];
 
+const CLEANUP_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "recursive cleanup calls exceed the configured limit here",
+)];
+
 const NESTING_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "syntax nesting exceeds the limit here",
 )];
@@ -280,6 +284,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::UnsupportedTargetRequirement => {
             MessageTemplate::new(UNSUPPORTED_TARGET_REQUIREMENT)
+        }
+        DiagnosticLabelKind::CleanupRecursionLimitExceeded => {
+            MessageTemplate::new(CLEANUP_RECURSION_LIMIT_EXCEEDED)
         }
         DiagnosticLabelKind::CompilerCapacityExceeded => {
             MessageTemplate::new(COMPILER_CAPACITY_EXCEEDED)

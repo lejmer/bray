@@ -77,7 +77,7 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
         } else {
             let inputs = if matches!(
                 input.default_provider(),
-                Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))
+                Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
             ) {
                 &slots[..index]
             } else {
@@ -145,6 +145,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
     let contracts = BoundCallDependencyContracts::new(invocation, retained, None)
         .with_input_count(inputs.len())
         .with_effects(template.effects().iter().cloned())
+        .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_returned_input(template.returned_input())
         .with_normal_completion(template.normal_completion())
@@ -191,24 +192,60 @@ pub(crate) fn selected_input_template<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(provider) = input.default_provider() {
-        let mut template = request.default_result_dependencies(provider)?;
+        let store = request.semantic_values();
+        let template = request.default_result_dependencies(provider)?;
+        let data = store.dependency_contract_template_data(template);
+        let cleanup = !data.synchronous_cleanup().is_empty();
 
-        if selection.input_instance().is_none()
-            && let Some(ty) = selection.result_type()
-            && let bray_symbols::TypeData::Named { substitution, .. } =
-                request.semantic_values().type_data(ty).as_ref()
-        {
-            template = request
-                .semantic_values()
-                .substitute_dependency_contract(template, *substitution)
-                .expect("field default retains its selected type substitution");
-        }
+        let template = if cleanup {
+            store
+                .intern_dependency_contract_template(
+                    data.as_ref().clone().with_synchronous_cleanup([]),
+                )
+                .expect("selected default cleanup is retained by its provider edge")
+        } else {
+            template
+        };
 
-        return crate::dependency::resolved_result_template(
-            request,
-            selection.input_instance(),
-            template,
-        );
+        let substitution = selection
+            .input_instance()
+            .map(|instance| instance.substitution())
+            .or_else(|| {
+                selection
+                    .result_type()
+                    .and_then(|ty| match store.type_data(ty).as_ref() {
+                        bray_symbols::TypeData::Named { substitution, .. } => Some(*substitution),
+                        _ => None,
+                    })
+            })
+            .expect("checked runtime default input retains its enclosing declaration substitution");
+
+        let contextual_self = default_contextual_self(request, selection, provider, substitution)?;
+
+        let template = store
+            .substitute_dependency_contract(template, substitution)
+            .expect("selected default retains its enclosing generic substitution");
+
+        let template = match contextual_self {
+            Some((context, subject)) => store
+                .substitute_contextual_self_in_dependency_contract(template, context, subject)
+                .expect("selected default retains its lexical Self context"),
+            None => template,
+        };
+
+        let template = crate::dependency::resolved_result_template(request, None, template, None)?;
+
+        return Ok(if cleanup {
+            template.with_synchronous_cleanup([
+                bray_symbols::DependencyRequirement::DefaultCleanup {
+                    provider,
+                    substitution,
+                    contextual_self,
+                },
+            ])
+        } else {
+            template
+        });
     }
 
     let ty = input.ty(request.semantic_values());
@@ -221,4 +258,72 @@ pub(crate) fn selected_input_template<C: CheckerRequestContext + ?Sized>(
             bray_bound_tree::ConversionTarget::Identity,
         ),
     )
+}
+
+fn default_contextual_self<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    selection: &SemanticSelection,
+    provider: bray_symbols::DefaultValueProvider,
+    substitution: bray_symbols::GenericSubstitutionId,
+) -> Result<
+    Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
+    CheckerQueryError<C::UpstreamError>,
+> {
+    let Some(context) = request
+        .symbols()
+        .enclosing_self_type_context(provider.symbol())
+    else {
+        return Ok(None);
+    };
+
+    let values = request.semantic_values();
+
+    let subject = match selection {
+        SemanticSelection::Call(call) => {
+            match (call.resolution().trait_dispatch(), call.receiver()) {
+                (Some(dispatch), _) => request.context().dispatch_requirement(dispatch)?.subject(),
+                (None, Some(receiver)) => values.unborrowed_type(receiver.target_type()),
+                (None, None) => {
+                    let subject = match context {
+                        bray_symbols::SelfTypeContext::NamedType(definition) => values
+                            .intern_open_named_type(request.symbols(), definition)
+                            .expect("selected default's named Self type is well formed")
+                            .expect("selected default's named Self declaration exists"),
+                        bray_symbols::SelfTypeContext::Implementation(implementation) => {
+                            let subject = request
+                                .context()
+                                .implementation_subject_type(implementation)?;
+
+                            assert!(
+                                !subject.diagnostics().has_errors(),
+                                "selected default belongs to valid implementation {implementation:?}"
+                            );
+
+                            *subject.value()
+                        }
+                        bray_symbols::SelfTypeContext::Trait(_) => {
+                            panic!(
+                                "trait default {provider:?} retains neither dispatch nor receiver"
+                            )
+                        }
+                    };
+
+                    values
+                        .substitute_type(subject, substitution)
+                        .expect("selected default Self retains its enclosing generic arguments")
+                }
+            }
+        }
+        SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(
+            construction,
+        )) => match construction.target() {
+            bray_bound_tree::ConstructionTarget::TypeForm { requirement, .. } => {
+                requirement.subject()
+            }
+            _ => construction.result_type(),
+        },
+        _ => panic!("a selected default input belongs to a call or construction"),
+    };
+
+    Ok(Some((context, subject)))
 }

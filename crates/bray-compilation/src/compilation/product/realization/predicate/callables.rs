@@ -56,11 +56,11 @@ impl CompilationSyntheticLoweringContext<'_> {
 
     pub(super) fn predicate_default_call(
         &self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
         substitution: GenericSubstitutionId,
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), CodegenPreparationError> {
-        let bray_bound_tree::DefaultValueProvider::CallableParameter(_) = provider else {
+        let bray_symbols::DefaultValueProvider::CallableParameter(_) = provider else {
             panic!("checked template invocation has a callable parameter provider");
         };
 
@@ -124,7 +124,12 @@ impl CompilationSyntheticLoweringContext<'_> {
 
         let call = MirCall::protocol(
             MirCallTarget::DefaultValue {
-                owner: MirDefaultOwner::Callable(MirCallableReference::new(callable, ty.abi())),
+                owner: MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
+                    MirCallableReference::new(callable, ty.abi()),
+                    None,
+                    None,
+                    [],
+                )),
                 provider,
             },
             bray_bound_tree::BoundCallResult::Immediate(result),

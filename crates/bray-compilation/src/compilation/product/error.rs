@@ -5,7 +5,7 @@ use bray_ir::MirOperationId;
 use bray_source::{SourceId, TextSize, TextSizeOverflow};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantValueId, ConstantValueKind,
-    FunctionSymbolId, GenericOwnerId, GenericSubstitutionId, ImplementationInstanceId,
+    FunctionSymbolId, GenericSubstitutionId, ImplementationInstanceId,
     ImplementationRequirementKey, ModuleOwnerId, ModulePathKey, PackageIdentity, ProductIdentity,
     ProductKind, StaticReferenceSelection, SymbolKey, TypeId,
 };
@@ -89,8 +89,6 @@ pub(crate) enum ProductQueryContext {
     StaticReference(StaticReferenceSelection),
     /// Product construction for one generic substitution.
     Substitution(GenericSubstitutionId),
-    /// Product construction for one generic declaration owner.
-    GenericOwner(GenericOwnerId),
     /// Product construction for one semantic type.
     Type(TypeId),
     /// Product construction for one implementation requirement.
@@ -155,8 +153,6 @@ pub(crate) enum ProductDataKind {
     GeneratedLifecycleInstance,
     /// A selected contextual-self witness.
     ContextualSelfWitness,
-    /// Trait dispatch metadata retained by a demanded call.
-    TraitDispatch,
     /// A concrete generic substitution.
     GenericSubstitution,
     /// The generic owner of a declaration.
@@ -165,8 +161,6 @@ pub(crate) enum ProductDataKind {
     ImplementationWitness,
     /// A callable fulfillment supplied by an implementation.
     CallableFulfillment,
-    /// A generic constraint selected by ordinal.
-    GenericConstraint,
     /// A built-in intrinsic selected for a call.
     Intrinsic,
     /// A built-in conversion plan.
@@ -228,12 +222,6 @@ pub(crate) enum ProductValueKind {
     TypeArgument,
     /// A constant specialization argument.
     ConstantArgument,
-    /// A trait-satisfaction generic constraint.
-    TraitSatisfactionConstraint,
-    /// A constant-predicate generic constraint.
-    PredicateConstraint,
-    /// A type-equality generic constraint.
-    TypeEqualityConstraint,
     /// A type-valued generic argument.
     GenericTypeArgument,
     /// A named semantic type.

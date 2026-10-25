@@ -378,6 +378,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.deferred_effect_source(state, &value)
     }
 
+    pub(in crate::analysis) fn inactive_future_captures(
+        &self,
+        state: &ExecutionState,
+        ty: bray_symbols::TypeId,
+        path: &bray_bound_tree::StoragePath,
+    ) -> Option<&[bray_symbols::TypeId]> {
+        if crate::representation::type_representation(self.request, ty)
+            != Some(bray_compiler_known::RepresentationRole::Future)
+        {
+            return None;
+        }
+
+        let value = self.storage_path_value(state, path);
+        let source = self.deferred_invocation(value.owner_identity())?;
+
+        self.disposal
+            .plan
+            .future_cleanup
+            .get(&source)
+            .map(|(captures, _)| captures.as_slice())
+    }
+
     pub(in crate::analysis) fn task_cleanup_source(
         &self,
         state: &ExecutionState,
@@ -410,9 +432,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // Cancellation destroys captures before the first poll or the retained
         // result after completion. Reuse the owning cleanup classification for both.
-        (self.disposal.plan.inert_futures.get(&source)
-            == Some(&bray_bound_tree::AsyncStorageCleanupRequirement::None))
-        .then(|| source.into())
+        self.disposal
+            .plan
+            .future_cleanup
+            .get(&source)
+            .is_some_and(|(captures, result)| {
+                captures.is_empty()
+                    && *result == bray_bound_tree::AsyncStorageCleanupRequirement::None
+            })
+            .then(|| source.into())
     }
 
     fn deferred_invocation(&self, value: &ExecutionCondition) -> Option<BoundExpressionId> {

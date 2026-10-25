@@ -248,11 +248,14 @@ impl Lowerer<'_> {
                             let call = bray_ir::MirCall::protocol(
                                 bray_ir::MirCallTarget::DefaultValue {
                                     owner: match selection.target() {
-                                        ConstructionTarget::TypeForm { callable, .. } => {
+                                        ConstructionTarget::TypeForm { callable, requirement, witness } => {
                                             bray_ir::MirDefaultOwner::Callable(
-                                                bray_ir::MirCallableReference::new(
-                                                    callable,
-                                                    bray_symbols::CallableAbi::Bray,
+                                                bray_ir::MirCallableSelection::new(
+                                                    bray_ir::MirCallableReference::new(callable, bray_symbols::CallableAbi::Bray),
+                                                    matches!(callable.definition().symbol(), bray_symbols::AnySymbolId::TraitCallableMember(_))
+                                                        .then(|| bray_symbols::TraitConstraintDispatch::trait_default(requirement)),
+                                                    None,
+                                                    [witness],
                                                 ),
                                             )
                                         }

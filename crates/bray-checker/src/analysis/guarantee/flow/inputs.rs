@@ -234,7 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let arguments = if matches!(
             input.default_provider(),
-            Some(bray_bound_tree::DefaultValueProvider::CallableParameter(_))
+            Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
         ) {
             self.staged_arguments(state, expression, selection, Some(ordinal))
         } else if let Some(source) = input.expression() {
@@ -319,7 +319,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn observed_default(
         &self,
         selection: &SemanticSelection,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
         ordinal: SymbolOrdinal,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
@@ -348,7 +348,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let count = if matches!(
             provider,
-            bray_bound_tree::DefaultValueProvider::CallableParameter(_)
+            bray_symbols::DefaultValueProvider::CallableParameter(_)
         ) {
             usize::try_from(ordinal.raw()).expect("input ordinal fits host")
         } else {

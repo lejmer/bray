@@ -2463,3 +2463,549 @@ fn imported_owners_keep_their_admitted_cleanup_storage_identity() {
         "reservation identity must not depend on source versus imported MIR keys"
     );
 }
+
+#[test]
+fn imported_generic_cleanup_preserves_its_synchronous_boundary() {
+    for (body, call, valid) in [
+        (
+            "func discard<T>(pos value: T) {}",
+            "example.package.api.discard<Owner>(Owner {})",
+            false,
+        ),
+        (
+            "func discard<T>(pos value: T) { panic(\"stop\"); }",
+            "example.package.api.discard<Owner>(Owner {})",
+            false,
+        ),
+        (
+            "func sink<T>(pos value: T) {} async func discard<T>(pos value: T) { sink<T>(value); }",
+            "await example.package.api.discard<Owner>(Owner {})",
+            false,
+        ),
+        (
+            "func discard<T>(pos value: T) {}",
+            "example.package.api.discard<i32>(1)",
+            true,
+        ),
+        (
+            "func transfer<T>(pos value: T) -> T { return value; }",
+            "let value = example.package.api.transfer<Owner>(Owner {})",
+            true,
+        ),
+        (
+            "async func discard<T>(pos value: T) {}",
+            "await example.package.api.discard<Owner>(Owner {})",
+            true,
+        ),
+    ] {
+        let provider = compilation(&format!("module api; {body}"));
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            async func pause() {{}}
+            struct Owner {{ async finalize() {{ await pause(); }} }}
+            async func main() {{ {call}; }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{body}: {diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_generic_trait_cleanup_keeps_selected_implementation_obligations() {
+    for (result, implementation, invocation, valid) in [
+        ("", "", "sink.dispose(value);", false),
+        (
+            "-> T",
+            "return value;",
+            "let retained = sink.dispose(value);",
+            true,
+        ),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            trait Dispose<T> {{ func dispose(pos value: T) {result}; }}
+            struct Sink<T> {{ marker: i32; }}
+            impl SinkDispose = Sink<T>(Dispose<T>) {{
+                func dispose(pos value: T) {result} {{ {implementation} }}
+            }}
+            async func forward<S, T>(pos sink: &S, pos value: T) with(S: Dispose<T>) {{
+                {invocation}
+            }}
+        "#
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            using example.package.api.SinkDispose;
+            async func pause() {}
+            struct Owner { async finalize() { await pause(); } }
+            async func main() {
+                let sink: example.package.api.Sink<Owner> = { marker = 0 };
+                await example.package.api.forward<example.package.api.Sink<Owner>, Owner>(&sink, Owner {});
+            }
+        "#,
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_generic_cleanup_of_callable_values_preserves_admissibility() {
+    for (body, invocation, valid) in [
+        (
+            "callable Action<T> = func(pos value: T); func discard<T>(pos value: T) {} func form<T>() -> Action<T> { return discard<T>; }",
+            "selected(Owner {});",
+            false,
+        ),
+        (
+            "callable Action<T> = func(pos value: T); func form<T>() -> Action<T> { return lambda(pos value: T) {}; }",
+            "selected(Owner {});",
+            false,
+        ),
+        (
+            "callable Action<T> = func(pos value: T) -> T; func transfer<T>(pos value: T) -> T { return value; } func form<T>() -> Action<T> { return transfer<T>; }",
+            "let retained = selected(Owner {});",
+            true,
+        ),
+        (
+            "callable Action<T> = func(pos value: T) -> T; func form<T>() -> Action<T> { return lambda(pos value: T) -> T { return value; }; }",
+            "let retained = selected(Owner {});",
+            true,
+        ),
+    ] {
+        let provider = compilation(&format!("module api; {body}"));
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            async func pause() {{}}
+            struct Owner {{ async finalize() {{ await pause(); }} }}
+            async func main() {{
+                let selected = example.package.api.form<Owner>();
+                {invocation}
+            }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_generic_cleanup_resolves_selected_associated_types() {
+    let provider = compilation(
+        r#"
+        module api;
+        trait Source {
+            type Item;
+            func item() -> Item;
+            func discard() { let retained = self.item(); }
+        }
+    "#,
+    );
+
+    for (item, value, valid) in [("i32", "1", true), ("Owner", "Owner {}", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.Source;
+            async func pause() {{}}
+            struct Owner {{ async finalize() {{ await pause(); }} }}
+            struct Producer {{ marker: i32; }}
+            impl ProducerSource = Producer(example.package.api.Source) {{
+                type Item = {item};
+                func item() -> {item} {{ return {value}; }}
+            }}
+            using ProducerSource;
+            async func main() {{ let producer = Producer {{ marker = 0 }}; producer.discard(); }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_recursive_generic_destructor_cleanup_preserves_admission() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Container<T> { value: T; destruct() {} }
+        func sink<T>(pos value: T, pos stop: bool) {
+            if stop { return; }
+            let wrapped: Container<T> = { value = value };
+            sink<Container<T>>(wrapped, stop);
+        }
+        "#,
+    );
+
+    for (ty, value, valid) in [("i32", "1", true), ("Owner", "Owner {}", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+                module app;
+            using example.package.api.sink;
+                async func pause() {{}}
+                struct Owner {{ async finalize() {{ await pause(); }} }}
+                async func main() {{ example.package.api.sink<{ty}>({value}, true); }}
+                "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_recursive_cleanup_normalizes_closed_constant_expressions() {
+    for (ty, expression, argument) in [
+        ("i32", "N + 0", "0"),
+        ("usize", "N + 0", "0"),
+        ("bool", "N && true", "true"),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            func recur<T, const N: {ty}>(pos value: T, pos stop: bool) {{
+                if stop {{ return; }}
+                recur<T, {expression}>(value, stop);
+            }}
+            "#
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.recur;
+            func main() {{ example.package.api.recur<i32, {argument}>(1, true); }}
+            "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{ty}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn imported_recursive_cleanup_retains_completion_arguments() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Container<T, const Ready: bool> {
+            value: T;
+            async finalize() when(Ready) { executes(pure, total) } {}
+        }
+        func sink<T, const Ready: bool>(pos value: T, pos stop: bool) {
+            if stop { return; }
+            let wrapped: Container<T, Ready && true> = { value = value };
+            sink<Container<T, Ready && true>, Ready && true>(wrapped, stop);
+        }
+    "#,
+    );
+
+    for (ready, valid) in [("true", true), ("false", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.sink;
+            func main() {{ example.package.api.sink<i32, {ready}>(1, true); }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_generic_inactive_futures_preserve_capture_cleanup() {
+    let provider = compilation(
+        r#"
+        module api;
+        async func hold<T>(pos value: T) {}
+        func discard<T>(pos value: T) { let pending = hold<T>(value); }
+    "#,
+    );
+
+    for (ty, value, valid) in [("i32", "1", true), ("Owner", "Owner {}", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.discard;
+            async func pause() {{}}
+            struct Owner {{ async finalize() {{ await pause(); }} }}
+            async func main() {{ example.package.api.discard<{ty}>({value}); }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_generic_cleanup_omits_only_certified_finalizer_bodies() {
+    let provider = compilation(
+        r#"
+        module api;
+        trait Source<T> { func make() -> T; }
+        func sink<T>(pos value: T) {}
+        struct Container<S, T, const Ready: bool> with(S: Source<T>) {
+            source: S;
+            async finalize() when(Ready) { executes(pure, total) } {
+                if !Ready { sink<T>(self.source.make()); }
+            }
+        }
+        func form<S, T, const Ready: bool>(pos source: S) -> Container<S, T, Ready>
+            with(S: Source<T>) {
+            let value: Container<S, T, Ready> = { source = source };
+            return value;
+        }
+    "#,
+    );
+
+    for (ready, valid) in [("true", true), ("false", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.form;
+            async func pause() {{}}
+            struct Owner {{ async finalize() {{ await pause(); }} }}
+            using example.package.api.Source;
+            struct Producer {{}}
+            impl ProducerSource = Producer(example.package.api.Source<Owner>) {{
+                func make() -> Owner {{ return Owner {{}}; }}
+            }}
+            using ProducerSource;
+            async func main() {{
+                let retained = example.package.api.form<Producer, Owner, {ready}>(Producer {{}});
+            }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_recursive_runtime_defaults_keep_cleanup_summaries_finite() {
+    let provider = compilation(
+        r#"
+        module api;
+        struct Marker<T> { marker: i32; destruct() {} }
+        func make<T>() -> Marker<T> { return { marker = 0 }; }
+        func check<T>(pos value: T) -> bool { return false; }
+        func sink<T>(pos stop: bool,
+            flag: bool = stop || check<Marker<T>>(make<T>()) || sink<Marker<T>>(stop)
+        ) -> bool { return true; }
+        "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        "module app; using example.package.api.sink; func main() { let result = example.package.api.sink<i32>(true); }",
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn imported_generic_cleanup_checks_each_runtime_default_provider() {
+    for (body, uses_default) in [
+        ("select<T>();", true),
+        ("let constructed = Constructed<T>();", true),
+        ("let holder: Holder<T> = { marker = 0 };", true),
+        ("let choice: Choice<T> = Value();", true),
+        ("select<T>(value = 0);", false),
+        ("let constructed = Constructed<T>(value = 0);", false),
+        ("let holder: Holder<T> = { marker = 0, value = 0 };", false),
+        ("let choice: Choice<T> = Value(value = 0);", false),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            func discard<T>(pos value: T) {{}}
+            func demand<T>() -> i32 {{ let handler: func(pos value: T) = discard<T>; return 0; }}
+                func select<T>(value: i32 = demand<T>()) {{}}
+            struct Holder<T> {{ marker: i32; value: i32 = demand<T>(); }}
+            union Choice<T> {{ Value(value: i32 = demand<T>()); }}
+                struct Constructed<T> {{ marker: i32; construct(value: i32 = demand<T>()) -> Self {{ return {{ marker = value }}; }} }}
+            func invoke<T>() {{ {body} }}
+            "#
+        ));
+
+        for ty in ["i32", "Owner"] {
+            let valid = ty == "i32" || !uses_default;
+
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                    module app;
+                    using example.package.api.invoke;
+                    async func pause() {{}}
+                    struct Owner {{ async finalize() {{ await pause(); }} }}
+                    async func main() {{ example.package.api.invoke<{ty}>(); }}
+                    "#
+                ),
+            );
+
+            let diagnostics = consumer.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{body}: {diagnostics:?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_runtime_defaults_resolve_selected_associated_cleanup_types() {
+    let provider = compilation(
+        r#"
+        module api;
+        func discard<T>(pos value: T) {}
+        func demand<T>() -> i32 { let handler: func(pos value: T) = discard<T>; return 0; }
+        trait Source { type Item; func select(value: i32 = demand<Item>()) {} func outer() { self.select(); } }
+        "#,
+    );
+
+    for (item, valid) in [("i32", true), ("Owner", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+                module app;
+                using example.package.api.Source;
+                async func pause() {{}}
+                struct Owner {{ async finalize() {{ await pause(); }} }}
+                struct Producer {{ marker: i32; }}
+                impl ProducerSource = Producer(example.package.api.Source) {{ type Item = {item}; }}
+                using ProducerSource;
+                async func main() {{ let producer = Producer {{ marker = 0 }}; producer.outer(); }}
+                "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+            );
+        }
+    }
+}

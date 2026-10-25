@@ -113,11 +113,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
-                let effects = match mutation {
+                let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
                     CleanupMutation::Opaque { ty, .. } => Some(
-                        super::effects::task_effects(&memory, task_source)
+                        task_path
+                            .and_then(|path| domain.inactive_future_captures(execution, ty, path))
+                            .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
+                            .or_else(|| super::effects::task_effects(&memory, task_source))
                             .or_else(|| {
                                 self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
                             })
@@ -128,32 +131,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 };
 
-                let inherited_tail = match &mutation {
-                    CleanupMutation::Opaque { access, .. } => Some(*access),
-                    CleanupMutation::Lifecycle(call) => Some(call.access),
-                    CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
-                }
-                .is_some_and(|access| {
-                    matches!(operation, AnalysisOperationKind::ScopeExit { .. })
-                        && self
-                            .input
-                            .terminal_receiver
-                            .as_ref()
-                            .is_some_and(|receiver| {
-                                self.storage.root_identity(access) == Some(receiver.root)
-                            })
-                });
+                let inherited_tail =
+                    self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
 
-                if publish && inherited_tail {
-                    let ty = match &mutation {
-                        CleanupMutation::Opaque { ty, .. } => *ty,
-                        CleanupMutation::Lifecycle(call) => call.ty,
-                        CleanupMutation::Unchanged | CleanupMutation::Recovery => {
-                            unreachable!("receiver tail has a selected cleanup operation")
-                        }
-                    };
-
-                    self.receiver_cleanup.insert(ty);
+                if inherited_tail && matches!(operation, AnalysisOperationKind::ScopeExit {
+                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                }) {
+                    // Broadcast work can affect external state without invoking the receiver's destructor.
+                    effects = Some(vec![Effect::Unknown, Effect::Escape]);
                 }
 
                 // Remaining receiver parts use the selected tail disposition. Their
@@ -251,6 +236,128 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for (access, requirements, pending) in report_outputs {
             self.retain_cleanup_reports(state, access, &requirements, pending);
         }
+    }
+
+    pub(super) fn collect_callable_cleanup(
+        &mut self,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) {
+        if self.query_failure.is_some() {
+            return;
+        }
+
+        let request = self.request;
+
+        let (instance, template) =
+            if let Some(bray_bound_tree::BoundExpression::AnonymousCallable(body)) =
+                request.view().expression(expression)
+            {
+                (None, request.anonymous_result_dependencies(body.unit()))
+            } else if let Some(bray_bound_tree::SemanticSelection::CallableReference(instance)) =
+                self.execution.semantics.selections().expression(expression)
+                && !request
+                    .semantic_values()
+                    .generic_substitution_data(instance.substitution())
+                    .bindings()
+                    .is_empty()
+            {
+                (
+                    Some(*instance),
+                    request.callable_result_dependencies(instance.definition().callable_symbol()),
+                )
+            } else {
+                return;
+            };
+
+        match template.and_then(|template| {
+            crate::dependency::resolved_result_template(request, instance, template, None)
+        }) {
+            Ok(template) => self
+                .synchronous_cleanup
+                .extend(template.synchronous_cleanup().iter().cloned()),
+            Err(error) => self.query_failure = Some(error),
+        }
+    }
+
+    fn record_cleanup_obligations(
+        &mut self,
+        operation: AnalysisOperationKind,
+        mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
+        effects: Option<&[Effect]>,
+    ) -> bool {
+        use crate::analysis::guarantee::CleanupMutation;
+
+        let (ty, access) = match mutation {
+            CleanupMutation::Opaque { ty, access, .. } => (*ty, *access),
+            CleanupMutation::Lifecycle(call) => (call.ty, call.access),
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => return false,
+        };
+
+        let inherited_tail = matches!(operation, AnalysisOperationKind::ScopeExit { .. })
+            && self
+                .input
+                .terminal_receiver
+                .as_ref()
+                .is_some_and(|receiver| self.storage.root_identity(access) == Some(receiver.root));
+
+        let synchronous = !matches!(
+            self.request.unit().root(),
+            bray_bound_tree::BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            } | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            }
+        );
+
+        let values = self.request.semantic_values();
+        let deferred = |ty| (!values.type_is_concrete(ty)).then_some(ty);
+
+        if self.publish {
+            if let CleanupMutation::Lifecycle(call) = mutation {
+                let contract =
+                    &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
+
+                if call
+                    .lifecycle
+                    .call
+                    .callable
+                    .definition()
+                    .callable_symbol()
+                    .kind()
+                    == bray_symbols::SymbolKind::Finalizer
+                {
+                    if !contract.synchronous_cleanup().is_empty() {
+                        self.synchronous_cleanup.insert(
+                            bray_symbols::DependencyRequirement::FinalizerBodyCleanup(call.ty),
+                        );
+                    }
+                } else {
+                    self.synchronous_cleanup
+                        .extend(contract.synchronous_cleanup().iter().cloned());
+                }
+            }
+
+            if inherited_tail {
+                if !matches!(operation, AnalysisOperationKind::ScopeExit {
+                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                }) {
+                    self.receiver_cleanup.insert(ty);
+                }
+            } else if synchronous {
+                self.synchronous_cleanup
+                    .extend(effects.into_iter().flatten().filter_map(|effect| {
+                        match effect {
+                            Effect::Cleanup(ty) => deferred(*ty)
+                                .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
+                            _ => None,
+                        }
+                    }));
+            }
+        }
+
+        inherited_tail
     }
 
     fn prepare_cleanup_references(

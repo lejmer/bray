@@ -15,7 +15,7 @@ use bray_bound_tree::StorageAccessPurpose;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn begin_transition(
-        &self,
+        &mut self,
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
         assignment: Option<&Target>,
@@ -61,6 +61,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.prepare_call_references(state, invocation);
 
         let contracts = self.dependencies.calls().get(&invocation)?;
+
+        if self.publish {
+            self.synchronous_cleanup
+                .extend(contracts.synchronous_cleanup().iter().cloned());
+        }
 
         let mut task_effects = task_effects(
             &state.memory,

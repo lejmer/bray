@@ -1158,7 +1158,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
                     @abi(c)
                     public func forwarded(pos mode: u32) -> u32 { return leaf(mode); }
                 "#,
-                    runtime_frames: None,
+                    runtime_frames: &[],
                     executable_templates: 2,
                     platform_service: None,
                 },

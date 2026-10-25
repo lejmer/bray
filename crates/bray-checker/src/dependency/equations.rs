@@ -45,9 +45,11 @@ pub(super) fn map_requirements<E>(
                     map_requirements(guarded.requirements(), depth, transform)?,
                 ),
                 // Unchanged atomic requirements retain their immutable data in the rebuilt equation group.
-                DependencyRequirement::Direct { .. } | DependencyRequirement::Variable { .. } => {
-                    requirement.clone()
-                }
+                DependencyRequirement::Direct { .. }
+                | DependencyRequirement::SynchronousCleanup(_)
+                | DependencyRequirement::FinalizerBodyCleanup(_)
+                | DependencyRequirement::DefaultCleanup { .. }
+                | DependencyRequirement::Variable { .. } => requirement.clone(),
             };
 
             Ok(vec![mapped])
@@ -151,7 +153,11 @@ pub(super) fn has_variables(requirements: &[DependencyRequirement], local_only: 
                     .iter()
                     .map(|requirement| (requirement, binders)),
             ),
-            DependencyRequirement::Direct { .. } | DependencyRequirement::Variable { .. } => {}
+            DependencyRequirement::Direct { .. }
+            | DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. }
+            | DependencyRequirement::Variable { .. } => {}
         }
     }
 

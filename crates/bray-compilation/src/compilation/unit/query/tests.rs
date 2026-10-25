@@ -10,6 +10,7 @@ mod constant_patterns;
 mod construction;
 mod declared_types;
 mod expression_typing;
+mod generic_cleanup;
 mod generic_recovery;
 mod generic_selection;
 mod indexing;

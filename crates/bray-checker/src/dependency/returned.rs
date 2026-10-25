@@ -73,6 +73,12 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let store = request.semantic_values();
 
+    let requirement = call
+        .resolution()
+        .trait_dispatch()
+        .map(|dispatch| request.context().dispatch_requirement(dispatch))
+        .transpose()?;
+
     let template = if let Some((source, authority)) = call
         .implementation_hook()
         .and_then(super::implementation_dependency_source)
@@ -91,9 +97,8 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         store
             .empty_dependency_contract_template()
             .expect("predicate outputs have no retained ownership")
-    } else if let Some(dispatch) = call.resolution().trait_dispatch() {
-        let requirement = request.context().dispatch_requirement(dispatch)?;
-        let template = super::witness::deferred_result(request, call, Some(requirement))?;
+    } else if requirement.is_some() {
+        let template = super::witness::deferred_result(request, call, requirement)?;
 
         store
             .intern_dependency_contract_template(template).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in call_result_template: {error:?}"))
@@ -134,7 +139,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
 
     let instance = call.resolution().declaration_source();
 
-    let mut template = resolved_result_template(request, instance, template)?;
+    let mut template = resolved_result_template(request, instance, template, requirement)?;
 
     if call.invocation() == bray_symbols::CallableInvocation::Native {
         // The native entry consumes body incidents and contains abnormal completion.
@@ -185,8 +190,23 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     instance: Option<bray_symbols::CallableInstanceData>,
     template: DependencyContractTemplateId,
+    requirement: Option<bray_symbols::ImplementationRequirementKey>,
 ) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let store = request.semantic_values();
+
+    let data = store.dependency_contract_template_data(template);
+
+    let cleanup_call =
+        instance.filter(|_| !data.synchronous_cleanup().is_empty() || requirement.is_some());
+
+    // Defer callee cleanup before substitution so recursive type arguments cannot grow this summary.
+    let template = if cleanup_call.is_some() {
+        store
+            .intern_dependency_contract_template(data.as_ref().clone().with_synchronous_cleanup([]))
+            .expect("deferred cleanup preserves the remaining checked contract")
+    } else {
+        template
+    };
 
     let template = match instance {
         Some(instance) => store
@@ -196,8 +216,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    let mut result = template
-        .try_map_requirements(|requirements| super::witness::resolve(request, requirements))?;
+    let mut result = super::witness::resolve(request, &template)?;
 
     if template
         .effects()
@@ -205,6 +224,19 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
         .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Cleanup(_)))
     {
         result = result.with_effects(resolve_cleanup_effects(request, template.effects())?);
+    }
+
+    if let Some(instance) = cleanup_call {
+        let callable = store
+            .intern_callable_instance(instance)
+            .expect("selected cleanup call retains its checked semantic identity");
+
+        result = result.with_synchronous_cleanup([DependencyRequirement::result_call(
+            callable,
+            requirement,
+            [],
+            bray_symbols::DependencyCallOutput::SynchronousCleanup,
+        )]);
     }
 
     Ok(result)
@@ -219,15 +251,21 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
     let mut cleanup = crate::asynchronous::CleanupShapeResolver::new(request);
     let mut resolved = Vec::with_capacity(effects.len());
 
-    for effect in effects {
+    let mut pending = effects.to_vec();
+    let mut expanded = std::collections::BTreeSet::new();
+
+    while let Some(effect) = pending.pop() {
         let DependencyStorageEffect::Cleanup(ty) = effect else {
-            // Instantiation owns its effect list and shares the immutable subject projections.
-            resolved.push(effect.clone());
+            resolved.push(effect);
             continue;
         };
 
+        if !expanded.insert(ty) {
+            continue;
+        }
+
         if matches!(
-            cleanup.requirement(*ty)?,
+            cleanup.requirement(ty)?,
             bray_bound_tree::AsyncStorageCleanupRequirement::None
         ) {
             continue;
@@ -235,7 +273,7 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
 
         let parts = crate::asynchronous::full_cleanup_parts(
             &mut cleanup,
-            *ty,
+            ty,
             request.unit().key().source(),
             false,
         )?;
@@ -246,16 +284,16 @@ fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         }
 
         for (ty, part) in parts.value() {
-            // Retain formal type parameters, not recursively growing instantiated wrappers.
-            // Concrete lifecycle effects reuse their selected callable summaries.
             if matches!(
                 request.semantic_values().type_data(*ty).as_ref(),
                 TypeData::TypeParameter(_)
+                    | TypeData::ContextualSelf(_)
+                    | TypeData::TypeValuedMemberProjection { .. }
             ) && part.as_ref().is_some_and(|part| part.release().is_none())
             {
                 resolved.push(DependencyStorageEffect::Cleanup(*ty));
             } else {
-                append_cleanup_effects(request, *ty, part.as_ref(), &mut resolved)?;
+                append_cleanup_effects(request, *ty, part.as_ref(), &mut pending)?;
             }
         }
     }
@@ -283,10 +321,7 @@ fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
         // The wrapper address does not escape merely because its backing is freed.
         effects.push(DependencyStorageEffect::Unknown);
 
-        effects.extend(resolve_cleanup_effects(
-            request,
-            &[DependencyStorageEffect::Cleanup(element)],
-        )?);
+        effects.push(DependencyStorageEffect::Cleanup(element));
 
         return Ok(());
     }
@@ -452,7 +487,10 @@ pub(crate) fn result_inputs(
                 pending.extend(result.iter());
                 pending.extend(definitions.iter().flat_map(|definition| definition.iter()));
             }
-            DependencyRequirement::Variable { .. } => {}
+            DependencyRequirement::Variable { .. }
+            | DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. } => {}
         }
     }
 

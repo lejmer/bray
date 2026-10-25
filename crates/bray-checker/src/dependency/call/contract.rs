@@ -244,9 +244,13 @@ where
         .callable_result_dependencies(callable.definition().callable_symbol())
         .map_err(DependencyContractInstantiationError::Resolution)?;
 
-    let template =
-        crate::dependency::returned::resolved_result_template(request, Some(callable), template)
-            .map_err(DependencyContractInstantiationError::Resolution)?;
+    let template = crate::dependency::returned::resolved_result_template(
+        request,
+        Some(callable),
+        template,
+        None,
+    )
+    .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let mut context = CallInstantiationContext::hidden(
         request,
@@ -334,6 +338,9 @@ pub(super) fn concrete_requirements(
             )],
             DependencyRequirement::ResultCall { .. }
             | DependencyRequirement::FixedPoint { .. }
+            | DependencyRequirement::SynchronousCleanup(_)
+            | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::DefaultCleanup { .. }
             | DependencyRequirement::Variable { .. } => Vec::new(),
         })
         .collect()

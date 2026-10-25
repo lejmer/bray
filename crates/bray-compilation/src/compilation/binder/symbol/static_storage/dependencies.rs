@@ -63,7 +63,10 @@ fn requirement_reaches_exact_thread(requirement: &bray_symbols::DependencyRequir
             .flat_map(|definition| definition.iter())
             .chain(result.iter())
             .any(requirement_reaches_exact_thread),
-        bray_symbols::DependencyRequirement::Variable { .. } => false,
+        bray_symbols::DependencyRequirement::Variable { .. }
+        | bray_symbols::DependencyRequirement::SynchronousCleanup(_)
+        | bray_symbols::DependencyRequirement::FinalizerBodyCleanup(_)
+        | bray_symbols::DependencyRequirement::DefaultCleanup { .. } => false,
         bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             inputs.iter().any(|input| {
                 input
@@ -157,7 +160,10 @@ fn collect_witness_requirements(
                 collect_witness_requirements(context, nested, requirements)?;
             }
         }
-        bray_symbols::DependencyRequirement::Variable { .. } => {}
+        bray_symbols::DependencyRequirement::Variable { .. }
+        | bray_symbols::DependencyRequirement::SynchronousCleanup(_)
+        | bray_symbols::DependencyRequirement::FinalizerBodyCleanup(_)
+        | bray_symbols::DependencyRequirement::DefaultCleanup { .. } => {}
         bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             for nested in inputs
                 .iter()
@@ -231,7 +237,10 @@ fn collect_static_requirement_dependencies(
                 collect_static_requirement_dependencies(nested, dependencies);
             }
         }
-        bray_symbols::DependencyRequirement::Variable { .. } => {}
+        bray_symbols::DependencyRequirement::Variable { .. }
+        | bray_symbols::DependencyRequirement::SynchronousCleanup(_)
+        | bray_symbols::DependencyRequirement::FinalizerBodyCleanup(_)
+        | bray_symbols::DependencyRequirement::DefaultCleanup { .. } => {}
         bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             for nested in inputs
                 .iter()

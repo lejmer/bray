@@ -502,7 +502,7 @@ const PROFILE_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
         "}\n",
         "public func disconnected(pos value: i32) -> i32 { return value; }\n",
     ),
-    runtime_frames: None,
+    runtime_frames: &[],
     executable_templates: 4,
     platform_service: None,
 };
@@ -518,7 +518,7 @@ const REORDERED_PROFILE_DEPENDENCY: GenericDependencyFixture = GenericDependency
         "}\n",
         "func helper<T>(pos value: T) -> T { return value; }\n",
     ),
-    runtime_frames: None,
+    runtime_frames: &[],
     executable_templates: 4,
     platform_service: None,
 };

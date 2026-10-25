@@ -1,8 +1,9 @@
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{DependencySubjectRoot, SymbolOrdinal, TypeId};
 
 use super::{
-    ConstructionTarget, DefaultValueProvider, SelectedArgument, SelectedConstructionInput,
-    SelectedConversion, SelectedOperation, SelectedReceiver, SemanticSelection,
+    ConstructionTarget, SelectedArgument, SelectedConstructionInput, SelectedConversion,
+    SelectedOperation, SelectedReceiver, SemanticSelection,
 };
 use crate::{BoundExecutionSite, BoundExpressionId, BoundReferenceTarget};
 

@@ -1,7 +1,6 @@
-use bray_bound_tree::{
-    ConstructionTarget, ConversionTarget, DefaultValueProvider, SelectedConversion,
-};
+use bray_bound_tree::{ConstructionTarget, ConversionTarget, SelectedConversion};
 use bray_runtime_interface::RuntimeAbiRole;
+use bray_symbols::DefaultValueProvider;
 use bray_symbols::{CallableAbi, CallableInstanceData, TypeId};
 
 use crate::{

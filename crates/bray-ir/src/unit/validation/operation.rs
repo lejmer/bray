@@ -712,7 +712,7 @@ fn validate_call(
             let accepts_default = match owner {
                 crate::MirDefaultOwner::Callable(_) => matches!(
                     provider,
-                    bray_bound_tree::DefaultValueProvider::CallableParameter(_)
+                    bray_symbols::DefaultValueProvider::CallableParameter(_)
                 ),
                 crate::MirDefaultOwner::Type { target, .. } => target.accepts_default(*provider),
             };

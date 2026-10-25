@@ -1,9 +1,9 @@
+use bray_symbols::DefaultValueProvider;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundExpressionId, ConstructionInputId, ConstructionTarget, DefaultValueProvider,
-    SelectedOperation, SelectionKind,
+    BoundExpressionId, ConstructionInputId, ConstructionTarget, SelectedOperation, SelectionKind,
 };
 use bray_compiler_known::CompilerKnownOperationRole;
 use bray_symbols::{CallableInstanceData, CallableSignature, ImplementationRequirementKey};

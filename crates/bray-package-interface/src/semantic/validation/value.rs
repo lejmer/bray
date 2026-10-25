@@ -73,6 +73,7 @@ impl InterfaceSemantics {
 
         for contract in &*self.dependency_contracts {
             if !is_strictly_sorted(&contract.requirements)
+                || !is_strictly_sorted(&contract.synchronous_cleanup)
                 || contract
                     .completion_reports
                     .as_deref()
@@ -166,7 +167,22 @@ impl InterfaceSemantics {
                 }
             }
 
-            for requirement in contract.all_requirements() {
+            for requirement in contract
+                .requirements
+                .iter()
+                .chain(
+                    contract
+                        .completion_reports
+                        .iter()
+                        .flat_map(|items| items.iter()),
+                )
+                .chain(
+                    contract
+                        .abnormal_reports
+                        .iter()
+                        .flat_map(|items| items.iter()),
+                )
+            {
                 self.validate_dependency_requirement(
                     requirement,
                     symbol_count,
@@ -175,6 +191,10 @@ impl InterfaceSemantics {
                     limits,
                     &mut Vec::new(),
                 )?;
+            }
+
+            for requirement in contract.synchronous_cleanup() {
+                self.validate_cleanup_requirement(requirement, symbol_count, dependency_count)?;
             }
         }
 
@@ -459,6 +479,60 @@ impl InterfaceSemantics {
         Ok(())
     }
 
+    fn validate_cleanup_requirement(
+        &self,
+        requirement: &InterfaceDependencyRequirement,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        match &requirement.value {
+            InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
+            | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+                validate_index(ty.to_index(), self.types.len())
+            }
+            InterfaceDependencyRequirementValue::DefaultCleanup {
+                provider,
+                substitution,
+                contextual_self,
+            } => {
+                validate_symbol(provider, symbol_count, dependency_count)?;
+
+                validate_index(substitution.to_index(), self.substitutions.len())?;
+
+                if let Some((context, subject)) = contextual_self {
+                    validate_symbol(context, symbol_count, dependency_count)?;
+                    validate_index(subject.to_index(), self.types.len())?;
+                }
+
+                Ok(())
+            }
+            InterfaceDependencyRequirementValue::ResultCall {
+                output: bray_symbols::DependencyCallOutput::SynchronousCleanup,
+                callable,
+                requirement,
+                inputs,
+            } if inputs.is_empty() => self.validate_dependency_callee(*callable, *requirement),
+            _ => Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Dependency,
+            )),
+        }
+    }
+
+    fn validate_dependency_callee(
+        &self,
+        callable: crate::InterfaceCallableInstanceId,
+        requirement: Option<(crate::InterfaceTypeId, crate::InterfaceTraitApplicationId)>,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_index(callable.to_index(), self.callable_instances.len())?;
+
+        if let Some((subject, application)) = requirement {
+            validate_index(subject.to_index(), self.types.len())?;
+            validate_index(application.to_index(), self.trait_applications.len())?;
+        }
+
+        Ok(())
+    }
+
     fn validate_dependency_requirement(
         &self,
         requirement: &InterfaceDependencyRequirement,
@@ -471,6 +545,13 @@ impl InterfaceSemantics {
         limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
 
         match &requirement.value {
+            InterfaceDependencyRequirementValue::SynchronousCleanup(_)
+            | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(_)
+            | InterfaceDependencyRequirementValue::DefaultCleanup { .. } => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Dependency,
+                ));
+            }
             InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
                 let count = usize::try_from(*depth)
                     .ok()
@@ -507,17 +588,18 @@ impl InterfaceSemantics {
                 scopes.pop();
             }
             InterfaceDependencyRequirementValue::ResultCall {
-                output: _,
+                output,
                 callable,
                 requirement,
                 inputs,
             } => {
-                validate_index(callable.to_index(), self.callable_instances.len())?;
-
-                if let Some((subject, application)) = requirement {
-                    validate_index(subject.to_index(), self.types.len())?;
-                    validate_index(application.to_index(), self.trait_applications.len())?;
+                if *output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Dependency,
+                    ));
                 }
+
+                self.validate_dependency_callee(*callable, *requirement)?;
 
                 if inputs.windows(2).any(|pair| pair[0].root >= pair[1].root) {
                     return Err(crate::semantic::codec::invalid_value(
