@@ -845,7 +845,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
             r#"
             trusted internal module bray.runtime.bootstrap.host;
             func probe(pos lease: HostLease)
-                requires(trusted host_access_live(owner = &lease.acquisition), trusted attachment_cleanup_completed(owner = &lease))
+                requires(trusted host_access_live(owner = &lease.acquisition))
             {}
         "#,
         );

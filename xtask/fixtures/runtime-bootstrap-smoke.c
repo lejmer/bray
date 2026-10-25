@@ -109,18 +109,7 @@ static void before_release(void)
         reenter_pool_on_release();
 }
 
-typedef struct ProductHostObservation
-{
-    uint32_t status;
-    uint32_t state;
-    uintptr_t active_entries;
-    uintptr_t external_roots;
-    uintptr_t thread_attachments;
-    uintptr_t initialized_statics;
-    uintptr_t cleaned_statics;
-    uintptr_t cleanup_incidents;
-    uint8_t last_incident[32];
-} ProductHostObservation;
+
 
 typedef struct SourceAnchor
 {
@@ -199,15 +188,6 @@ uint32_t bray_runtime_substrate_shutdown(void)
     substrate_initialized = 0;
 
     return 0;
-}
-
-ProductHostObservation bray_runtime_product_host_control(void* descriptor, uint32_t operation)
-{
-    (void)descriptor;
-
-    ProductHostObservation observation = {0};
-
-    return observation;
 }
 
 extern uint32_t bray_runtime_panic_reporting(PanicReport*);
@@ -2755,6 +2735,8 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
     return 0;
 }
 
+static void check_product_teardown(void);
+
 int main(void)
 {
     allocation_callback = before_allocation;
@@ -2889,6 +2871,8 @@ int main(void)
         if (chain_status != 0)
             return chain_status;
     }
+
+    check_product_teardown();
 
     if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
         return 77;

@@ -149,11 +149,9 @@ pub(crate) fn runtime_indirect_result_type<'context>(
 ) -> Option<BasicTypeEnum<'context>> {
     let result = role.native_signature()?.result();
 
-    // Product observations exceed the register-return limit on every supported native ABI.
     if matches!(
         result,
-        RuntimeAbiType::ProductObservation
-            | RuntimeAbiType::PanicReport
+        RuntimeAbiType::PanicReport
             | RuntimeAbiType::RunOutcome
             | RuntimeAbiType::FrameProgress
             | RuntimeAbiType::InactiveFrame
@@ -443,7 +441,6 @@ pub(super) fn aggregate_is_indirect(kind: RuntimeAbiType) -> bool {
             | RuntimeAbiType::TaskAllocation
             | RuntimeAbiType::InactiveFrame
             | RuntimeAbiType::FrameProgress
-            | RuntimeAbiType::ProductObservation
     )
 }
 
@@ -473,22 +470,6 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::LaneResult => context
             .struct_type(
                 &[context.i32_type().into(), context.i32_type().into()],
-                false,
-            )
-            .into(),
-        RuntimeAbiType::ProductObservation => context
-            .struct_type(
-                &[
-                    context.i32_type().into(),
-                    context.i32_type().into(),
-                    usize.into(),
-                    usize.into(),
-                    usize.into(),
-                    usize.into(),
-                    usize.into(),
-                    usize.into(),
-                    context.i8_type().array_type(32).into(),
-                ],
                 false,
             )
             .into(),
@@ -659,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn product_host_observations_use_indirect_storage_on_every_target() {
+    fn product_host_control_uses_an_explicit_observation_output_on_every_target() {
         let context = Context::create();
 
         for native in NativeTarget::ALL {
@@ -674,16 +655,19 @@ mod tests {
             )
             .expect("product host role has a native declaration");
 
-            assert_eq!(function.get_type().get_return_type(), None, "{native:?}");
-            assert_eq!(function.count_params(), 3, "{native:?}");
+            assert_eq!(
+                function.get_type().get_return_type(),
+                Some(context.i32_type().into()),
+                "{native:?}"
+            );
 
-            assert!(
-                function
-                    .get_enum_attribute(
-                        inkwell::attributes::AttributeLoc::Param(0),
-                        inkwell::attributes::Attribute::get_named_enum_kind_id("sret"),
-                    )
-                    .is_some(),
+            assert_eq!(
+                function.get_type().get_param_types(),
+                [
+                    super::pointer_integer_type(&context, &target).into(),
+                    context.i32_type().into(),
+                    context.ptr_type(inkwell::AddressSpace::default()).into(),
+                ],
                 "{native:?}"
             );
 

@@ -2,6 +2,43 @@ use crate::test_support::{compilation, source_function_body_key};
 use bray_diagnostics::DiagnosticKind;
 
 #[test]
+fn copied_callbacks_outlive_the_borrow_used_to_select_their_field() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            callable Callback = @abi(c) func();
+
+            struct Holder
+            {
+                callback: Callback;
+            }
+
+            func select(pos holder: &Holder) -> Callback
+            {
+                return holder.callback;
+            }
+
+            @abi(c)
+            func done() {}
+
+            func escaped() -> Callback
+            {
+                let holder: Holder = { callback = done };
+
+                return select(&holder);
+            }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
 fn returned_assignments_preserve_disjoint_fields() {
     for returned in [
         "pair.first",

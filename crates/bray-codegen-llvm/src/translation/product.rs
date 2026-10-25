@@ -1,7 +1,5 @@
-use bray_codegen::{CodegenFailure, CodegenRequest, CodegenSymbolKey};
-use bray_ir::MirRuntimeReference;
+use bray_codegen::{CodegenFailure, CodegenRequest};
 use bray_runtime_abi::NativeProductHostOperation;
-use bray_runtime_interface::RuntimeAbiRole;
 use inkwell::{builder::Builder, context::Context, module::Module, values::BasicValueEnum};
 
 /// Invoke the already formed product descriptor's admission or closure operation.
@@ -21,30 +19,15 @@ pub(crate) fn control<'context>(
         .get_global(host.descriptor_symbol().as_str())
         .expect("product control requires the emitted descriptor");
 
-    let role = RuntimeAbiRole::ProductHostControl;
-
-    let function =
-        crate::native::declare_runtime_function(module, context, request.target(), role)?;
-
-    let key = CodegenSymbolKey::Runtime(MirRuntimeReference::new(
-        role,
-        request.unit().target().runtime_abi(),
-    ));
-
-    Ok(crate::native::invoke_function(
+    Ok(crate::native::invoke_product_control(
         context,
+        module,
         builder,
         request.target(),
-        &key,
-        function,
-        &[
-            descriptor.as_pointer_value().into(),
-            context
-                .i32_type()
-                .const_int(u64::from(operation.code()), false)
-                .into(),
-        ],
-        "product.control",
+        descriptor.as_pointer_value(),
+        context
+            .i32_type()
+            .const_int(u64::from(operation.code()), false),
     )?
-    .expect("product control returns its native observation"))
+    .into())
 }

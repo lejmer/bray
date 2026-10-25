@@ -433,8 +433,9 @@ fn planned_native_statics(
                 .is_some_and(|local| local.requires_main_thread_cleanup())
                 || native.is_some_and(|native| native.requires_main_thread());
 
-            let requires_host = local.is_some_and(|local| local.requires_host())
-                || native.is_some_and(|native| native.requires_host());
+            let cleanup_execution = local
+                .and_then(|local| local.cleanup_execution())
+                .max(native.and_then(|native| native.cleanup_execution()));
 
             let order_key = local
                 .map(|local| local.order_key())
@@ -448,7 +449,7 @@ fn planned_native_statics(
                 Arc::from(order_key),
                 entry.duration(),
                 entry.dependencies().iter().map(|identity| identity.bytes()),
-                requires_host,
+                cleanup_execution,
                 requires_main_thread,
             )
         })

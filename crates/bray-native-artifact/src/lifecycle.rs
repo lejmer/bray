@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_symbols::StaticStorageDuration;
+use bray_symbols::{CallableExecution, StaticStorageDuration};
 
 /// A retained static's lifecycle contribution to the final linked image.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -11,7 +11,7 @@ pub struct NativeStatic {
     order_key: Arc<[u8]>,
     duration: StaticStorageDuration,
     dependencies: Arc<[[u8; 32]]>,
-    requires_host: bool,
+    cleanup_execution: Option<CallableExecution>,
     requires_main_thread: bool,
 }
 
@@ -23,7 +23,7 @@ impl NativeStatic {
         order_key: Arc<[u8]>,
         duration: StaticStorageDuration,
         dependencies: impl IntoIterator<Item = [u8; 32]>,
-        requires_host: bool,
+        cleanup_execution: Option<CallableExecution>,
         requires_main_thread: bool,
     ) -> Self {
         let mut dependencies = dependencies.into_iter().collect::<Vec<_>>();
@@ -37,7 +37,7 @@ impl NativeStatic {
             order_key,
             duration,
             dependencies: dependencies.into(),
-            requires_host,
+            cleanup_execution,
             requires_main_thread,
         }
     }
@@ -69,7 +69,12 @@ impl NativeStatic {
 
     /// Returns whether this static needs lifecycle hosting in an executable or test product.
     pub const fn requires_host(&self) -> bool {
-        self.requires_host
+        self.cleanup_execution.is_some()
+    }
+
+    /// Returns the hosted cleanup execution required by this contribution.
+    pub const fn cleanup_execution(&self) -> Option<CallableExecution> {
+        self.cleanup_execution
     }
 
     /// Returns whether cleanup must run on the main thread.

@@ -678,7 +678,7 @@ mod tests {
             vec![2, 1, 0].into(),
             bray_symbols::StaticStorageDuration::ExactThread,
             [[2; 32]],
-            true,
+            Some(bray_symbols::CallableExecution::Asynchronous),
             true,
         );
 
@@ -709,7 +709,7 @@ mod tests {
             contribution.order_key().into(),
             contribution.duration(),
             contribution.dependencies().iter().copied(),
-            true,
+            contribution.cleanup_execution(),
             contribution.requires_main_thread(),
         );
 

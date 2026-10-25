@@ -49,11 +49,7 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_anchor_matches(anchor = &anchor, lease = lease),
     )
-    ensures(
-        trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
-        trusted attachment_cleanup_completed(owner = lease)
-    )
+    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
     executes(total)
     uses(raw_memory, unchecked_alias)
 {
@@ -70,58 +66,18 @@ internal struct HostLease
     synchronization: &Uninit<Synchronization>;
     owner: &Uninit<HostOwner>;
     active: bool;
-    mut retirement: AttachmentRetirement;
 
     trusted destruct()
-        requires(
-            trusted host_access_live(owner = &self.acquisition),
-            !self.active || trusted attachment_cleanup_completed(owner = &self),
-        )
+        requires(trusted host_access_live(owner = &self.acquisition))
         executes(total)
         when(!self.active)
         {
             executes(pure)
         }
-        uses(raw_memory, unchecked_init, unchecked_alias)
+        uses(raw_memory, unchecked_alias)
     {
         if self.active
         {
-            if self.retirement.pending
-            {
-                let retirement: &AttachmentRetirement = &self.retirement;
-
-                let identity: u64 = retirement.identity;
-                let native_thread: u64 = retirement.native_thread;
-                let remaining_active: usize = retirement.remaining_active;
-                let active_pointer: DataPointer<usize> = trusted completed_active_pointer(&self);
-                let pointer: DataPointer<Attachment> = trusted completed_attachment_pointer(&self);
-
-                let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                    self.synchronization,
-                    trusted lease_synchronization_pointer(&self)
-                );
-
-                // Selection moved the callback out before cleanup. The closing row now contains
-                // only scalars and None, so replacing it cannot discard a pending callback.
-                trusted std.memory.write<Attachment>(
-                    pointer,
-                    Attachment
-                    {
-                        identity = 0,
-                        native_thread = native_thread,
-                        depth = 0,
-                        closing = true,
-                        context_bridge = none,
-                        report_observer = none,
-                        cleanup = none
-                    }
-                );
-
-                trusted std.memory.write<usize>(active_pointer, remaining_active);
-
-                _ = core.atomic.compare_exchange<u64, 3, 1>(&synchronization.main, expected = identity, desired = 0);
-            }
-
             let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
                 self.synchronization,
                 trusted lease_synchronization_pointer(&self)
@@ -133,11 +89,7 @@ internal struct HostLease
 }
 
 trusted internal func host_access() -> HostLease
-    ensures(
-        trusted host_access_live(owner = &result.acquisition),
-        trusted host_access_idle(owner = &result),
-        trusted attachment_cleanup_completed(owner = &result)
-    )
+    ensures(trusted host_access_live(owner = &result.acquisition), trusted host_access_idle(owner = &result))
     uses(intrinsic, raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
@@ -156,16 +108,7 @@ trusted internal func host_access() -> HostLease
             },
             synchronization = &SYNCHRONIZATION,
             owner = &HOST_OWNER,
-            active = false,
-            retirement =
-            {
-                pending = false,
-                identity = 0,
-                native_thread = 0,
-                record = std.memory.null<Attachment>(),
-                active = std.memory.null<usize>(),
-                remaining_active = 0
-            }
+            active = false
         };
     }
 
@@ -186,16 +129,7 @@ trusted internal func host_access() -> HostLease
                 },
                 synchronization = &SYNCHRONIZATION,
                 owner = &HOST_OWNER,
-                active = true,
-                retirement =
-                {
-                    pending = false,
-                    identity = 0,
-                    native_thread = 0,
-                    record = std.memory.null<Attachment>(),
-                    active = std.memory.null<usize>(),
-                    remaining_active = 0
-                }
+                active = true
             };
         }
 
@@ -210,16 +144,7 @@ trusted internal func host_access() -> HostLease
                 },
                 synchronization = &SYNCHRONIZATION,
                 owner = &HOST_OWNER,
-                active = false,
-                retirement =
-                {
-                    pending = false,
-                    identity = 0,
-                    native_thread = 0,
-                    record = std.memory.null<Attachment>(),
-                    active = std.memory.null<usize>(),
-                    remaining_active = 0
-                }
+                active = false
             };
         }
 
@@ -236,7 +161,6 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
         trusted prepared_host_storage(owner = storage),
         trusted host_access_live(owner = &result.acquisition),
         trusted host_access_idle(owner = &result),
-        trusted attachment_cleanup_completed(owner = &result)
     )
 {
     while true

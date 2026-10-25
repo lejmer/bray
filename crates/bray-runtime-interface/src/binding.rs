@@ -81,6 +81,11 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentMarkMain
             | RuntimeAbiRole::ThreadAttachmentCleanup
+            | RuntimeAbiRole::ProductHostControl
+            | RuntimeAbiRole::ProductCleanupContinuation
+            | RuntimeAbiRole::ProductExecutionResource
+            | RuntimeAbiRole::ProductCleanupIncident
+            | RuntimeAbiRole::ProductThreadStaticOrder
             | RuntimeAbiRole::StructuredShutdown => Some(Self::RuntimeStatus),
             _ => None,
         }

@@ -29,6 +29,7 @@ internal struct Attachment
 internal struct HostOwner
 {
     mut storage: HostStorage?;
+    mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?;
     mut next_identity: u64;
     mut transitioning: bool;
 }
@@ -50,6 +51,7 @@ trusted internal predicate prepared_host_storage(owner: &(HostStorage?));
 internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwner>(
     {
         storage = none,
+        products = none,
         next_identity = 1,
         transitioning = false
     }
@@ -67,11 +69,7 @@ trusted internal func initialize_host() -> u32
             trusted host_access_live(owner = &lease.acquisition),
             trusted host_anchor_matches(anchor = &anchor, lease = lease)
         )
-        ensures(
-            trusted host_access_live(owner = &lease.acquisition),
-            trusted host_access_idle(owner = lease),
-            trusted attachment_cleanup_completed(owner = lease)
-        )
+        ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
         executes(total)
     {
         let host: &mut HostOwner = trusted host_value(lease, anchor);
@@ -156,11 +154,7 @@ trusted internal func initialize_host() -> u32
                 trusted host_access_live(owner = &lease.acquisition),
                 trusted host_anchor_matches(anchor = &anchor, lease = lease)
             )
-            ensures(
-                trusted host_access_live(owner = &lease.acquisition),
-                trusted host_access_idle(owner = lease),
-                trusted attachment_cleanup_completed(owner = lease)
-            )
+            ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
@@ -261,11 +255,7 @@ trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
         trusted host_access_idle(owner = lease),
         trusted host_access_live(owner = &lease.acquisition)
     )
-    ensures(
-        trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
-        trusted attachment_cleanup_completed(owner = lease)
-    )
+    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
     executes(total)
     uses(raw_memory, unchecked_alias)
 {
@@ -451,7 +441,6 @@ trusted internal func shutdown_host() -> u32
                 trusted prepared_host_storage(owner = &retired),
                 trusted host_access_live(owner = &lease.acquisition),
                 trusted host_access_idle(owner = lease),
-                trusted attachment_cleanup_completed(owner = lease)
             )
             executes(total)
             uses(raw_memory, unchecked_alias)
@@ -466,6 +455,23 @@ trusted internal func shutdown_host() -> u32
             if host.transitioning || retired matches ?_
             {
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            if let ?products = host.products
+            {
+                let rows = trusted std.memory.initialized_slice<bray.runtime.bootstrap.host.product.Product>(&products);
+                let mut index: usize = 0;
+                let count: usize = rows.length();
+
+                while index < count
+                {
+                    if rows[index].callers != 0 || !(rows[index].state.phase matches Closed | Failed)
+                    {
+                        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+                    }
+
+                    index += 1;
+                }
             }
 
             if let ?storage = host.storage
@@ -543,7 +549,8 @@ trusted internal func shutdown_host() -> u32
     let finish_host_shutdown_locked = trusted lambda(
         pos lease: &HostLease,
         pos anchor: &mut HostAnchor,
-        pos retired: &mut(HostStorage?)
+        pos retired: &mut(HostStorage?),
+        pos products: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?)
     ) -> u32
         requires(
             trusted prepared_host_storage(owner = &retired),
@@ -555,7 +562,8 @@ trusted internal func shutdown_host() -> u32
         ensures(
             trusted host_access_live(owner = &lease.acquisition),
             trusted host_access_idle(owner = lease),
-            trusted attachment_cleanup_completed(owner = lease)
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
         )
         executes(total)
         uses(raw_memory, unchecked_alias)
@@ -580,6 +588,11 @@ trusted internal func shutdown_host() -> u32
             }
         }
 
+        trusted internal std.memory.swap_values<(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?)>(
+            &mut host.products,
+            products
+        );
+
         host.transitioning = false;
         return bray.runtime.bootstrap.STATUS_SUCCESS;
     };
@@ -596,9 +609,16 @@ trusted internal func shutdown_host() -> u32
         return bray.runtime.bootstrap.STATUS_SUCCESS;
     }
 
-    let lease: HostLease = trusted access_prepared_host(&retired);
-    let mut anchor: HostAnchor = trusted host_anchor(&lease);
+    let mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>? = none;
+
+    let status =
+    {
+        let lease: HostLease = trusted access_prepared_host(&retired);
+        let mut anchor: HostAnchor = trusted host_anchor(&lease);
+
+        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products);
+    };
 
     // The caught report remains owned until the transition has been resolved.
-    return trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired);
+    return status;
 }

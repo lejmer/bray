@@ -17,7 +17,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observe: Option<&mut super::super::cleanup::Observer<'_>>,
     ) -> bool {
-        if let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) =
+        if !matches!(
+            operation,
+            super::super::super::model::AnalysisOperationKind::Result {
+                phase: super::super::super::model::AnalysisResultPhase::Begin,
+                ..
+            }
+        ) && let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) =
             (self.checked_body, operation.occurrence())
         {
             if !self.assume_patterns(state, body.refinements().refinements_before(node).iter()) {

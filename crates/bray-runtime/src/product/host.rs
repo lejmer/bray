@@ -1,13 +1,13 @@
 mod model;
 mod operations;
+mod resident;
 mod thread;
 
 pub(crate) use model::initialize_thread_static_registry;
 pub(super) use operations::{
     acquire_thread_attachment, discard_thread_attachment, mark_thread_attachment_acquired,
-    observation_with_status, prepare_thread_attachment,
+    prepare_thread_attachment,
 };
-pub(crate) use operations::{
-    control, host_failure, register_thread_static, thread_attachment_identity,
-};
+pub(crate) use operations::{register_thread_static, thread_attachment_identity};
+pub(super) use resident::{observation_with_status, observe};
 pub(crate) use thread::drain_product_thread_statics;

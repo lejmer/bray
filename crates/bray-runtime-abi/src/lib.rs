@@ -11,6 +11,7 @@ mod panic;
 mod platform;
 mod process;
 mod product;
+mod product_execution;
 mod records;
 mod run_result;
 mod runtime;
@@ -40,6 +41,10 @@ pub use product::{
     NativeStaticFinalizerStartCallback, NativeStaticFinalizerStatus, NativeStaticHostEntry,
     NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
     NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
+};
+pub use product_execution::{
+    NativeProductCleanupBody, NativeProductCleanupResult, NativeProductExecution,
+    NativeProductExecutionFactory,
 };
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;

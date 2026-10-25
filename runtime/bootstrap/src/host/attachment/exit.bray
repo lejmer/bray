@@ -16,7 +16,7 @@ trusted internal predicate attachment_exit_selected(owner: &AttachmentExit);
 // any field invalidates this witness, including changing a field back to None.
 trusted internal predicate attachment_exit_inactive(owner: &AttachmentExit);
 
-trusted internal predicate attachment_cleanup_completed(owner: &HostLease);
+trusted internal predicate attachment_cleanup_completed(owner: &AttachmentRetirement);
 
 internal struct AttachmentExit
 {
@@ -41,11 +41,10 @@ internal struct AttachmentExit
         {
             // Validate the closing epoch under the reacquired lease before issuing
             // retirement authority. This producer is local to the selected owner.
-            let retire = trusted lambda(pos identity: u64, pos native_thread: u64) -> HostLease
+            let retire = trusted lambda(pos identity: u64, pos native_thread: u64) -> AttachmentRetirement
                 ensures(
-                    result.active,
-                    result.retirement.pending,
-                    trusted host_access_live(owner = &result.acquisition),
+                    result.lease.active,
+                    trusted host_access_live(owner = &result.lease.acquisition),
                     trusted attachment_cleanup_completed(owner = &result),
                 )
                 uses(intrinsic)
@@ -100,17 +99,15 @@ internal struct AttachmentExit
 
                 let (record, active, remaining_active): (DataPointer<Attachment>, DataPointer<usize>, usize) = pointers;
 
-                lease.retirement = AttachmentRetirement
+                return AttachmentRetirement
                 {
-                    pending = true,
+                    lease = lease,
                     identity = identity,
                     native_thread = native_thread,
                     record = record,
                     active = active,
                     remaining_active = remaining_active
                 };
-
-                return lease;
             };
 
             let incidents: u32 = if let ?cleanup = self.cleanup
@@ -127,19 +124,53 @@ internal struct AttachmentExit
                 _ = trusted std.memory.replace_value<u32>(destination, incidents);
             }
 
-            let completed: HostLease = trusted retire(self.identity, self.native_thread);
+            let completed: AttachmentRetirement = trusted retire(self.identity, self.native_thread);
         }
     }
 }
 
 internal struct AttachmentRetirement
 {
-    mut pending: bool;
+    lease: HostLease;
     identity: u64;
     native_thread: u64;
     record: DataPointer<Attachment>;
     active: DataPointer<usize>;
     remaining_active: usize;
+
+    trusted destruct()
+        requires(trusted attachment_cleanup_completed(owner = &self))
+        executes(total)
+        uses(raw_memory, unchecked_init, unchecked_alias)
+    {
+        let identity = self.identity;
+        let native_thread = self.native_thread;
+        let active_pointer = trusted completed_active_pointer(&self);
+        let pointer = trusted completed_attachment_pointer(&self);
+
+        let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+            self.lease.synchronization,
+            trusted lease_synchronization_pointer(&self.lease)
+        );
+
+        trusted std.memory.write<Attachment>(
+            pointer,
+            Attachment
+            {
+                identity = 0,
+                native_thread = native_thread,
+                depth = 0,
+                closing = true,
+                context_bridge = none,
+                report_observer = none,
+                cleanup = none
+            }
+        );
+
+        trusted std.memory.write<usize>(active_pointer, self.remaining_active);
+
+        _ = core.atomic.compare_exchange<u64, 3, 1>(&synchronization.main, expected = identity, desired = 0);
+    }
 }
 
 @abi(c)
@@ -177,7 +208,6 @@ trusted internal func take_attachment_exit(
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
-        trusted attachment_cleanup_completed(owner = lease),
         result.ready,
         trusted attachment_exit_selected(owner = &result)
     )
@@ -198,7 +228,6 @@ trusted internal func release_attachment_exit(pos lease: HostLease, pos selected
     requires(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = &lease),
-        trusted attachment_cleanup_completed(owner = &lease),
         selected.ready,
         trusted attachment_exit_selected(owner = &selected)
     )
@@ -230,7 +259,6 @@ trusted internal func request_attachment_exit(
     ensures(
         trusted host_access_live(owner = &result.0.acquisition),
         trusted host_access_idle(owner = &result.0),
-        trusted attachment_cleanup_completed(owner = &result.0),
         trusted attachment_exit_request_live(scope = &result.1, lease = &result.0)
     )
 {
@@ -260,7 +288,6 @@ trusted internal func select_attachment_slot(
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
-        trusted attachment_cleanup_completed(owner = lease),
         !result.pending || trusted retained_attachment_exit(slot = &result.slot, lease = lease),
         !result.pending || trusted core.memory.valid_read<AttachmentExit>(pointer = result.slot.value, count = 1),
         !result.pending || trusted core.memory.aligned_for<AttachmentExit>(pointer = result.slot.value),
@@ -426,11 +453,11 @@ trusted internal func finish_attachment(pos scope: &bray.runtime.bootstrap.threa
     return bray.runtime.bootstrap.STATUS_SUCCESS;
 }
 
-trusted internal func completed_attachment_pointer(pos completed: &HostLease) -> DataPointer<Attachment>
-    requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
+trusted internal func completed_attachment_pointer(pos completed: &AttachmentRetirement) -> DataPointer<Attachment>
+    requires(trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),
-        trusted host_access_live(owner = &completed.acquisition),
+        trusted host_access_live(owner = &completed.lease.acquisition),
         trusted core.memory.valid_read<Attachment>(pointer = result, count = 1),
         trusted core.memory.valid_write<Attachment>(pointer = result, count = 1),
         trusted core.memory.aligned_for<Attachment>(pointer = result),
@@ -443,14 +470,14 @@ trusted internal func completed_attachment_pointer(pos completed: &HostLease) ->
     )
     executes(pure, total)
 {
-    return completed.retirement.record;
+    return completed.record;
 }
 
-trusted internal func completed_active_pointer(pos completed: &HostLease) -> DataPointer<usize>
-    requires(completed.retirement.pending, trusted attachment_cleanup_completed(owner = completed))
+trusted internal func completed_active_pointer(pos completed: &AttachmentRetirement) -> DataPointer<usize>
+    requires(trusted attachment_cleanup_completed(owner = completed))
     ensures(
         trusted attachment_cleanup_completed(owner = completed),
-        trusted host_access_live(owner = &completed.acquisition),
+        trusted host_access_live(owner = &completed.lease.acquisition),
         trusted core.memory.valid_read<usize>(pointer = result, count = 1),
         trusted core.memory.valid_write<usize>(pointer = result, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = result),
@@ -463,5 +490,5 @@ trusted internal func completed_active_pointer(pos completed: &HostLease) -> Dat
     )
     executes(pure, total)
 {
-    return completed.retirement.active;
+    return completed.active;
 }

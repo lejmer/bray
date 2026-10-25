@@ -356,7 +356,7 @@ impl RefinementUniverse {
         invalidation: Option<&StorageInvalidation>,
         discriminants: &BTreeMap<
             bray_bound_tree::StorageIdentityId,
-            Vec<bray_bound_tree::StoragePath>,
+            BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
         let Some(mutations) =

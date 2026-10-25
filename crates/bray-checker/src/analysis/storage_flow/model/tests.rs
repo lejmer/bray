@@ -373,7 +373,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
         projections: [StorageProjection::NullableValue].into(),
     };
 
-    let discriminants = BTreeMap::from([(root, vec![parent.clone()])]);
+    let discriminants = BTreeMap::from([(root, BTreeSet::from([parent.clone()]))]);
 
     let observed = |changed| StorageInvalidation::Observed {
         scope: bray_bound_tree::StorageMutationScope::Unbounded,

@@ -759,6 +759,14 @@ where
 
         if let Some(invalidation) = &mut invalidation {
             self.preserve_borrowed_carriers(state, &state.memory, invalidation);
+
+            if self
+                .input
+                .tag_preserving_assignments
+                .contains(&kind.occurrence())
+            {
+                self.preserve_assignment_discriminants(&state.memory, invalidation);
+            }
         }
 
         if !completing {

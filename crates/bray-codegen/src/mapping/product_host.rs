@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_runtime_abi::{NativeProductIdentity, NativeStaticIdentity};
 use bray_runtime_interface::BinarySymbolName;
-use bray_symbols::StaticStorageDuration;
+use bray_symbols::{CallableExecution, StaticStorageDuration};
 
 use crate::CodegenUnitKey;
 
@@ -77,6 +77,7 @@ pub struct CodegenProductHostMapping {
     descriptor_symbol: BinarySymbolName,
     control_symbol: BinarySymbolName,
     statics: Arc<[CodegenProductHostStatic]>,
+    execution: Option<CallableExecution>,
     final_image: bool,
 }
 
@@ -140,6 +141,7 @@ impl CodegenProductHostMapping {
             descriptor_symbol,
             control_symbol,
             statics: statics.into(),
+            execution: None,
             final_image: false,
         })
     }
@@ -149,6 +151,18 @@ impl CodegenProductHostMapping {
         self.final_image = final_image;
 
         self
+    }
+
+    /// Selects execution resources required by asynchronous or exact-thread consumers.
+    pub const fn with_execution(mut self, execution: Option<CallableExecution>) -> Self {
+        self.execution = execution;
+
+        self
+    }
+
+    /// Returns the demanded execution service, absent for synchronous product cleanup.
+    pub const fn execution(&self) -> Option<CallableExecution> {
+        self.execution
     }
 
     /// Returns whether this is the complete descriptor rather than a library contribution.

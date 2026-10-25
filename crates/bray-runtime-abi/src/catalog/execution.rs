@@ -394,13 +394,63 @@ macro_rules! runtime_role_catalog {
             }
             ProductHostControl {
                 "Control lifecycle and provider obligations for one loaded product host.", "product_host_control",
-                native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Pointer, U32] -> ProductObservation),
+                native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Usize, U32, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.control"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductCleanupContinuation {
+                "Run Bray-owned terminal work borrowed by its synchronous execution context.", "product_cleanup_continuation",
+                native: (PRODUCT_CLEANUP_CONTINUATION_SYMBOL = "bray_runtime_product_cleanup_continuation", [Usize] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.cleanup_continuation"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductExecutionResource {
+                "Read execution retention from the common Bray product state.", "product_execution_resource",
+                native: (PRODUCT_EXECUTION_RESOURCE_SYMBOL = "bray_runtime_product_execution_resource", [Usize, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.execution_resource"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductCleanupIncident {
+                "Record drained exact-thread cleanup incidents in the common Bray product state.", "product_cleanup_incident",
+                native: (PRODUCT_CLEANUP_INCIDENT_SYMBOL = "bray_runtime_product_cleanup_incident", [Usize, Pointer, Usize] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.record_cleanup_incident"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductExecutionProvider {
+                "Acquire demanded execution resources for the Bray-owned product terminal state.", "product_execution_provider",
+                native: (PRODUCT_EXECUTION_PROVIDER_SYMBOL = "bray_runtime_product_execution_provider", [U32, Pointer] -> U32),
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
-                effects: [ControlProductHost]
+                effects: [AdmitCleanupStorage]
+            }
+            ProductThreadStaticOrder {
+                "Read the admitted exact-thread static's checked final-image order.", "product_thread_static_order",
+                native: (PRODUCT_THREAD_STATIC_ORDER_SYMBOL = "bray_runtime_product_thread_static_order", [Usize, Pointer, U32, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.thread_static_order"), host_control: false,
+                capabilities: [],
+                effects: [ObserveThreadAttachment]
             }
             RootCancellationRequest {
                 "Request cancellation of the root run from its host.", "root_cancellation_request",

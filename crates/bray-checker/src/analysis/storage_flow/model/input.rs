@@ -21,7 +21,9 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) atomic_observations:
         Option<bray_bound_tree::StorageInvalidation>,
     pub(in crate::analysis::storage_flow) discriminants:
-        BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+        BTreeMap<StorageIdentityId, BTreeSet<bray_bound_tree::StoragePath>>,
+    pub(in crate::analysis::storage_flow) tag_preserving_assignments:
+        BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(in crate::analysis::storage_flow) borrowed_identities:
         BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
     pub(in crate::analysis::storage_flow) opaque_values: BTreeSet<bray_bound_tree::StoragePath>,
@@ -149,6 +151,32 @@ impl StorageFlowInput {
         // Share the same type-shape preparation with mutation observations.
         let footprint = crate::storage::observation::prepare(request, storage)?;
 
+        let mut tag_preserving_assignments = BTreeMap::<_, bool>::new();
+
+        for plan in storage
+            .access_plans()
+            .iter()
+            .filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        {
+            let builtin = matches!(request.view().expression(plan.expression()), Some(bray_bound_tree::BoundExpression::Assignment(assignment)) if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign)
+                || matches!(selections.expression(plan.expression()), Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::CompoundAssignment(assignment))) if matches!(assignment.target(), bray_bound_tree::OperatorTarget::BuiltIn(_)));
+
+            let ty = storage
+                .access(plan.access())
+                .expect("assignment retains its destination type")
+                .reached_type();
+
+            let preserves = builtin
+                && footprint.tag_free_values.contains(&ty)
+                && cleanup_shapes.requirement(ty)?
+                    == bray_bound_tree::AsyncStorageCleanupRequirement::None;
+
+            tag_preserving_assignments
+                .entry(plan.occurrence())
+                .and_modify(|known| *known &= preserves)
+                .or_insert(preserves);
+        }
+
         let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
 
         for (path, ty) in &footprint.references {
@@ -215,6 +243,10 @@ impl StorageFlowInput {
             stable_identities,
             borrowed_identities,
             discriminants,
+            tag_preserving_assignments: tag_preserving_assignments
+                .into_iter()
+                .filter_map(|(site, preserves)| preserves.then_some(site))
+                .collect(),
             retained_storage,
             initialization_destinations,
             mutable_storage,

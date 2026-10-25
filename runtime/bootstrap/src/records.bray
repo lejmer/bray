@@ -61,7 +61,7 @@ internal struct ReportRecord
 internal union ReportValue
 {
     Panic(pos primary: StoredReportPrimary);
-    Error(pos mut incident: bray.runtime.bootstrap.report.incident.Record);
+    Error(pos mut incident: bray.runtime.bootstrap.report.incident.Incident);
 }
 
 // An error variant owns the exact payload and backing described by its

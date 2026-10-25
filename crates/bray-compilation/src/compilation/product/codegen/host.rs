@@ -189,7 +189,8 @@ impl Compilation {
                 control_symbol,
                 statics,
             )
-            .expect("ordered static host contributions must form a valid product mapping"),
+            .expect("ordered static host contributions must form a valid product mapping")
+            .with_execution(product_execution(entries, native_statics)),
         ))
     }
 
@@ -328,6 +329,12 @@ impl Compilation {
         }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
+
+        if product_execution(statics, native_statics)
+            == Some(bray_symbols::CallableExecution::Asynchronous)
+        {
+            capabilities.insert(RuntimeCapability::CooperativeExecution);
+        }
 
         if has_async_entries || requires_main_thread_cleanup(statics, native_statics) {
             capabilities.insert(RuntimeCapability::MainThreadLane);
@@ -630,6 +637,10 @@ pub(super) fn native_host_runtime_roles(
         ]);
     }
 
+    if product_execution(statics, native_statics).is_some() {
+        roles.insert(RuntimeAbiRole::ProductExecutionProvider);
+    }
+
     if statics
         .iter()
         .any(super::super::realization::ProductStaticHostEntry::has_cleanup_storage)
@@ -664,6 +675,34 @@ pub(super) fn native_host_runtime_roles(
     }
 
     roles
+}
+
+pub(super) fn product_execution(
+    statics: &[super::super::realization::ProductStaticHostEntry],
+    native_statics: &[bray_native_artifact::NativeStatic],
+) -> Option<bray_symbols::CallableExecution> {
+    use bray_symbols::{CallableExecution, StaticStorageDuration};
+
+    let executions = statics
+        .iter()
+        .map(|entry| (entry.key().duration(), entry.cleanup_execution()))
+        .chain(
+            native_statics
+                .iter()
+                .map(|entry| (entry.duration(), entry.cleanup_execution())),
+        );
+
+    executions
+        .filter_map(|(duration, execution)| {
+            if execution == Some(CallableExecution::Asynchronous) {
+                execution
+            } else if duration == StaticStorageDuration::ExactThread {
+                Some(CallableExecution::Synchronous)
+            } else {
+                None
+            }
+        })
+        .max()
 }
 
 pub(super) fn requires_main_thread_cleanup(
@@ -802,14 +841,14 @@ mod tests {
 
     #[test]
     fn native_hosts_keep_lifecycle_providers_without_hosting_unrelated_plain_storage() {
-        let entry = |identity: u8, requires_host, dependencies: Vec<[u8; 32]>| {
+        let entry = |identity: u8, requires_host: bool, dependencies: Vec<[u8; 32]>| {
             bray_native_artifact::NativeStatic::new(
                 bray_base::NonEmptySharedStr::try_new(format!("host_{identity}")).unwrap(),
                 [identity; 32],
                 vec![identity].into(),
                 StaticStorageDuration::Product,
                 dependencies,
-                requires_host,
+                requires_host.then_some(bray_symbols::CallableExecution::Synchronous),
                 false,
             )
         };
@@ -869,7 +908,7 @@ mod tests {
             vec![2].into(),
             StaticStorageDuration::Product,
             [],
-            true,
+            Some(bray_symbols::CallableExecution::Synchronous),
             false,
         );
 
@@ -879,7 +918,7 @@ mod tests {
             vec![1].into(),
             StaticStorageDuration::Product,
             [],
-            false,
+            None,
             false,
         );
 

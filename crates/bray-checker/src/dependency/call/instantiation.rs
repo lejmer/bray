@@ -390,8 +390,10 @@ where
         {
             let (projected, remaining) = values.project(source, projections);
 
-            expression = Some(projected);
-            projections = remaining;
+            if expression_access(self.storage, projected).is_some() {
+                expression = Some(projected);
+                projections = remaining;
+            }
         }
 
         // Forming an explicit input carries its fresh reborrow, not the parent's loan.

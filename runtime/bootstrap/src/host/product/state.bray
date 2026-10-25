@@ -1,0 +1,208 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+@copy
+internal union Phase
+{
+    Forming;
+    Open;
+    Closing;
+    Detaching;
+    Cleaning;
+    Closed;
+    Failed;
+}
+
+internal struct State
+{
+    mut phase: Phase;
+    mut active_entries: usize;
+    mut external_roots: usize;
+    mut attachments: usize;
+    mut workers: usize;
+    mut initialized: usize;
+    mut cleaned: usize;
+    mut incidents: usize;
+    mut last_incident: Identity;
+
+    func observation(pos status: u32) -> Observation
+        executes(pure, total)
+    {
+        let state: u32 = match self.phase
+        {
+            case Forming { yield 0; }
+            case Open { yield 1; }
+            case Closing { yield 2; }
+            case Detaching { yield 2; }
+            case Cleaning { yield 2; }
+            case Closed { yield 3; }
+            case Failed { yield 4; }
+        };
+
+        return
+        {
+            status = status,
+            state = state,
+            active_entries = self.active_entries,
+            external_roots = self.external_roots,
+            thread_attachments = self.attachments,
+            initialized_statics = self.initialized,
+            cleaned_statics = self.cleaned,
+            cleanup_incidents = self.incidents,
+            last_incident = self.last_incident
+        };
+    }
+
+    func status() -> u32
+        executes(pure, total)
+    {
+        return match self.phase
+        {
+            case Forming { yield 5; }
+            case Failed { yield 5; }
+            case Open { yield 0; }
+            case Closed
+            {
+                yield if self.incidents == 0
+                {
+                    yield 2;
+                }
+                else
+                {
+                    yield 4;
+                };
+            }
+            case _ { yield 1; }
+        };
+    }
+
+    mut func transition(pos operation: u32) -> u32
+        executes(total)
+    {
+        if operation == 0 || operation == 6
+        {
+            return self.status();
+        }
+
+        if operation == 5 || operation == 11
+        {
+            if self.phase matches Open
+            {
+                self.phase = Phase.Closing;
+            }
+
+            return self.status();
+        }
+
+        let acquiring: bool = operation == 1 || operation == 3 || operation == 7 || operation == 12;
+        let releasing: bool = operation == 2 || operation == 4 || operation == 8 || operation == 13;
+
+        if !acquiring && !releasing
+        {
+            return 3;
+        }
+
+        if acquiring && !(self.phase matches Open)
+        {
+            return 2;
+        }
+
+        if self.phase matches Forming | Failed
+        {
+            return 5;
+        }
+
+        let count: usize = if operation == 1 || operation == 2
+        {
+            yield self.active_entries;
+        }
+        else if operation == 3 || operation == 4
+        {
+            yield self.external_roots;
+        }
+        else
+        {
+            yield self.attachments;
+        };
+
+        let maximum: usize = ~0;
+
+        if acquiring && count == maximum
+        {
+            return 5;
+        }
+
+        if releasing && count == 0
+        {
+            return 3;
+        }
+
+        if (operation == 13 && self.workers == 0) || (operation == 8 && self.attachments == self.workers)
+        {
+            return 3;
+        }
+
+        let next: usize = if acquiring
+        {
+            yield count + 1;
+        }
+        else
+        {
+            yield count - 1;
+        };
+
+        if operation == 1 || operation == 2
+        {
+            self.active_entries = next;
+        }
+        else if operation == 3 || operation == 4
+        {
+            self.external_roots = next;
+        }
+        else
+        {
+            self.attachments = next;
+
+            if operation == 12
+            {
+                self.workers += 1;
+            }
+            else if operation == 13
+            {
+                self.workers -= 1;
+            }
+        }
+
+        return if self.phase matches Open
+        {
+            yield 0;
+        }
+        else
+        {
+            yield 1;
+        };
+    }
+
+    mut func select_cleanup() -> Phase?
+        executes(total)
+    {
+        if self.phase matches Closing
+        {
+            if self.active_entries == 0 && self.external_roots == 0 && self.attachments == self.workers
+            {
+                self.phase = if self.workers == 0
+                {
+                    yield Phase.Cleaning;
+                }
+                else
+                {
+                    yield Phase.Detaching;
+                };
+
+                return self.phase;
+            }
+        }
+
+        return none;
+    }
+}

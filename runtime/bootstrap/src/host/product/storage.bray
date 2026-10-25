@@ -1,0 +1,127 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.target;
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+
+internal struct Product
+{
+    key: usize;
+    identity: Identity;
+    mut descriptor: Descriptor?;
+    mut state: State;
+    mut callers: usize;
+    mut failure: u32?;
+    mut statics: std.memory.RawBuffer<StaticOwner>?;
+    mut execution: Execution?;
+}
+
+trusted internal func find_product(pos products: &mut std.memory.RawBuffer<Product>, pos key: usize) -> (&mut Product)?
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let rows = trusted std.memory.initialized_slice_mut<Product>(products);
+    let count: usize = rows.length();
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        if rows[index].key == key
+        {
+            return &mut rows[index];
+        }
+
+        index += 1;
+    }
+
+    return none;
+}
+
+trusted internal func reserve_product_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos key: usize,
+    pos descriptor: Descriptor,
+    pos prepared: &mut(std.memory.RawBuffer<Product>?)
+) -> Result<bool, usize>
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+    )
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+
+    if let ?products = host.products
+    {
+        if trusted find_product(&mut products, key) matches ?_
+        {
+            return Ok(false);
+        }
+    }
+
+    match consume trusted bray.runtime.bootstrap.heap.reserve<Product>(&mut host.products, prepared)
+    {
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(capacity) { return Error(capacity); }
+    }
+
+    let products: &mut std.memory.RawBuffer<Product> = if let ?products = host.products
+    {
+        yield &mut products;
+    }
+    else
+    {
+        yield trusted core.target.abort();
+    };
+
+    if !(products.initialized < products.capacity)
+    {
+        return Ok(false);
+    }
+
+    trusted internal std.memory.raw_buffer_push<Product>(
+        products,
+        {
+            key = key,
+            identity = descriptor.identity,
+            descriptor = descriptor,
+            state =
+            {
+                phase = Phase.Forming,
+                active_entries = 0,
+                external_roots = 0,
+                attachments = 0,
+                workers = 0,
+                initialized = 0,
+                cleaned = 0,
+                incidents = 0,
+                last_incident =
+                {
+                    bytes = [0; 32]
+                }
+            },
+            callers = 0,
+            failure = none,
+            statics = none,
+            execution = none
+        }
+    );
+
+    return Ok(true);
+}

@@ -1,0 +1,226 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.report.incident;
+
+internal callable SynchronousStart = @abi(c) trusted func(
+    pos destination: usize,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted native_host())
+    ensures(trusted bray.runtime.bootstrap.report.incident.returned(pointer = outcome));
+
+internal union Finalization
+{
+    None;
+    Synchronous(pos callback: SynchronousStart);
+    Asynchronous(pos finalizer: Finalizer, pos mut frame: usize, pos discard: FrameDiscard, pos driver: AsyncFinalizer);
+}
+
+internal union StaticOwner
+{
+    Product(pos mut owner: AdmittedStatic);
+    ExactThread(pos identity: Identity, pos order: u64, pos execution: u32);
+}
+
+internal struct AdmittedStatic
+{
+    identity: Identity;
+    prepare: Transition;
+    admission: Admission;
+    destroy: Destroy;
+    detach: Transition;
+    mut source: bool;
+    mut finalization: Finalization;
+
+    trusted destruct()
+        requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        uses(foreign_call)
+    {
+        if self.source
+        {
+            let mut outcome = trusted completed_outcome();
+            let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+            trusted self.admission(1, output);
+
+            _ = trusted drain_outcome(output);
+        }
+
+        if let Asynchronous(_, frame, discard, _) = self.finalization
+        {
+            if frame != 0
+            {
+                trusted discard(frame);
+            }
+        }
+    }
+}
+
+trusted internal func completed_outcome() -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    executes(pure, total)
+{
+    return
+    {
+        state = bray.runtime.bootstrap.RUN_COMPLETED,
+        payload = 0,
+        report = trusted bray.runtime.bootstrap.empty_panic_report()
+    };
+}
+
+trusted internal func drain_outcome(pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> usize
+    requires(
+        trusted bray.runtime.bootstrap.report.incident.returned(pointer = output),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let value = trusted bray.runtime.bootstrap.report.incident.prepare(output);
+    let failed: bool = value.state != bray.runtime.bootstrap.RUN_COMPLETED;
+
+    _ = trusted bray.runtime.bootstrap.consume_primary(value.primary, value.remaining, value.reserved, 1);
+
+    return if failed
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+trusted internal func empty_incident() -> bray.runtime.bootstrap.report.incident.Record
+    executes(pure, total)
+{
+    return
+    {
+        payload = 0,
+        type_identity = [0; 32],
+        source =
+        {
+            present = 0,
+            identity = 0,
+            start = 0,
+            end = 0,
+            version = 0,
+            namespace = [0; 4]
+        },
+        report = std.memory.null<u8>(),
+        destroy = std.memory.null<u8>(),
+        backing = bray.runtime.bootstrap.storage.empty_lease()
+    };
+}
+
+trusted internal func drain_incident(pos incident: &mut bray.runtime.bootstrap.report.incident.Record) -> usize
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    if incident.payload == 0
+    {
+        return 0;
+    }
+
+    let published = trusted lambda(pos record: &mut bray.runtime.bootstrap.report.incident.Record) -> DataPointer<
+        bray.runtime.bootstrap.report.incident.Record
+    >
+        requires(trusted native_host(), record.payload != 0)
+        ensures(trusted bray.runtime.bootstrap.report.incident.owned(pointer = result))
+        executes(pure, total)
+    {
+        return std.memory.address_of_mut<bray.runtime.bootstrap.report.incident.Record>(record);
+    };
+
+    _ = trusted bray.runtime.bootstrap.report.incident.dispose(trusted published(incident), 1);
+
+    return 1;
+}
+
+trusted internal func synchronous_finalizer(pos callback: SynchronousStart) -> usize
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call, intrinsic)
+{
+    let mut incident = trusted empty_incident();
+
+    let destination = trusted core.target.expose_address<bray.runtime.bootstrap.report.incident.Record>(
+        std.memory.address_of_mut<bray.runtime.bootstrap.report.incident.Record>(&mut incident)
+    );
+
+    let mut outcome = trusted completed_outcome();
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+    let status = trusted callback(destination, output);
+    let result = trusted bray.runtime.bootstrap.report.incident.prepare(output);
+    let published = trusted drain_incident(&mut incident);
+
+    let abnormal: usize = if result.state == bray.runtime.bootstrap.RUN_COMPLETED
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    _ = trusted bray.runtime.bootstrap.consume_primary(result.primary, result.remaining, result.reserved, 1);
+
+    let invalid: usize = if status > 1 || (status == 1 && published == 0)
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    return published + abnormal + invalid;
+}
+
+trusted internal func clean_static(pos owner: &mut AdmittedStatic) -> usize
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call)
+{
+    owner.source = false;
+
+    trusted owner.prepare();
+
+    let mut incidents: usize = 0;
+
+    match owner.finalization
+    {
+        case None {}
+        case Synchronous(callback) { incidents = trusted synchronous_finalizer(callback); }
+        case Asynchronous(finalizer, frame, _, driver)
+        {
+            let admitted = frame;
+
+            frame = 0;
+            incidents = trusted driver(admitted, finalizer);
+        }
+    }
+
+    let mut outcome = trusted completed_outcome();
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+    let abandoned: u32 = if incidents == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    trusted owner.destroy(abandoned, output);
+
+    incidents += trusted drain_outcome(output);
+
+    trusted owner.detach();
+
+    return incidents;
+}
