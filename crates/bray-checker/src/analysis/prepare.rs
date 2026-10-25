@@ -81,6 +81,44 @@ impl PreparedBodyAnalysis {
         ))
     }
 
+    /// Checks instantiated synchronous cleanup obligations using selected lifecycle contracts.
+    /// Unresolved generic parts remain obligations of the enclosing callable's instances.
+    pub fn check_synchronous_cleanup<C, F>(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        types: &[TypeId],
+        completed: &mut F,
+    ) -> Result<bray_diagnostics::DiagnosticResult<()>, crate::CheckerQueryError<C::UpstreamError>>
+    where
+        C: CheckerRequestContext
+            + crate::CheckerSemanticQueryProvider<bray_symbols::CallableContractsQuery>
+            + ?Sized,
+        F: FnMut(
+            bray_bound_tree::LifecycleCallable,
+        ) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>>,
+    {
+        let mut resolver = self.cleanup_shapes(request);
+        let mut active = BTreeSet::new();
+        let mut known = BTreeMap::new();
+
+        for ty in types {
+            if !resolver.cleanup_is_synchronous(*ty, completed, &mut active, &mut known)? {
+                crate::lifecycle::report_finalization(
+                    request,
+                    request.unit().root().into(),
+                    *ty,
+                    bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
+                    &mut resolver.diagnostics,
+                )?;
+            }
+        }
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            (),
+            resolver.diagnostics,
+        ))
+    }
+
     pub(crate) const fn kind(&self) -> BoundUnitKind {
         self.kind
     }

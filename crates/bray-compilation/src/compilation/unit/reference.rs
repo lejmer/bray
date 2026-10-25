@@ -92,6 +92,28 @@ impl Compilation {
                 &mut diagnostics,
             )?
             else {
+                if name.generic_argument_list().is_none()
+                    && !callees.contains(&expression)
+                    && types.expression(expression).is_some()
+                {
+                    let generic_owner = GenericOwnerId::try_new(symbol)
+                        .expect("checked named reference retains its generic owner");
+
+                    let declaration =
+                        binding_context
+                            .resolve_symbol_query(SymbolQueryRequest::<
+                                GenericDeclarationTemplateQuery,
+                            >::new(generic_owner))
+                            .map_err(binding_query_error)?;
+
+                    diagnostics.add(self.generic_reference_arity_diagnostic(
+                        *name,
+                        symbol,
+                        declaration.value().parameters().len(),
+                        0,
+                    )?);
+                }
+
                 continue;
             };
 

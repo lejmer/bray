@@ -112,6 +112,19 @@ impl SemanticValueStore {
         self.substitute_dependency_contract_data(contract, &Substitution::Generic(&substitution))
     }
 
+    /// Replaces a declaration's `Self` throughout its returned-value and cleanup contract.
+    pub fn substitute_contextual_self_in_dependency_contract(
+        &self,
+        contract: super::super::DependencyContractTemplateId,
+        context: crate::SelfTypeContext,
+        replacement: crate::TypeId,
+    ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
+        let contextual = self.intern_type(TypeData::ContextualSelf(context))?;
+        let types = std::collections::BTreeMap::from([(contextual, replacement)]);
+
+        self.substitute_dependency_contract_data(contract, &Substitution::Types(&types))
+    }
+
     /// Reports whether a generic parameter occurs anywhere in a dependency contract.
     pub fn dependency_contract_uses_parameter(
         &self,
@@ -270,7 +283,14 @@ impl SemanticValueStore {
                         .map(|input| self.substitute_constant_term_data(input, substitution))
                         .transpose()?,
                 )
-                .with_effects(effects),
+                .with_effects(effects)
+                .with_synchronous_cleanup(
+                    template
+                        .synchronous_cleanup()
+                        .iter()
+                        .map(|ty| self.substitute_type_data(*ty, substitution))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
         )
     }
 

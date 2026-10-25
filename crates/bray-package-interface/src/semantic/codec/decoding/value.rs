@@ -674,6 +674,7 @@ mod tests {
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
+                .with_synchronous_cleanup([crate::InterfaceTypeId::new(0)])
                 .with_normal_completion(false)
                 .with_normal_storage_preservation(true),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
@@ -693,6 +694,7 @@ mod tests {
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 12);
+        assert_eq!(template.synchronous_cleanup(), [imported.types()[0]]);
 
         assert_eq!(
             store

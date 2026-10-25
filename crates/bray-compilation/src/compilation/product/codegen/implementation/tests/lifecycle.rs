@@ -1,4 +1,7 @@
-use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind_with_options};
+use super::support::artifacts::{
+    assert_source_emits_valid_native_units, generated_artifacts,
+    generated_artifacts_of_kind_with_options,
+};
 use super::support::runtime::{
     runtime_native_plan, runtime_native_plan_for_product,
     runtime_native_plan_for_sources_target_with_platform_overrides,
@@ -889,4 +892,20 @@ fn constrained_async_admission_realizes_the_selected_implementation() {
     let (_, plan) = runtime_native_plan(source);
 
     assert!(!plan.units().is_empty());
+}
+
+#[test]
+fn admitted_synchronous_generic_cleanup_emits_native_units() {
+    assert_source_emits_valid_native_units(
+        r#"
+        module app;
+        struct Owner { async finalize() executes(pure, total) {} }
+        func discard<T>(pos value: T) {}
+        public func root() {
+            discard<i32>(1);
+            discard<Owner>(Owner {});
+        }
+    "#,
+        crate::BuildConfiguration::Development,
+    );
 }

@@ -111,6 +111,15 @@ impl InternState {
                 continue;
             };
 
+            let Some(synchronous_cleanup) = input
+                .synchronous_cleanup
+                .iter()
+                .map(|ty| self.type_id(*ty))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+
             let returned_input = if let Some(input) = input.returned_input {
                 let Some(input) = self.constant_term_id(input) else {
                     continue;
@@ -139,6 +148,7 @@ impl InternState {
                         .with_returned_input(returned_input)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
+                        .with_synchronous_cleanup(synchronous_cleanup)
                         .with_normal_completion(input.normal_completion)
                         .with_normal_storage_preservation(input.normal_storage_preserved),
                 )?,

@@ -303,10 +303,7 @@ pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
 ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
     use bray_bound_tree::BoundUnitRoot;
 
-    use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-        DiagnosticNote, DiagnosticNoteKind, SeverityKind,
-    };
+    use bray_diagnostics::DiagnosticKind;
 
     use bray_symbols::CallableExecution;
 
@@ -334,6 +331,21 @@ pub fn check_implicit_finalization<C: crate::CheckerRequestContext + ?Sized>(
         DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable
     } else {
         return Ok(());
+    };
+
+    report_finalization(request, node, ty, kind, diagnostics)
+}
+
+pub(crate) fn report_finalization<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    node: bray_bound_tree::AnyBoundNodeId,
+    ty: TypeId,
+    kind: bray_diagnostics::DiagnosticKind,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote,
+        DiagnosticNoteKind, SeverityKind,
     };
 
     let origin = crate::diagnostic::bound_node_origin(request, node)

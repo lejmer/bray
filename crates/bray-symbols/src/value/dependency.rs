@@ -450,6 +450,7 @@ pub struct DependencyContractTemplateData {
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
+    synchronous_cleanup: Arc<[super::TypeId]>,
     normal_completion: bool,
     normal_storage_preserved: bool,
 }
@@ -599,6 +600,7 @@ impl DependencyContractTemplateData {
             observed_result: None,
             carriers: Arc::new([]),
             effects: Arc::new(super::DependencyStorageEffect::opaque_call()),
+            synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
         }
@@ -620,6 +622,7 @@ impl DependencyContractTemplateData {
             observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
+            synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
             normal_completion: self.normal_completion,
             normal_storage_preserved: self.normal_storage_preserved,
         }
@@ -706,6 +709,22 @@ impl DependencyContractTemplateData {
         self.effects = super::DependencyStorageEffect::normalize(effects);
 
         self
+    }
+
+    /// Records remaining cleanup that must be admissible in a synchronous callee.
+    /// These obligations survive forwarding through asynchronous callers.
+    pub fn with_synchronous_cleanup(
+        mut self,
+        types: impl IntoIterator<Item = super::TypeId>,
+    ) -> Self {
+        self.synchronous_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns cleanup obligations to discharge after generic substitution.
+    pub fn synchronous_cleanup(&self) -> &[super::TypeId] {
+        &self.synchronous_cleanup
     }
 
     /// Returns possible mutations. An empty slice proves storage is unchanged.

@@ -971,6 +971,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.include_dependency_projections(carrier.path());
         }
 
+        for ty in &*contract.synchronous_cleanup {
+            self.enqueue(PendingRecord::Type(ty.raw()));
+        }
+
         for effect in &*contract.effects {
             use bray_symbols::DependencyStorageEffect;
 

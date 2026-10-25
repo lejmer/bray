@@ -103,6 +103,7 @@ impl BoundCallReference {
 /// The distinct invocation, returned-value and deferred requirements of one selected call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallDependencyContracts {
+    synchronous_cleanup: Arc<[bray_symbols::TypeId]>,
     input_count: usize,
     returned_input: Option<bray_symbols::ConstantTermId>,
     returned_input_conditions: Arc<[bray_symbols::ConstantTermId]>,
@@ -166,6 +167,7 @@ impl BoundCallDependencyContracts {
             returned_input_conditions: Arc::new([]),
             carriers: Arc::new([]),
             input_count: 0,
+            synchronous_cleanup: Arc::new([]),
             deferred,
             reports: BoundCallReports::default(),
             deferred_reports: None,
@@ -368,6 +370,18 @@ impl BoundCallDependencyContracts {
         self.retained_inputs = retained_inputs;
 
         self
+    }
+
+    /// Retains synchronous cleanup obligations independently of the caller's execution mode.
+    pub fn with_synchronous_cleanup(mut self, types: &[bray_symbols::TypeId]) -> Self {
+        self.synchronous_cleanup = Arc::from(types);
+
+        self
+    }
+
+    /// Returns instantiated cleanup obligations of the selected body and its callees.
+    pub fn synchronous_cleanup(&self) -> &[bray_symbols::TypeId] {
+        &self.synchronous_cleanup
     }
 
     /// Retains the selected callable's checked formal mutation effects.

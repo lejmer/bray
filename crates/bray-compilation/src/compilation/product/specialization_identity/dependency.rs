@@ -147,6 +147,8 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_set(data.borrows(), Self::dependency_borrow)?;
         self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
+        self.dependency_set(data.synchronous_cleanup(), |encoder, ty| encoder.ty(*ty))?;
+
         self.dependency_set(data.effects(), Self::dependency_effect)
     }
 

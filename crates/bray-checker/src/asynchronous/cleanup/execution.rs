@@ -74,7 +74,7 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
             .collect())
     }
 
-    fn cleanup_is_synchronous<F>(
+    pub(crate) fn cleanup_is_synchronous<F>(
         &mut self,
         ty: TypeId,
         completed: &mut F,
@@ -125,7 +125,54 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
             .add_range(parts.diagnostics().iter().cloned());
 
         for (ty, part) in parts.value() {
+            if let TypeData::TypeValuedMemberProjection {
+                subject,
+                application,
+                member,
+            } = self.request.semantic_values().type_data(*ty).as_ref()
+            {
+                let selected = self.request.context().selected_type_valued_member(
+                    *subject,
+                    *application,
+                    *member,
+                )?;
+
+                self.diagnostics
+                    .add_range(selected.diagnostics().iter().cloned());
+
+                if let Some(selected) = selected.value()
+                    && !self.cleanup_is_synchronous(*selected, completed, active, known)?
+                {
+                    return Ok(false);
+                }
+
+                continue;
+            }
+
+            if matches!(
+                self.request.semantic_values().type_data(*ty).as_ref(),
+                TypeData::TypeParameter(_) | TypeData::ContextualSelf(_)
+            ) {
+                continue;
+            }
+
             if part.as_ref().is_some_and(|part| part.release().is_some()) {
+                continue;
+            }
+
+            if let TypeData::Named {
+                definition,
+                substitution,
+            } = self.request.semantic_values().type_data(*ty).as_ref()
+                && let Some(element) = self
+                    .request
+                    .context()
+                    .raw_buffer_element(*definition, *substitution)?
+            {
+                if !self.cleanup_is_synchronous(element, completed, active, known)? {
+                    return Ok(false);
+                }
+
                 continue;
             }
 

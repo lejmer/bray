@@ -252,6 +252,7 @@ pub struct InterfaceDependencyContract {
             super::InterfaceConstantTermId,
         >],
     >,
+    pub(crate) synchronous_cleanup: Arc<[crate::InterfaceTypeId]>,
     pub(crate) normal_completion: bool,
     pub(crate) normal_storage_preserved: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
@@ -294,6 +295,7 @@ impl InterfaceDependencyContract {
             requirements: sorted_unique_shared_slice(requirements),
             completion_reports: None,
             abnormal_reports: None,
+            synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
             returned_input: None,
@@ -367,6 +369,21 @@ impl InterfaceDependencyContract {
         self.normal_storage_preserved = preserved;
 
         self
+    }
+
+    /// Records cleanup that must be synchronous after generic substitution.
+    pub fn with_synchronous_cleanup(
+        mut self,
+        types: impl IntoIterator<Item = crate::InterfaceTypeId>,
+    ) -> Self {
+        self.synchronous_cleanup = sorted_unique_shared_slice(types);
+
+        self
+    }
+
+    /// Returns deferred synchronous cleanup obligations.
+    pub fn synchronous_cleanup(&self) -> &[crate::InterfaceTypeId] {
+        &self.synchronous_cleanup
     }
 
     /// Attaches the complete checked mutation summary.

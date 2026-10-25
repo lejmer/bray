@@ -35,6 +35,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
             reference_input_type(request, call, subject)
         })?
         .with_effects(template.effects().iter().filter(|_| !deferred).cloned())
+        .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_returned_input(template.returned_input())
         .with_returned_input_conditions(returned_input_conditions(
@@ -111,6 +112,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_normal_completion(template.normal_completion())
         .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
         .with_effects(template.effects().iter().cloned())
+        .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_returned_input(template.returned_input())
         .with_returned_input_conditions(returned_input_conditions(

@@ -196,8 +196,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
 
     let template = store.dependency_contract_template_data(template);
 
-    let mut result = template
-        .try_map_requirements(|requirements| super::witness::resolve(request, requirements))?;
+    let mut result = super::witness::resolve(request, &template)?;
 
     if template
         .effects()
@@ -205,6 +204,28 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
         .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Cleanup(_)))
     {
         result = result.with_effects(resolve_cleanup_effects(request, template.effects())?);
+    }
+
+    if !result.synchronous_cleanup().is_empty() {
+        let mut cleanup = crate::asynchronous::CleanupShapeResolver::new(request);
+        let mut types = Vec::new();
+
+        for ty in result.synchronous_cleanup() {
+            let parts = crate::asynchronous::full_cleanup_parts(
+                &mut cleanup,
+                *ty,
+                request.unit().key().source(),
+                false,
+            )?;
+
+            types.extend(parts.value().iter().filter_map(|(ty, part)| {
+                part.as_ref()
+                    .is_none_or(|part| part.release().is_none())
+                    .then_some(*ty)
+            }));
+        }
+
+        result = result.with_synchronous_cleanup(types);
     }
 
     Ok(result)

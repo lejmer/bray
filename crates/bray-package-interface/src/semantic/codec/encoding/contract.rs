@@ -25,6 +25,12 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         &mut encoder,
         &semantics.dependency_contracts,
         |encoder, contract| {
+            write_count(encoder, contract.synchronous_cleanup.len());
+
+            for ty in &*contract.synchronous_cleanup {
+                encoder.write_u32(ty.raw());
+            }
+
             encoder.write_u32(u32::from(contract.normal_completion));
             encoder.write_u32(u32::from(contract.normal_storage_preserved));
             write_count(encoder, contract.requirements.len());

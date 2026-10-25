@@ -300,6 +300,12 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
+    let synchronous_cleanup = contract
+        .synchronous_cleanup
+        .iter()
+        .map(|ty| maps.type_id(*ty))
+        .collect::<Result<Vec<_>, _>>()?;
+
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
@@ -335,6 +341,7 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
+        .with_synchronous_cleanup(synchronous_cleanup)
         .with_carriers(carriers)
         .with_effects(effects.iter().cloned()))
 }

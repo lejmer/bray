@@ -145,6 +145,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
     let contracts = BoundCallDependencyContracts::new(invocation, retained, None)
         .with_input_count(inputs.len())
         .with_effects(template.effects().iter().cloned())
+        .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_returned_input(template.returned_input())
         .with_normal_completion(template.normal_completion())

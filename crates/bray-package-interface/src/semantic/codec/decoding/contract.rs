@@ -79,6 +79,13 @@ pub(super) fn decode_dependency_contract(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDependencyContract, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut synchronous_cleanup = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        synchronous_cleanup.push(crate::InterfaceTypeId::new(read_u32(reader)?));
+    }
+
     let normal_completion =
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
@@ -200,6 +207,7 @@ pub(super) fn decode_dependency_contract(
         .with_returned_input(returned_input)
         .with_observed_result(observed_result)
         .with_effects(effects)
+        .with_synchronous_cleanup(synchronous_cleanup)
         .with_normal_completion(normal_completion)
         .with_normal_storage_preservation(normal_storage_preserved))
 }
@@ -681,18 +689,18 @@ mod tests {
         };
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        let mut words = vec![1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
+        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
         let contract = decode_words(&words, limits).unwrap();
 
         assert_eq!(contract.borrows.len(), 1);
         assert!(contract.borrows[0].entry().is_none());
         assert!(!contract.borrows[0].is_exact());
-        words[6] |= REFERENCE_EXACT;
+        words[7] |= REFERENCE_EXACT;
         assert!(decode_words(&words, limits).is_err());
 
         // A raw-address origin bound cannot supply an ordinary borrow lifetime.
-        words[6] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
+        words[7] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
         assert!(decode_words(&words, limits).is_err());
     }
 
@@ -747,9 +755,29 @@ mod tests {
     }
 
     #[test]
+    fn synchronous_cleanup_types_decode_with_bounded_counts() {
+        let limits = InterfaceValidationLimits::default();
+        let decoded = decode_words(&[1, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).unwrap();
+
+        assert_eq!(
+            decoded,
+            InterfaceDependencyContract::new([])
+                .with_synchronous_cleanup([crate::InterfaceTypeId::new(3)])
+        );
+
+        assert!(matches!(
+            decode_words(&[u32::MAX], limits),
+            Err(InterfaceValidationError::ResourceLimitExceeded {
+                limit: InterfaceLimit::RecordCount,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
-            &[1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
+            &[0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
             InterfaceValidationLimits::default(),
         )
         .unwrap();
@@ -771,6 +799,7 @@ mod tests {
     #[test]
     fn witness_dependencies_decode_separate_value_and_storage_inputs() {
         let words = [
+            0, // No synchronous cleanup obligations.
             1, // Normal completion is possible.
             0, // No normal-return preservation proof.
             1, // One result requirement.
@@ -830,7 +859,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert_eq!(
             decode_words(
-                &[1, 0, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[0, 1, 0, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -840,7 +869,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 0, 1, 3, 1, 2, 3, 4, u32::MAX],
+                &[0, 1, 0, 1, 3, 1, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
@@ -852,7 +881,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
+            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
@@ -881,7 +910,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[1, 0, 1, 6, u32::MAX],
+                &[0, 1, 0, 1, 6, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {

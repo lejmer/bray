@@ -125,6 +125,10 @@ impl InterfaceSemantics {
                 )?;
             }
 
+            for ty in &*contract.synchronous_cleanup {
+                validate_index(ty.to_index(), self.types.len())?;
+            }
+
             for effect in &*contract.effects {
                 use bray_symbols::DependencyStorageEffect;
 

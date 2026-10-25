@@ -139,6 +139,12 @@ impl<'a> SemanticExporter<'a> {
                     .transpose()?,
             )
             .with_effects(effects)
+            .with_synchronous_cleanup(
+                self.dependency_order(data.synchronous_cleanup(), |encoder, ty| encoder.ty(*ty))?
+                    .into_iter()
+                    .map(|ty| self.type_id(*ty))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
             .with_normal_completion(data.normal_completion())
             .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
 

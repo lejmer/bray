@@ -326,6 +326,10 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_projections(tables, store, relation.target_projections());
     }
 
+    for ty in data.synchronous_cleanup() {
+        tables.types.get(store, *ty);
+    }
+
     for effect in data.effects() {
         use crate::DependencyStorageEffect;
 
