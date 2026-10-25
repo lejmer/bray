@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef struct
 {
@@ -181,6 +182,70 @@ static HostObservation product_control(unsigned selected, uint32_t operation)
     return result;
 }
 
+static unsigned interrupted_admitted;
+static unsigned interrupted_released;
+
+static void interrupted_admission(uint32_t release, RunOutcome* outcome)
+{
+    product_admit(release, outcome);
+
+    if (release != 0)
+    {
+        ++interrupted_released;
+    }
+    else if (++interrupted_admitted == 1)
+    {
+        atomic_store(&reject_allocations, 1);
+    }
+}
+
+static StaticEntry interrupted_entry(size_t ordinal)
+{
+    ++product_visits;
+
+    StaticEntry entry = {
+        1, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
+        {1, interrupted_admission, product_finalize, product_resolve},
+        product_destroy, product_detach, product_dependency, 0
+    };
+
+    uint32_t identity = (uint32_t)ordinal + 1;
+    memcpy(entry.identity.bytes, &identity, sizeof(identity));
+
+    return entry;
+}
+
+static const HostDescriptor interrupted_product = {
+    1, 0, {4}, interrupted_entry, 4096, NULL
+};
+
+static void check_interrupted_formation(void)
+{
+    product_failure = 0;
+    product_visits = product_destroyed = product_sequence = 0;
+
+    HostObservation result = {0};
+    uint32_t native = bray_runtime_product_host_control(
+        (uintptr_t)&interrupted_product, 0, &result
+    );
+
+    atomic_store(&reject_allocations, 0);
+
+    assert(native == 0 && result.status == 5 && result.state == 4);
+    assert(interrupted_admitted > 0 && interrupted_admitted < 4096);
+    assert(result.initialized_statics == interrupted_admitted);
+    assert(result.cleaned_statics == interrupted_admitted);
+    assert(product_destroyed == interrupted_admitted);
+    assert(interrupted_released == 0);
+
+    unsigned visits = product_visits;
+    assert(bray_runtime_product_host_control(
+        (uintptr_t)&interrupted_product, 5, &result
+    ) == 0);
+    assert(result.status == 5 && result.state == 4);
+    assert(product_visits == visits && product_destroyed == interrupted_admitted);
+}
+
 static void check_product_teardown(void)
 {
     size_t bytes_before = atomic_load(&allocated_bytes);
@@ -240,4 +305,6 @@ static void check_product_teardown(void)
     assert(result.status == 4 && result.state == 3 && result.cleanup_incidents == 2);
     assert(result.cleaned_statics == 2 && product_destroyed == 2 && product_sequence == 1324);
     assert(result.last_incident[0] == 1 && product_visits == 2);
+
+    check_interrupted_formation();
 }

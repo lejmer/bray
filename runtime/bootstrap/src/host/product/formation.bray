@@ -120,6 +120,11 @@ trusted internal func form(pos key: usize) -> Observation
         return unavailable(3);
     }
 
+    let mut failure: u32? = none;
+    let mut execution: Execution? = none;
+    let mut statics: std.memory.RawBuffer<StaticOwner>? = none;
+    let mut accepted: usize = 0;
+
     let mut prepared: std.memory.RawBuffer<Product>? = none;
 
     while true
@@ -170,64 +175,68 @@ trusted internal func form(pos key: usize) -> Observation
         }
     }
 
-    let mut failure: u32? = none;
-    let mut execution: Execution? = none;
-    let mut statics: std.memory.RawBuffer<StaticOwner>? = none;
-    let mut accepted: usize = 0;
-
-    match consume trusted acquire_execution(&selected)
+    let formation: Result<unit, PanicReport> = catch
     {
-        case Ok(service) { execution = service; }
-        case Error(status) { failure = status; }
-    }
-
-    if failure matches none && selected.static_count != 0
-    {
-        statics = trusted internal bray.runtime.bootstrap.heap.try_buffer<StaticOwner>(selected.static_count);
-
-        if statics matches none
+        match consume trusted acquire_execution(&selected)
         {
-            failure = 5;
+            case Ok(service) { execution = service; }
+            case Error(status) { failure = status; }
         }
-    }
 
-    if failure matches none
-    {
-        let mut ordinal: usize = 0;
-
-        while ordinal < selected.static_count
+        if failure matches none && selected.static_count != 0
         {
-            let entry = trusted selected.static_entry(ordinal);
+            statics = trusted internal bray.runtime.bootstrap.heap.try_buffer<StaticOwner>(selected.static_count);
 
-            if entry.version != 1 || entry.duration > 1 || entry.finalizer.execution > 2
+            if statics matches none
             {
-                failure = 3;
-                break;
+                failure = 5;
             }
+        }
 
-            if entry.duration == 0
+        if failure matches none
+        {
+            let mut ordinal: usize = 0;
+
+            while ordinal < selected.static_count
             {
-                if entry.finalizer.execution == 2 && selected.asynchronous == 0
+                let entry = trusted selected.static_entry(ordinal);
+
+                if entry.version != 1 || entry.duration > 1 || entry.finalizer.execution > 2
                 {
                     failure = 3;
                     break;
                 }
 
-                let admitted = match consume trusted admit_static(&entry, &execution)
+                if entry.duration == 0
                 {
-                    case Ok(owner) { yield owner; }
-                    case Error(status)
+                    if entry.finalizer.execution == 2 && selected.asynchronous == 0
                     {
-                        failure = status;
+                        failure = 3;
                         break;
                     }
-                };
 
-                if let ?buffer = statics
+                    if let ?buffer = statics
+                    {
+                        match consume trusted admit_static(&entry, &execution, &mut buffer, &mut accepted)
+                        {
+                            case Ok(_) {}
+                            case Error(status)
+                            {
+                                failure = status;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        trusted core.target.abort();
+                    }
+                }
+                else if let ?buffer = statics
                 {
                     trusted internal std.memory.raw_buffer_push<StaticOwner>(
                         &mut buffer,
-                        StaticOwner.Product(admitted)
+                        StaticOwner.ExactThread(entry.identity, entry.order, entry.finalizer.execution)
                     );
                 }
                 else
@@ -235,21 +244,22 @@ trusted internal func form(pos key: usize) -> Observation
                     trusted core.target.abort();
                 }
 
-                accepted += 1;
+                ordinal += 1;
             }
-            else if let ?buffer = statics
-            {
-                trusted internal std.memory.raw_buffer_push<StaticOwner>(
-                    &mut buffer,
-                    StaticOwner.ExactThread(entry.identity, entry.order, entry.finalizer.execution)
-                );
-            }
-            else
-            {
-                trusted core.target.abort();
-            }
+        }
 
-            ordinal += 1;
+        yield unit;
+    };
+
+    match consume formation
+    {
+        case Ok(_) {}
+        case Error(_)
+        {
+            if failure matches none
+            {
+                failure = 5;
+            }
         }
     }
 

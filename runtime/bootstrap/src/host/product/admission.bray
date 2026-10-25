@@ -40,74 +40,105 @@ trusted internal func synchronous_start(pos finalizer: &Finalizer) -> Synchronou
     return trusted std.memory.callable_from_pointer<SynchronousStart>(trusted address(finalizer));
 }
 
-trusted internal func admit_static(pos entry: &Static, pos execution: &(Execution?)) -> Result<AdmittedStatic, u32>
+trusted internal func admit_static(
+    pos entry: &Static,
+    pos execution: &(Execution?),
+    pos buffer: &mut std.memory.RawBuffer<StaticOwner>,
+    pos accepted: &mut usize
+) -> Result<unit, u32>
     requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(foreign_call, intrinsic)
+    uses(foreign_call, intrinsic, raw_memory, unchecked_init)
 {
-    let mut finalization: Finalization = Finalization.None;
-
-    if entry.finalizer.execution == 1
-    {
-        finalization = Finalization.Synchronous(trusted synchronous_start(&entry.finalizer));
-    }
-    else if entry.finalizer.execution == 2
-    {
-        if let ?service = execution
-        {
-            let service: NativeExecution = match service.value
+    // Keep the header in retained storage before callbacks can publish backing.
+    trusted internal std.memory.raw_buffer_push<StaticOwner>(
+        buffer,
+        StaticOwner.Product(
             {
-                case ?value { yield value; }
-                case none { yield trusted core.target.abort(); }
-            };
-
-            let mut frame: usize = 0;
-            let destination = std.memory.address_of_mut<usize>(&mut frame);
-
-            let status = trusted service.admit(destination);
-
-            if status != 0
-            {
-                return Error(admission_failure(status));
+                identity = entry.identity,
+                prepare = entry.prepare,
+                admission = entry.finalizer.admission,
+                destroy = entry.destroy,
+                detach = entry.detach,
+                source = false,
+                finalization = Finalization.None
             }
+        )
+    );
 
-            finalization = Finalization.Asynchronous(entry.finalizer, frame, service.discard, service.run_finalizer);
+    let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(buffer);
+
+    if let Product(owner) = entries[entries.length() - 1]
+    {
+        let owner = &mut owner;
+
+        if entry.finalizer.execution == 1
+        {
+            owner.finalization = Finalization.Synchronous(trusted synchronous_start(&entry.finalizer));
         }
-        else
+        else if entry.finalizer.execution == 2
+        {
+            if let ?service = execution
+            {
+                let service: NativeExecution = match service.value
+                {
+                    case ?value { yield value; }
+                    case none { yield trusted core.target.abort(); }
+                };
+
+                let mut frame: usize = 0;
+                let destination = std.memory.address_of_mut<usize>(&mut frame);
+
+                let status = trusted service.admit(destination);
+
+                if status != 0
+                {
+                    return Error(admission_failure(status));
+                }
+
+                owner.finalization = Finalization.Asynchronous(
+                    entry.finalizer,
+                    frame,
+                    service.discard,
+                    service.run_finalizer
+                );
+            }
+            else
+            {
+                return Error(3);
+            }
+        }
+        else if entry.finalizer.execution != 0
         {
             return Error(3);
         }
-    }
-    else if entry.finalizer.execution != 0
-    {
-        return Error(3);
-    }
 
-    let mut owner: AdmittedStatic =
-    {
-        identity = entry.identity,
-        prepare = entry.prepare,
-        admission = entry.finalizer.admission,
-        destroy = entry.destroy,
-        detach = entry.detach,
-        source = false,
-        finalization = finalization
-    };
+        let mut outcome = trusted completed_outcome();
+        let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
 
-    let mut outcome = trusted completed_outcome();
-    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+        trusted entry.finalizer.admission(0, output);
 
-    trusted entry.finalizer.admission(0, output);
+        let value = trusted bray.runtime.bootstrap.report.incident.prepare(output);
 
-    let failed = trusted drain_outcome(output);
+        owner.source = value.state == bray.runtime.bootstrap.RUN_COMPLETED;
 
-    if failed != 0
-    {
-        return Error(5);
+        if owner.source
+        {
+            let count = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(accepted));
+
+            _ = trusted std.memory.replace_value<usize>(accepted, count + 1);
+        }
+
+        _ = trusted bray.runtime.bootstrap.consume_primary(value.primary, value.remaining, value.reserved, 1);
+
+        if !owner.source
+        {
+            return Error(5);
+        }
+
+        return Ok(unit);
     }
 
-    owner.source = true;
-
-    return Ok(owner);
+    trusted core.target.abort();
 }
 
 trusted internal func acquire_execution(pos descriptor: &Descriptor) -> Result<(Execution?), u32>
